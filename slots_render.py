@@ -12,12 +12,13 @@ FRAME = 26
 HEADER_H = 52
 BASE_H = 34
 LEVER_W = 46
+PAYTABLE_W = 122
 
 WINDOW_W = COLS * CELL + (COLS - 1) * GAP
 WINDOW_H = ROWS * CELL + (ROWS - 1) * GAP
-IMG_W = WINDOW_W + 2 * FRAME + LEVER_W
+IMG_W = PAYTABLE_W + WINDOW_W + 2 * FRAME + LEVER_W
 IMG_H = HEADER_H + WINDOW_H + 2 * FRAME + BASE_H
-WINDOW_X0 = FRAME
+WINDOW_X0 = FRAME + PAYTABLE_W
 WINDOW_Y0 = HEADER_H + FRAME
 
 CABINET = (64, 18, 22, 255)
@@ -29,9 +30,15 @@ CELL_BACK = (244, 238, 222, 255)
 DIVIDER = (25, 25, 30, 255)
 
 _FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-_title_font = ImageFont.truetype(_FONT_PATH, 24)
+_title_font = ImageFont.truetype(_FONT_PATH, 22)
 _seven_font = ImageFont.truetype(_FONT_PATH, int(CELL * 0.5))
 _placeholder_font = ImageFont.truetype(_FONT_PATH, int(CELL * 0.4))
+_paytable_header_font = ImageFont.truetype(_FONT_PATH, 15)
+_paytable_row_font = ImageFont.truetype(_FONT_PATH, 17)
+_paytable_note_font = ImageFont.truetype(_FONT_PATH, 12)
+
+# Highest payout first, like the paytable glass on a real cabinet.
+PAYTABLE_ROWS = ["7️⃣", "💎", "🍀", "🔔", "🍋", "🍒"]
 
 LINE_COLORS = [
     (255, 210, 60, 235),   # line 1 (middle) — gold
@@ -128,13 +135,42 @@ SYMBOL_DRAWERS = {
 }
 
 
+def _draw_paytable(draw: ImageDraw.ImageDraw):
+    x0, y0 = FRAME, WINDOW_Y0 - 6
+    x1, y1 = FRAME + PAYTABLE_W - 10, WINDOW_Y0 + WINDOW_H + 6
+    draw.rectangle([x0, y0, x1, y1], fill=CABINET_DARK, outline=TRIM_DARK, width=2)
+
+    header_h = 22
+    _centered_text(draw, (x0 + x1) / 2, y0 + header_h / 2 + 2, "PAYOUTS", _paytable_header_font, TRIM)
+    draw.line([(x0 + 8, y0 + header_h), (x1 - 8, y0 + header_h)], fill=TRIM_DARK, width=1)
+
+    note_h = 38
+    rows_top = y0 + header_h + 4
+    row_h = (y1 - note_h - rows_top) / len(PAYTABLE_ROWS)
+    icon_r = min(row_h, 34) * 0.36
+    for i, symbol in enumerate(PAYTABLE_ROWS):
+        cy = rows_top + row_h * (i + 0.5)
+        icon_cx = x0 + 22
+        SYMBOL_DRAWERS[symbol](draw, icon_cx, cy, icon_r)
+        _centered_text(draw, x0 + 22 + PAYTABLE_W / 2 - 8, cy, f"x{int(slots.SYMBOLS[symbol]['triple'])}", _paytable_row_font, TRIM)
+
+    note_y = y1 - note_h
+    draw.line([(x0 + 8, note_y), (x1 - 8, note_y)], fill=TRIM_DARK, width=1)
+    pair_icon_cy = note_y + note_h * 0.32
+    _draw_cherries(draw, x0 + 20, pair_icon_cy, icon_r * 0.8)
+    _draw_cherries(draw, x0 + 36, pair_icon_cy, icon_r * 0.8)
+    _centered_text(draw, x0 + 22 + PAYTABLE_W / 2 - 8, pair_icon_cy, f"x{slots.CHERRY_PAIR_PAYOUT}", _paytable_row_font, TRIM)
+    _centered_text(draw, (x0 + x1) / 2, note_y + note_h * 0.8, "(any 2 cherries)", _paytable_note_font, (220, 210, 190, 255))
+
+
 def _draw_cabinet(draw: ImageDraw.ImageDraw):
     draw.rectangle([0, 0, IMG_W - 1, IMG_H - 1], fill=CABINET)
     draw.rectangle([4, 4, IMG_W - 5, IMG_H - 5], outline=TRIM, width=4)
-    _centered_text(draw, (WINDOW_X0 + WINDOW_W / 2), HEADER_H / 2 + 2, "DA CASINO SLOTS", _title_font, TRIM)
+    _centered_text(draw, IMG_W / 2, HEADER_H / 2 + 2, "DA CASINO SLOTS", _title_font, TRIM)
 
     window_rect = [WINDOW_X0 - 6, WINDOW_Y0 - 6, WINDOW_X0 + WINDOW_W + 6, WINDOW_Y0 + WINDOW_H + 6]
     draw.rectangle(window_rect, fill=WINDOW_BG, outline=TRIM_DARK, width=3)
+    _draw_paytable(draw)
 
     for cx, cy in [(16, 16), (IMG_W - 16, 16), (16, IMG_H - 16), (IMG_W - 16, IMG_H - 16)]:
         draw.ellipse([cx - 6, cy - 6, cx + 6, cy + 6], fill=TRIM, outline=TRIM_DARK, width=1)

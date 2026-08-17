@@ -2,12 +2,12 @@ import random
 
 # symbol -> (spawn weight, total-return multiplier for three-of-a-kind)
 SYMBOLS = {
-    "🍒": {"weight": 30, "triple": 6},
-    "🍋": {"weight": 25, "triple": 9},
-    "🔔": {"weight": 20, "triple": 14},
-    "🍀": {"weight": 15, "triple": 25},
-    "💎": {"weight": 7, "triple": 45},
-    "7️⃣": {"weight": 3, "triple": 90},
+    "🍒": {"weight": 30, "triple": 7},
+    "🍋": {"weight": 25, "triple": 12},
+    "🔔": {"weight": 20, "triple": 18},
+    "🍀": {"weight": 15, "triple": 30},
+    "💎": {"weight": 7, "triple": 55},
+    "7️⃣": {"weight": 3, "triple": 110},
 }
 CHERRY = "🍒"
 CHERRY_PAIR_PAYOUT = 2  # any two (not three) cherries on a line

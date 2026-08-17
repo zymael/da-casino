@@ -53,5 +53,5 @@ Player balances, stats, and cooldowns are persisted to a local SQLite database (
 - `db.py` — SQLite persistence layer
 - `game.py` — shared game/card utilities
 - `views.py`, `holdem_view.py`, `roulette_view.py`, `slots_view.py` — Discord UI views per game
-- `cards_render.py`, `roulette_render.py` — image rendering for card hands and the roulette board
+- `cards_render.py`, `roulette_render.py`, `slots_render.py` — image rendering for card hands, the roulette board, and the slot machine cabinet
 - `poker.py`, `roulette.py`, `slots.py` — core game logic
