@@ -17,10 +17,11 @@ OUTCOME_PAYOUT_MULTIPLIERS = {"blackjack": 2.5, "win": 2, "push": 1, "lose": 0}
 
 
 class BlackjackView(discord.ui.View):
-    def __init__(self, author: discord.abc.User, bet: int):
+    def __init__(self, author: discord.abc.User, bet: int, guild_id: int):
         super().__init__(timeout=120)
         self.author = author
         self.bet = bet
+        self.guild_id = guild_id
         self.deck = Deck()
         self.player = [self.deck.draw(), self.deck.draw()]
         self.dealer = [self.deck.draw(), self.deck.draw()]
@@ -71,9 +72,9 @@ class BlackjackView(discord.ui.View):
 
         payout = int(self.bet * OUTCOME_PAYOUT_MULTIPLIERS[outcome])
         if payout:
-            balance = await asyncio.to_thread(db.update_balance, self.author.id, payout)
+            balance = await asyncio.to_thread(db.update_balance, self.guild_id, self.author.id, payout)
         else:
-            balance = await asyncio.to_thread(db.get_balance, self.author.id)
+            balance = await asyncio.to_thread(db.get_balance, self.guild_id, self.author.id)
 
         net = payout - self.bet
         text = f"{OUTCOME_LABELS[outcome]} ({'+' if net >= 0 else ''}{net} credits)"
@@ -118,12 +119,12 @@ class BlackjackView(discord.ui.View):
         if self.author.id in holdem_busy_players:
             await interaction.response.send_message("Finish your poker hand first!", ephemeral=True)
             return
-        balance = await asyncio.to_thread(db.get_balance, self.author.id)
+        balance = await asyncio.to_thread(db.get_balance, self.guild_id, self.author.id)
         if balance < self.bet:
             await interaction.response.send_message("You don't have enough credits to double down.", ephemeral=True)
             return
 
-        await asyncio.to_thread(db.update_balance, self.author.id, -self.bet)
+        await asyncio.to_thread(db.update_balance, self.guild_id, self.author.id, -self.bet)
         self.bet *= 2
         self.player.append(self.deck.draw())
         if hand_value(self.player) > 21:
@@ -136,7 +137,7 @@ class BlackjackView(discord.ui.View):
         if self.resolved:
             return
         self._disable_all()
-        await asyncio.to_thread(db.update_balance, self.author.id, self.bet)  # refund escrowed bet
+        await asyncio.to_thread(db.update_balance, self.guild_id, self.author.id, self.bet)  # refund escrowed bet
         if self.message is not None:
             embeds, files = self.build_display(reveal_dealer=True, result_text="⌛ Game timed out — bet refunded")
             try:

@@ -46,7 +46,7 @@ By default, casino commands only work in a channel literally named `da-casino`. 
    python bot.py
    ```
 
-Player balances, stats, and cooldowns are persisted to a local SQLite database (`casino.db`, managed by `db.py`).
+Player balances, stats, and cooldowns are persisted to a local SQLite database (`casino.db`, managed by `db.py`) and are scoped per-server — the same player has an independent balance in each server the bot is in.
 
 ## Project layout
 

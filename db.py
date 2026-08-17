@@ -8,22 +8,30 @@ STARTING_BALANCE = 100
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+
+    # users used to be keyed by user_id alone (one global balance shared across every
+    # server the bot is in). Move it aside so migrate_legacy_users_into_guilds() can
+    # seed each guild the bot is actually in once bot.guilds is known (on_ready) --
+    # init_db() itself runs before login and has no guild list to migrate into yet.
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "users" in tables:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+        if "guild_id" not in columns:
+            conn.execute("ALTER TABLE users RENAME TO users_legacy")
+
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
             balance INTEGER NOT NULL DEFAULT 100,
             last_daily TEXT,
             pizzas_bought INTEGER NOT NULL DEFAULT 0,
-            last_pizza TEXT
+            last_pizza TEXT,
+            PRIMARY KEY (guild_id, user_id)
         )
         """
     )
-    columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
-    if "pizzas_bought" not in columns:
-        conn.execute("ALTER TABLE users ADD COLUMN pizzas_bought INTEGER NOT NULL DEFAULT 0")
-    if "last_pizza" not in columns:
-        conn.execute("ALTER TABLE users ADD COLUMN last_pizza TEXT")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS champions (
@@ -74,86 +82,131 @@ def _connect():
     return sqlite3.connect(DB_PATH)
 
 
-def _ensure_user(conn, user_id: int):
+def migrate_legacy_users_into_guilds(guild_ids: list[int]):
+    """One-time migration for installs that predate per-guild balances: seeds every
+    guild the bot is currently in with the old global balances, so nobody's credits
+    vanish when a shared pool becomes per-server pools. No-ops once already migrated."""
+    conn = _connect()
+    try:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "users_legacy" not in tables:
+            return
+        legacy_rows = conn.execute(
+            "SELECT user_id, balance, last_daily, pizzas_bought, last_pizza FROM users_legacy"
+        ).fetchall()
+        for guild_id in guild_ids:
+            for user_id, balance, last_daily, pizzas_bought, last_pizza in legacy_rows:
+                conn.execute(
+                    "INSERT OR IGNORE INTO users "
+                    "(guild_id, user_id, balance, last_daily, pizzas_bought, last_pizza) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (guild_id, user_id, balance, last_daily, pizzas_bought, last_pizza),
+                )
+        conn.execute("DROP TABLE users_legacy")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _ensure_user(conn, guild_id: int, user_id: int):
     conn.execute(
-        "INSERT OR IGNORE INTO users (user_id, balance) VALUES (?, ?)",
-        (user_id, STARTING_BALANCE),
+        "INSERT OR IGNORE INTO users (guild_id, user_id, balance) VALUES (?, ?, ?)",
+        (guild_id, user_id, STARTING_BALANCE),
     )
 
 
-def get_balance(user_id: int) -> int:
+def get_balance(guild_id: int, user_id: int) -> int:
     conn = _connect()
     try:
-        _ensure_user(conn, user_id)
+        _ensure_user(conn, guild_id, user_id)
         conn.commit()
-        row = conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        row = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()
         return row[0]
     finally:
         conn.close()
 
 
-def update_balance(user_id: int, delta: int) -> int:
+def update_balance(guild_id: int, user_id: int, delta: int) -> int:
     """Applies delta to the user's balance and returns the new balance."""
     conn = _connect()
     try:
-        _ensure_user(conn, user_id)
-        conn.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (delta, user_id))
+        _ensure_user(conn, guild_id, user_id)
+        conn.execute(
+            "UPDATE users SET balance = balance + ? WHERE guild_id = ? AND user_id = ?",
+            (delta, guild_id, user_id),
+        )
         conn.commit()
-        row = conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        row = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()
         return row[0]
     finally:
         conn.close()
 
 
-def transfer_balance(from_id: int, to_id: int, amount: int) -> tuple[bool, int, int]:
-    """Moves `amount` credits from one user to another. Returns (success, from_balance, to_balance)."""
+def transfer_balance(guild_id: int, from_id: int, to_id: int, amount: int) -> tuple[bool, int, int]:
+    """Moves `amount` credits from one user to another within a guild. Returns (success, from_balance, to_balance)."""
     conn = _connect()
     try:
-        _ensure_user(conn, from_id)
-        _ensure_user(conn, to_id)
+        _ensure_user(conn, guild_id, from_id)
+        _ensure_user(conn, guild_id, to_id)
         conn.commit()
         conn.execute("BEGIN IMMEDIATE")
         from_balance = conn.execute(
-            "SELECT balance FROM users WHERE user_id = ?", (from_id,)
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, from_id)
         ).fetchone()[0]
         if from_balance < amount:
             conn.rollback()
             to_balance = conn.execute(
-                "SELECT balance FROM users WHERE user_id = ?", (to_id,)
+                "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, to_id)
             ).fetchone()[0]
             return False, from_balance, to_balance
-        conn.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, from_id))
-        conn.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, to_id))
+        conn.execute(
+            "UPDATE users SET balance = balance - ? WHERE guild_id = ? AND user_id = ?",
+            (amount, guild_id, from_id),
+        )
+        conn.execute(
+            "UPDATE users SET balance = balance + ? WHERE guild_id = ? AND user_id = ?",
+            (amount, guild_id, to_id),
+        )
         conn.commit()
         from_balance, to_balance = (
-            conn.execute("SELECT balance FROM users WHERE user_id = ?", (from_id,)).fetchone()[0],
-            conn.execute("SELECT balance FROM users WHERE user_id = ?", (to_id,)).fetchone()[0],
+            conn.execute(
+                "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, from_id)
+            ).fetchone()[0],
+            conn.execute(
+                "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, to_id)
+            ).fetchone()[0],
         )
         return True, from_balance, to_balance
     finally:
         conn.close()
 
 
-def get_leaderboard(limit: int = 10) -> list[tuple[int, int, int]]:
-    """Returns up to `limit` (user_id, balance, pizzas_bought) rows, highest balance first."""
+def get_leaderboard(guild_id: int, limit: int = 10) -> list[tuple[int, int, int]]:
+    """Returns up to `limit` (user_id, balance, pizzas_bought) rows for this guild, highest balance first."""
     conn = _connect()
     try:
         rows = conn.execute(
-            "SELECT user_id, balance, pizzas_bought FROM users ORDER BY balance DESC LIMIT ?", (limit,)
+            "SELECT user_id, balance, pizzas_bought FROM users WHERE guild_id = ? "
+            "ORDER BY balance DESC LIMIT ?",
+            (guild_id, limit),
         ).fetchall()
         return rows
     finally:
         conn.close()
 
 
-def get_pizza_leaderboard(limit: int = 10) -> list[tuple[int, int]]:
-    """Returns up to `limit` (user_id, pizzas_bought) rows, most pizza first."""
+def get_pizza_leaderboard(guild_id: int, limit: int = 10) -> list[tuple[int, int]]:
+    """Returns up to `limit` (user_id, pizzas_bought) rows for this guild, most pizza first."""
     conn = _connect()
     try:
         rows = conn.execute(
-            "SELECT user_id, pizzas_bought FROM users WHERE pizzas_bought > 0 "
+            "SELECT user_id, pizzas_bought FROM users WHERE guild_id = ? AND pizzas_bought > 0 "
             "ORDER BY pizzas_bought DESC LIMIT ?",
-            (limit,),
+            (guild_id, limit),
         ).fetchall()
         return rows
     finally:
@@ -225,7 +278,7 @@ def ensure_base_nick(guild_id: int, user_id: int, current_nick: str | None) -> s
         conn.close()
 
 
-def buy_pizza(user_id: int, cost: int, cooldown_seconds: int) -> tuple[str, int]:
+def buy_pizza(guild_id: int, user_id: int, cost: int, cooldown_seconds: int) -> tuple[str, int]:
     """Attempts to buy a pizza, checking cooldown then affordability.
 
     Returns (status, value):
@@ -235,10 +288,10 @@ def buy_pizza(user_id: int, cost: int, cooldown_seconds: int) -> tuple[str, int]
     """
     conn = _connect()
     try:
-        _ensure_user(conn, user_id)
+        _ensure_user(conn, guild_id, user_id)
         conn.commit()
         balance, last_pizza = conn.execute(
-            "SELECT balance, last_pizza FROM users WHERE user_id = ?", (user_id,)
+            "SELECT balance, last_pizza FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
         ).fetchone()
 
         now = datetime.now(timezone.utc)
@@ -252,11 +305,13 @@ def buy_pizza(user_id: int, cost: int, cooldown_seconds: int) -> tuple[str, int]
 
         conn.execute(
             "UPDATE users SET balance = balance - ?, pizzas_bought = pizzas_bought + 1, last_pizza = ? "
-            "WHERE user_id = ?",
-            (cost, now.isoformat(), user_id),
+            "WHERE guild_id = ? AND user_id = ?",
+            (cost, now.isoformat(), guild_id, user_id),
         )
         conn.commit()
-        new_balance = conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()[0]
+        new_balance = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
         return "ok", new_balance
     finally:
         conn.close()
@@ -287,22 +342,22 @@ def set_casino_channel_id(guild_id: int, channel_id: int):
         conn.close()
 
 
-def claim_daily(user_id: int, amount: int) -> tuple[bool, int]:
+def claim_daily(guild_id: int, user_id: int, amount: int) -> tuple[bool, int]:
     """Grants `amount` credits once per calendar day. Returns (claimed, balance)."""
     conn = _connect()
     try:
-        _ensure_user(conn, user_id)
+        _ensure_user(conn, guild_id, user_id)
         conn.commit()
         today = date.today().isoformat()
         last_daily, balance = conn.execute(
-            "SELECT last_daily, balance FROM users WHERE user_id = ?", (user_id,)
+            "SELECT last_daily, balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
         ).fetchone()
         if last_daily == today:
             return False, balance
         new_balance = balance + amount
         conn.execute(
-            "UPDATE users SET balance = ?, last_daily = ? WHERE user_id = ?",
-            (new_balance, today, user_id),
+            "UPDATE users SET balance = ?, last_daily = ? WHERE guild_id = ? AND user_id = ?",
+            (new_balance, today, guild_id, user_id),
         )
         conn.commit()
         return True, new_balance

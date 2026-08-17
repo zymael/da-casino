@@ -47,10 +47,11 @@ class NumberBetModal(discord.ui.Modal):
 
 
 class RouletteView(discord.ui.View):
-    def __init__(self, starter: discord.abc.User, channel_id: int):
+    def __init__(self, starter: discord.abc.User, channel_id: int, guild_id: int):
         super().__init__(timeout=ROUND_SECONDS)
         self.starter = starter
         self.channel_id = channel_id
+        self.guild_id = guild_id
         self.bets: list[dict] = []
         self.message: discord.Message | None = None
         self.resolved = False
@@ -100,12 +101,12 @@ class RouletteView(discord.ui.View):
             await interaction.response.send_message("Bet amount must be positive.", ephemeral=True)
             return
 
-        balance = await asyncio.to_thread(db.get_balance, interaction.user.id)
+        balance = await asyncio.to_thread(db.get_balance, self.guild_id, interaction.user.id)
         if amount > balance:
             await interaction.response.send_message(f"You only have **{balance}** credits.", ephemeral=True)
             return
 
-        await asyncio.to_thread(db.update_balance, interaction.user.id, -amount)
+        await asyncio.to_thread(db.update_balance, self.guild_id, interaction.user.id, -amount)
         self.bets.append(
             {
                 "user_id": interaction.user.id,
@@ -195,9 +196,9 @@ class RouletteView(discord.ui.View):
             multiplier = roulette.payout_multiplier(bet["kind"], bet["value"], result)
             payout = bet["amount"] * multiplier
             if payout:
-                balance = await asyncio.to_thread(db.update_balance, bet["user_id"], payout)
+                balance = await asyncio.to_thread(db.update_balance, self.guild_id, bet["user_id"], payout)
             else:
-                balance = await asyncio.to_thread(db.get_balance, bet["user_id"])
+                balance = await asyncio.to_thread(db.get_balance, self.guild_id, bet["user_id"])
             net = payout - bet["amount"]
             outcome = "🎉 WIN" if payout else "❌ LOSE"
             lines.append(

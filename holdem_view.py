@@ -30,9 +30,10 @@ class Seat:
 
 
 class HoldemTable:
-    def __init__(self, channel: discord.abc.Messageable, channel_id: int):
+    def __init__(self, channel: discord.abc.Messageable, channel_id: int, guild_id: int):
         self.channel = channel
         self.channel_id = channel_id
+        self.guild_id = guild_id
         self.seats: list[Seat] = []
         self.control_message: discord.Message | None = None
         self.current_game: "HoldemGame | None" = None
@@ -56,8 +57,9 @@ class Player:
 
 
 class HoldemGame:
-    def __init__(self, players: list[Player]):
+    def __init__(self, players: list[Player], guild_id: int):
         self.players = players
+        self.guild_id = guild_id
         self.deck = Deck()
         self.community: list = []
         self.current_bet = 0
@@ -97,7 +99,7 @@ async def _commit(game: HoldemGame, player: Player, amount: int):
     """Escrows `amount` from the player's balance into the pot."""
     if amount <= 0:
         return
-    await asyncio.to_thread(db.update_balance, player.member.id, -amount)
+    await asyncio.to_thread(db.update_balance, game.guild_id, player.member.id, -amount)
     player.remaining -= amount
     player.contributed += amount
     player.street_contributed += amount
@@ -418,7 +420,7 @@ async def settle_hand(ctx, game: HoldemGame):
     if len(active) == 1:
         winner = active[0]
         amount = sum(contributions.values())
-        new_balance = await asyncio.to_thread(db.update_balance, winner.member.id, amount)
+        new_balance = await asyncio.to_thread(db.update_balance, game.guild_id, winner.member.id, amount)
         embed = discord.Embed(
             title="🃏 Texas Hold'em — Result",
             description=(
@@ -456,7 +458,7 @@ async def settle_hand(ctx, game: HoldemGame):
             payouts[w.member.id] = payouts.get(w.member.id, 0) + share + (1 if i < remainder else 0)
 
     for uid, amount in payouts.items():
-        await asyncio.to_thread(db.update_balance, uid, amount)
+        await asyncio.to_thread(db.update_balance, game.guild_id, uid, amount)
 
     community_buf = cards_render.render_hand(game.community)
     files = [discord.File(community_buf, filename="community.png")]
@@ -483,7 +485,7 @@ async def settle_hand(ctx, game: HoldemGame):
 
 async def play_hand(ctx, table: HoldemTable, members: list[discord.Member], stacks: dict[int, int]):
     players = [Player(m, stacks[m.id]) for m in members]
-    game = HoldemGame(players)
+    game = HoldemGame(players, table.guild_id)
     table.current_game = game
     table.current_players_by_id = {p.member.id: p for p in players}
     busy_players.update(m.id for m in members)
@@ -544,7 +546,7 @@ async def run_table(ctx, table: HoldemTable):
             for s in active_seats:
                 if s.member.id in busy_players:
                     continue
-                balance = await asyncio.to_thread(db.get_balance, s.member.id)
+                balance = await asyncio.to_thread(db.get_balance, table.guild_id, s.member.id)
                 if balance <= 0:
                     continue
                 members.append(s.member)
@@ -574,7 +576,7 @@ async def run_table(ctx, table: HoldemTable):
 
 
 async def start_holdem_table(ctx, buy_in: int | None):
-    table = HoldemTable(ctx.channel, ctx.channel.id)
+    table = HoldemTable(ctx.channel, ctx.channel.id, ctx.guild.id)
     table.seats.append(Seat(ctx.author, buy_in))
     active_tables[ctx.channel.id] = table
 

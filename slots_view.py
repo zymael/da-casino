@@ -11,7 +11,7 @@ BASE_LINE_BET = 1  # credits staked per active line at 1x multiplier
 MULTIPLIERS = [1, 2, 5, 10, 20]
 
 
-async def play_spin(user_id: int, lines: int, multiplier: int) -> tuple[list[list[str]], list, int, int]:
+async def play_spin(guild_id: int, user_id: int, lines: int, multiplier: int) -> tuple[list[list[str]], list, int, int]:
     """Escrows the total bet, spins, and pays out.
 
     Returns (grid, winning_lines, total_payout, new_balance), where winning_lines is a
@@ -19,7 +19,7 @@ async def play_spin(user_id: int, lines: int, multiplier: int) -> tuple[list[lis
     """
     bet_per_line = multiplier * BASE_LINE_BET
     bet = lines * bet_per_line
-    await asyncio.to_thread(db.update_balance, user_id, -bet)
+    await asyncio.to_thread(db.update_balance, guild_id, user_id, -bet)
 
     grid = slots.spin_grid()
     winning_lines = []
@@ -32,9 +32,9 @@ async def play_spin(user_id: int, lines: int, multiplier: int) -> tuple[list[lis
             total_payout += payout
 
     if total_payout:
-        balance = await asyncio.to_thread(db.update_balance, user_id, total_payout)
+        balance = await asyncio.to_thread(db.update_balance, guild_id, user_id, total_payout)
     else:
-        balance = await asyncio.to_thread(db.get_balance, user_id)
+        balance = await asyncio.to_thread(db.get_balance, guild_id, user_id)
     return grid, winning_lines, total_payout, balance
 
 
@@ -92,7 +92,9 @@ class SpinButton(discord.ui.Button):
             )
             return
 
-        grid, winning_lines, total_payout, balance = await play_spin(view.author.id, view.lines, view.multiplier)
+        grid, winning_lines, total_payout, balance = await play_spin(
+            view.guild_id, view.author.id, view.lines, view.multiplier
+        )
         view.balance = balance
         view.sync_option_defaults()
         embed = view.build_result_embed(winning_lines, total_payout)
@@ -101,10 +103,11 @@ class SpinButton(discord.ui.Button):
 
 
 class SlotsView(discord.ui.View):
-    def __init__(self, author: discord.abc.User, balance: int):
+    def __init__(self, author: discord.abc.User, balance: int, guild_id: int):
         super().__init__(timeout=90)
         self.author = author
         self.balance = balance
+        self.guild_id = guild_id
         self.lines = 1
         self.multiplier = 1
         self.message: discord.Message | None = None

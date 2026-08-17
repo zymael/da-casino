@@ -73,6 +73,7 @@ async def _reject_if_at_poker_table(ctx) -> bool:
 async def on_ready():
     print(f"{bot.user} has connected to Discord!", flush=True)
     print("------", flush=True)
+    await asyncio.to_thread(db.migrate_legacy_users_into_guilds, [g.id for g in bot.guilds])
     if not sync_champions_loop.is_running():
         sync_champions_loop.start()
 
@@ -115,15 +116,15 @@ async def ping(ctx):
 @bot.command(name="balance", aliases=["bal", "credits"])
 async def balance(ctx):
     """Check your credit balance."""
-    bal = await asyncio.to_thread(db.get_balance, ctx.author.id)
+    bal = await asyncio.to_thread(db.get_balance, ctx.guild.id, ctx.author.id)
     await ctx.send(f"💰 {ctx.author.display_name} has **{bal}** credits.")
 
 
 @bot.command(name="leaderboard", aliases=["lb", "top"])
 async def leaderboard(ctx):
     """Show the top credit holders and top pizza buyers."""
-    credit_rows = await asyncio.to_thread(db.get_leaderboard, 10)
-    pizza_rows = await asyncio.to_thread(db.get_pizza_leaderboard, 10)
+    credit_rows = await asyncio.to_thread(db.get_leaderboard, ctx.guild.id, 10)
+    pizza_rows = await asyncio.to_thread(db.get_pizza_leaderboard, ctx.guild.id, 10)
     if not credit_rows and not pizza_rows:
         await ctx.send("No one has any credits yet!")
         return
@@ -151,7 +152,7 @@ async def leaderboard(ctx):
 @bot.command(name="daily")
 async def daily(ctx):
     """Claim your daily credits (once per day)."""
-    claimed, bal = await asyncio.to_thread(db.claim_daily, ctx.author.id, DAILY_AMOUNT)
+    claimed, bal = await asyncio.to_thread(db.claim_daily, ctx.guild.id, ctx.author.id, DAILY_AMOUNT)
     if claimed:
         await ctx.send(
             f"✅ {ctx.author.display_name} claimed their daily **{DAILY_AMOUNT}** credits! Balance: **{bal}**"
@@ -179,7 +180,7 @@ async def transfer(ctx, member: discord.Member = None, amount: int = None):
         return
 
     success, from_bal, to_bal = await asyncio.to_thread(
-        db.transfer_balance, ctx.author.id, member.id, amount
+        db.transfer_balance, ctx.guild.id, ctx.author.id, member.id, amount
     )
     if not success:
         embed = discord.Embed(
@@ -206,14 +207,14 @@ async def blackjack_cmd(ctx, bet: int = None):
         await ctx.send("Usage: `!blackjack <bet>` — e.g. `!blackjack 50`")
         return
 
-    balance = await asyncio.to_thread(db.get_balance, ctx.author.id)
+    balance = await asyncio.to_thread(db.get_balance, ctx.guild.id, ctx.author.id)
     if bet > balance:
         await ctx.send(f"You only have **{balance}** credits, {ctx.author.display_name}.")
         return
 
-    await asyncio.to_thread(db.update_balance, ctx.author.id, -bet)  # escrow the bet
+    await asyncio.to_thread(db.update_balance, ctx.guild.id, ctx.author.id, -bet)  # escrow the bet
 
-    view = BlackjackView(ctx.author, bet)
+    view = BlackjackView(ctx.author, bet, ctx.guild.id)
     natural_display = await view.resolve_naturals()
     embeds, files = natural_display if natural_display else view.build_display()
     message = await ctx.send(embeds=embeds, files=files, view=view)
@@ -226,12 +227,12 @@ async def slots_cmd(ctx):
     if await _reject_if_at_poker_table(ctx):
         return
 
-    balance = await asyncio.to_thread(db.get_balance, ctx.author.id)
+    balance = await asyncio.to_thread(db.get_balance, ctx.guild.id, ctx.author.id)
     if balance < 1:
         await ctx.send(f"You only have **{balance}** credits, {ctx.author.display_name} — not enough to play.")
         return
 
-    view = SlotsView(ctx.author, balance)
+    view = SlotsView(ctx.author, balance, ctx.guild.id)
     message = await ctx.send(embed=view.build_bet_embed(), view=view, file=view.build_initial_file())
     view.message = message
 
@@ -243,7 +244,7 @@ async def roulette_cmd(ctx):
         await ctx.send("A roulette round is already open here — place your bets on that one!")
         return
 
-    view = RouletteView(ctx.author, ctx.channel.id)
+    view = RouletteView(ctx.author, ctx.channel.id, ctx.guild.id)
     active_rounds[ctx.channel.id] = view
     embed, file = view.build_display()
     message = await ctx.send(embed=embed, file=file, view=view)
@@ -347,12 +348,16 @@ async def _sync_champion(guild: discord.Guild | None, kind: str, top_user_id: in
 
 
 async def _update_pizza_champion(guild: discord.Guild | None):
-    rows = await asyncio.to_thread(db.get_pizza_leaderboard, 1)
+    if guild is None:
+        return
+    rows = await asyncio.to_thread(db.get_pizza_leaderboard, guild.id, 1)
     await _sync_champion(guild, "pizza", rows[0][0] if rows else None)
 
 
 async def _update_money_champion(guild: discord.Guild | None):
-    rows = await asyncio.to_thread(db.get_leaderboard, 1)
+    if guild is None:
+        return
+    rows = await asyncio.to_thread(db.get_leaderboard, guild.id, 1)
     await _sync_champion(guild, "money", rows[0][0] if rows else None)
 
 
@@ -368,7 +373,9 @@ async def pizza(ctx):
     """Deliver an authentic pizza to the casino: costs 10 credits, 10 minute cooldown."""
     if await _reject_if_at_poker_table(ctx):
         return
-    status, value = await asyncio.to_thread(db.buy_pizza, ctx.author.id, PIZZA_COST, PIZZA_COOLDOWN_SECONDS)
+    status, value = await asyncio.to_thread(
+        db.buy_pizza, ctx.guild.id, ctx.author.id, PIZZA_COST, PIZZA_COOLDOWN_SECONDS
+    )
 
     if status == "cooldown":
         minutes, seconds = divmod(value, 60)
