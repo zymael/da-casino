@@ -46,9 +46,14 @@ class LineSelect(discord.ui.Select):
         ]
         super().__init__(placeholder="Paylines", options=options, row=0)
 
+    def sync_default(self, lines: int):
+        for option in self.options:
+            option.default = int(option.value) == lines
+
     async def callback(self, interaction: discord.Interaction):
         view: SlotsView = self.view
         view.lines = int(self.values[0])
+        view.sync_option_defaults()
         await interaction.response.edit_message(embed=view.build_bet_embed(), view=view)
 
 
@@ -60,9 +65,14 @@ class MultiplierSelect(discord.ui.Select):
         ]
         super().__init__(placeholder="Multiplier", options=options, row=1)
 
+    def sync_default(self, multiplier: int):
+        for option in self.options:
+            option.default = int(option.value) == multiplier
+
     async def callback(self, interaction: discord.Interaction):
         view: SlotsView = self.view
         view.multiplier = int(self.values[0])
+        view.sync_option_defaults()
         await interaction.response.edit_message(embed=view.build_bet_embed(), view=view)
 
 
@@ -84,6 +94,7 @@ class SpinButton(discord.ui.Button):
 
         grid, winning_lines, total_payout, balance = await play_spin(view.author.id, view.lines, view.multiplier)
         view.balance = balance
+        view.sync_option_defaults()
         embed = view.build_result_embed(winning_lines, total_payout)
         file = discord.File(slots_render.render_reels(grid, winning_lines), filename="slots.png")
         await interaction.response.edit_message(embed=embed, view=view, attachments=[file])
@@ -98,9 +109,21 @@ class SlotsView(discord.ui.View):
         self.multiplier = 1
         self.message: discord.Message | None = None
 
-        self.add_item(LineSelect(self.lines))
-        self.add_item(MultiplierSelect(self.multiplier))
+        self.line_select = LineSelect(self.lines)
+        self.multiplier_select = MultiplierSelect(self.multiplier)
+        self.add_item(self.line_select)
+        self.add_item(self.multiplier_select)
         self.add_item(SpinButton())
+
+    def sync_option_defaults(self):
+        """Keeps each dropdown's 'currently selected' flag in step with view state.
+
+        Discord re-derives the visible selection from each option's `default` flag on
+        every render, so without this the dropdown snaps back to its original choice
+        (and can appear to reject re-selecting it) as soon as any other edit happens.
+        """
+        self.line_select.sync_default(self.lines)
+        self.multiplier_select.sync_default(self.multiplier)
 
     @property
     def total_bet(self) -> int:
