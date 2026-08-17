@@ -14,7 +14,7 @@ from holdem_view import (
     start_holdem_table,
 )
 from roulette_view import RouletteView, active_rounds
-from slots_view import SlotsView, play_spin
+from slots_view import SlotsView
 from views import BlackjackView
 
 load_dotenv()
@@ -210,7 +210,7 @@ async def slots_cmd(ctx):
         return
 
     view = SlotsView(ctx.author, balance)
-    message = await ctx.send(embed=view.build_bet_embed(), view=view)
+    message = await ctx.send(embed=view.build_bet_embed(), view=view, file=view.build_initial_file())
     view.message = message
 
 

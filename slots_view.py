@@ -4,6 +4,7 @@ import discord
 
 import db
 import slots
+import slots_render
 from holdem_view import busy_players as holdem_busy_players
 
 BASE_LINE_BET = 1  # credits staked per active line at 1x multiplier
@@ -83,8 +84,9 @@ class SpinButton(discord.ui.Button):
 
         grid, winning_lines, total_payout, balance = await play_spin(view.author.id, view.lines, view.multiplier)
         view.balance = balance
-        embed = view.build_result_embed(grid, winning_lines, total_payout)
-        await interaction.response.edit_message(embed=embed, view=view)
+        embed = view.build_result_embed(winning_lines, total_payout)
+        file = discord.File(slots_render.render_reels(grid, winning_lines), filename="slots.png")
+        await interaction.response.edit_message(embed=embed, view=view, attachments=[file])
 
 
 class SlotsView(discord.ui.View):
@@ -113,10 +115,14 @@ class SlotsView(discord.ui.View):
         embed.add_field(name="Paylines", value=f"{self.lines} / {slots.MAX_LINES}", inline=True)
         embed.add_field(name="Multiplier", value=f"{self.multiplier}x", inline=True)
         embed.add_field(name="Total Bet", value=f"{self.total_bet} credits", inline=True)
+        embed.set_image(url="attachment://slots.png")
         embed.set_footer(text=f"Balance: {self.balance} credits")
         return embed
 
-    def build_result_embed(self, grid: list[list[str]], winning_lines: list, total_payout: int) -> discord.Embed:
+    def build_initial_file(self) -> discord.File:
+        return discord.File(slots_render.render_reels(None), filename="slots.png")
+
+    def build_result_embed(self, winning_lines: list, total_payout: int) -> discord.Embed:
         bet = self.total_bet
         net = total_payout - bet
         if not winning_lines:
@@ -128,9 +134,8 @@ class SlotsView(discord.ui.View):
         else:
             outcome, color = f"😬 Partial win, net -{abs(net)} credits", discord.Color.orange()
 
-        grid_text = "\n".join(" ".join(row) for row in grid)
         embed = discord.Embed(title="🎰 Slots", color=color)
-        embed.add_field(name="Reels", value=f"```\n{grid_text}\n```", inline=False)
+        embed.set_image(url="attachment://slots.png")
         if winning_lines:
             lines_text = "\n".join(
                 f"Line {i + 1} ({' '.join(symbols)}): +{payout}" for i, symbols, payout in winning_lines
