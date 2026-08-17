@@ -44,6 +44,14 @@ def init_db():
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS guild_settings (
+            guild_id INTEGER PRIMARY KEY,
+            casino_channel_id INTEGER
+        )
+        """
+    )
     tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     if "pizza_champion" in tables:
         for guild_id, user_id, previous_nick in conn.execute(
@@ -250,6 +258,31 @@ def buy_pizza(user_id: int, cost: int, cooldown_seconds: int) -> tuple[str, int]
         conn.commit()
         new_balance = conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()[0]
         return "ok", new_balance
+    finally:
+        conn.close()
+
+
+def get_casino_channel_id(guild_id: int) -> int | None:
+    """Returns the configured casino channel id for this guild, or None if unset."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT casino_channel_id FROM guild_settings WHERE guild_id = ?", (guild_id,)
+        ).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def set_casino_channel_id(guild_id: int, channel_id: int):
+    conn = _connect()
+    try:
+        conn.execute(
+            "INSERT INTO guild_settings (guild_id, casino_channel_id) VALUES (?, ?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET casino_channel_id = excluded.casino_channel_id",
+            (guild_id, channel_id),
+        )
+        conn.commit()
     finally:
         conn.close()
 

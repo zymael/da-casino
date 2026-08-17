@@ -25,8 +25,9 @@ A Discord casino bot built with [discord.py](https://discordpy.readthedocs.io/).
 | `!roulette` | `!rl` | Open a roulette round |
 | `!holdem buy_in` | `!poker` | Start/join a hold'em table |
 | `!pizza` | | Buy a pizza slice (cooldown-limited) |
+| `!setcasino [#channel]` | | **Manage Server** permission required. Restrict casino commands to a channel |
 
-All commands only work inside a channel literally named `da-casino`.
+By default, casino commands only work in a channel literally named `da-casino`. Server admins can run `!setcasino` (optionally with `#channel`) to point the bot at a different channel instead — this is per-server and stored in the database, so it doesn't affect other servers the bot is in.
 
 ## Setup
 

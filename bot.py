@@ -50,6 +50,13 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.check
 async def in_casino_channel(ctx):
+    if ctx.command is not None and ctx.command.name == "setcasino":
+        return True  # must be runnable from anywhere, including before a channel is configured
+    if ctx.guild is None:
+        return False
+    channel_id = await asyncio.to_thread(db.get_casino_channel_id, ctx.guild.id)
+    if channel_id is not None:
+        return ctx.channel.id == channel_id
     return getattr(ctx.channel, "name", None) == CASINO_CHANNEL_NAME
 
 
@@ -72,16 +79,31 @@ async def on_ready():
 
 @bot.event
 async def on_command_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("You need the **Manage Server** permission to do that.")
+        return
     if isinstance(error, commands.CheckFailure):
-        return  # command used outside #da-casino — ignore silently to avoid spamming other channels
+        return  # command used outside the casino channel — ignore silently to avoid spamming other channels
     if isinstance(error, commands.MemberNotFound):
         await ctx.send("I couldn't find that user. Try mentioning them, e.g. `!transfer @Bob 50`.")
+    elif isinstance(error, commands.ChannelNotFound):
+        await ctx.send("I couldn't find that channel.")
     elif isinstance(error, commands.BadArgument):
         await ctx.send("That doesn't look like a valid bet. Use a whole number, e.g. `!slots 50`.")
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send(f"Missing argument: `{error.param.name}`")
     else:
         raise error
+
+
+@bot.command(name="setcasino")
+@commands.guild_only()
+@commands.has_permissions(manage_guild=True)
+async def setcasino_cmd(ctx, channel: discord.TextChannel = None):
+    """Set which channel casino commands work in: !setcasino [#channel]"""
+    channel = channel or ctx.channel
+    await asyncio.to_thread(db.set_casino_channel_id, ctx.guild.id, channel.id)
+    await ctx.send(f"🎰 Casino commands are now restricted to {channel.mention}.")
 
 
 @bot.command(name="ping")
