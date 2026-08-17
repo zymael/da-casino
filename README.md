@@ -6,7 +6,7 @@ A Discord casino bot built with [discord.py](https://discordpy.readthedocs.io/).
 
 - **Balances & economy** — daily credit drops, peer-to-peer transfers, and a leaderboard.
 - **Blackjack** (`!blackjack` / `!bj`) — classic dealer-vs-player blackjack with betting.
-- **Slots** (`!slots` / `!slot`) — spin-based slot machine with configurable max bet.
+- **Slots** (`!slots` / `!slot`) — 3x3 slot machine with up to 5 selectable paylines and a bet multiplier, all configured interactively via dropdowns before each spin.
 - **Roulette** (`!roulette` / `!rl`) — table roulette with rendered board images.
 - **Texas Hold'em** (`!holdem` / `!poker`) — multiplayer poker tables with buy-ins.
 - **Pizza** (`!pizza`) — a silly cooldown-gated side game with its own leaderboard.
@@ -21,7 +21,7 @@ A Discord casino bot built with [discord.py](https://discordpy.readthedocs.io/).
 | `!daily` | | Claim your daily credits |
 | `!transfer @user amount` | `!give`, `!pay` | Send credits to another player |
 | `!blackjack bet` | `!bj` | Start a blackjack hand |
-| `!slots bet` | `!slot` | Spin the slot machine |
+| `!slots` | `!slot` | Open the slot machine — pick paylines/multiplier, then spin |
 | `!roulette` | `!rl` | Open a roulette round |
 | `!holdem buy_in` | `!poker` | Start/join a hold'em table |
 | `!pizza` | | Buy a pizza slice (cooldown-limited) |

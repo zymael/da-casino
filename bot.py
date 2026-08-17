@@ -22,7 +22,6 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 
 DAILY_AMOUNT = 100
 CASINO_CHANNEL_NAME = "da-casino"
-SLOTS_MAX_BET = 10
 
 PIZZA_COST = 10
 PIZZA_COOLDOWN_SECONDS = 10 * 60
@@ -200,26 +199,18 @@ async def blackjack_cmd(ctx, bet: int = None):
 
 
 @bot.command(name="slots", aliases=["slot"])
-async def slots_cmd(ctx, bet: int = None):
-    """Play the slot machine: !slots <bet>"""
+async def slots_cmd(ctx):
+    """Play the slot machine: !slots — choose paylines and a multiplier, then spin"""
     if await _reject_if_at_poker_table(ctx):
-        return
-    if bet is None or bet <= 0:
-        await ctx.send("Usage: `!slots <bet>` — e.g. `!slots 10`")
-        return
-    if bet > SLOTS_MAX_BET:
-        await ctx.send(f"Slots bets are capped at **{SLOTS_MAX_BET}** credits.")
         return
 
     balance = await asyncio.to_thread(db.get_balance, ctx.author.id)
-    if bet > balance:
-        await ctx.send(f"You only have **{balance}** credits, {ctx.author.display_name}.")
+    if balance < 1:
+        await ctx.send(f"You only have **{balance}** credits, {ctx.author.display_name} — not enough to play.")
         return
 
-    reels, payout, new_balance = await play_spin(ctx.author.id, bet)
-    view = SlotsView(ctx.author, bet)
-    embed = view.build_embed(reels, payout, new_balance)
-    message = await ctx.send(embed=embed, view=view)
+    view = SlotsView(ctx.author, balance)
+    message = await ctx.send(embed=view.build_bet_embed(), view=view)
     view.message = message
 
 
