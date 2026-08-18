@@ -141,29 +141,48 @@ def simulate_race(stat_roster: list[dict]) -> list[list[float]]:
     return frames
 
 
-def winner_of(frames: list[list[float]]) -> int:
+def finish_order_of(frames: list[list[float]]) -> list[int]:
+    """Ranks every position by final cumulative distance, furthest (1st place) first."""
     final = frames[-1]
-    return max(range(len(final)), key=lambda i: final[i])
+    return sorted(range(len(final)), key=lambda i: final[i], reverse=True)
 
 
-def _simulate_stat_win_probabilities(stat_roster: list[dict], trials: int = WIN_PROBABILITY_TRIALS) -> list[float]:
-    """Monte-Carlo win rate for each position under its current stats, run through the exact
-    same simulate_race() used for the actual race. Used only to seed a horse's very first
-    record — once real races exist, current_win_probabilities() below takes over."""
-    wins = [0] * len(stat_roster)
+# Bet kinds, by how many finishing positions each one covers.
+BET_KIND_THRESHOLDS = {"win": 1, "place": 2, "show": 3}
+
+
+def _simulate_stat_probabilities(
+    stat_roster: list[dict], trials: int = WIN_PROBABILITY_TRIALS
+) -> tuple[list[float], list[float], list[float]]:
+    """Monte-Carlo win/place/show rate for each position under its current stats, run through
+    the exact same simulate_race() used for the actual race. Used only to seed a horse's very
+    first record — once real races exist, current_probabilities() below takes over."""
+    n = len(stat_roster)
+    wins, places, shows = [0] * n, [0] * n, [0] * n
     for _ in range(trials):
-        wins[winner_of(simulate_race(stat_roster))] += 1
-    # Floor every count at 1 so a horse that never won in the sample still gets a (very long)
+        order = finish_order_of(simulate_race(stat_roster))
+        for rank, position in enumerate(order, start=1):
+            if rank <= 1:
+                wins[position] += 1
+            if rank <= 2:
+                places[position] += 1
+            if rank <= 3:
+                shows[position] += 1
+    # Floor every count at 1 so a horse that never hit in the sample still gets a (very long)
     # finite price/payout instead of a division-by-zero — it's a true long shot, not impossible.
-    return [max(w, 1) / trials for w in wins]
+    return (
+        [max(w, 1) / trials for w in wins],
+        [max(p, 1) / trials for p in places],
+        [max(s, 1) / trials for s in shows],
+    )
 
 
-def current_win_probabilities(guild_id: int) -> tuple[dict[int, dict], list[int], dict[int, float]]:
-    """Returns (full_roster, eligible_horse_indices, {horse_index: win_probability}) — the
-    probability dict only covers eligible (old enough to race) horses. Any eligible horse with
-    no races yet gets seeded first, from a stat-simulated rate against the rest of the current
-    field. Touches the database — call via asyncio.to_thread, once per command, and reuse the
-    result rather than having every call site query separately."""
+def current_probabilities(guild_id: int) -> tuple[dict[int, dict], list[int], dict[str, dict[int, float]]]:
+    """Returns (full_roster, eligible_horse_indices, {"win"/"place"/"show": {horse_index: rate}}) —
+    each probability dict only covers eligible (old enough to race) horses. Any eligible horse
+    with no races yet gets seeded first, from a stat-simulated rate against the rest of the
+    current field. Touches the database — call via asyncio.to_thread, once per command, and
+    reuse the result rather than having every call site query separately."""
     roster = get_roster(guild_id)
     eligible = eligible_indices(roster)
     unseeded = [i for i in eligible if roster[i]["races"] == 0]
@@ -172,13 +191,19 @@ def current_win_probabilities(guild_id: int) -> tuple[dict[int, dict], list[int]
             {"speed": roster[i]["speed"], "endurance": roster[i]["endurance"], "spirit": roster[i]["spirit"]}
             for i in eligible
         ]
-        seed_probs = _simulate_stat_win_probabilities(stat_roster)
+        seed_win, seed_place, seed_show = _simulate_stat_probabilities(stat_roster)
         for position, i in enumerate(eligible):
             if i in unseeded:
-                wins = max(1, round(seed_probs[position] * SEED_RACE_COUNT))
-                db.seed_race_history(guild_id, i, wins, SEED_RACE_COUNT)
+                wins = max(1, round(seed_win[position] * SEED_RACE_COUNT))
+                places = max(1, round(seed_place[position] * SEED_RACE_COUNT))
+                shows = max(1, round(seed_show[position] * SEED_RACE_COUNT))
+                db.seed_race_history(guild_id, i, wins, places, shows, SEED_RACE_COUNT)
         roster = db.get_guild_horses(guild_id)
-    probabilities = {i: roster[i]["wins"] / roster[i]["races"] for i in eligible}
+    probabilities = {
+        "win": {i: roster[i]["wins"] / roster[i]["races"] for i in eligible},
+        "place": {i: roster[i]["places"] / roster[i]["races"] for i in eligible},
+        "show": {i: roster[i]["shows"] / roster[i]["races"] for i in eligible},
+    }
     return roster, eligible, probabilities
 
 
@@ -191,8 +216,12 @@ def price_of(horse_index: int, probabilities: dict[int, float]) -> int:
     return round(BASE_HORSE_PRICE / _multiplier_of(horse_index, probabilities) / 50) * 50
 
 
-def payout_multiplier(horse_index: int, winner_index: int, probabilities: dict[int, float]) -> float:
-    return _multiplier_of(horse_index, probabilities) if horse_index == winner_index else 0.0
+def payout_multiplier(horse_index: int, rank: int | None, threshold: int, probabilities: dict[int, float]) -> float:
+    """`rank` is this horse's actual finishing position (1-based) in the race that just ran;
+    `threshold` is how many top positions the bet kind covers (1/2/3 for win/place/show)."""
+    if rank is None or rank > threshold:
+        return 0.0
+    return _multiplier_of(horse_index, probabilities)
 
 
 def describe_odds(horse_index: int, probabilities: dict[int, float]) -> str:

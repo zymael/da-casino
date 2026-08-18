@@ -10,22 +10,44 @@ from holdem_view import busy_players as holdem_busy_players
 ROUND_SECONDS = 45
 LEG_DELAY_SECONDS = 2.5
 
+BET_KIND_LABELS = {"win": "Win (1st)", "place": "Place (top 2)", "show": "Show (top 3)"}
+
 # channel_id -> HorseRaceView, so only one open race per channel
 active_races: dict[int, "HorseRaceView"] = {}
 
 
+class BetKindSelect(discord.ui.Select):
+    def __init__(self, current: str):
+        options = [
+            discord.SelectOption(label=label, value=kind, default=(kind == current))
+            for kind, label in BET_KIND_LABELS.items()
+        ]
+        super().__init__(placeholder="Bet Type", options=options, row=0)
+
+    def sync_default(self, kind: str):
+        for option in self.options:
+            option.default = option.value == kind
+
+    async def callback(self, interaction: discord.Interaction):
+        view: HorseRaceView = self.view
+        view.bet_kind = self.values[0]
+        self.sync_default(view.bet_kind)
+        await interaction.response.edit_message(view=view)
+
+
 class BetAmountModal(discord.ui.Modal):
-    def __init__(self, round_view: "HorseRaceView", horse_index: int):
-        odds = horserace.describe_odds(horse_index, round_view.probabilities)
+    def __init__(self, round_view: "HorseRaceView", horse_index: int, kind: str):
+        odds = horserace.describe_odds(horse_index, round_view.probabilities[kind])
         name = round_view.roster[horse_index]["name"]
-        super().__init__(title=f"Bet on {name} ({odds})")
+        super().__init__(title=f"{BET_KIND_LABELS[kind]}: {name} ({odds})")
         self.round_view = round_view
         self.horse_index = horse_index
+        self.kind = kind
         self.amount_input = discord.ui.TextInput(label="Bet amount", placeholder="e.g. 50")
         self.add_item(self.amount_input)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await self.round_view.place_bet(interaction, self.horse_index, self.amount_input.value)
+        await self.round_view.place_bet(interaction, self.horse_index, self.kind, self.amount_input.value)
 
 
 class HorseButton(discord.ui.Button):
@@ -38,7 +60,7 @@ class HorseButton(discord.ui.Button):
         if view.resolved:
             await interaction.response.send_message("This race already closed.", ephemeral=True)
             return
-        await interaction.response.send_modal(BetAmountModal(view, self.horse_index))
+        await interaction.response.send_modal(BetAmountModal(view, self.horse_index, view.bet_kind))
 
 
 class HorseRaceView(discord.ui.View):
@@ -49,7 +71,7 @@ class HorseRaceView(discord.ui.View):
         guild_id: int,
         roster: dict[int, dict],
         race_field: list[int],
-        probabilities: dict[int, float],
+        probabilities: dict[str, dict[int, float]],
     ):
         super().__init__(timeout=ROUND_SECONDS)
         self.starter = starter
@@ -58,14 +80,16 @@ class HorseRaceView(discord.ui.View):
         self.roster = roster
         self.race_field = race_field
         self.probabilities = probabilities
+        self.bet_kind = "win"
         self.bets: list[dict] = []
         self.message: discord.Message | None = None
         self.resolved = False
 
+        self.add_item(BetKindSelect(self.bet_kind))
         for position, horse_index in enumerate(race_field):
             name = roster[horse_index]["name"]
-            label = f"{name} ({horserace.describe_odds(horse_index, probabilities)})"
-            self.add_item(HorseButton(horse_index, label, row=position // 4))
+            label = f"{name} ({horserace.describe_odds(horse_index, probabilities['win'])})"
+            self.add_item(HorseButton(horse_index, label, row=1 + position // 4))
 
     def _names(self) -> list[str]:
         return [self.roster[i]["name"] for i in self.race_field]
@@ -74,7 +98,7 @@ class HorseRaceView(discord.ui.View):
         return [horserace.color_for_index(i) for i in self.race_field]
 
     def _odds_labels(self) -> list[str]:
-        return [horserace.describe_odds(i, self.probabilities) for i in self.race_field]
+        return [horserace.describe_odds(i, self.probabilities["win"]) for i in self.race_field]
 
     def build_display(self, footer: str | None = None) -> tuple[discord.Embed, discord.File]:
         embed = discord.Embed(
@@ -86,7 +110,9 @@ class HorseRaceView(discord.ui.View):
             currency = db.get_currency_name(self.guild_id)
             lines = [
                 f"**{bet['display_name']}** — {self.roster[bet['horse_index']]['name']} "
-                f"({horserace.describe_odds(bet['horse_index'], self.probabilities)}) — {bet['amount']} {currency}"
+                f"({BET_KIND_LABELS[bet['kind']]}, "
+                f"{horserace.describe_odds(bet['horse_index'], self.probabilities[bet['kind']])}) — "
+                f"{bet['amount']} {currency}"
                 for bet in self.bets
             ]
             embed.add_field(name="Current Bets", value="\n".join(lines), inline=False)
@@ -103,7 +129,7 @@ class HorseRaceView(discord.ui.View):
         for item in self.children:
             item.disabled = True
 
-    async def place_bet(self, interaction: discord.Interaction, horse_index: int, raw_amount: str):
+    async def place_bet(self, interaction: discord.Interaction, horse_index: int, kind: str, raw_amount: str):
         if self.resolved:
             await interaction.response.send_message("This race already closed.", ephemeral=True)
             return
@@ -131,13 +157,14 @@ class HorseRaceView(discord.ui.View):
                 "user_id": interaction.user.id,
                 "display_name": interaction.user.display_name,
                 "horse_index": horse_index,
+                "kind": kind,
                 "amount": amount,
             }
         )
-        odds = horserace.describe_odds(horse_index, self.probabilities)
+        odds = horserace.describe_odds(horse_index, self.probabilities[kind])
         name = self.roster[horse_index]["name"]
         await interaction.response.send_message(
-            f"✅ Bet placed: {name} ({odds}) for **{amount}** {currency}.",
+            f"✅ Bet placed: {BET_KIND_LABELS[kind]} — {name} ({odds}) for **{amount}** {currency}.",
             ephemeral=True,
         )
         if self.message is not None:
@@ -173,8 +200,11 @@ class HorseRaceView(discord.ui.View):
             for i in self.race_field
         ]
         frames = horserace.simulate_race(stat_roster)
-        winner_position = horserace.winner_of(frames)
+        order = horserace.finish_order_of(frames)
+        winner_position = order[0]
         winner = self.race_field[winner_position]
+        finish_order = [self.race_field[p] for p in order]
+        rank_by_horse = {horse_index: rank for rank, horse_index in enumerate(finish_order, start=1)}
         final_max = max(frames[-1])
 
         names, colors, odds_labels = self._names(), self._colors(), self._odds_labels()
@@ -197,9 +227,13 @@ class HorseRaceView(discord.ui.View):
         lines = []
         pot = 0
         for bet in self.bets:
-            if bet["horse_index"] == winner:
+            kind = bet["kind"]
+            if kind == "win" and bet["horse_index"] == winner:
                 pot += bet["amount"]
-            multiplier = horserace.payout_multiplier(bet["horse_index"], winner, self.probabilities)
+            rank = rank_by_horse.get(bet["horse_index"])
+            multiplier = horserace.payout_multiplier(
+                bet["horse_index"], rank, horserace.BET_KIND_THRESHOLDS[kind], self.probabilities[kind]
+            )
             payout = int(bet["amount"] * multiplier)
             if payout:
                 balance = await asyncio.to_thread(db.update_balance, self.guild_id, bet["user_id"], payout)
@@ -209,17 +243,18 @@ class HorseRaceView(discord.ui.View):
             await asyncio.to_thread(db.log_bet, self.guild_id, bet["user_id"], "horserace", bet["amount"], net)
             outcome = "🎉 WIN" if payout else "❌ LOSE"
             lines.append(
-                f"**{bet['display_name']}** — {self.roster[bet['horse_index']]['name']} ({bet['amount']}) — "
+                f"**{bet['display_name']}** — {self.roster[bet['horse_index']]['name']} "
+                f"({BET_KIND_LABELS[kind]}, {bet['amount']}) — "
                 f"{outcome} ({'+' if net >= 0 else ''}{net}) — Balance: {balance}"
             )
 
         result_embed = discord.Embed(
-            title=f"🏁 Winner: {winner_name} ({horserace.describe_odds(winner, self.probabilities)})",
+            title=f"🏁 Winner: {winner_name} ({horserace.describe_odds(winner, self.probabilities['win'])})",
             description="\n".join(lines),
             color=discord.Color.gold(),
         )
         await asyncio.to_thread(
-            db.record_race_result, self.guild_id, winner, self.race_field, horserace.RACE_AGE_INTERVAL
+            db.record_race_result, self.guild_id, finish_order, horserace.RACE_AGE_INTERVAL
         )
 
         owner_id = self.roster[winner]["owner_id"]

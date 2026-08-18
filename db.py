@@ -108,6 +108,8 @@ def init_db():
             spirit REAL NOT NULL,
             age INTEGER NOT NULL DEFAULT 0,
             wins INTEGER NOT NULL DEFAULT 0,
+            places INTEGER NOT NULL DEFAULT 0,
+            shows INTEGER NOT NULL DEFAULT 0,
             races INTEGER NOT NULL DEFAULT 0,
             race_starts INTEGER NOT NULL DEFAULT 0,
             last_trained TEXT,
@@ -115,6 +117,21 @@ def init_db():
         )
         """
     )
+    # horses predates places/shows (Place/Show bets) -- add them non-destructively, since
+    # unlike the race_starts drop-and-reseed above, this table now holds real accumulated
+    # race history that must survive the migration.
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(horses)")}
+    adding_places_shows = "places" not in columns
+    for column in ("places", "shows"):
+        if column not in columns:
+            conn.execute(f"ALTER TABLE horses ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
+    if adding_places_shows:
+        # Horses with real races from before place/show tracking existed would otherwise have
+        # places = shows = 0 despite races > 0, which divides by zero computing their place/show
+        # odds. A win that race guarantees that horse also placed and showed in it, so `wins` is
+        # a safe (if conservative) floor -- and every horse with races > 0 has wins >= 1, since
+        # seed_race_history always seeds wins >= 1 the moment races leaves 0 (see below).
+        conn.execute("UPDATE horses SET places = wins, shows = wins WHERE races > 0")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS bet_log (
@@ -542,8 +559,8 @@ def get_guild_horses(guild_id: int) -> dict[int, dict]:
     conn = _connect()
     try:
         rows = conn.execute(
-            "SELECT horse_index, is_foal, name, owner_id, speed, endurance, spirit, age, wins, races, "
-            "race_starts, last_trained FROM horses WHERE guild_id = ?",
+            "SELECT horse_index, is_foal, name, owner_id, speed, endurance, spirit, age, wins, places, shows, "
+            "races, race_starts, last_trained FROM horses WHERE guild_id = ?",
             (guild_id,),
         ).fetchall()
         return {
@@ -556,13 +573,15 @@ def get_guild_horses(guild_id: int) -> dict[int, dict]:
                 "spirit": spirit,
                 "age": age,
                 "wins": wins,
+                "places": places,
+                "shows": shows,
                 "races": races,
                 "race_starts": race_starts,
                 "last_trained": last_trained,
             }
             for (
-                horse_index, is_foal, name, owner_id, speed, endurance, spirit, age, wins, races,
-                race_starts, last_trained,
+                horse_index, is_foal, name, owner_id, speed, endurance, spirit, age, wins, places, shows,
+                races, race_starts, last_trained,
             ) in rows
         }
     finally:
@@ -693,34 +712,40 @@ def rename_horse(guild_id: int, horse_index: int, user_id: int, new_name: str) -
         conn.close()
 
 
-def seed_race_history(guild_id: int, horse_index: int, wins: int, races: int):
-    """Gives a horse with no real races yet in this guild a starting (wins, races) record.
-    Only applies while races is still 0, so it never overwrites real accumulated results."""
+def seed_race_history(guild_id: int, horse_index: int, wins: int, places: int, shows: int, races: int):
+    """Gives a horse with no real races yet in this guild a starting (wins, places, shows,
+    races) record. Only applies while races is still 0, so it never overwrites real
+    accumulated results."""
     conn = _connect()
     try:
         conn.execute(
-            "UPDATE horses SET wins = ?, races = ? WHERE guild_id = ? AND horse_index = ? AND races = 0",
-            (wins, races, guild_id, horse_index),
+            "UPDATE horses SET wins = ?, places = ?, shows = ?, races = ? "
+            "WHERE guild_id = ? AND horse_index = ? AND races = 0",
+            (wins, places, shows, races, guild_id, horse_index),
         )
         conn.commit()
     finally:
         conn.close()
 
 
-def record_race_result(guild_id: int, winner_index: int, horse_indices: list[int], race_age_interval: int):
-    """Increments races/race_starts for every horse that ran in this guild, wins for whichever
-    one actually won, and ages a horse by 1 every `race_age_interval` real starts (computed
-    from the post-increment race_starts, so the horse that crosses the 10th/20th/... start this
-    call gets its age bump in the same update)."""
+def record_race_result(guild_id: int, finish_order: list[int], race_age_interval: int):
+    """finish_order is every horse that ran, ranked 1st-first. Increments races/race_starts
+    for all of them, wins/places/shows for whichever finished top-1/top-2/top-3, and ages a
+    horse by 1 every `race_age_interval` real starts (computed from the post-increment
+    race_starts, so the horse that crosses the 10th/20th/... start this call gets its age
+    bump in the same update)."""
     conn = _connect()
     try:
-        for horse_index in horse_indices:
-            won = 1 if horse_index == winner_index else 0
+        for rank, horse_index in enumerate(finish_order, start=1):
+            won = 1 if rank == 1 else 0
+            placed = 1 if rank <= 2 else 0
+            showed = 1 if rank <= 3 else 0
             conn.execute(
-                "UPDATE horses SET races = races + 1, wins = wins + ?, race_starts = race_starts + 1, "
+                "UPDATE horses SET races = races + 1, wins = wins + ?, places = places + ?, "
+                "shows = shows + ?, race_starts = race_starts + 1, "
                 "age = age + CASE WHEN (race_starts + 1) % ? = 0 THEN 1 ELSE 0 END "
                 "WHERE guild_id = ? AND horse_index = ?",
-                (won, race_age_interval, guild_id, horse_index),
+                (won, placed, showed, race_age_interval, guild_id, horse_index),
             )
         conn.commit()
     finally:

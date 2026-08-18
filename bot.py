@@ -97,7 +97,7 @@ async def on_ready():
     print("------", flush=True)
     await asyncio.to_thread(db.migrate_legacy_users_into_guilds, [g.id for g in bot.guilds])
     for guild in bot.guilds:  # warm each guild's seed so it's not the first command paying for it
-        await asyncio.to_thread(horserace.current_win_probabilities, guild.id)
+        await asyncio.to_thread(horserace.current_probabilities, guild.id)
         await asyncio.to_thread(db.load_currency_name_cache, guild.id)
     if not sync_champions_loop.is_running():
         sync_champions_loop.start()
@@ -432,7 +432,7 @@ async def horserace_cmd(ctx):
         await ctx.send("A horse race is already open here — place your bets on that one!")
         return
 
-    roster, eligible, probabilities = await asyncio.to_thread(horserace.current_win_probabilities, ctx.guild.id)
+    roster, eligible, probabilities = await asyncio.to_thread(horserace.current_probabilities, ctx.guild.id)
     race_field = horserace.select_race_field(eligible)
     view = HorseRaceView(ctx.author, ctx.channel.id, ctx.guild.id, roster, race_field, probabilities)
     active_races[ctx.channel.id] = view
@@ -444,7 +444,7 @@ async def horserace_cmd(ctx):
 @bot.command(name="horses", aliases=["stable"])
 async def horses_cmd(ctx):
     """List every horse in the stable, its odds/price/record, and who owns it: !horses"""
-    roster, _eligible, probabilities = await asyncio.to_thread(horserace.current_win_probabilities, ctx.guild.id)
+    roster, _eligible, probabilities = await asyncio.to_thread(horserace.current_probabilities, ctx.guild.id)
     currency = db.get_currency_name(ctx.guild.id)
     lines = []
     for i in sorted(roster):
@@ -454,12 +454,12 @@ async def horses_cmd(ctx):
             odds = "—"
             status = f"Growing (age {horse['age']}/{horserace.MIN_RACING_AGE}) — owned by <@{horse['owner_id']}>"
         else:
-            odds = horserace.describe_odds(i, probabilities)
+            odds = horserace.describe_odds(i, probabilities["win"])
             if horse["owner_id"] is not None:
                 status = f"Owned by <@{horse['owner_id']}>"
             else:
-                status = f"💰 {horserace.price_of(i, probabilities)} {currency} — `!buyhorse {i + 1}`"
-        record = f"{horse['wins']}W-{horse['races'] - horse['wins']}L" if horse["races"] else "unraced"
+                status = f"💰 {horserace.price_of(i, probabilities['win'])} {currency} — `!buyhorse {i + 1}`"
+        record = f"{horse['wins']}W-{horse['places']}P-{horse['shows']}S ({horse['races']} starts)" if horse["races"] else "unraced"
         stats = (
             f"SPD {horse['speed']:.0f} / END {horse['endurance']:.0f} / SPI {horse['spirit']:.0f} — {record}"
         )
@@ -488,8 +488,8 @@ async def buyhorse_cmd(ctx, number: int = None):
         return
 
     horse_index = number - 1
-    _roster, _eligible, probabilities = await asyncio.to_thread(horserace.current_win_probabilities, ctx.guild.id)
-    price = horserace.price_of(horse_index, probabilities)
+    _roster, _eligible, probabilities = await asyncio.to_thread(horserace.current_probabilities, ctx.guild.id)
+    price = horserace.price_of(horse_index, probabilities["win"])
     status, balance = await asyncio.to_thread(db.buy_legend_horse, ctx.guild.id, horse_index, ctx.author.id, price)
 
     if status == "owned":
