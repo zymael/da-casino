@@ -163,16 +163,6 @@ class RouletteView(discord.ui.View):
             return
         await interaction.response.send_modal(NumberBetModal(self))
 
-    @discord.ui.button(label="Spin Now", style=discord.ButtonStyle.gray, row=2)
-    async def spin_now(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.starter.id:
-            await interaction.response.send_message(
-                "Only the person who started this round can spin early.", ephemeral=True
-            )
-            return
-        await interaction.response.defer()
-        await self.resolve()
-
     async def resolve(self):
         if self.resolved:
             return

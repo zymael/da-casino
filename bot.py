@@ -13,6 +13,8 @@ from holdem_view import (
     busy_players as holdem_busy_players,
     start_holdem_table,
 )
+import horserace
+from horserace_view import HorseRaceView, active_races
 from roulette_view import RouletteView, active_rounds
 from slots_view import SlotsView
 from views import BlackjackView
@@ -268,6 +270,106 @@ async def roulette_cmd(ctx):
     embed, file = view.build_display()
     message = await ctx.send(embed=embed, file=file, view=view)
     view.message = message
+
+
+async def _horse_names_and_owners(guild_id: int) -> tuple[list[str], list[int | None]]:
+    """Returns (display_names, owner_ids) for every horse, pulling any per-guild custom
+    name/ownership on top of the default roster."""
+    state = await asyncio.to_thread(db.get_horse_state, guild_id)
+    names, owners = [], []
+    for i, horse in enumerate(horserace.HORSES):
+        owner_id, custom_name = state.get(i, (None, None))
+        names.append(custom_name or horse["name"])
+        owners.append(owner_id)
+    return names, owners
+
+
+@bot.command(name="horserace", aliases=["horse", "race"])
+async def horserace_cmd(ctx):
+    """Open a horse race others can bet on before it runs: !horserace"""
+    if ctx.channel.id in active_races:
+        await ctx.send("A horse race is already open here — place your bets on that one!")
+        return
+
+    names, owners = await _horse_names_and_owners(ctx.guild.id)
+    view = HorseRaceView(ctx.author, ctx.channel.id, ctx.guild.id, names, owners)
+    active_races[ctx.channel.id] = view
+    embed, file = view.build_display()
+    message = await ctx.send(embed=embed, file=file, view=view)
+    view.message = message
+
+
+@bot.command(name="horses", aliases=["stable"])
+async def horses_cmd(ctx):
+    """List every horse, its odds/price, and who owns it: !horses"""
+    names, owners = await _horse_names_and_owners(ctx.guild.id)
+    lines = []
+    for i, horse in enumerate(horserace.HORSES):
+        odds = horserace.describe_odds(i)
+        if owners[i] is not None:
+            status = f"Owned by <@{owners[i]}>"
+        else:
+            status = f"💰 {horserace.price_of(i)} credits — `!buyhorse {i + 1}`"
+        lines.append(f"**{i + 1}. {names[i]}** ({odds}) — {status}")
+
+    embed = discord.Embed(
+        title="🐴 The Stable",
+        description="\n".join(lines),
+        color=discord.Color.dark_gold(),
+    )
+    embed.set_footer(
+        text=f"Owners earn {int(horserace.OWNER_CUT_FRACTION * 100)}% of the pot whenever their horse wins."
+    )
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="buyhorse")
+async def buyhorse_cmd(ctx, number: int = None):
+    """Buy an unowned horse: !buyhorse <number> — see !horses for numbers and prices"""
+    if await _reject_if_at_poker_table(ctx):
+        return
+    if number is None or not 1 <= number <= len(horserace.HORSES):
+        await ctx.send(f"Usage: `!buyhorse <1-{len(horserace.HORSES)}>` — see `!horses` for the list.")
+        return
+
+    horse_index = number - 1
+    price = horserace.price_of(horse_index)
+    status, balance = await asyncio.to_thread(db.buy_horse, ctx.guild.id, horse_index, ctx.author.id, price)
+
+    if status == "owned":
+        await ctx.send("That horse is already owned — check `!horses` for what's still available.")
+        return
+    horse_name = horserace.HORSES[horse_index]["name"]
+    if status == "broke":
+        await ctx.send(f"{horse_name} costs **{price}** credits — you only have **{balance}**.")
+        return
+
+    await ctx.send(
+        f"🐴 {ctx.author.display_name} bought **{horse_name}** for **{price}** credits! "
+        f"Balance: **{balance}**. Rename it with `!renamehorse {number} <name>`."
+    )
+
+
+@bot.command(name="renamehorse")
+async def renamehorse_cmd(ctx, number: int = None, *, name: str = None):
+    """Rename a horse you own: !renamehorse <number> <new name>"""
+    if number is None or not 1 <= number <= len(horserace.HORSES) or not name:
+        await ctx.send(f"Usage: `!renamehorse <1-{len(horserace.HORSES)}> <new name>`")
+        return
+    name = name.strip()
+    if not name:
+        await ctx.send("The name can't be blank.")
+        return
+    if len(name) > horserace.MAX_HORSE_NAME_LEN:
+        await ctx.send(f"Names must be {horserace.MAX_HORSE_NAME_LEN} characters or fewer.")
+        return
+
+    horse_index = number - 1
+    renamed = await asyncio.to_thread(db.rename_horse, ctx.guild.id, horse_index, ctx.author.id, name)
+    if not renamed:
+        await ctx.send("You don't own that horse — check `!horses` to see who does.")
+        return
+    await ctx.send(f"🐴 Horse #{number} is now named **{name}**!")
 
 
 @bot.command(name="holdem", aliases=["poker"])

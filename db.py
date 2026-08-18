@@ -62,6 +62,17 @@ def init_db():
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS horse_ownership (
+            guild_id INTEGER NOT NULL,
+            horse_index INTEGER NOT NULL,
+            owner_id INTEGER NOT NULL,
+            custom_name TEXT,
+            PRIMARY KEY (guild_id, horse_index)
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS bet_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             guild_id INTEGER NOT NULL,
@@ -434,6 +445,80 @@ def set_casino_channel_id(guild_id: int, channel_id: int):
             (guild_id, channel_id),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def get_horse_state(guild_id: int) -> dict[int, tuple[int, str | None]]:
+    """Returns {horse_index: (owner_id, custom_name)} for every owned horse in this guild.
+    Horses with no entry are unowned and use their default name."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT horse_index, owner_id, custom_name FROM horse_ownership WHERE guild_id = ?",
+            (guild_id,),
+        ).fetchall()
+        return {horse_index: (owner_id, custom_name) for horse_index, owner_id, custom_name in rows}
+    finally:
+        conn.close()
+
+
+def buy_horse(guild_id: int, horse_index: int, user_id: int, price: int) -> tuple[str, int]:
+    """Attempts to buy an unowned horse. Returns (status, balance):
+    "ok" (bought, balance is the new balance), "owned" (already taken), or "broke" (can't afford it)."""
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT 1 FROM horse_ownership WHERE guild_id = ? AND horse_index = ?", (guild_id, horse_index)
+        ).fetchone()
+        if existing:
+            conn.rollback()
+            balance = conn.execute(
+                "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+            ).fetchone()[0]
+            return "owned", balance
+        balance = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
+        if balance < price:
+            conn.rollback()
+            return "broke", balance
+        conn.execute(
+            "UPDATE users SET balance = balance - ? WHERE guild_id = ? AND user_id = ?",
+            (price, guild_id, user_id),
+        )
+        conn.execute(
+            "INSERT INTO horse_ownership (guild_id, horse_index, owner_id, custom_name) VALUES (?, ?, ?, NULL)",
+            (guild_id, horse_index, user_id),
+        )
+        conn.commit()
+        new_balance = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
+        return "ok", new_balance
+    finally:
+        conn.close()
+
+
+def rename_horse(guild_id: int, horse_index: int, user_id: int, new_name: str) -> bool:
+    """Renames a horse if user_id owns it. Returns whether the rename happened."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT owner_id FROM horse_ownership WHERE guild_id = ? AND horse_index = ?",
+            (guild_id, horse_index),
+        ).fetchone()
+        if not row or row[0] != user_id:
+            return False
+        conn.execute(
+            "UPDATE horse_ownership SET custom_name = ? WHERE guild_id = ? AND horse_index = ?",
+            (new_name, guild_id, horse_index),
+        )
+        conn.commit()
+        return True
     finally:
         conn.close()
 
