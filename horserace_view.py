@@ -238,9 +238,8 @@ class HorseRaceView(discord.ui.View):
         ]
         frames = horserace.simulate_race(stat_roster)
         order = horserace.finish_order_of(frames)
-        winner_position = order[0]
-        winner = self.race_field[winner_position]
         finish_order = [self.race_field[p] for p in order]
+        winner = finish_order[0]
         rank_by_horse = {horse_index: rank for rank, horse_index in enumerate(finish_order, start=1)}
         final_max = max(frames[-1])
 
@@ -289,11 +288,13 @@ class HorseRaceView(discord.ui.View):
                 f"{outcome} ({'+' if net >= 0 else ''}{net}) — Balance: {balance}"
             )
 
+        results_lines = [f"{rank}. **{self.roster[h]['name']}**" for rank, h in enumerate(finish_order, start=1)]
         result_embed = discord.Embed(
             title=f"🏁 Winner: {winner_name} ({horserace.describe_odds(winner, self.probabilities['win'])})",
-            description="\n".join(lines),
+            description="\n".join(results_lines),
             color=discord.Color.gold(),
         )
+        result_embed.add_field(name="Bets", value="\n".join(lines), inline=False)
         await asyncio.to_thread(
             db.record_race_result, self.guild_id, finish_order, horserace.RACE_AGE_INTERVAL
         )
@@ -313,7 +314,7 @@ class HorseRaceView(discord.ui.View):
                 )
 
         buf = horserace_render.render_track(
-            names, colors, odds_labels, frames[-1], final_max=final_max, winner=winner_position
+            names, colors, odds_labels, frames[-1], final_max=final_max, finish_order=order
         )
         file = discord.File(buf, filename="track.png")
         result_embed.set_image(url="attachment://track.png")
