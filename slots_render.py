@@ -176,8 +176,8 @@ def _draw_cabinet(draw: ImageDraw.ImageDraw):
         draw.ellipse([cx - 6, cy - 6, cx + 6, cy + 6], fill=TRIM, outline=TRIM_DARK, width=1)
 
     lever_x = IMG_W - LEVER_W / 2 - 6
-    draw.rectangle([lever_x - 5, HEADER_H, lever_x + 5, HEADER_H + WINDOW_H * 0.55], fill=(180, 180, 185, 255), outline=(60, 60, 65, 255), width=2)
-    knob_y = HEADER_H + WINDOW_H * 0.55
+    knob_y = HEADER_H + WINDOW_H * 0.14
+    draw.rectangle([lever_x - 5, knob_y, lever_x + 5, HEADER_H + WINDOW_H], fill=(180, 180, 185, 255), outline=(60, 60, 65, 255), width=2)
     draw.ellipse([lever_x - 14, knob_y - 14, lever_x + 14, knob_y + 14], fill=(190, 20, 30, 255), outline=(100, 10, 15, 255), width=2)
 
 
