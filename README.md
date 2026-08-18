@@ -9,6 +9,8 @@ A Discord casino bot built with [discord.py](https://discordpy.readthedocs.io/).
 - **Slots** (`!slots` / `!slot`) — 3x3 slot machine with up to 5 selectable paylines and a bet multiplier, all configured interactively via dropdowns before each spin.
 - **Roulette** (`!roulette` / `!rl`) — table roulette with rendered board images.
 - **Texas Hold'em** (`!holdem` / `!poker`) — multiplayer poker tables with buy-ins.
+- **Video Poker** (`!videopoker` / `!vp`) — 5-card draw, Jacks or Better paytable. Hold cards, then draw.
+- **Deuces Wild** (`!deuceswild` / `!dw`) — 5-card draw with wild deuces and its own paytable.
 - **Pizza** (`!pizza`) — a silly cooldown-gated side game with its own leaderboard.
 
 ## Commands
@@ -24,6 +26,8 @@ A Discord casino bot built with [discord.py](https://discordpy.readthedocs.io/).
 | `!slots` | `!slot` | Open the slot machine — pick paylines/multiplier, then spin |
 | `!roulette` | `!rl` | Open a roulette round |
 | `!holdem buy_in` | `!poker` | Start/join a hold'em table |
+| `!videopoker bet` | `!vp` | Play 5-card draw video poker (Jacks or Better) |
+| `!deuceswild bet` | `!dw` | Play 5-card draw video poker with wild deuces |
 | `!pizza` | | Buy a pizza slice (cooldown-limited) |
 | `!setcasino [#channel]` | | **Manage Server** permission required. Restrict casino commands to a channel |
 
@@ -53,6 +57,6 @@ Player balances, stats, and cooldowns are persisted to a local SQLite database (
 - `bot.py` — command registration, economy commands, bot startup
 - `db.py` — SQLite persistence layer
 - `game.py` — shared game/card utilities
-- `views.py`, `holdem_view.py`, `roulette_view.py`, `slots_view.py` — Discord UI views per game
+- `views.py`, `holdem_view.py`, `roulette_view.py`, `slots_view.py`, `video_poker_view.py` — Discord UI views per game
 - `cards_render.py`, `roulette_render.py`, `slots_render.py` — image rendering for card hands, the roulette board, and the slot machine cabinet
-- `poker.py`, `roulette.py`, `slots.py` — core game logic
+- `poker.py`, `roulette.py`, `slots.py`, `video_poker.py` — core game logic

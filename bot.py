@@ -19,6 +19,8 @@ import horserace
 from horserace_view import HorseRaceView, active_races
 from roulette_view import RouletteView, active_rounds
 from slots_view import SlotsView
+import video_poker
+from video_poker_view import VideoPokerView
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -58,7 +60,7 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 HELP_CATEGORIES = [
     ("💰 Economy", ["balance", "daily", "mine", "tip", "transfer", "pizza", "leaderboard"]),
-    ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem"]),
+    ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
     ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train"]),
     ("⚙️ Utility", ["ping", "setcasino", "setcurrency"]),
 ]
@@ -409,6 +411,37 @@ async def slots_cmd(ctx):
     view = SlotsView(ctx.author, balance, ctx.guild.id)
     message = await ctx.send(embed=view.build_bet_embed(), view=view, file=view.build_initial_file())
     view.message = message
+
+
+async def _start_video_poker(ctx, bet: int, command_name: str, variant: str):
+    if await _reject_if_at_poker_table(ctx):
+        return
+    if bet is None or bet <= 0:
+        await ctx.send(f"Usage: `!{command_name} <bet>` — e.g. `!{command_name} 50`")
+        return
+
+    balance = await asyncio.to_thread(db.get_balance, ctx.guild.id, ctx.author.id)
+    if bet > balance:
+        currency = db.get_currency_name(ctx.guild.id)
+        await ctx.send(f"You only have **{balance}** {currency}, {ctx.author.display_name}.")
+        return
+
+    balance = await asyncio.to_thread(db.update_balance, ctx.guild.id, ctx.author.id, -bet)
+    view = VideoPokerView(ctx.author, ctx.guild.id, bet, balance, variant=variant)
+    message = await ctx.send(embed=view.build_deal_embed(), file=view.build_hand_file(), view=view)
+    view.message = message
+
+
+@bot.command(name="videopoker", aliases=["vp"])
+async def video_poker_cmd(ctx, bet: int = None):
+    """Play 5-card draw video poker (Jacks or Better): !videopoker <bet> — hold your cards, then draw"""
+    await _start_video_poker(ctx, bet, "videopoker", video_poker.JACKS_OR_BETTER)
+
+
+@bot.command(name="deuceswild", aliases=["dw"])
+async def deuces_wild_cmd(ctx, bet: int = None):
+    """Play 5-card draw video poker with deuces wild: !deuceswild <bet> — 2s are wild, minimum paying hand is Three of a Kind"""
+    await _start_video_poker(ctx, bet, "deuceswild", video_poker.DEUCES_WILD)
 
 
 @bot.command(name="roulette", aliases=["rl"])

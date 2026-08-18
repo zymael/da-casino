@@ -17,7 +17,7 @@ RANK_PLURAL = {
 }
 
 
-def _score_5(cards: list[Card]) -> tuple:
+def score_5(cards: list[Card]) -> tuple:
     """Scores a single 5-card hand as a tuple that sorts correctly against other hands."""
     ranks = sorted((RANK_VALUES[c.rank] for c in cards), reverse=True)
     is_flush = len({c.suit for c in cards}) == 1
@@ -59,7 +59,7 @@ def best_hand(seven_cards: list[Card]) -> tuple[tuple, list[Card]]:
     best_score = None
     best_combo = None
     for combo in combinations(seven_cards, 5):
-        score = _score_5(list(combo))
+        score = score_5(list(combo))
         if best_score is None or score > best_score:
             best_score = score
             best_combo = list(combo)
