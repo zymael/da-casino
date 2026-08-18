@@ -37,6 +37,7 @@ class BetKindSelect(discord.ui.Select):
         view: HorseRaceView = self.view
         view.bet_kind = self.values[0]
         self.sync_default(view.bet_kind)
+        view.refresh_horse_button_labels()
         await interaction.response.edit_message(view=view)
 
 
@@ -100,9 +101,19 @@ class HorseRaceView(discord.ui.View):
 
         self.add_item(BetKindSelect(self.bet_kind))
         for position, horse_index in enumerate(race_field):
-            name = roster[horse_index]["name"]
-            label = f"{name} ({horserace.describe_odds(horse_index, probabilities['win'])})"
+            label = self._horse_button_label(horse_index, self.bet_kind)
             self.add_item(HorseButton(horse_index, label, row=1 + position // 4))
+
+    def _horse_button_label(self, horse_index: int, kind: str) -> str:
+        name = self.roster[horse_index]["name"]
+        if kind == "across":
+            return f"{name} ({self._odds_str(horse_index, kind)})"
+        return f"{name} ({horserace.describe_odds(horse_index, self.probabilities[kind])})"
+
+    def refresh_horse_button_labels(self):
+        for item in self.children:
+            if isinstance(item, HorseButton):
+                item.label = self._horse_button_label(item.horse_index, self.bet_kind)
 
     def _names(self) -> list[str]:
         return [self.roster[i]["name"] for i in self.race_field]
