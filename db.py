@@ -119,19 +119,14 @@ def init_db():
     )
     # horses predates places/shows (Place/Show bets) -- add them non-destructively, since
     # unlike the race_starts drop-and-reseed above, this table now holds real accumulated
-    # race history that must survive the migration.
+    # race history that must survive the migration. Horses with real races from before this
+    # existed are left at places = shows = 0 here; horserace.current_probabilities() detects
+    # that (races > 0 but places = shows = 0) and backfills a stat-simulated estimate the next
+    # time it's called for their guild, the same way a brand-new horse gets seeded.
     columns = {row[1] for row in conn.execute("PRAGMA table_info(horses)")}
-    adding_places_shows = "places" not in columns
     for column in ("places", "shows"):
         if column not in columns:
             conn.execute(f"ALTER TABLE horses ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
-    if adding_places_shows:
-        # Horses with real races from before place/show tracking existed would otherwise have
-        # places = shows = 0 despite races > 0, which divides by zero computing their place/show
-        # odds. A win that race guarantees that horse also placed and showed in it, so `wins` is
-        # a safe (if conservative) floor -- and every horse with races > 0 has wins >= 1, since
-        # seed_race_history always seeds wins >= 1 the moment races leaves 0 (see below).
-        conn.execute("UPDATE horses SET places = wins, shows = wins WHERE races > 0")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS bet_log (
@@ -722,6 +717,21 @@ def seed_race_history(guild_id: int, horse_index: int, wins: int, places: int, s
             "UPDATE horses SET wins = ?, places = ?, shows = ?, races = ? "
             "WHERE guild_id = ? AND horse_index = ? AND races = 0",
             (wins, places, shows, races, guild_id, horse_index),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def backfill_place_show(guild_id: int, horse_index: int, places: int, shows: int):
+    """One-time top-up for a horse with real races from before place/show tracking existed.
+    Guarded by places = 0 AND shows = 0, so it never overwrites real accumulated results."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE horses SET places = ?, shows = ? "
+            "WHERE guild_id = ? AND horse_index = ? AND places = 0 AND shows = 0",
+            (places, shows, guild_id, horse_index),
         )
         conn.commit()
     finally:

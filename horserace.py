@@ -181,12 +181,16 @@ def current_probabilities(guild_id: int) -> tuple[dict[int, dict], list[int], di
     """Returns (full_roster, eligible_horse_indices, {"win"/"place"/"show": {horse_index: rate}}) —
     each probability dict only covers eligible (old enough to race) horses. Any eligible horse
     with no races yet gets seeded first, from a stat-simulated rate against the rest of the
-    current field. Touches the database — call via asyncio.to_thread, once per command, and
-    reuse the result rather than having every call site query separately."""
+    current field. A horse with real races but no real place/show data (raced before that
+    tracking existed) gets the same stat-simulated treatment for just places/shows, scaled to
+    its actual race count rather than SEED_RACE_COUNT, floored at its real win count. Touches
+    the database — call via asyncio.to_thread, once per command, and reuse the result rather
+    than having every call site query separately."""
     roster = get_roster(guild_id)
     eligible = eligible_indices(roster)
     unseeded = [i for i in eligible if roster[i]["races"] == 0]
-    if unseeded:
+    legacy = [i for i in eligible if roster[i]["races"] > 0 and roster[i]["places"] == 0 and roster[i]["shows"] == 0]
+    if unseeded or legacy:
         stat_roster = [
             {"speed": roster[i]["speed"], "endurance": roster[i]["endurance"], "spirit": roster[i]["spirit"]}
             for i in eligible
@@ -198,6 +202,12 @@ def current_probabilities(guild_id: int) -> tuple[dict[int, dict], list[int], di
                 places = max(1, round(seed_place[position] * SEED_RACE_COUNT))
                 shows = max(1, round(seed_show[position] * SEED_RACE_COUNT))
                 db.seed_race_history(guild_id, i, wins, places, shows, SEED_RACE_COUNT)
+            elif i in legacy:
+                races = roster[i]["races"]
+                wins = roster[i]["wins"]
+                places = max(wins, round(seed_place[position] * races))
+                shows = max(wins, round(seed_show[position] * races))
+                db.backfill_place_show(guild_id, i, places, shows)
         roster = db.get_guild_horses(guild_id)
     probabilities = {
         "win": {i: roster[i]["wins"] / roster[i]["races"] for i in eligible},
