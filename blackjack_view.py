@@ -9,7 +9,7 @@ from holdem_view import busy_players
 
 JOIN_SECONDS = 45
 ACTION_SECONDS = 45
-BETWEEN_ROUNDS_SECONDS = 5
+BETWEEN_HANDS_SECONDS = 30  # how long to wait for everyone who just played to decide before dealing anyway
 
 OUTCOME_LABELS = {
     "blackjack": "🂡 Blackjack! You win",
@@ -89,7 +89,8 @@ def build_control_embed(table: BlackjackTable) -> discord.Embed:
         embed.description = "\n".join(lines)
     embed.set_footer(
         text=f"Shoe: {len(table.shoe.cards)} cards left — only reshuffles when it runs out. "
-        "Change Next Bet to sit down or update your wager. Quit to leave whenever you like."
+        "Join Table to sit down, Quit to leave whenever. Between each round, everyone who just "
+        "played gets asked to keep their bet or change it before the next one deals."
     )
     return embed
 
@@ -103,9 +104,9 @@ async def update_control_message(table: BlackjackTable):
         pass
 
 
-class BetModal(discord.ui.Modal):
+class JoinModal(discord.ui.Modal):
     def __init__(self, table: BlackjackTable):
-        super().__init__(title="Change Next Bet")
+        super().__init__(title="Join Table")
         self.table = table
         self.amount_input = discord.ui.TextInput(label="Bet each round", placeholder="e.g. 50")
         self.add_item(self.amount_input)
@@ -120,40 +121,40 @@ class BetModal(discord.ui.Modal):
             await interaction.response.send_message("Bet must be positive.", ephemeral=True)
             return
 
-        seat = self.table.seat_for(interaction.user.id)
-        if seat is not None:
-            seat.bet = bet
-            seat.standing = False
-            await interaction.response.send_message("Bet updated for your next round.", ephemeral=True)
-        else:
-            self.table.seats.append(BlackjackSeat(interaction.user, bet))
-            await interaction.response.send_message("You're seated! You'll be dealt into the next round.", ephemeral=True)
-
+        self.table.seats.append(BlackjackSeat(interaction.user, bet))
+        await interaction.response.send_message("You're seated! You'll be dealt into the next round.", ephemeral=True)
         await update_control_message(self.table)
 
 
-class ChangeBetButton(discord.ui.Button):
-    """Sit down or update your bet for the next round. Standalone (not tied to a shared
-    view-level interaction_check) so it can be dropped into any message in the table's flow,
-    including per-turn messages that restrict their other buttons to just the acting player."""
+class JoinButton(discord.ui.Button):
+    """Sit down at the table for the first time. An existing seat changes its bet between
+    hands instead (see BetweenHandsView) -- there's no "queue this for later" anymore, it's a
+    dedicated step the table actually waits on."""
 
-    def __init__(self, table: BlackjackTable, row: int | None = None):
-        super().__init__(label="Change Next Bet", style=discord.ButtonStyle.success, row=row)
+    def __init__(self, table: BlackjackTable):
+        super().__init__(label="Join Table", style=discord.ButtonStyle.success)
         self.table = table
 
     async def callback(self, interaction: discord.Interaction):
         if interaction.user.bot:
             await interaction.response.send_message("Bots can't play.", ephemeral=True)
             return
-        await interaction.response.send_modal(BetModal(self.table))
+        if self.table.seat_for(interaction.user.id) is not None:
+            await interaction.response.send_message(
+                "You're already seated — change your bet between hands, after the current round.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_modal(JoinModal(self.table))
 
 
 class QuitButton(discord.ui.Button):
-    """Leave the table after the current round. Standalone for the same reason as
-    ChangeBetButton above."""
+    """Leave the table after the current round -- available any time (unlike bet changes,
+    which are a between-hands-only decision) so a seated player who isn't in a round this
+    time around, e.g. too broke to be dealt in, always has a way out."""
 
-    def __init__(self, table: BlackjackTable, row: int | None = None):
-        super().__init__(label="Quit", style=discord.ButtonStyle.danger, row=row)
+    def __init__(self, table: BlackjackTable):
+        super().__init__(label="Quit", style=discord.ButtonStyle.danger)
         self.table = table
 
     async def callback(self, interaction: discord.Interaction):
@@ -170,7 +171,7 @@ class TableControlView(discord.ui.View):
     def __init__(self, table: BlackjackTable):
         super().__init__(timeout=None)
         self.table = table
-        self.add_item(ChangeBetButton(table))
+        self.add_item(JoinButton(table))
         self.add_item(QuitButton(table))
 
 
@@ -182,25 +183,16 @@ class BlackjackTurnView(discord.ui.View):
         self.dealer = dealer
         self.done = False
         self.message: discord.Message | None = None
-        # Table-wide actions, usable by anyone seated regardless of whose turn this is --
-        # can't rely on a shared interaction_check here since Hit/Stand/Double Down must stay
-        # restricted to the acting player, so each of those checks itself instead.
-        self.add_item(ChangeBetButton(table, row=1))
-        self.add_item(QuitButton(table, row=1))
 
-    def _disable_all(self):
-        # Leave the table-wide buttons live even once this turn is over, so this message keeps
-        # working for Change Next Bet / Quit indefinitely, same as every other message here.
-        for item in self.children:
-            if isinstance(item, (ChangeBetButton, QuitButton)):
-                continue
-            item.disabled = True
-
-    async def _reject_if_not_your_turn(self, interaction: discord.Interaction) -> bool:
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.hand.member.id:
             await interaction.response.send_message("It's not your turn.", ephemeral=True)
-            return True
-        return False
+            return False
+        return True
+
+    def _disable_all(self):
+        for item in self.children:
+            item.disabled = True
 
     def build_display(self, result_text: str | None = None) -> tuple[list[discord.Embed], list[discord.File]]:
         files = []
@@ -232,8 +224,6 @@ class BlackjackTurnView(discord.ui.View):
 
     @discord.ui.button(label="Hit", style=discord.ButtonStyle.primary, row=0)
     async def hit(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if await self._reject_if_not_your_turn(interaction):
-            return
         self.hand.cards.append(self.table.draw())
         if len(self.hand.cards) > 2:
             self.double_down.disabled = True
@@ -246,14 +236,10 @@ class BlackjackTurnView(discord.ui.View):
 
     @discord.ui.button(label="Stand", style=discord.ButtonStyle.secondary, row=0)
     async def stand(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if await self._reject_if_not_your_turn(interaction):
-            return
         await self._finish(interaction, "✋ Stand")
 
     @discord.ui.button(label="Double Down", style=discord.ButtonStyle.danger, row=0)
     async def double_down(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if await self._reject_if_not_your_turn(interaction):
-            return
         currency = db.get_currency_name(self.table.guild_id)
         balance = await asyncio.to_thread(db.get_balance, self.table.guild_id, self.hand.member.id)
         if balance < self.hand.bet:
@@ -310,10 +296,100 @@ async def settle_round(ctx, table: BlackjackTable, hands: list[BlackjackHand], d
         player_embed.set_footer(text=f"Balance: {balance} {currency}")
         embeds.append(player_embed)
 
-    await ctx.send(embeds=embeds[:10], files=files, view=TableControlView(table))
+    await ctx.send(embeds=embeds[:10], files=files)
 
 
-async def play_round(ctx, table: BlackjackTable, seats: list[BlackjackSeat]):
+class BetweenHandsBetModal(discord.ui.Modal):
+    def __init__(self, view: "BetweenHandsView"):
+        super().__init__(title="Change Next Bet")
+        self.view = view
+        self.amount_input = discord.ui.TextInput(label="Bet each round", placeholder="e.g. 50")
+        self.add_item(self.amount_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            bet = int(self.amount_input.value)
+        except ValueError:
+            await interaction.response.send_message("Enter a whole number.", ephemeral=True)
+            return
+        if bet <= 0:
+            await interaction.response.send_message("Bet must be positive.", ephemeral=True)
+            return
+
+        seat = self.view.table.seat_for(interaction.user.id)
+        seat.bet = bet
+        await interaction.response.send_message(f"Bet updated to {bet} for the next round.", ephemeral=True)
+        await self.view.mark_decided(interaction.user.id)
+
+
+class BetweenHandsView(discord.ui.View):
+    """Shown after a round settles, listing everyone who just played. The table won't deal
+    the next round until every one of them has confirmed -- keep their bet, change it, or
+    leave -- rather than letting changes get silently queued for whenever."""
+
+    def __init__(self, table: BlackjackTable, pending_ids: set[int]):
+        super().__init__(timeout=None)  # run_table owns the actual wait/timeout, via decided_event
+        self.table = table
+        self.pending = set(pending_ids)
+        self.message: discord.Message | None = None
+        self.decided_event = asyncio.Event()
+        if not self.pending:
+            self.decided_event.set()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id not in self.pending:
+            await interaction.response.send_message(
+                "You're not part of this decision (already decided, or weren't in that round).", ephemeral=True
+            )
+            return False
+        return True
+
+    def build_embed(self, timed_out: bool = False) -> discord.Embed:
+        embed = discord.Embed(title="🃏 Between Hands", color=discord.Color.blurple())
+        if self.pending:
+            names = ", ".join(f"<@{uid}>" for uid in self.pending)
+            if timed_out:
+                embed.description = f"Still waiting on: {names} — dealing anyway with their current bet."
+            else:
+                embed.description = f"Waiting on: {names}\nKeep your bet, change it, or quit before the next round deals."
+        else:
+            embed.description = "Everyone's decided — dealing the next round..."
+        return embed
+
+    async def mark_decided(self, user_id: int):
+        self.pending.discard(user_id)
+        if not self.pending:
+            self.decided_event.set()
+            self._disable_all()
+        if self.message is not None:
+            try:
+                await self.message.edit(embed=self.build_embed(), view=self)
+            except discord.HTTPException:
+                pass
+
+    def _disable_all(self):
+        for item in self.children:
+            item.disabled = True
+
+    @discord.ui.button(label="Keep Bet", style=discord.ButtonStyle.secondary)
+    async def keep_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("Keeping your current bet.", ephemeral=True)
+        await self.mark_decided(interaction.user.id)
+
+    @discord.ui.button(label="Change Bet", style=discord.ButtonStyle.success)
+    async def change_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(BetweenHandsBetModal(self))
+
+    @discord.ui.button(label="Quit", style=discord.ButtonStyle.danger)
+    async def quit_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        seat = self.table.seat_for(interaction.user.id)
+        if seat is not None:
+            seat.standing = True
+        await interaction.response.send_message("Noted — you'll stand up before the next round.", ephemeral=True)
+        await self.mark_decided(interaction.user.id)
+
+
+async def play_round(ctx, table: BlackjackTable, seats: list[BlackjackSeat]) -> set[int]:
     hands = [BlackjackHand(s.member, s.bet) for s in seats]
     busy_players.update(h.member.id for h in hands)
     try:
@@ -343,8 +419,31 @@ async def play_round(ctx, table: BlackjackTable, seats: list[BlackjackSeat]):
                 dealer.append(table.draw())
 
         await settle_round(ctx, table, hands, dealer, dealer_natural)
+        return {h.member.id for h in hands}
     finally:
         busy_players.difference_update(h.member.id for h in hands)
+
+
+async def run_between_hands(ctx, table: BlackjackTable, played_ids: set[int]):
+    """Waits for everyone who just played (and is still seated) to confirm keep/change/quit
+    before the next round deals -- up to BETWEEN_HANDS_SECONDS, after which anyone who hasn't
+    responded just keeps their current bet."""
+    pending_ids = {uid for uid in played_ids if table.seat_for(uid) is not None}
+    view = BetweenHandsView(table, pending_ids)
+    message = await ctx.send(embed=view.build_embed(), view=view)
+    view.message = message
+
+    try:
+        await asyncio.wait_for(view.decided_event.wait(), timeout=BETWEEN_HANDS_SECONDS)
+    except asyncio.TimeoutError:
+        pass
+
+    if view.pending:
+        view._disable_all()
+        try:
+            await message.edit(embed=view.build_embed(timed_out=True), view=view)
+        except discord.HTTPException:
+            pass
 
 
 async def run_table(ctx, table: BlackjackTable):
@@ -364,7 +463,7 @@ async def run_table(ctx, table: BlackjackTable):
                 await ctx.send("No funded players left to deal a round — table closed. Run `!blackjack <bet>` to start a new one.")
                 break
 
-            await play_round(ctx, table, playable)
+            played_ids = await play_round(ctx, table, playable)
 
             table.seats = [s for s in table.seats if not s.standing]
             await update_control_message(table)
@@ -373,7 +472,14 @@ async def run_table(ctx, table: BlackjackTable):
                 await ctx.send("Table closed — everyone's stood up.")
                 break
 
-            await asyncio.sleep(BETWEEN_ROUNDS_SECONDS)
+            await run_between_hands(ctx, table, played_ids)
+
+            table.seats = [s for s in table.seats if not s.standing]  # someone may have quit during the wait
+            await update_control_message(table)
+
+            if not table.seats:
+                await ctx.send("Table closed — everyone's stood up.")
+                break
     finally:
         active_tables.pop(table.channel_id, None)
         if table.control_message is not None:
