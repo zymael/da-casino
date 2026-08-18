@@ -76,6 +76,8 @@ async def on_ready():
     print(f"{bot.user} has connected to Discord!", flush=True)
     print("------", flush=True)
     await asyncio.to_thread(db.migrate_legacy_users_into_guilds, [g.id for g in bot.guilds])
+    for guild in bot.guilds:  # warm each guild's seed so it's not the first command paying for it
+        await asyncio.to_thread(horserace.current_win_probabilities, guild.id)
     if not sync_champions_loop.is_running():
         sync_champions_loop.start()
 
@@ -272,18 +274,6 @@ async def roulette_cmd(ctx):
     view.message = message
 
 
-async def _horse_names_and_owners(guild_id: int) -> tuple[list[str], list[int | None]]:
-    """Returns (display_names, owner_ids) for every horse, pulling any per-guild custom
-    name/ownership on top of the default roster."""
-    state = await asyncio.to_thread(db.get_horse_state, guild_id)
-    names, owners = [], []
-    for i, horse in enumerate(horserace.HORSES):
-        owner_id, custom_name = state.get(i, (None, None))
-        names.append(custom_name or horse["name"])
-        owners.append(owner_id)
-    return names, owners
-
-
 @bot.command(name="horserace", aliases=["horse", "race"])
 async def horserace_cmd(ctx):
     """Open a horse race others can bet on before it runs: !horserace"""
@@ -291,8 +281,9 @@ async def horserace_cmd(ctx):
         await ctx.send("A horse race is already open here — place your bets on that one!")
         return
 
-    names, owners = await _horse_names_and_owners(ctx.guild.id)
-    view = HorseRaceView(ctx.author, ctx.channel.id, ctx.guild.id, names, owners)
+    roster, eligible, probabilities = await asyncio.to_thread(horserace.current_win_probabilities, ctx.guild.id)
+    race_field = horserace.select_race_field(eligible)
+    view = HorseRaceView(ctx.author, ctx.channel.id, ctx.guild.id, roster, race_field, probabilities)
     active_races[ctx.channel.id] = view
     embed, file = view.build_display()
     message = await ctx.send(embed=embed, file=file, view=view)
@@ -301,16 +292,26 @@ async def horserace_cmd(ctx):
 
 @bot.command(name="horses", aliases=["stable"])
 async def horses_cmd(ctx):
-    """List every horse, its odds/price, and who owns it: !horses"""
-    names, owners = await _horse_names_and_owners(ctx.guild.id)
+    """List every horse in the stable, its odds/price/record, and who owns it: !horses"""
+    roster, _eligible, probabilities = await asyncio.to_thread(horserace.current_win_probabilities, ctx.guild.id)
     lines = []
-    for i, horse in enumerate(horserace.HORSES):
-        odds = horserace.describe_odds(i)
-        if owners[i] is not None:
-            status = f"Owned by <@{owners[i]}>"
+    for i in sorted(roster):
+        horse = roster[i]
+        kind = "🐣 Foal" if horse["is_foal"] else "🏆 Legend"
+        if horse["age"] < horserace.MIN_RACING_AGE:
+            odds = "—"
+            status = f"Growing (age {horse['age']}/{horserace.MIN_RACING_AGE}) — owned by <@{horse['owner_id']}>"
         else:
-            status = f"💰 {horserace.price_of(i)} credits — `!buyhorse {i + 1}`"
-        lines.append(f"**{i + 1}. {names[i]}** ({odds}) — {status}")
+            odds = horserace.describe_odds(i, probabilities)
+            if horse["owner_id"] is not None:
+                status = f"Owned by <@{horse['owner_id']}>"
+            else:
+                status = f"💰 {horserace.price_of(i, probabilities)} credits — `!buyhorse {i + 1}`"
+        record = f"{horse['wins']}W-{horse['races'] - horse['wins']}L" if horse["races"] else "unraced"
+        stats = (
+            f"SPD {horse['speed']:.0f} / END {horse['endurance']:.0f} / SPI {horse['spirit']:.0f} — {record}"
+        )
+        lines.append(f"**{i + 1}. {horse['name']}** ({odds}) — {kind} — {status}\n{stats}")
 
     embed = discord.Embed(
         title="🐴 The Stable",
@@ -318,23 +319,26 @@ async def horses_cmd(ctx):
         color=discord.Color.dark_gold(),
     )
     embed.set_footer(
-        text=f"Owners earn {int(horserace.OWNER_CUT_FRACTION * 100)}% of the pot whenever their horse wins."
+        text=f"Owners earn {int(horserace.OWNER_CUT_FRACTION * 100)}% of the pot whenever their horse wins. "
+        f"`!buyfoal <name>` for {horserace.FOAL_PRICE} credits to start your own — `!train <number>` once "
+        f"a day to raise its stats and age until it can race at age {horserace.MIN_RACING_AGE}."
     )
     await ctx.send(embed=embed)
 
 
 @bot.command(name="buyhorse")
 async def buyhorse_cmd(ctx, number: int = None):
-    """Buy an unowned horse: !buyhorse <number> — see !horses for numbers and prices"""
+    """Buy an unowned legend: !buyhorse <number> — see !horses for numbers and prices"""
     if await _reject_if_at_poker_table(ctx):
         return
-    if number is None or not 1 <= number <= len(horserace.HORSES):
-        await ctx.send(f"Usage: `!buyhorse <1-{len(horserace.HORSES)}>` — see `!horses` for the list.")
+    if number is None or not 1 <= number <= horserace.LEGEND_COUNT:
+        await ctx.send(f"Usage: `!buyhorse <1-{horserace.LEGEND_COUNT}>` — see `!horses` for the list.")
         return
 
     horse_index = number - 1
-    price = horserace.price_of(horse_index)
-    status, balance = await asyncio.to_thread(db.buy_horse, ctx.guild.id, horse_index, ctx.author.id, price)
+    _roster, _eligible, probabilities = await asyncio.to_thread(horserace.current_win_probabilities, ctx.guild.id)
+    price = horserace.price_of(horse_index, probabilities)
+    status, balance = await asyncio.to_thread(db.buy_legend_horse, ctx.guild.id, horse_index, ctx.author.id, price)
 
     if status == "owned":
         await ctx.send("That horse is already owned — check `!horses` for what's still available.")
@@ -350,11 +354,40 @@ async def buyhorse_cmd(ctx, number: int = None):
     )
 
 
+@bot.command(name="buyfoal")
+async def buyfoal_cmd(ctx, *, name: str = None):
+    """Buy a brand-new foal and name it: !buyfoal <name> — cheap, but starts weaker than every
+    legend and needs daily training before it's old enough to race"""
+    if await _reject_if_at_poker_table(ctx):
+        return
+    if not name or not name.strip():
+        await ctx.send("Usage: `!buyfoal <name>` — e.g. `!buyfoal Lightning`")
+        return
+    name = name.strip()
+    if len(name) > horserace.MAX_HORSE_NAME_LEN:
+        await ctx.send(f"Names must be {horserace.MAX_HORSE_NAME_LEN} characters or fewer.")
+        return
+
+    horse_index = await asyncio.to_thread(db.next_horse_index, ctx.guild.id, horserace.LEGEND_COUNT)
+    status, balance = await asyncio.to_thread(
+        db.buy_foal, ctx.guild.id, horse_index, ctx.author.id, name, horserace.FOAL_PRICE, *horserace.FOAL_BASE_STATS.values()
+    )
+    if status == "broke":
+        await ctx.send(f"A foal costs **{horserace.FOAL_PRICE}** credits — you only have **{balance}**.")
+        return
+
+    await ctx.send(
+        f"🐣 {ctx.author.display_name} bought a foal named **{name}** for **{horserace.FOAL_PRICE}** credits! "
+        f"Balance: **{balance}**. Train it with `!train {horse_index + 1}` once a day — it needs to reach "
+        f"age {horserace.MIN_RACING_AGE} before it can race."
+    )
+
+
 @bot.command(name="renamehorse")
 async def renamehorse_cmd(ctx, number: int = None, *, name: str = None):
     """Rename a horse you own: !renamehorse <number> <new name>"""
-    if number is None or not 1 <= number <= len(horserace.HORSES) or not name:
-        await ctx.send(f"Usage: `!renamehorse <1-{len(horserace.HORSES)}> <new name>`")
+    if number is None or number < 1 or not name:
+        await ctx.send("Usage: `!renamehorse <number> <new name>` — see `!horses` for numbers.")
         return
     name = name.strip()
     if not name:
@@ -370,6 +403,39 @@ async def renamehorse_cmd(ctx, number: int = None, *, name: str = None):
         await ctx.send("You don't own that horse — check `!horses` to see who does.")
         return
     await ctx.send(f"🐴 Horse #{number} is now named **{name}**!")
+
+
+@bot.command(name="train")
+async def train_cmd(ctx, number: int = None):
+    """Train a horse you own once per day, raising its stats and age: !train <number>"""
+    if number is None or number < 1:
+        await ctx.send("Usage: `!train <number>` — see `!horses` for numbers.")
+        return
+
+    horse_index = number - 1
+    speed_gain = random.uniform(horserace.TRAIN_STAT_GAIN_MIN, horserace.TRAIN_STAT_GAIN_MAX)
+    endurance_gain = random.uniform(horserace.TRAIN_STAT_GAIN_MIN, horserace.TRAIN_STAT_GAIN_MAX)
+    spirit_gain = random.uniform(horserace.TRAIN_STAT_GAIN_MIN, horserace.TRAIN_STAT_GAIN_MAX)
+    status, payload = await asyncio.to_thread(
+        db.train_horse, ctx.guild.id, horse_index, ctx.author.id,
+        speed_gain, endurance_gain, spirit_gain, horserace.STAT_CAP,
+    )
+    if status == "not_owner":
+        await ctx.send("You don't own that horse — check `!horses` to see who does.")
+        return
+    if status == "cooldown":
+        await ctx.send("That horse has already been trained today — try again tomorrow.")
+        return
+
+    new_speed, new_endurance, new_spirit, new_age = payload
+    horses = await asyncio.to_thread(db.get_guild_horses, ctx.guild.id)
+    name = horses[horse_index]["name"]
+    lines = [f"🏋️ **{name}** trained! SPD {new_speed:.0f} / END {new_endurance:.0f} / SPI {new_spirit:.0f} — Age {new_age}"]
+    if new_age < horserace.MIN_RACING_AGE:
+        lines.append(f"Still growing — needs age {horserace.MIN_RACING_AGE} to enter a race.")
+    elif new_age == horserace.MIN_RACING_AGE:
+        lines.append("🎉 Old enough to race now!")
+    await ctx.send("\n".join(lines))
 
 
 @bot.command(name="holdem", aliases=["poker"])

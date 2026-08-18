@@ -2,14 +2,11 @@ import io
 
 from PIL import Image, ImageDraw, ImageFont
 
-import horserace
-
 LANE_H = 46
 LABEL_W = 150
 TRACK_MARGIN_R = 60
 TRACK_W = 420
 IMG_W = LABEL_W + TRACK_W + TRACK_MARGIN_R
-IMG_H = LANE_H * len(horserace.HORSES) + 20
 
 DIRT = (150, 105, 65, 255)
 RAIL = (230, 225, 210, 255)
@@ -36,14 +33,14 @@ def _vcentered_text(draw: ImageDraw.ImageDraw, x, cy, text, font, fill, anchor_l
     draw.text((tx - bbox[0], cy - h / 2 - bbox[1]), text, font=font, fill=fill)
 
 
-def _draw_track(draw: ImageDraw.ImageDraw, names: list[str]):
-    n = len(horserace.HORSES)
-    draw.rectangle([LABEL_W, 0, IMG_W, IMG_H], fill=DIRT)
+def _draw_track(draw: ImageDraw.ImageDraw, img_h: int, names: list[str], odds_labels: list[str]):
+    n = len(names)
+    draw.rectangle([LABEL_W, 0, IMG_W, img_h], fill=DIRT)
     for i in range(n + 1):
         y = 10 + LANE_H * i
         draw.line([(LABEL_W, y), (IMG_W, y)], fill=LANE_LINE, width=1)
 
-    draw.line([(LABEL_W, 0), (LABEL_W, IMG_H)], fill=GATE_COLOR, width=6)
+    draw.line([(LABEL_W, 0), (LABEL_W, img_h)], fill=GATE_COLOR, width=6)
 
     finish_x = IMG_W - TRACK_MARGIN_R
     square = 8
@@ -63,7 +60,7 @@ def _draw_track(draw: ImageDraw.ImageDraw, names: list[str]):
     for i in range(n):
         cy = _lane_center_y(i)
         _vcentered_text(draw, 8, cy - 8, names[i], _name_font, TEXT_COLOR)
-        _vcentered_text(draw, 8, cy + 9, horserace.describe_odds(i), _marker_font, (225, 210, 180, 255))
+        _vcentered_text(draw, 8, cy + 9, odds_labels[i], _marker_font, (225, 210, 180, 255))
 
 
 def _draw_horse_marker(draw: ImageDraw.ImageDraw, x: float, y: float, color, label: str, crowned: bool):
@@ -81,25 +78,28 @@ def _draw_horse_marker(draw: ImageDraw.ImageDraw, x: float, y: float, color, lab
 
 
 def render_track(
+    names: list[str],
+    colors: list[tuple[int, int, int, int]],
+    odds_labels: list[str],
     positions: list[float] | None = None,
     final_max: float | None = None,
     winner: int | None = None,
-    names: list[str] | None = None,
 ) -> io.BytesIO:
-    """Draws the track with each horse's marker placed by its progress.
+    """Draws the track with one lane per horse and a marker placed by its progress.
 
+    `names`/`colors`/`odds_labels` are parallel lists, one entry per horse actually racing
+    (the field size varies per guild once foals exist, so nothing here is a fixed constant).
     `positions` is per-horse cumulative distance (None = everyone still at the gate).
-    `final_max` normalizes the scale across every frame of a race so markers only ever
-    move rightward as legs are drawn; without it, positions are normalized to their own max.
+    `final_max` normalizes the scale across every frame of a race so markers only ever move
+    rightward as legs are drawn; without it, positions are normalized to their own max.
     `winner` (only known on the final frame) gets a little crown over its marker.
-    `names` overrides the default horse names (e.g. with an owner's custom name).
     """
-    img = Image.new("RGBA", (IMG_W, IMG_H), (0, 0, 0, 0))
+    n = len(names)
+    img_h = LANE_H * n + 20
+    img = Image.new("RGBA", (IMG_W, img_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    names = names or [h["name"] for h in horserace.HORSES]
-    _draw_track(draw, names)
+    _draw_track(draw, img_h, names, odds_labels)
 
-    n = len(horserace.HORSES)
     lane_x0 = LABEL_W + 14
     lane_x1 = IMG_W - TRACK_MARGIN_R - 14
     span = lane_x1 - lane_x0
@@ -108,12 +108,12 @@ def render_track(
         positions = [0.0] * n
     scale = final_max if final_max else (max(positions) or 1.0)
 
-    for i, horse in enumerate(horserace.HORSES):
+    for i in range(n):
         frac = min(positions[i] / scale, 1.0) if scale else 0.0
         x = lane_x0 + span * frac
         y = _lane_center_y(i)
         label = str(i + 1)
-        _draw_horse_marker(draw, x, y, horse["color"], label, crowned=(winner == i))
+        _draw_horse_marker(draw, x, y, colors[i], label, crowned=(winner == i))
 
     buf = io.BytesIO()
     img.convert("RGB").save(buf, format="PNG")

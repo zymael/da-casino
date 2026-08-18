@@ -60,13 +60,42 @@ def init_db():
         )
         """
     )
+    # horse_ownership and horse_record (both briefly shipped, holding nothing but seed/empty
+    # data so far — no real purchases or races existed against either) are superseded by the
+    # single `horses` table below, which now also owns stats/age. Safe to drop and reseed.
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    for legacy_table in ("horse_ownership", "horse_record"):
+        if legacy_table in tables:
+            conn.execute(f"DROP TABLE {legacy_table}")
+    # `horses` briefly shipped without race_starts; still holding nothing but seed data (no
+    # horse had actually raced yet), so it's safe to drop and reseed rather than migrate.
+    if "horses" in tables:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(horses)")}
+        if "race_starts" not in columns:
+            conn.execute("DROP TABLE horses")
+    # One row per horse per guild: horse_index 0..LEGEND_COUNT-1 are the fixed legend roster
+    # (lazily seeded from horserace.HORSES on first touch in a guild), horse_index
+    # LEGEND_COUNT+ are foals bought into that guild's stable. Stats/age are mutable via
+    # training; wins/races accumulate from real races (seeded once a horse first becomes
+    # race-eligible, same idea as the old horse_record seeding). race_starts is separate from
+    # races: races starts pre-loaded with a virtual seed count for odds purposes, but
+    # race_starts only ever counts real starts, since that's what slowly ages a horse too.
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS horse_ownership (
+        CREATE TABLE IF NOT EXISTS horses (
             guild_id INTEGER NOT NULL,
             horse_index INTEGER NOT NULL,
-            owner_id INTEGER NOT NULL,
-            custom_name TEXT,
+            is_foal INTEGER NOT NULL DEFAULT 0,
+            name TEXT NOT NULL,
+            owner_id INTEGER,
+            speed REAL NOT NULL,
+            endurance REAL NOT NULL,
+            spirit REAL NOT NULL,
+            age INTEGER NOT NULL DEFAULT 0,
+            wins INTEGER NOT NULL DEFAULT 0,
+            races INTEGER NOT NULL DEFAULT 0,
+            race_starts INTEGER NOT NULL DEFAULT 0,
+            last_trained TEXT,
             PRIMARY KEY (guild_id, horse_index)
         )
         """
@@ -449,32 +478,81 @@ def set_casino_channel_id(guild_id: int, channel_id: int):
         conn.close()
 
 
-def get_horse_state(guild_id: int) -> dict[int, tuple[int, str | None]]:
-    """Returns {horse_index: (owner_id, custom_name)} for every owned horse in this guild.
-    Horses with no entry are unowned and use their default name."""
+def get_guild_horses(guild_id: int) -> dict[int, dict]:
+    """Returns {horse_index: {...}} for every horse that exists in this guild's stable —
+    legends already touched here, plus any foals bought into it."""
     conn = _connect()
     try:
         rows = conn.execute(
-            "SELECT horse_index, owner_id, custom_name FROM horse_ownership WHERE guild_id = ?",
+            "SELECT horse_index, is_foal, name, owner_id, speed, endurance, spirit, age, wins, races, "
+            "race_starts, last_trained FROM horses WHERE guild_id = ?",
             (guild_id,),
         ).fetchall()
-        return {horse_index: (owner_id, custom_name) for horse_index, owner_id, custom_name in rows}
+        return {
+            horse_index: {
+                "is_foal": bool(is_foal),
+                "name": name,
+                "owner_id": owner_id,
+                "speed": speed,
+                "endurance": endurance,
+                "spirit": spirit,
+                "age": age,
+                "wins": wins,
+                "races": races,
+                "race_starts": race_starts,
+                "last_trained": last_trained,
+            }
+            for (
+                horse_index, is_foal, name, owner_id, speed, endurance, spirit, age, wins, races,
+                race_starts, last_trained,
+            ) in rows
+        }
     finally:
         conn.close()
 
 
-def buy_horse(guild_id: int, horse_index: int, user_id: int, price: int) -> tuple[str, int]:
-    """Attempts to buy an unowned horse. Returns (status, balance):
-    "ok" (bought, balance is the new balance), "owned" (already taken), or "broke" (can't afford it)."""
+def seed_legend(guild_id: int, horse_index: int, name: str, speed: float, endurance: float, spirit: float, age: int):
+    """Creates a legend horse's row the first time it's touched in a guild. A no-op if it
+    already exists (never overwrites a rename, training, or ownership already in place)."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO horses "
+            "(guild_id, horse_index, is_foal, name, owner_id, speed, endurance, spirit, age) "
+            "VALUES (?, ?, 0, ?, NULL, ?, ?, ?, ?)",
+            (guild_id, horse_index, name, speed, endurance, spirit, age),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def next_horse_index(guild_id: int, legend_count: int) -> int:
+    """The horse_index a newly bought foal should get: right after the highest index this
+    guild has used so far (starting at legend_count if no foals exist yet)."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT MAX(horse_index) FROM horses WHERE guild_id = ?", (guild_id,)
+        ).fetchone()
+        current_max = row[0]
+        return max(legend_count - 1, current_max if current_max is not None else -1) + 1
+    finally:
+        conn.close()
+
+
+def buy_legend_horse(guild_id: int, horse_index: int, user_id: int, price: int) -> tuple[str, int]:
+    """Attempts to buy an unowned legend (its row must already exist via seed_legend).
+    Returns (status, balance): "ok", "owned", or "broke"."""
     conn = _connect()
     try:
         _ensure_user(conn, guild_id, user_id)
         conn.commit()
         conn.execute("BEGIN IMMEDIATE")
-        existing = conn.execute(
-            "SELECT 1 FROM horse_ownership WHERE guild_id = ? AND horse_index = ?", (guild_id, horse_index)
+        row = conn.execute(
+            "SELECT owner_id FROM horses WHERE guild_id = ? AND horse_index = ?", (guild_id, horse_index)
         ).fetchone()
-        if existing:
+        if row is None or row[0] is not None:
             conn.rollback()
             balance = conn.execute(
                 "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
@@ -491,8 +569,42 @@ def buy_horse(guild_id: int, horse_index: int, user_id: int, price: int) -> tupl
             (price, guild_id, user_id),
         )
         conn.execute(
-            "INSERT INTO horse_ownership (guild_id, horse_index, owner_id, custom_name) VALUES (?, ?, ?, NULL)",
-            (guild_id, horse_index, user_id),
+            "UPDATE horses SET owner_id = ? WHERE guild_id = ? AND horse_index = ?",
+            (user_id, guild_id, horse_index),
+        )
+        conn.commit()
+        new_balance = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
+        return "ok", new_balance
+    finally:
+        conn.close()
+
+
+def buy_foal(
+    guild_id: int, horse_index: int, user_id: int, name: str, price: int,
+    speed: float, endurance: float, spirit: float,
+) -> tuple[str, int]:
+    """Creates and buys a brand-new foal in one step. Returns (status, balance): "ok" or "broke"."""
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        balance = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
+        if balance < price:
+            conn.rollback()
+            return "broke", balance
+        conn.execute(
+            "UPDATE users SET balance = balance - ? WHERE guild_id = ? AND user_id = ?",
+            (price, guild_id, user_id),
+        )
+        conn.execute(
+            "INSERT INTO horses (guild_id, horse_index, is_foal, name, owner_id, speed, endurance, spirit, age) "
+            "VALUES (?, ?, 1, ?, ?, ?, ?, ?, 0)",
+            (guild_id, horse_index, name, user_id, speed, endurance, spirit),
         )
         conn.commit()
         new_balance = conn.execute(
@@ -508,17 +620,86 @@ def rename_horse(guild_id: int, horse_index: int, user_id: int, new_name: str) -
     conn = _connect()
     try:
         row = conn.execute(
-            "SELECT owner_id FROM horse_ownership WHERE guild_id = ? AND horse_index = ?",
+            "SELECT owner_id FROM horses WHERE guild_id = ? AND horse_index = ?",
             (guild_id, horse_index),
         ).fetchone()
         if not row or row[0] != user_id:
             return False
         conn.execute(
-            "UPDATE horse_ownership SET custom_name = ? WHERE guild_id = ? AND horse_index = ?",
+            "UPDATE horses SET name = ? WHERE guild_id = ? AND horse_index = ?",
             (new_name, guild_id, horse_index),
         )
         conn.commit()
         return True
+    finally:
+        conn.close()
+
+
+def seed_race_history(guild_id: int, horse_index: int, wins: int, races: int):
+    """Gives a horse with no real races yet in this guild a starting (wins, races) record.
+    Only applies while races is still 0, so it never overwrites real accumulated results."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE horses SET wins = ?, races = ? WHERE guild_id = ? AND horse_index = ? AND races = 0",
+            (wins, races, guild_id, horse_index),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def record_race_result(guild_id: int, winner_index: int, horse_indices: list[int], race_age_interval: int):
+    """Increments races/race_starts for every horse that ran in this guild, wins for whichever
+    one actually won, and ages a horse by 1 every `race_age_interval` real starts (computed
+    from the post-increment race_starts, so the horse that crosses the 10th/20th/... start this
+    call gets its age bump in the same update)."""
+    conn = _connect()
+    try:
+        for horse_index in horse_indices:
+            won = 1 if horse_index == winner_index else 0
+            conn.execute(
+                "UPDATE horses SET races = races + 1, wins = wins + ?, race_starts = race_starts + 1, "
+                "age = age + CASE WHEN (race_starts + 1) % ? = 0 THEN 1 ELSE 0 END "
+                "WHERE guild_id = ? AND horse_index = ?",
+                (won, race_age_interval, guild_id, horse_index),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def train_horse(
+    guild_id: int, horse_index: int, user_id: int, speed_gain: float, endurance_gain: float,
+    spirit_gain: float, stat_cap: float,
+) -> tuple[str, tuple | None]:
+    """Trains a horse if user_id owns it and it hasn't been trained yet today. Returns
+    (status, payload): "ok" with (new_speed, new_endurance, new_spirit, new_age), "not_owner",
+    or "cooldown" (already trained today)."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT owner_id, speed, endurance, spirit, age, last_trained FROM horses "
+            "WHERE guild_id = ? AND horse_index = ?",
+            (guild_id, horse_index),
+        ).fetchone()
+        if row is None or row[0] != user_id:
+            return "not_owner", None
+        _owner_id, speed, endurance, spirit, age, last_trained = row
+        today = date.today().isoformat()
+        if last_trained == today:
+            return "cooldown", None
+        new_speed = min(stat_cap, speed + speed_gain)
+        new_endurance = min(stat_cap, endurance + endurance_gain)
+        new_spirit = min(stat_cap, spirit + spirit_gain)
+        new_age = age + 1
+        conn.execute(
+            "UPDATE horses SET speed = ?, endurance = ?, spirit = ?, age = ?, last_trained = ? "
+            "WHERE guild_id = ? AND horse_index = ?",
+            (new_speed, new_endurance, new_spirit, new_age, today, guild_id, horse_index),
+        )
+        conn.commit()
+        return "ok", (new_speed, new_endurance, new_spirit, new_age)
     finally:
         conn.close()
 
