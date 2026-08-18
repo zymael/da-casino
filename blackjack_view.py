@@ -89,7 +89,7 @@ def build_control_embed(table: BlackjackTable) -> discord.Embed:
         embed.description = "\n".join(lines)
     embed.set_footer(
         text=f"Shoe: {len(table.shoe.cards)} cards left — only reshuffles when it runs out. "
-        "Join / Set Bet to sit down or change your wager. Stand to leave whenever you like."
+        "Change Next Bet to sit down or update your wager. Quit to leave whenever you like."
     )
     return embed
 
@@ -105,7 +105,7 @@ async def update_control_message(table: BlackjackTable):
 
 class BetModal(discord.ui.Modal):
     def __init__(self, table: BlackjackTable):
-        super().__init__(title="Join / Set Bet")
+        super().__init__(title="Change Next Bet")
         self.table = table
         self.amount_input = discord.ui.TextInput(label="Bet each round", placeholder="e.g. 50")
         self.add_item(self.amount_input)
@@ -132,20 +132,31 @@ class BetModal(discord.ui.Modal):
         await update_control_message(self.table)
 
 
-class TableControlView(discord.ui.View):
-    def __init__(self, table: BlackjackTable):
-        super().__init__(timeout=None)
+class ChangeBetButton(discord.ui.Button):
+    """Sit down or update your bet for the next round. Standalone (not tied to a shared
+    view-level interaction_check) so it can be dropped into any message in the table's flow,
+    including per-turn messages that restrict their other buttons to just the acting player."""
+
+    def __init__(self, table: BlackjackTable, row: int | None = None):
+        super().__init__(label="Change Next Bet", style=discord.ButtonStyle.success, row=row)
         self.table = table
 
-    @discord.ui.button(label="Join / Set Bet", style=discord.ButtonStyle.success)
-    async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def callback(self, interaction: discord.Interaction):
         if interaction.user.bot:
             await interaction.response.send_message("Bots can't play.", ephemeral=True)
             return
         await interaction.response.send_modal(BetModal(self.table))
 
-    @discord.ui.button(label="Stand", style=discord.ButtonStyle.danger)
-    async def stand_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+class QuitButton(discord.ui.Button):
+    """Leave the table after the current round. Standalone for the same reason as
+    ChangeBetButton above."""
+
+    def __init__(self, table: BlackjackTable, row: int | None = None):
+        super().__init__(label="Quit", style=discord.ButtonStyle.danger, row=row)
+        self.table = table
+
+    async def callback(self, interaction: discord.Interaction):
         seat = self.table.seat_for(interaction.user.id)
         if seat is None:
             await interaction.response.send_message("You're not seated at this table.", ephemeral=True)
@@ -153,6 +164,14 @@ class TableControlView(discord.ui.View):
         seat.standing = True
         await interaction.response.send_message("Noted — you'll stand up after the current round.", ephemeral=True)
         await update_control_message(self.table)
+
+
+class TableControlView(discord.ui.View):
+    def __init__(self, table: BlackjackTable):
+        super().__init__(timeout=None)
+        self.table = table
+        self.add_item(ChangeBetButton(table))
+        self.add_item(QuitButton(table))
 
 
 class BlackjackTurnView(discord.ui.View):
@@ -163,16 +182,25 @@ class BlackjackTurnView(discord.ui.View):
         self.dealer = dealer
         self.done = False
         self.message: discord.Message | None = None
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.hand.member.id:
-            await interaction.response.send_message("It's not your turn.", ephemeral=True)
-            return False
-        return True
+        # Table-wide actions, usable by anyone seated regardless of whose turn this is --
+        # can't rely on a shared interaction_check here since Hit/Stand/Double Down must stay
+        # restricted to the acting player, so each of those checks itself instead.
+        self.add_item(ChangeBetButton(table, row=1))
+        self.add_item(QuitButton(table, row=1))
 
     def _disable_all(self):
+        # Leave the table-wide buttons live even once this turn is over, so this message keeps
+        # working for Change Next Bet / Quit indefinitely, same as every other message here.
         for item in self.children:
+            if isinstance(item, (ChangeBetButton, QuitButton)):
+                continue
             item.disabled = True
+
+    async def _reject_if_not_your_turn(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.hand.member.id:
+            await interaction.response.send_message("It's not your turn.", ephemeral=True)
+            return True
+        return False
 
     def build_display(self, result_text: str | None = None) -> tuple[list[discord.Embed], list[discord.File]]:
         files = []
@@ -202,8 +230,10 @@ class BlackjackTurnView(discord.ui.View):
         await interaction.response.edit_message(embeds=embeds, attachments=files, view=self)
         self.stop()
 
-    @discord.ui.button(label="Hit", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Hit", style=discord.ButtonStyle.primary, row=0)
     async def hit(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if await self._reject_if_not_your_turn(interaction):
+            return
         self.hand.cards.append(self.table.draw())
         if len(self.hand.cards) > 2:
             self.double_down.disabled = True
@@ -214,12 +244,16 @@ class BlackjackTurnView(discord.ui.View):
         embeds, files = self.build_display()
         await interaction.response.edit_message(embeds=embeds, attachments=files, view=self)
 
-    @discord.ui.button(label="Stand", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Stand", style=discord.ButtonStyle.secondary, row=0)
     async def stand(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if await self._reject_if_not_your_turn(interaction):
+            return
         await self._finish(interaction, "✋ Stand")
 
-    @discord.ui.button(label="Double Down", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Double Down", style=discord.ButtonStyle.danger, row=0)
     async def double_down(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if await self._reject_if_not_your_turn(interaction):
+            return
         currency = db.get_currency_name(self.table.guild_id)
         balance = await asyncio.to_thread(db.get_balance, self.table.guild_id, self.hand.member.id)
         if balance < self.hand.bet:
@@ -276,7 +310,7 @@ async def settle_round(ctx, table: BlackjackTable, hands: list[BlackjackHand], d
         player_embed.set_footer(text=f"Balance: {balance} {currency}")
         embeds.append(player_embed)
 
-    await ctx.send(embeds=embeds[:10], files=files)
+    await ctx.send(embeds=embeds[:10], files=files, view=TableControlView(table))
 
 
 async def play_round(ctx, table: BlackjackTable, seats: list[BlackjackSeat]):
