@@ -77,6 +77,7 @@ class BlackjackView(discord.ui.View):
             balance = await asyncio.to_thread(db.get_balance, self.guild_id, self.author.id)
 
         net = payout - self.bet
+        await asyncio.to_thread(db.log_bet, self.guild_id, self.author.id, "blackjack", self.bet, net)
         text = f"{OUTCOME_LABELS[outcome]} ({'+' if net >= 0 else ''}{net} credits)"
         return self.build_display(reveal_dealer=True, result_text=text, balance=balance)
 

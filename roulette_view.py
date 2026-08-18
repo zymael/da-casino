@@ -200,6 +200,7 @@ class RouletteView(discord.ui.View):
             else:
                 balance = await asyncio.to_thread(db.get_balance, self.guild_id, bet["user_id"])
             net = payout - bet["amount"]
+            await asyncio.to_thread(db.log_bet, self.guild_id, bet["user_id"], "roulette", bet["amount"], net)
             outcome = "🎉 WIN" if payout else "❌ LOSE"
             lines.append(
                 f"**{bet['display_name']}** — {roulette.describe_bet(bet['kind'], bet['value'])} "

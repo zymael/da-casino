@@ -60,6 +60,26 @@ def init_db():
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bet_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            game TEXT NOT NULL,
+            bet_amount INTEGER NOT NULL,
+            net INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            message_id INTEGER
+        )
+        """
+    )
+    # message_id is only set for backfilled rows (one per historical Discord message) and lets
+    # a re-run of the backfill script skip rows it already inserted instead of double-counting.
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_bet_log_message "
+        "ON bet_log (message_id, user_id, game) WHERE message_id IS NOT NULL"
+    )
     tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     if "pizza_champion" in tables:
         for guild_id, user_id, previous_nick in conn.execute(
@@ -206,6 +226,82 @@ def get_pizza_leaderboard(guild_id: int, limit: int = 10) -> list[tuple[int, int
         rows = conn.execute(
             "SELECT user_id, pizzas_bought FROM users WHERE guild_id = ? AND pizzas_bought > 0 "
             "ORDER BY pizzas_bought DESC LIMIT ?",
+            (guild_id, limit),
+        ).fetchall()
+        return rows
+    finally:
+        conn.close()
+
+
+def log_bet(
+    guild_id: int,
+    user_id: int,
+    game: str,
+    bet_amount: int,
+    net: int,
+    message_id: int | None = None,
+    created_at: str | None = None,
+):
+    """Records the outcome of a single resolved bet (blackjack hand, slots spin, roulette
+    bet). `message_id` is only passed by the history backfill script, so re-running it
+    doesn't double-insert the same historical bet."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO bet_log (guild_id, user_id, game, bet_amount, net, created_at, message_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                guild_id,
+                user_id,
+                game,
+                bet_amount,
+                net,
+                created_at or datetime.now(timezone.utc).isoformat(),
+                message_id,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_biggest_win(guild_id: int, limit: int = 10) -> list[tuple[int, int, str]]:
+    """Returns up to `limit` (user_id, net, game) rows, one per user (their single best win),
+    highest first."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT user_id, net, game FROM (
+                SELECT user_id, net, game,
+                       ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY net DESC, id ASC) AS rn
+                FROM bet_log
+                WHERE guild_id = ? AND net > 0
+            ) WHERE rn = 1
+            ORDER BY net DESC LIMIT ?
+            """,
+            (guild_id, limit),
+        ).fetchall()
+        return rows
+    finally:
+        conn.close()
+
+
+def get_biggest_loss(guild_id: int, limit: int = 10) -> list[tuple[int, int, str]]:
+    """Returns up to `limit` (user_id, net, game) rows, one per user (their single worst loss),
+    lowest first."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT user_id, net, game FROM (
+                SELECT user_id, net, game,
+                       ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY net ASC, id ASC) AS rn
+                FROM bet_log
+                WHERE guild_id = ? AND net < 0
+            ) WHERE rn = 1
+            ORDER BY net ASC LIMIT ?
+            """,
             (guild_id, limit),
         ).fetchall()
         return rows

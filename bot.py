@@ -122,9 +122,11 @@ async def balance(ctx):
 
 @bot.command(name="leaderboard", aliases=["lb", "top"])
 async def leaderboard(ctx):
-    """Show the top credit holders and top pizza buyers."""
+    """Show the top credit holders, top pizza buyers, and biggest single-bet win/loss."""
     credit_rows = await asyncio.to_thread(db.get_leaderboard, ctx.guild.id, 10)
     pizza_rows = await asyncio.to_thread(db.get_pizza_leaderboard, ctx.guild.id, 10)
+    win_rows = await asyncio.to_thread(db.get_biggest_win, ctx.guild.id, 5)
+    loss_rows = await asyncio.to_thread(db.get_biggest_loss, ctx.guild.id, 5)
     if not credit_rows and not pizza_rows:
         await ctx.send("No one has any credits yet!")
         return
@@ -137,6 +139,13 @@ async def leaderboard(ctx):
         rank = medals[i] if i < len(medals) else f"`#{i + 1}`"
         return f"{rank} {name} — **{value}** {suffix}"
 
+    def bet_rank_line(i, user_id, net, game):
+        member = ctx.guild.get_member(user_id) if ctx.guild else None
+        name = member.display_name if member else f"<@{user_id}>"
+        rank = medals[i] if i < len(medals) else f"`#{i + 1}`"
+        sign = "+" if net >= 0 else ""
+        return f"{rank} {name} — **{sign}{net}** credits ({game})"
+
     embed = discord.Embed(title="🏆 Casino Leaderboard", color=discord.Color.gold())
     credit_lines = [
         rank_line(i, user_id, bal, "credits") for i, (user_id, bal, _pizzas) in enumerate(credit_rows)
@@ -145,6 +154,16 @@ async def leaderboard(ctx):
 
     pizza_lines = [rank_line(i, user_id, pizzas, "🍕") for i, (user_id, pizzas) in enumerate(pizza_rows)]
     embed.add_field(name="Pizza", value="\n".join(pizza_lines) or "No one has bought pizza yet!", inline=False)
+
+    win_lines = [bet_rank_line(i, user_id, net, game) for i, (user_id, net, game) in enumerate(win_rows)]
+    embed.add_field(
+        name="Biggest Win (single bet)", value="\n".join(win_lines) or "No wins logged yet!", inline=False
+    )
+
+    loss_lines = [bet_rank_line(i, user_id, net, game) for i, (user_id, net, game) in enumerate(loss_rows)]
+    embed.add_field(
+        name="Biggest Loss (single bet)", value="\n".join(loss_lines) or "No losses logged yet!", inline=False
+    )
 
     await ctx.send(embed=embed)
 

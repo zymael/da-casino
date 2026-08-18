@@ -35,6 +35,7 @@ async def play_spin(guild_id: int, user_id: int, lines: int, multiplier: int) ->
         balance = await asyncio.to_thread(db.update_balance, guild_id, user_id, total_payout)
     else:
         balance = await asyncio.to_thread(db.get_balance, guild_id, user_id)
+    await asyncio.to_thread(db.log_bet, guild_id, user_id, "slots", bet, total_payout - bet)
     return grid, winning_lines, total_payout, balance
 
 
