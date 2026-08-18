@@ -87,8 +87,9 @@ class SpinButton(discord.ui.Button):
             await interaction.response.send_message("Finish your poker hand first!", ephemeral=True)
             return
         if view.total_bet > view.balance:
+            currency = db.get_currency_name(view.guild_id)
             await interaction.response.send_message(
-                f"You only have **{view.balance}** credits — not enough for a **{view.total_bet}**-credit bet.",
+                f"You only have **{view.balance}** {currency} — not enough for a **{view.total_bet}**-{currency} bet.",
                 ephemeral=True,
             )
             return
@@ -134,6 +135,7 @@ class SlotsView(discord.ui.View):
         return self.lines * self.multiplier * BASE_LINE_BET
 
     def build_bet_embed(self) -> discord.Embed:
+        currency = db.get_currency_name(self.guild_id)
         embed = discord.Embed(
             title="🎰 Slots",
             description="Choose your paylines and multiplier, then hit **Spin**.",
@@ -141,25 +143,26 @@ class SlotsView(discord.ui.View):
         )
         embed.add_field(name="Paylines", value=f"{self.lines} / {slots.MAX_LINES}", inline=True)
         embed.add_field(name="Multiplier", value=f"{self.multiplier}x", inline=True)
-        embed.add_field(name="Total Bet", value=f"{self.total_bet} credits", inline=True)
+        embed.add_field(name="Total Bet", value=f"{self.total_bet} {currency}", inline=True)
         embed.set_image(url="attachment://slots.png")
-        embed.set_footer(text=f"Balance: {self.balance} credits")
+        embed.set_footer(text=f"Balance: {self.balance} {currency}")
         return embed
 
     def build_initial_file(self) -> discord.File:
         return discord.File(slots_render.render_reels(None), filename="slots.png")
 
     def build_result_embed(self, winning_lines: list, total_payout: int) -> discord.Embed:
+        currency = db.get_currency_name(self.guild_id)
         bet = self.total_bet
         net = total_payout - bet
         if not winning_lines:
-            outcome, color = f"💥 No winning lines — you lose {bet} credits", discord.Color.red()
+            outcome, color = f"💥 No winning lines — you lose {bet} {currency}", discord.Color.red()
         elif net == 0:
             outcome, color = "🤝 Push — bet returned", discord.Color.greyple()
         elif net > 0:
-            outcome, color = f"🎉 You win! (+{net} credits)", discord.Color.green()
+            outcome, color = f"🎉 You win! (+{net} {currency})", discord.Color.green()
         else:
-            outcome, color = f"😬 Partial win, net -{abs(net)} credits", discord.Color.orange()
+            outcome, color = f"😬 Partial win, net -{abs(net)} {currency}", discord.Color.orange()
 
         embed = discord.Embed(title="🎰 Slots", color=color)
         embed.set_image(url="attachment://slots.png")
@@ -170,9 +173,9 @@ class SlotsView(discord.ui.View):
             embed.add_field(name="Winning Lines", value=lines_text, inline=False)
         embed.add_field(name="Paylines", value=str(self.lines), inline=True)
         embed.add_field(name="Multiplier", value=f"{self.multiplier}x", inline=True)
-        embed.add_field(name="Total Bet", value=f"{bet} credits", inline=True)
+        embed.add_field(name="Total Bet", value=f"{bet} {currency}", inline=True)
         embed.add_field(name="Result", value=outcome, inline=False)
-        embed.set_footer(text=f"Balance: {self.balance} credits")
+        embed.set_footer(text=f"Balance: {self.balance} {currency}")
         return embed
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:

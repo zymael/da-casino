@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 DB_PATH = "casino.db"
 STARTING_BALANCE = 100
@@ -28,10 +28,19 @@ def init_db():
             last_daily TEXT,
             pizzas_bought INTEGER NOT NULL DEFAULT 0,
             last_pizza TEXT,
+            last_mine_start TEXT,
+            last_mine_claim TEXT,
+            last_tip TEXT,
             PRIMARY KEY (guild_id, user_id)
         )
         """
     )
+    # users predates last_mine_start/last_mine_claim/last_tip -- add them for installs
+    # where CREATE TABLE IF NOT EXISTS above was a no-op against an older schema.
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+    for column in ("last_mine_start", "last_mine_claim", "last_tip"):
+        if column not in columns:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS champions (
@@ -56,10 +65,16 @@ def init_db():
         """
         CREATE TABLE IF NOT EXISTS guild_settings (
             guild_id INTEGER PRIMARY KEY,
-            casino_channel_id INTEGER
+            casino_channel_id INTEGER,
+            currency_name TEXT
         )
         """
     )
+    # guild_settings predates currency_name -- add it for installs where CREATE TABLE
+    # IF NOT EXISTS above was a no-op against an older schema.
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(guild_settings)")}
+    if "currency_name" not in columns:
+        conn.execute("ALTER TABLE guild_settings ADD COLUMN currency_name TEXT")
     # horse_ownership and horse_record (both briefly shipped, holding nothing but seed/empty
     # data so far — no real purchases or races existed against either) are superseded by the
     # single `horses` table below, which now also owns stats/age. Safe to drop and reseed.
@@ -478,6 +493,49 @@ def set_casino_channel_id(guild_id: int, channel_id: int):
         conn.close()
 
 
+DEFAULT_CURRENCY_NAME = "credits"
+
+# Rendering code (embeds, view classes) runs synchronously and can't await a DB call per
+# message, so the per-guild currency name lives in this in-memory cache once loaded --
+# see load_currency_name_cache (called once per guild on startup) and set_currency_name.
+_currency_name_cache: dict[int, str] = {}
+
+
+def get_currency_name(guild_id: int) -> str:
+    """Synchronous, cache-only lookup -- safe to call from any rendering code path."""
+    return _currency_name_cache.get(guild_id, DEFAULT_CURRENCY_NAME)
+
+
+def load_currency_name_cache(guild_id: int) -> str:
+    """Reads the persisted currency name for `guild_id` into the in-memory cache and
+    returns it. Call once per guild on startup."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT currency_name FROM guild_settings WHERE guild_id = ?", (guild_id,)
+        ).fetchone()
+        name = row[0] if row and row[0] else DEFAULT_CURRENCY_NAME
+        _currency_name_cache[guild_id] = name
+        return name
+    finally:
+        conn.close()
+
+
+def set_currency_name(guild_id: int, name: str) -> str:
+    conn = _connect()
+    try:
+        conn.execute(
+            "INSERT INTO guild_settings (guild_id, currency_name) VALUES (?, ?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET currency_name = excluded.currency_name",
+            (guild_id, name),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    _currency_name_cache[guild_id] = name
+    return name
+
+
 def get_guild_horses(guild_id: int) -> dict[int, dict]:
     """Returns {horse_index: {...}} for every horse that exists in this guild's stable —
     legends already touched here, plus any foals bought into it."""
@@ -704,8 +762,20 @@ def train_horse(
         conn.close()
 
 
-def claim_daily(guild_id: int, user_id: int, amount: int) -> tuple[bool, int]:
-    """Grants `amount` credits once per calendar day. Returns (claimed, balance)."""
+def _seconds_until_next_day() -> float:
+    """Seconds remaining until the calendar day (per date.today()) rolls over."""
+    tomorrow = date.today() + timedelta(days=1)
+    next_reset = datetime.combine(tomorrow, datetime.min.time())
+    return max(0.0, (next_reset - datetime.now()).total_seconds())
+
+
+def claim_daily(guild_id: int, user_id: int, amount: int) -> tuple[str, float | int]:
+    """Grants `amount` credits once per calendar day.
+
+    Returns (status, value):
+      - ("cooldown", seconds_remaining) — already claimed today
+      - ("claimed", new_balance) — credits granted
+    """
     conn = _connect()
     try:
         _ensure_user(conn, guild_id, user_id)
@@ -715,13 +785,102 @@ def claim_daily(guild_id: int, user_id: int, amount: int) -> tuple[bool, int]:
             "SELECT last_daily, balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
         ).fetchone()
         if last_daily == today:
-            return False, balance
+            return "cooldown", _seconds_until_next_day()
         new_balance = balance + amount
         conn.execute(
             "UPDATE users SET balance = ?, last_daily = ? WHERE guild_id = ? AND user_id = ?",
             (new_balance, today, guild_id, user_id),
         )
         conn.commit()
-        return True, new_balance
+        return "claimed", new_balance
+    finally:
+        conn.close()
+
+
+def claim_mine(
+    guild_id: int, user_id: int, reward: int, mature_seconds: int, cooldown_seconds: int
+) -> tuple[str, float | int | None]:
+    """Two-step mining: the first call starts a dig; a second call made at least
+    `mature_seconds` later collects `reward` credits and starts a `cooldown_seconds`
+    cooldown before the next dig can be started.
+
+    Returns (status, value):
+      - ("started", None) — no dig was pending; one was just started
+      - ("pending", seconds_remaining) — dig in progress, not ready to collect yet
+      - ("cooldown", seconds_remaining) — last dig already collected, still on cooldown
+      - ("claimed", new_balance) — dig was ready; credits collected
+    """
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.commit()
+        last_mine_start, last_mine_claim, balance = conn.execute(
+            "SELECT last_mine_start, last_mine_claim, balance FROM users WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ).fetchone()
+
+        now = datetime.now(timezone.utc)
+
+        if last_mine_start is not None:
+            elapsed = (now - datetime.fromisoformat(last_mine_start)).total_seconds()
+            if elapsed < mature_seconds:
+                return "pending", mature_seconds - elapsed
+            new_balance = balance + reward
+            conn.execute(
+                "UPDATE users SET balance = ?, last_mine_start = NULL, last_mine_claim = ? "
+                "WHERE guild_id = ? AND user_id = ?",
+                (new_balance, now.isoformat(), guild_id, user_id),
+            )
+            conn.commit()
+            return "claimed", new_balance
+
+        if last_mine_claim is not None:
+            elapsed = (now - datetime.fromisoformat(last_mine_claim)).total_seconds()
+            if elapsed < cooldown_seconds:
+                return "cooldown", cooldown_seconds - elapsed
+
+        conn.execute(
+            "UPDATE users SET last_mine_start = ? WHERE guild_id = ? AND user_id = ?",
+            (now.isoformat(), guild_id, user_id),
+        )
+        conn.commit()
+        return "started", None
+    finally:
+        conn.close()
+
+
+def tip(guild_id: int, from_id: int, to_id: int, amount: int) -> tuple[str, float | int]:
+    """Grants `amount` newly generated credits to `to_id`, once per calendar day per
+    sender -- same once-a-day gating as claim_daily.
+
+    Returns (status, value):
+      - ("cooldown", seconds_remaining) — sender already tipped today
+      - ("ok", to_balance) — credits granted
+    """
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, from_id)
+        _ensure_user(conn, guild_id, to_id)
+        conn.commit()
+        today = date.today().isoformat()
+        (last_tip,) = conn.execute(
+            "SELECT last_tip FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, from_id)
+        ).fetchone()
+        if last_tip == today:
+            return "cooldown", _seconds_until_next_day()
+
+        conn.execute(
+            "UPDATE users SET last_tip = ? WHERE guild_id = ? AND user_id = ?",
+            (today, guild_id, from_id),
+        )
+        conn.execute(
+            "UPDATE users SET balance = balance + ? WHERE guild_id = ? AND user_id = ?",
+            (amount, guild_id, to_id),
+        )
+        conn.commit()
+        to_balance = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, to_id)
+        ).fetchone()[0]
+        return "ok", to_balance
     finally:
         conn.close()

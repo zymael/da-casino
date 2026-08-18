@@ -345,8 +345,9 @@ def build_table_embed(
         embed.add_field(name="Community", value="—", inline=False)
 
     pot_total = sum(p.contributed for p in game.players)
-    embed.add_field(name="Pot", value=f"{pot_total} credits", inline=True)
-    embed.add_field(name="Current bet", value=f"{game.current_bet} credits", inline=True)
+    currency = db.get_currency_name(game.guild_id)
+    embed.add_field(name="Pot", value=f"{pot_total} {currency}", inline=True)
+    embed.add_field(name="Current bet", value=f"{game.current_bet} {currency}", inline=True)
 
     lines = []
     for p in game.players:
@@ -421,11 +422,12 @@ async def settle_hand(ctx, game: HoldemGame):
         winner = active[0]
         amount = sum(contributions.values())
         new_balance = await asyncio.to_thread(db.update_balance, game.guild_id, winner.member.id, amount)
+        currency = db.get_currency_name(game.guild_id)
         embed = discord.Embed(
             title="🃏 Texas Hold'em — Result",
             description=(
                 f"Everyone else folded — **{winner.member.display_name}** takes the pot of "
-                f"**{amount}** credits! (Balance: {new_balance})"
+                f"**{amount}** {currency}! (Balance: {new_balance})"
             ),
             color=discord.Color.gold(),
         )
@@ -466,12 +468,13 @@ async def settle_hand(ctx, game: HoldemGame):
     community_embed.set_image(url="attachment://community.png")
     embeds = [community_embed]
 
+    currency = db.get_currency_name(game.guild_id)
     for i, p in enumerate(active):
         won = payouts.get(p.member.id, 0)
         hand_buf = cards_render.render_hand(p.hole)
         fname = f"hand{i}.png"
         files.append(discord.File(hand_buf, filename=fname))
-        title = f"{p.member.display_name} — won {won}" if won else p.member.display_name
+        title = f"{p.member.display_name} — won {won} {currency}" if won else p.member.display_name
         player_embed = discord.Embed(
             title=title,
             description=hand_desc.get(p.member.id, "—"),

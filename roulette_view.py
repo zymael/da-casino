@@ -67,8 +67,9 @@ class RouletteView(discord.ui.View):
             color=discord.Color.dark_green(),
         )
         if self.bets:
+            currency = db.get_currency_name(self.guild_id)
             lines = [
-                f"**{bet['display_name']}** — {roulette.describe_bet(bet['kind'], bet['value'])} — {bet['amount']} credits"
+                f"**{bet['display_name']}** — {roulette.describe_bet(bet['kind'], bet['value'])} — {bet['amount']} {currency}"
                 for bet in self.bets
             ]
             embed.add_field(name="Current Bets", value="\n".join(lines), inline=False)
@@ -102,8 +103,9 @@ class RouletteView(discord.ui.View):
             return
 
         balance = await asyncio.to_thread(db.get_balance, self.guild_id, interaction.user.id)
+        currency = db.get_currency_name(self.guild_id)
         if amount > balance:
-            await interaction.response.send_message(f"You only have **{balance}** credits.", ephemeral=True)
+            await interaction.response.send_message(f"You only have **{balance}** {currency}.", ephemeral=True)
             return
 
         await asyncio.to_thread(db.update_balance, self.guild_id, interaction.user.id, -amount)
@@ -117,7 +119,7 @@ class RouletteView(discord.ui.View):
             }
         )
         await interaction.response.send_message(
-            f"✅ Bet placed: {roulette.describe_bet(kind, value)} for **{amount}** credits.", ephemeral=True
+            f"✅ Bet placed: {roulette.describe_bet(kind, value)} for **{amount}** {currency}.", ephemeral=True
         )
         if self.message is not None:
             try:

@@ -32,6 +32,7 @@ class BlackjackView(discord.ui.View):
         self, reveal_dealer: bool = False, result_text: str | None = None, balance: int | None = None
     ) -> tuple[list[discord.Embed], list[discord.File]]:
         files = []
+        currency = db.get_currency_name(self.guild_id)
 
         dealer_buf = cards_render.render_hand(self.dealer, hide_first=not reveal_dealer)
         files.append(discord.File(dealer_buf, filename="dealer.png"))
@@ -44,14 +45,14 @@ class BlackjackView(discord.ui.View):
         player_embed = discord.Embed(title=self.author.display_name, color=discord.Color.gold())
         player_embed.description = f"Value: {hand_value(self.player)}"
         player_embed.set_image(url="attachment://player.png")
-        player_embed.add_field(name="Bet", value=f"{self.bet} credits", inline=True)
+        player_embed.add_field(name="Bet", value=f"{self.bet} {currency}", inline=True)
         if result_text:
             player_embed.add_field(name="Result", value=result_text, inline=False)
             player_embed.color = dealer_embed.color = discord.Color.green() if "win" in result_text.lower() else (
                 discord.Color.red() if "lose" in result_text.lower() else discord.Color.greyple()
             )
         if balance is not None:
-            player_embed.set_footer(text=f"Balance: {balance} credits")
+            player_embed.set_footer(text=f"Balance: {balance} {currency}")
 
         return [dealer_embed, player_embed], files
 
@@ -78,7 +79,7 @@ class BlackjackView(discord.ui.View):
 
         net = payout - self.bet
         await asyncio.to_thread(db.log_bet, self.guild_id, self.author.id, "blackjack", self.bet, net)
-        text = f"{OUTCOME_LABELS[outcome]} ({'+' if net >= 0 else ''}{net} credits)"
+        text = f"{OUTCOME_LABELS[outcome]} ({'+' if net >= 0 else ''}{net} {db.get_currency_name(self.guild_id)})"
         return self.build_display(reveal_dealer=True, result_text=text, balance=balance)
 
     async def _play_dealer_and_settle(self) -> tuple[list[discord.Embed], list[discord.File]]:
@@ -122,7 +123,8 @@ class BlackjackView(discord.ui.View):
             return
         balance = await asyncio.to_thread(db.get_balance, self.guild_id, self.author.id)
         if balance < self.bet:
-            await interaction.response.send_message("You don't have enough credits to double down.", ephemeral=True)
+            currency = db.get_currency_name(self.guild_id)
+            await interaction.response.send_message(f"You don't have enough {currency} to double down.", ephemeral=True)
             return
 
         await asyncio.to_thread(db.update_balance, self.guild_id, self.author.id, -self.bet)

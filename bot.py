@@ -1,6 +1,7 @@
 import asyncio
 import os
 import random
+import time
 
 import discord
 from discord.ext import commands, tasks
@@ -27,6 +28,12 @@ CASINO_CHANNEL_NAME = "da-casino"
 
 PIZZA_COST = 10
 PIZZA_COOLDOWN_SECONDS = 10 * 60
+
+MINE_REWARD = 20
+MINE_MATURE_SECONDS = 10 * 60
+MINE_COOLDOWN_SECONDS = 60 * 60
+
+TIP_AMOUNT = 25
 BROKE_GIFS = [
     "https://media.giphy.com/media/3orifdO6eKr9YBdOBq/giphy.gif",
     "https://i.makeagif.com/media/10-04-2020/GEbQDx.gif",
@@ -47,7 +54,14 @@ PIZZA_GIFS = [
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+
+HELP_CATEGORIES = [
+    ("💰 Economy", ["balance", "daily", "mine", "tip", "transfer", "pizza", "leaderboard"]),
+    ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem"]),
+    ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train"]),
+    ("⚙️ Utility", ["ping", "setcasino", "setcurrency"]),
+]
 
 
 @bot.check
@@ -60,6 +74,12 @@ async def in_casino_channel(ctx):
     if channel_id is not None:
         return ctx.channel.id == channel_id
     return getattr(ctx.channel, "name", None) == CASINO_CHANNEL_NAME
+
+
+def _in_seconds(seconds: float) -> str:
+    """Discord timestamp markup for a point `seconds` from now, e.g. 'in 6 minutes (11:32 PM)'."""
+    epoch = int(time.time() + seconds)
+    return f"<t:{epoch}:R> (<t:{epoch}:t>)"
 
 
 async def _reject_if_at_poker_table(ctx) -> bool:
@@ -78,6 +98,7 @@ async def on_ready():
     await asyncio.to_thread(db.migrate_legacy_users_into_guilds, [g.id for g in bot.guilds])
     for guild in bot.guilds:  # warm each guild's seed so it's not the first command paying for it
         await asyncio.to_thread(horserace.current_win_probabilities, guild.id)
+        await asyncio.to_thread(db.load_currency_name_cache, guild.id)
     if not sync_champions_loop.is_running():
         sync_champions_loop.start()
 
@@ -86,6 +107,9 @@ async def on_ready():
 async def on_command_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
         await ctx.send("You need the **Manage Server** permission to do that.")
+        return
+    if isinstance(error, commands.NotOwner):
+        await ctx.send("Only the bot owner can do that.")
         return
     if isinstance(error, commands.CheckFailure):
         return  # command used outside the casino channel — ignore silently to avoid spamming other channels
@@ -103,7 +127,7 @@ async def on_command_error(ctx, error):
 
 @bot.command(name="setcasino")
 @commands.guild_only()
-@commands.has_permissions(manage_guild=True)
+@commands.is_owner()
 async def setcasino_cmd(ctx, channel: discord.TextChannel = None):
     """Set which channel casino commands work in: !setcasino [#channel]"""
     channel = channel or ctx.channel
@@ -111,17 +135,74 @@ async def setcasino_cmd(ctx, channel: discord.TextChannel = None):
     await ctx.send(f"🎰 Casino commands are now restricted to {channel.mention}.")
 
 
+@bot.command(name="setcurrency")
+@commands.guild_only()
+@commands.is_owner()
+async def setcurrency_cmd(ctx, *, name: str = None):
+    """Rename this server's currency, e.g. !setcurrency gold"""
+    if not name or not name.strip():
+        await ctx.send("Usage: `!setcurrency <name>` — e.g. `!setcurrency gold`")
+        return
+    name = name.strip()
+    if len(name) > 20:
+        await ctx.send("Currency names must be 20 characters or fewer.")
+        return
+
+    await asyncio.to_thread(db.set_currency_name, ctx.guild.id, name)
+    await ctx.send(f"💱 This server's currency is now called **{name}**.")
+
+
 @bot.command(name="ping")
+@commands.is_owner()
 async def ping(ctx):
     """Check the bot's latency."""
     await ctx.send(f"Pong! {round(bot.latency * 1000)}ms")
+
+
+@bot.command(name="help")
+async def help_cmd(ctx, *, command_name: str = None):
+    """List every command by category, or !help <command> for details on one."""
+    if command_name:
+        cmd = bot.get_command(command_name.strip().lstrip("!"))
+        if cmd is None:
+            await ctx.send(f"No command called `{command_name}`.")
+            return
+        embed = discord.Embed(
+            title=f"!{cmd.name}", description=cmd.help or "No description.", color=discord.Color.blurple()
+        )
+        if cmd.aliases:
+            embed.add_field(name="Aliases", value=", ".join(f"!{a}" for a in cmd.aliases), inline=False)
+        await ctx.send(embed=embed)
+        return
+
+    embed = discord.Embed(
+        title="🎰 Da Casino — Commands",
+        description="Run `!help <command>` for details on any command below.",
+        color=discord.Color.gold(),
+    )
+    for category, names in HELP_CATEGORIES:
+        lines = []
+        for name in names:
+            cmd = bot.get_command(name)
+            if cmd is None or cmd.hidden:
+                continue
+            try:
+                if not await cmd.can_run(ctx):
+                    continue
+            except commands.CommandError:
+                continue
+            lines.append(f"**!{cmd.name}** — {cmd.short_doc or 'No description.'}")
+        if lines:
+            embed.add_field(name=category, value="\n".join(lines), inline=False)
+    await ctx.send(embed=embed)
 
 
 @bot.command(name="balance", aliases=["bal", "credits"])
 async def balance(ctx):
     """Check your credit balance."""
     bal = await asyncio.to_thread(db.get_balance, ctx.guild.id, ctx.author.id)
-    await ctx.send(f"💰 {ctx.author.display_name} has **{bal}** credits.")
+    currency = db.get_currency_name(ctx.guild.id)
+    await ctx.send(f"💰 {ctx.author.display_name} has **{bal}** {currency}.")
 
 
 @bot.command(name="leaderboard", aliases=["lb", "top"])
@@ -131,8 +212,9 @@ async def leaderboard(ctx):
     pizza_rows = await asyncio.to_thread(db.get_pizza_leaderboard, ctx.guild.id, 10)
     win_rows = await asyncio.to_thread(db.get_biggest_win, ctx.guild.id, 5)
     loss_rows = await asyncio.to_thread(db.get_biggest_loss, ctx.guild.id, 5)
+    currency = db.get_currency_name(ctx.guild.id)
     if not credit_rows and not pizza_rows:
-        await ctx.send("No one has any credits yet!")
+        await ctx.send(f"No one has any {currency} yet!")
         return
 
     medals = ["🥇", "🥈", "🥉"]
@@ -148,13 +230,15 @@ async def leaderboard(ctx):
         name = member.display_name if member else f"<@{user_id}>"
         rank = medals[i] if i < len(medals) else f"`#{i + 1}`"
         sign = "+" if net >= 0 else ""
-        return f"{rank} {name} — **{sign}{net}** credits ({game})"
+        return f"{rank} {name} — **{sign}{net}** {currency} ({game})"
 
     embed = discord.Embed(title="🏆 Casino Leaderboard", color=discord.Color.gold())
     credit_lines = [
-        rank_line(i, user_id, bal, "credits") for i, (user_id, bal, _pizzas) in enumerate(credit_rows)
+        rank_line(i, user_id, bal, currency) for i, (user_id, bal, _pizzas) in enumerate(credit_rows)
     ]
-    embed.add_field(name="Credits", value="\n".join(credit_lines) or "No one has any credits yet!", inline=False)
+    embed.add_field(
+        name=currency.capitalize(), value="\n".join(credit_lines) or f"No one has any {currency} yet!", inline=False
+    )
 
     pizza_lines = [rank_line(i, user_id, pizzas, "🍕") for i, (user_id, pizzas) in enumerate(pizza_rows)]
     embed.add_field(name="Pizza", value="\n".join(pizza_lines) or "No one has bought pizza yet!", inline=False)
@@ -175,13 +259,82 @@ async def leaderboard(ctx):
 @bot.command(name="daily")
 async def daily(ctx):
     """Claim your daily credits (once per day)."""
-    claimed, bal = await asyncio.to_thread(db.claim_daily, ctx.guild.id, ctx.author.id, DAILY_AMOUNT)
-    if claimed:
+    status, value = await asyncio.to_thread(db.claim_daily, ctx.guild.id, ctx.author.id, DAILY_AMOUNT)
+    if status == "cooldown":
         await ctx.send(
-            f"✅ {ctx.author.display_name} claimed their daily **{DAILY_AMOUNT}** credits! Balance: **{bal}**"
+            f"⏳ {ctx.author.display_name}, you already claimed your daily credits today. "
+            f"You can claim again {_in_seconds(value)}."
         )
-    else:
-        await ctx.send(f"⏳ {ctx.author.display_name}, you already claimed your daily credits today. Come back tomorrow!")
+        return
+
+    currency = db.get_currency_name(ctx.guild.id)
+    await ctx.send(
+        f"✅ {ctx.author.display_name} claimed their daily **{DAILY_AMOUNT}** {currency}! Balance: **{value}**"
+    )
+
+
+@bot.command(name="mine")
+async def mine(ctx):
+    """Dig for credits: !mine starts a dig, then !mine again 10 minutes later collects
+    20 credits. A 1 hour cooldown starts once you collect."""
+    if await _reject_if_at_poker_table(ctx):
+        return
+
+    status, value = await asyncio.to_thread(
+        db.claim_mine, ctx.guild.id, ctx.author.id, MINE_REWARD, MINE_MATURE_SECONDS, MINE_COOLDOWN_SECONDS
+    )
+
+    if status == "started":
+        await ctx.send(
+            f"⛏️ {ctx.author.display_name} starts digging... come back {_in_seconds(MINE_MATURE_SECONDS)} "
+            f"and run `!mine` again to collect."
+        )
+        return
+
+    if status == "pending":
+        await ctx.send(f"⛏️ Still digging, {ctx.author.display_name} — ready to collect {_in_seconds(value)}.")
+        return
+
+    if status == "cooldown":
+        await ctx.send(
+            f"⛏️ {ctx.author.display_name}, you're worn out from your last dig — "
+            f"you can start a new one {_in_seconds(value)}."
+        )
+        return
+
+    currency = db.get_currency_name(ctx.guild.id)
+    await ctx.send(f"⛏️ {ctx.author.display_name} digs up **{MINE_REWARD}** {currency}! Balance: **{value}**")
+
+
+@bot.command(name="tip")
+async def tip_cmd(ctx, member: discord.Member = None):
+    """Tip another user 25 freshly generated credits (not taken from your own balance):
+    !tip @user — once per day."""
+    if await _reject_if_at_poker_table(ctx):
+        return
+    if member is None:
+        await ctx.send("Usage: `!tip @user` — e.g. `!tip @Bob`")
+        return
+    if member.id == ctx.author.id:
+        await ctx.send("You can't tip yourself.")
+        return
+    if member.bot:
+        await ctx.send("You can't tip a bot.")
+        return
+
+    status, value = await asyncio.to_thread(db.tip, ctx.guild.id, ctx.author.id, member.id, TIP_AMOUNT)
+    if status == "cooldown":
+        await ctx.send(
+            f"⏳ {ctx.author.display_name}, you already tipped someone today. "
+            f"You can tip again {_in_seconds(value)}."
+        )
+        return
+
+    currency = db.get_currency_name(ctx.guild.id)
+    await ctx.send(
+        f"🎁 {ctx.author.display_name} tipped {member.display_name} **{TIP_AMOUNT}** {currency}! "
+        f"{member.display_name}'s balance: **{value}**"
+    )
 
 
 @bot.command(name="transfer", aliases=["give", "pay"])
@@ -195,11 +348,12 @@ async def transfer(ctx, member: discord.Member = None, amount: int = None):
     if amount <= 0:
         await ctx.send("Transfer amount must be a positive number.")
         return
+    currency = db.get_currency_name(ctx.guild.id)
     if member.id == ctx.author.id:
-        await ctx.send("You can't transfer credits to yourself.")
+        await ctx.send(f"You can't transfer {currency} to yourself.")
         return
     if member.bot:
-        await ctx.send("You can't transfer credits to a bot.")
+        await ctx.send(f"You can't transfer {currency} to a bot.")
         return
 
     success, from_bal, to_bal = await asyncio.to_thread(
@@ -208,7 +362,7 @@ async def transfer(ctx, member: discord.Member = None, amount: int = None):
     if not success:
         embed = discord.Embed(
             title="🪹 Can't send what you don't have",
-            description=f"You only have **{from_bal}** credits, {ctx.author.display_name}.",
+            description=f"You only have **{from_bal}** {currency}, {ctx.author.display_name}.",
             color=discord.Color.orange(),
         )
         embed.set_image(url=random.choice(BROKE_GIFS))
@@ -216,7 +370,7 @@ async def transfer(ctx, member: discord.Member = None, amount: int = None):
         return
 
     await ctx.send(
-        f"💸 {ctx.author.display_name} sent **{amount}** credits to {member.display_name}! "
+        f"💸 {ctx.author.display_name} sent **{amount}** {currency} to {member.display_name}! "
         f"({ctx.author.display_name}: **{from_bal}**, {member.display_name}: **{to_bal}**)"
     )
 
@@ -232,7 +386,8 @@ async def blackjack_cmd(ctx, bet: int = None):
 
     balance = await asyncio.to_thread(db.get_balance, ctx.guild.id, ctx.author.id)
     if bet > balance:
-        await ctx.send(f"You only have **{balance}** credits, {ctx.author.display_name}.")
+        currency = db.get_currency_name(ctx.guild.id)
+        await ctx.send(f"You only have **{balance}** {currency}, {ctx.author.display_name}.")
         return
 
     await asyncio.to_thread(db.update_balance, ctx.guild.id, ctx.author.id, -bet)  # escrow the bet
@@ -252,7 +407,8 @@ async def slots_cmd(ctx):
 
     balance = await asyncio.to_thread(db.get_balance, ctx.guild.id, ctx.author.id)
     if balance < 1:
-        await ctx.send(f"You only have **{balance}** credits, {ctx.author.display_name} — not enough to play.")
+        currency = db.get_currency_name(ctx.guild.id)
+        await ctx.send(f"You only have **{balance}** {currency}, {ctx.author.display_name} — not enough to play.")
         return
 
     view = SlotsView(ctx.author, balance, ctx.guild.id)
@@ -294,6 +450,7 @@ async def horserace_cmd(ctx):
 async def horses_cmd(ctx):
     """List every horse in the stable, its odds/price/record, and who owns it: !horses"""
     roster, _eligible, probabilities = await asyncio.to_thread(horserace.current_win_probabilities, ctx.guild.id)
+    currency = db.get_currency_name(ctx.guild.id)
     lines = []
     for i in sorted(roster):
         horse = roster[i]
@@ -306,7 +463,7 @@ async def horses_cmd(ctx):
             if horse["owner_id"] is not None:
                 status = f"Owned by <@{horse['owner_id']}>"
             else:
-                status = f"💰 {horserace.price_of(i, probabilities)} credits — `!buyhorse {i + 1}`"
+                status = f"💰 {horserace.price_of(i, probabilities)} {currency} — `!buyhorse {i + 1}`"
         record = f"{horse['wins']}W-{horse['races'] - horse['wins']}L" if horse["races"] else "unraced"
         stats = (
             f"SPD {horse['speed']:.0f} / END {horse['endurance']:.0f} / SPI {horse['spirit']:.0f} — {record}"
@@ -320,7 +477,7 @@ async def horses_cmd(ctx):
     )
     embed.set_footer(
         text=f"Owners earn {int(horserace.OWNER_CUT_FRACTION * 100)}% of the pot whenever their horse wins. "
-        f"`!buyfoal <name>` for {horserace.FOAL_PRICE} credits to start your own — `!train <number>` once "
+        f"`!buyfoal <name>` for {horserace.FOAL_PRICE} {currency} to start your own — `!train <number>` once "
         f"a day to raise its stats and age until it can race at age {horserace.MIN_RACING_AGE}."
     )
     await ctx.send(embed=embed)
@@ -344,12 +501,13 @@ async def buyhorse_cmd(ctx, number: int = None):
         await ctx.send("That horse is already owned — check `!horses` for what's still available.")
         return
     horse_name = horserace.HORSES[horse_index]["name"]
+    currency = db.get_currency_name(ctx.guild.id)
     if status == "broke":
-        await ctx.send(f"{horse_name} costs **{price}** credits — you only have **{balance}**.")
+        await ctx.send(f"{horse_name} costs **{price}** {currency} — you only have **{balance}**.")
         return
 
     await ctx.send(
-        f"🐴 {ctx.author.display_name} bought **{horse_name}** for **{price}** credits! "
+        f"🐴 {ctx.author.display_name} bought **{horse_name}** for **{price}** {currency}! "
         f"Balance: **{balance}**. Rename it with `!renamehorse {number} <name>`."
     )
 
@@ -373,11 +531,13 @@ async def buyfoal_cmd(ctx, *, name: str = None):
         db.buy_foal, ctx.guild.id, horse_index, ctx.author.id, name, horserace.FOAL_PRICE, *horserace.FOAL_BASE_STATS.values()
     )
     if status == "broke":
-        await ctx.send(f"A foal costs **{horserace.FOAL_PRICE}** credits — you only have **{balance}**.")
+        currency = db.get_currency_name(ctx.guild.id)
+        await ctx.send(f"A foal costs **{horserace.FOAL_PRICE}** {currency} — you only have **{balance}**.")
         return
 
+    currency = db.get_currency_name(ctx.guild.id)
     await ctx.send(
-        f"🐣 {ctx.author.display_name} bought a foal named **{name}** for **{horserace.FOAL_PRICE}** credits! "
+        f"🐣 {ctx.author.display_name} bought a foal named **{name}** for **{horserace.FOAL_PRICE}** {currency}! "
         f"Balance: **{balance}**. Train it with `!train {horse_index + 1}` once a day — it needs to reach "
         f"age {horserace.MIN_RACING_AGE} before it can race."
     )
@@ -445,7 +605,8 @@ async def holdem_cmd(ctx, buy_in: int = None):
     if await _reject_if_at_poker_table(ctx):
         return
     if buy_in is not None and buy_in < HOLDEM_BIG_BLIND:
-        await ctx.send(f"Buy-in must be at least the big blind ({HOLDEM_BIG_BLIND} credits).")
+        currency = db.get_currency_name(ctx.guild.id)
+        await ctx.send(f"Buy-in must be at least the big blind ({HOLDEM_BIG_BLIND} {currency}).")
         return
     if ctx.channel.id in active_holdem_tables:
         await ctx.send("A Hold'em table is already open here — click **Buy In** on it to sit down!")
@@ -565,15 +726,17 @@ async def pizza(ctx):
     )
 
     if status == "cooldown":
-        minutes, seconds = divmod(value, 60)
-        wait_str = f"{minutes}m {seconds}s" if minutes else f"{seconds}s"
-        await ctx.send(f"🍕 Still full from last time, {ctx.author.display_name} — try again in **{wait_str}**.")
+        await ctx.send(
+            f"🍕 Still full from last time, {ctx.author.display_name} — "
+            f"you can grab another slice {_in_seconds(value)}."
+        )
         return
 
+    currency = db.get_currency_name(ctx.guild.id)
     if status == "broke":
         embed = discord.Embed(
             title="🍕 No pizza for you...",
-            description=f"You need **{PIZZA_COST}** credits for a pizza, {ctx.author.display_name}.",
+            description=f"You need **{PIZZA_COST}** {currency} for a pizza, {ctx.author.display_name}.",
             color=discord.Color.orange(),
         )
         embed.set_image(url=random.choice(BROKE_GIFS))
@@ -583,7 +746,7 @@ async def pizza(ctx):
     balance = value
     embed = discord.Embed(title="🍕 Pizza delivery for the casino!", color=discord.Color.orange())
     embed.set_image(url=random.choice(PIZZA_GIFS))
-    embed.set_footer(text=f"Balance: {balance} credits")
+    embed.set_footer(text=f"Balance: {balance} {currency}")
     await ctx.send(embed=embed)
     await _update_pizza_champion(ctx.guild)
 

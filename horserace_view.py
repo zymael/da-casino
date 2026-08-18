@@ -83,9 +83,10 @@ class HorseRaceView(discord.ui.View):
             color=discord.Color.dark_green(),
         )
         if self.bets:
+            currency = db.get_currency_name(self.guild_id)
             lines = [
                 f"**{bet['display_name']}** — {self.roster[bet['horse_index']]['name']} "
-                f"({horserace.describe_odds(bet['horse_index'], self.probabilities)}) — {bet['amount']} credits"
+                f"({horserace.describe_odds(bet['horse_index'], self.probabilities)}) — {bet['amount']} {currency}"
                 for bet in self.bets
             ]
             embed.add_field(name="Current Bets", value="\n".join(lines), inline=False)
@@ -119,8 +120,9 @@ class HorseRaceView(discord.ui.View):
             return
 
         balance = await asyncio.to_thread(db.get_balance, self.guild_id, interaction.user.id)
+        currency = db.get_currency_name(self.guild_id)
         if amount > balance:
-            await interaction.response.send_message(f"You only have **{balance}** credits.", ephemeral=True)
+            await interaction.response.send_message(f"You only have **{balance}** {currency}.", ephemeral=True)
             return
 
         await asyncio.to_thread(db.update_balance, self.guild_id, interaction.user.id, -amount)
@@ -135,7 +137,7 @@ class HorseRaceView(discord.ui.View):
         odds = horserace.describe_odds(horse_index, self.probabilities)
         name = self.roster[horse_index]["name"]
         await interaction.response.send_message(
-            f"✅ Bet placed: {name} ({odds}) for **{amount}** credits.",
+            f"✅ Bet placed: {name} ({odds}) for **{amount}** {currency}.",
             ephemeral=True,
         )
         if self.message is not None:
@@ -226,10 +228,11 @@ class HorseRaceView(discord.ui.View):
             if cut > 0:
                 await asyncio.to_thread(db.update_balance, self.guild_id, owner_id, cut)
                 await asyncio.to_thread(db.log_bet, self.guild_id, owner_id, "horserace_owner", 0, cut)
+                currency = db.get_currency_name(self.guild_id)
                 result_embed.add_field(
                     name="🐴 Owner Bonus",
-                    value=f"<@{owner_id}> owns {winner_name} and earns **+{cut}** credits "
-                    f"({int(horserace.OWNER_CUT_FRACTION * 100)}% of the {pot}-credit pot on this horse).",
+                    value=f"<@{owner_id}> owns {winner_name} and earns **+{cut}** {currency} "
+                    f"({int(horserace.OWNER_CUT_FRACTION * 100)}% of the {pot}-{currency} pot on this horse).",
                     inline=False,
                 )
 
