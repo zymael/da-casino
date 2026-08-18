@@ -8,6 +8,7 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 import db
+from blackjack_view import active_tables as active_blackjack_tables, start_blackjack_table
 from holdem_view import (
     BIG_BLIND as HOLDEM_BIG_BLIND,
     active_tables as active_holdem_tables,
@@ -18,7 +19,6 @@ import horserace
 from horserace_view import HorseRaceView, active_races
 from roulette_view import RouletteView, active_rounds
 from slots_view import SlotsView
-from views import BlackjackView
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -275,8 +275,7 @@ async def daily(ctx):
 
 @bot.command(name="mine")
 async def mine(ctx):
-    """Dig for credits: !mine starts a dig, then !mine again 10 minutes later collects
-    20 credits. A 1 hour cooldown starts once you collect."""
+    """Dig for credits: !mine starts a dig, then !mine again 10 minutes later collects 20 credits (1h cooldown after collecting)."""
     if await _reject_if_at_poker_table(ctx):
         return
 
@@ -308,8 +307,7 @@ async def mine(ctx):
 
 @bot.command(name="tip")
 async def tip_cmd(ctx, member: discord.Member = None):
-    """Tip another user 25 freshly generated credits (not taken from your own balance):
-    !tip @user — once per day."""
+    """Tip another user 25 freshly generated credits (not taken from your own balance): !tip @user — once per day."""
     if await _reject_if_at_poker_table(ctx):
         return
     if member is None:
@@ -377,11 +375,14 @@ async def transfer(ctx, member: discord.Member = None, amount: int = None):
 
 @bot.command(name="blackjack", aliases=["bj"])
 async def blackjack_cmd(ctx, bet: int = None):
-    """Play a hand of blackjack: !blackjack <bet>"""
+    """Open a persistent blackjack table: !blackjack <bet> — deals round after round from a shared shoe that's only reshuffled once it runs out."""
     if await _reject_if_at_poker_table(ctx):
         return
     if bet is None or bet <= 0:
         await ctx.send("Usage: `!blackjack <bet>` — e.g. `!blackjack 50`")
+        return
+    if ctx.channel.id in active_blackjack_tables:
+        await ctx.send("A blackjack table is already open here — click **Join / Set Bet** on it to sit down!")
         return
 
     balance = await asyncio.to_thread(db.get_balance, ctx.guild.id, ctx.author.id)
@@ -390,13 +391,7 @@ async def blackjack_cmd(ctx, bet: int = None):
         await ctx.send(f"You only have **{balance}** {currency}, {ctx.author.display_name}.")
         return
 
-    await asyncio.to_thread(db.update_balance, ctx.guild.id, ctx.author.id, -bet)  # escrow the bet
-
-    view = BlackjackView(ctx.author, bet, ctx.guild.id)
-    natural_display = await view.resolve_naturals()
-    embeds, files = natural_display if natural_display else view.build_display()
-    message = await ctx.send(embeds=embeds, files=files, view=view)
-    view.message = message
+    await start_blackjack_table(ctx, bet)
 
 
 @bot.command(name="slots", aliases=["slot"])
@@ -514,8 +509,7 @@ async def buyhorse_cmd(ctx, number: int = None):
 
 @bot.command(name="buyfoal")
 async def buyfoal_cmd(ctx, *, name: str = None):
-    """Buy a brand-new foal and name it: !buyfoal <name> — cheap, but starts weaker than every
-    legend and needs daily training before it's old enough to race"""
+    """Buy a brand-new foal and name it: !buyfoal <name> — cheap, but weaker than a legend until trained up."""
     if await _reject_if_at_poker_table(ctx):
         return
     if not name or not name.strip():
@@ -600,8 +594,7 @@ async def train_cmd(ctx, number: int = None):
 
 @bot.command(name="holdem", aliases=["poker"])
 async def holdem_cmd(ctx, buy_in: int = None):
-    """Open a persistent Texas Hold'em table — deals hands back to back until fewer
-    than 2 players remain: !holdem [buy_in]"""
+    """Open a persistent Texas Hold'em table: !holdem [buy_in] — deals hands back to back until fewer than 2 players remain."""
     if await _reject_if_at_poker_table(ctx):
         return
     if buy_in is not None and buy_in < HOLDEM_BIG_BLIND:
