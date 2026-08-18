@@ -10,7 +10,12 @@ from holdem_view import busy_players as holdem_busy_players
 ROUND_SECONDS = 45
 LEG_DELAY_SECONDS = 2.5
 
-BET_KIND_LABELS = {"win": "Win (1st)", "place": "Place (top 2)", "show": "Show (top 3)"}
+BET_KIND_LABELS = {
+    "win": "Win (1st)",
+    "place": "Place (top 2)",
+    "show": "Show (top 3)",
+    "across": "Across the Board",
+}
 
 # channel_id -> HorseRaceView, so only one open race per channel
 active_races: dict[int, "HorseRaceView"] = {}
@@ -37,13 +42,21 @@ class BetKindSelect(discord.ui.Select):
 
 class BetAmountModal(discord.ui.Modal):
     def __init__(self, round_view: "HorseRaceView", horse_index: int, kind: str):
-        odds = horserace.describe_odds(horse_index, round_view.probabilities[kind])
         name = round_view.roster[horse_index]["name"]
-        super().__init__(title=f"{BET_KIND_LABELS[kind]}: {name} ({odds})")
+        if kind == "across":
+            # Odds for all three legs won't fit in Discord's 45-char modal title, so they're
+            # only shown in the confirmation message after submit.
+            title = f"Across the Board: {name}"
+            amount_label = "Bet amount EACH WAY (x3 total)"
+        else:
+            odds = horserace.describe_odds(horse_index, round_view.probabilities[kind])
+            title = f"{BET_KIND_LABELS[kind]}: {name} ({odds})"
+            amount_label = "Bet amount"
+        super().__init__(title=title)
         self.round_view = round_view
         self.horse_index = horse_index
         self.kind = kind
-        self.amount_input = discord.ui.TextInput(label="Bet amount", placeholder="e.g. 50")
+        self.amount_input = discord.ui.TextInput(label=amount_label, placeholder="e.g. 50")
         self.add_item(self.amount_input)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -100,6 +113,15 @@ class HorseRaceView(discord.ui.View):
     def _odds_labels(self) -> list[str]:
         return [horserace.describe_odds(i, self.probabilities["win"]) for i in self.race_field]
 
+    def _odds_str(self, horse_index: int, kind: str) -> str:
+        if kind == "across":
+            legs = ", ".join(
+                f"{leg[0].upper()} {horserace.describe_odds(horse_index, self.probabilities[leg])}"
+                for leg in horserace.ACROSS_LEGS
+            )
+            return legs
+        return horserace.describe_odds(horse_index, self.probabilities[kind])
+
     def build_display(self, footer: str | None = None) -> tuple[discord.Embed, discord.File]:
         embed = discord.Embed(
             title="🐎 Horse Racing — Place Your Bets!",
@@ -110,9 +132,8 @@ class HorseRaceView(discord.ui.View):
             currency = db.get_currency_name(self.guild_id)
             lines = [
                 f"**{bet['display_name']}** — {self.roster[bet['horse_index']]['name']} "
-                f"({BET_KIND_LABELS[bet['kind']]}, "
-                f"{horserace.describe_odds(bet['horse_index'], self.probabilities[bet['kind']])}) — "
-                f"{bet['amount']} {currency}"
+                f"({BET_KIND_LABELS[bet['kind']]}, {self._odds_str(bet['horse_index'], bet['kind'])}) — "
+                f"{bet['amount'] * horserace.STAKE_MULTIPLIER[bet['kind']]} {currency}"
                 for bet in self.bets
             ]
             embed.add_field(name="Current Bets", value="\n".join(lines), inline=False)
@@ -145,13 +166,17 @@ class HorseRaceView(discord.ui.View):
             await interaction.response.send_message("Bet amount must be positive.", ephemeral=True)
             return
 
+        stake = amount * horserace.STAKE_MULTIPLIER[kind]
         balance = await asyncio.to_thread(db.get_balance, self.guild_id, interaction.user.id)
         currency = db.get_currency_name(self.guild_id)
-        if amount > balance:
-            await interaction.response.send_message(f"You only have **{balance}** {currency}.", ephemeral=True)
+        if stake > balance:
+            need = f"**{stake}** {currency} (**{amount}** each way, x3)" if kind == "across" else f"**{stake}** {currency}"
+            await interaction.response.send_message(
+                f"You only have **{balance}** {currency} — this bet needs {need}.", ephemeral=True
+            )
             return
 
-        await asyncio.to_thread(db.update_balance, self.guild_id, interaction.user.id, -amount)
+        await asyncio.to_thread(db.update_balance, self.guild_id, interaction.user.id, -stake)
         self.bets.append(
             {
                 "user_id": interaction.user.id,
@@ -161,10 +186,11 @@ class HorseRaceView(discord.ui.View):
                 "amount": amount,
             }
         )
-        odds = horserace.describe_odds(horse_index, self.probabilities[kind])
+        odds = self._odds_str(horse_index, kind)
         name = self.roster[horse_index]["name"]
+        stake_desc = f"**{amount}** {currency} each way (**{stake}** total)" if kind == "across" else f"**{amount}** {currency}"
         await interaction.response.send_message(
-            f"✅ Bet placed: {BET_KIND_LABELS[kind]} — {name} ({odds}) for **{amount}** {currency}.",
+            f"✅ Bet placed: {BET_KIND_LABELS[kind]} — {name} ({odds}) for {stake_desc}.",
             ephemeral=True,
         )
         if self.message is not None:
@@ -228,23 +254,27 @@ class HorseRaceView(discord.ui.View):
         pot = 0
         for bet in self.bets:
             kind = bet["kind"]
-            if kind == "win" and bet["horse_index"] == winner:
-                pot += bet["amount"]
+            stake = bet["amount"] * horserace.STAKE_MULTIPLIER[kind]
+            if kind in ("win", "across") and bet["horse_index"] == winner:
+                pot += bet["amount"]  # win-leg contribution only, even for an across bet
             rank = rank_by_horse.get(bet["horse_index"])
-            multiplier = horserace.payout_multiplier(
-                bet["horse_index"], rank, horserace.BET_KIND_THRESHOLDS[kind], self.probabilities[kind]
-            )
+            if kind == "across":
+                multiplier = horserace.payout_multiplier_across(bet["horse_index"], rank, self.probabilities)
+            else:
+                multiplier = horserace.payout_multiplier(
+                    bet["horse_index"], rank, horserace.BET_KIND_THRESHOLDS[kind], self.probabilities[kind]
+                )
             payout = int(bet["amount"] * multiplier)
             if payout:
                 balance = await asyncio.to_thread(db.update_balance, self.guild_id, bet["user_id"], payout)
             else:
                 balance = await asyncio.to_thread(db.get_balance, self.guild_id, bet["user_id"])
-            net = payout - bet["amount"]
-            await asyncio.to_thread(db.log_bet, self.guild_id, bet["user_id"], "horserace", bet["amount"], net)
+            net = payout - stake
+            await asyncio.to_thread(db.log_bet, self.guild_id, bet["user_id"], "horserace", stake, net)
             outcome = "🎉 WIN" if payout else "❌ LOSE"
             lines.append(
                 f"**{bet['display_name']}** — {self.roster[bet['horse_index']]['name']} "
-                f"({BET_KIND_LABELS[kind]}, {bet['amount']}) — "
+                f"({BET_KIND_LABELS[kind]}, {stake}) — "
                 f"{outcome} ({'+' if net >= 0 else ''}{net}) — Balance: {balance}"
             )
 

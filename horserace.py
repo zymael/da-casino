@@ -147,8 +147,16 @@ def finish_order_of(frames: list[list[float]]) -> list[int]:
     return sorted(range(len(final)), key=lambda i: final[i], reverse=True)
 
 
-# Bet kinds, by how many finishing positions each one covers.
+# Bet kinds, by how many finishing positions each one covers. "across" (Across the Board)
+# isn't a single threshold -- it's a bundle of one Win + one Place + one Show bet, each at the
+# same stake, so it's handled separately (see STAKE_MULTIPLIER / payout_multiplier_across).
 BET_KIND_THRESHOLDS = {"win": 1, "place": 2, "show": 3}
+ACROSS_LEGS = ("win", "place", "show")
+
+# How many times the entered stake is actually escrowed for each bet kind -- an "across the
+# board" bet of X is really three separate X bets (one per leg), X*3 total, same as at a real
+# track.
+STAKE_MULTIPLIER = {"win": 1, "place": 1, "show": 1, "across": 3}
 
 
 def _simulate_stat_probabilities(
@@ -232,6 +240,17 @@ def payout_multiplier(horse_index: int, rank: int | None, threshold: int, probab
     if rank is None or rank > threshold:
         return 0.0
     return _multiplier_of(horse_index, probabilities)
+
+
+def payout_multiplier_across(
+    horse_index: int, rank: int | None, probabilities: dict[str, dict[int, float]]
+) -> float:
+    """Combined per-unit multiplier for an Across the Board bet: sums whichever of the Win/
+    Place/Show legs actually hit (a win pays all three, a place pays place+show, a show pays
+    just show), each leg valued the same as a standalone bet of that kind."""
+    return sum(
+        payout_multiplier(horse_index, rank, BET_KIND_THRESHOLDS[leg], probabilities[leg]) for leg in ACROSS_LEGS
+    )
 
 
 def describe_odds(horse_index: int, probabilities: dict[int, float]) -> str:
