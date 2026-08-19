@@ -3,6 +3,32 @@ import random
 
 import db
 
+# Sex and coat color/pattern -- every horse (legend or foal) has both. Coat terms are drawn from
+# real equine coat color genetics (see Wikipedia's "Equine coat color"): base colors, the cream/
+# dun/champagne/silver dilutions, and the roan/pinto/appaloosa patterns.
+SEXES = ["male", "female"]
+SEX_SYMBOLS = {"male": "♂", "female": "♀"}
+COAT_COLORS = [
+    "Bay", "Black", "Chestnut", "Brown", "Grey", "Palomino", "Buckskin", "Dun",
+    "Cremello", "Perlino", "Smoky Black", "Champagne", "Silver Dapple", "Roan",
+    "Tobiano Pinto", "Overo Pinto", "Appaloosa",
+]
+
+# "Red Spotted" is deliberately not in COAT_COLORS above -- it's a one-off coat assigned by hand
+# to a single specific foal (pizzaface, guild 1311918529951301693, horse_index 8) rather than
+# something new foals can randomly roll into. Kept as a named constant so its meaning is
+# documented, even though nothing in this file references it directly.
+SPECIAL_COAT_RED_SPOTTED = "Red Spotted"
+
+
+def random_sex() -> str:
+    return random.choice(SEXES)
+
+
+def random_coat() -> str:
+    return random.choice(COAT_COLORS)
+
+
 # Base template for the fixed legend roster, each defined by three stats (0-100):
 #   Speed     — top speed at the start of the race, before fatigue sets in.
 #   Endurance — blunts how much speed is lost to fatigue each leg.
@@ -10,19 +36,21 @@ import db
 #               (bigger spirit = more likely *and* bigger when it lands), like a crit chance.
 # Named after real Thoroughbred greats (per Wikipedia's "List of racehorses"), with stats
 # loosely nodding to their real reputations (Seabiscuit's famous comebacks -> high Spirit,
-# Arkle's steeplechase stamina -> high Endurance, etc). This only seeds a guild's copy of each
-# legend the first time it's touched there (db.seed_legend) — after that, a guild's horses
-# table is the source of truth, since stats/age/name/ownership all become guild-specific and
-# training can move stats away from these starting values.
+# Arkle's steeplechase stamina -> high Endurance, etc). sex/coat are researched real-world values
+# for each horse (colt/stallion -> male, filly/mare -> female; geldings are also male here, since
+# this only tracks biological sex). This only seeds a guild's copy of each legend the first time
+# it's touched there (db.seed_legend) — after that, a guild's horses table is the source of
+# truth, since stats/age/name/ownership all become guild-specific and training can move stats
+# away from these starting values.
 HORSES = [
-    {"name": "Secretariat", "color": (195, 60, 55, 255), "speed": 88, "endurance": 65, "spirit": 55},
-    {"name": "Man o' War", "color": (50, 95, 200, 255), "speed": 85, "endurance": 70, "spirit": 50},
-    {"name": "Cigar", "color": (25, 25, 25, 255), "speed": 76, "endurance": 60, "spirit": 78},
-    {"name": "Black Caviar", "color": (160, 160, 170, 255), "speed": 82, "endurance": 48, "spirit": 50},
-    {"name": "Affirmed", "color": (205, 120, 30, 255), "speed": 79, "endurance": 62, "spirit": 55},
-    {"name": "Seabiscuit", "color": (45, 45, 50, 255), "speed": 67, "endurance": 55, "spirit": 90},
-    {"name": "Arkle", "color": (140, 75, 30, 255), "speed": 70, "endurance": 90, "spirit": 50},
-    {"name": "Barbaro", "color": (110, 50, 150, 255), "speed": 73, "endurance": 52, "spirit": 45},
+    {"name": "Secretariat", "color": (195, 60, 55, 255), "speed": 88, "endurance": 65, "spirit": 55, "sex": "male", "coat": "Chestnut"},
+    {"name": "Man o' War", "color": (50, 95, 200, 255), "speed": 85, "endurance": 70, "spirit": 50, "sex": "male", "coat": "Chestnut"},
+    {"name": "Cigar", "color": (25, 25, 25, 255), "speed": 76, "endurance": 60, "spirit": 78, "sex": "male", "coat": "Bay"},
+    {"name": "Black Caviar", "color": (160, 160, 170, 255), "speed": 82, "endurance": 48, "spirit": 50, "sex": "female", "coat": "Grey"},
+    {"name": "Affirmed", "color": (205, 120, 30, 255), "speed": 79, "endurance": 62, "spirit": 55, "sex": "male", "coat": "Chestnut"},
+    {"name": "Seabiscuit", "color": (45, 45, 50, 255), "speed": 67, "endurance": 55, "spirit": 90, "sex": "male", "coat": "Bay"},
+    {"name": "Arkle", "color": (140, 75, 30, 255), "speed": 70, "endurance": 90, "spirit": 50, "sex": "male", "coat": "Bay"},
+    {"name": "Barbaro", "color": (110, 50, 150, 255), "speed": 73, "endurance": 52, "spirit": 45, "sex": "male", "coat": "Bay"},
 ]
 LEGEND_COUNT = len(HORSES)
 LEGEND_START_AGE = 10  # legends are already mature, so they're race-eligible from the start
@@ -93,8 +121,23 @@ def get_roster(guild_id: int) -> dict[int, dict]:
     """Full stable for this guild: every legend (seeding it from the template on first touch)
     plus any foals bought in. Includes horses too young to race yet."""
     for i, base in enumerate(HORSES):
-        db.seed_legend(guild_id, i, base["name"], base["speed"], base["endurance"], base["spirit"], LEGEND_START_AGE)
-    return db.get_guild_horses(guild_id)
+        db.seed_legend(
+            guild_id, i, base["name"], base["speed"], base["endurance"], base["spirit"], LEGEND_START_AGE,
+            base["sex"], base["coat"],
+        )
+    roster = db.get_guild_horses(guild_id)
+    # Backfill sex/coat for any horse that predates that tracking -- legends get their
+    # canonical real-world values, foals (no canonical identity) get a random assignment.
+    for i, horse in roster.items():
+        if horse["sex"] is not None:
+            continue
+        if i < LEGEND_COUNT:
+            sex, coat = HORSES[i]["sex"], HORSES[i]["coat"]
+        else:
+            sex, coat = random_sex(), random_coat()
+        db.backfill_horse_traits(guild_id, i, sex, coat)
+        horse["sex"], horse["coat"] = sex, coat
+    return roster
 
 
 def eligible_indices(roster: dict[int, dict]) -> list[int]:

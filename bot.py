@@ -576,7 +576,8 @@ async def horses_cmd(ctx):
         stats = (
             f"SPD {horse['speed']:.0f} / END {horse['endurance']:.0f} / SPI {horse['spirit']:.0f} — {record}"
         )
-        lines.append(f"**{i + 1}. {horse['name']}** ({odds}) — {kind} — {status}\n{stats}")
+        sex_symbol = horserace.SEX_SYMBOLS.get(horse["sex"], "")
+        lines.append(f"**{i + 1}. {horse['name']}** {sex_symbol} {horse['coat']} ({odds}) — {kind} — {status}\n{stats}")
 
     embed = discord.Embed(
         title="🐴 The Stable",
@@ -715,8 +716,10 @@ async def buyfoal_cmd(ctx, *, name: str = None):
         return
 
     horse_index = await asyncio.to_thread(db.next_horse_index, ctx.guild.id, horserace.LEGEND_COUNT)
+    sex, coat = horserace.random_sex(), horserace.random_coat()
     status, balance = await asyncio.to_thread(
-        db.buy_foal, ctx.guild.id, horse_index, ctx.author.id, name, horserace.FOAL_PRICE, *horserace.FOAL_BASE_STATS.values()
+        db.buy_foal, ctx.guild.id, horse_index, ctx.author.id, name, horserace.FOAL_PRICE,
+        *horserace.FOAL_BASE_STATS.values(), sex, coat,
     )
     if status == "broke":
         currency = db.get_currency_name(ctx.guild.id)
@@ -725,9 +728,9 @@ async def buyfoal_cmd(ctx, *, name: str = None):
 
     currency = db.get_currency_name(ctx.guild.id)
     await ctx.send(
-        f"🐣 {ctx.author.display_name} bought a foal named **{name}** for **{horserace.FOAL_PRICE}** {currency}! "
-        f"Balance: **{balance}**. Train it with `!train {horse_index + 1}` once a day — it needs to reach "
-        f"age {horserace.MIN_RACING_AGE} before it can race."
+        f"🐣 {ctx.author.display_name} bought a {coat} {sex} foal named **{name}** for **{horserace.FOAL_PRICE}** "
+        f"{currency}! Balance: **{balance}**. Train it with `!train {horse_index + 1}` once a day — it needs to "
+        f"reach age {horserace.MIN_RACING_AGE} before it can race."
     )
     await achievements.try_award_many(ctx.send, ctx.guild.id, ctx.author.id, ctx.author.display_name, ["first_horse"])
 

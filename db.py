@@ -172,6 +172,8 @@ def init_db():
             races INTEGER NOT NULL DEFAULT 0,
             race_starts INTEGER NOT NULL DEFAULT 0,
             last_trained TEXT,
+            sex TEXT,
+            coat TEXT,
             PRIMARY KEY (guild_id, horse_index)
         )
         """
@@ -186,6 +188,13 @@ def init_db():
     for column in ("places", "shows"):
         if column not in columns:
             conn.execute(f"ALTER TABLE horses ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
+    # horses predates sex/coat too -- added non-destructively for the same reason. Left NULL
+    # here for any horse that already existed; horserace.get_roster() detects sex IS NULL and
+    # backfills it the next time that guild's stable is read (canonical values for legends,
+    # random for foals), the same lazy-backfill-on-first-touch idea as places/shows above.
+    for column in ("sex", "coat"):
+        if column not in columns:
+            conn.execute(f"ALTER TABLE horses ADD COLUMN {column} TEXT")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS bet_log (
@@ -748,7 +757,7 @@ def get_guild_horses(guild_id: int) -> dict[int, dict]:
     try:
         rows = conn.execute(
             "SELECT horse_index, is_foal, name, owner_id, speed, endurance, spirit, age, wins, places, shows, "
-            "races, race_starts, last_trained FROM horses WHERE guild_id = ?",
+            "races, race_starts, last_trained, sex, coat FROM horses WHERE guild_id = ?",
             (guild_id,),
         ).fetchall()
         return {
@@ -766,10 +775,12 @@ def get_guild_horses(guild_id: int) -> dict[int, dict]:
                 "races": races,
                 "race_starts": race_starts,
                 "last_trained": last_trained,
+                "sex": sex,
+                "coat": coat,
             }
             for (
                 horse_index, is_foal, name, owner_id, speed, endurance, spirit, age, wins, places, shows,
-                races, race_starts, last_trained,
+                races, race_starts, last_trained, sex, coat,
             ) in rows
         }
     finally:
@@ -791,16 +802,33 @@ def get_horses_owned_by(guild_id: int, user_id: int) -> list[tuple[int, bool, st
         conn.close()
 
 
-def seed_legend(guild_id: int, horse_index: int, name: str, speed: float, endurance: float, spirit: float, age: int):
+def seed_legend(
+    guild_id: int, horse_index: int, name: str, speed: float, endurance: float, spirit: float, age: int,
+    sex: str, coat: str,
+):
     """Creates a legend horse's row the first time it's touched in a guild. A no-op if it
     already exists (never overwrites a rename, training, or ownership already in place)."""
     conn = _connect()
     try:
         conn.execute(
             "INSERT OR IGNORE INTO horses "
-            "(guild_id, horse_index, is_foal, name, owner_id, speed, endurance, spirit, age) "
-            "VALUES (?, ?, 0, ?, NULL, ?, ?, ?, ?)",
-            (guild_id, horse_index, name, speed, endurance, spirit, age),
+            "(guild_id, horse_index, is_foal, name, owner_id, speed, endurance, spirit, age, sex, coat) "
+            "VALUES (?, ?, 0, ?, NULL, ?, ?, ?, ?, ?, ?)",
+            (guild_id, horse_index, name, speed, endurance, spirit, age, sex, coat),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def backfill_horse_traits(guild_id: int, horse_index: int, sex: str, coat: str):
+    """One-time top-up for a horse that existed before sex/coat tracking did. Guarded by
+    sex IS NULL, so it never overwrites a real (already-backfilled or freshly-created) value."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE horses SET sex = ?, coat = ? WHERE guild_id = ? AND horse_index = ? AND sex IS NULL",
+            (sex, coat, guild_id, horse_index),
         )
         conn.commit()
     finally:
@@ -863,7 +891,7 @@ def buy_legend_horse(guild_id: int, horse_index: int, user_id: int, price: int) 
 
 def buy_foal(
     guild_id: int, horse_index: int, user_id: int, name: str, price: int,
-    speed: float, endurance: float, spirit: float,
+    speed: float, endurance: float, spirit: float, sex: str, coat: str,
 ) -> tuple[str, int]:
     """Creates and buys a brand-new foal in one step. Returns (status, balance): "ok" or "broke"."""
     conn = _connect()
@@ -882,9 +910,9 @@ def buy_foal(
             (price, guild_id, user_id),
         )
         conn.execute(
-            "INSERT INTO horses (guild_id, horse_index, is_foal, name, owner_id, speed, endurance, spirit, age) "
-            "VALUES (?, ?, 1, ?, ?, ?, ?, ?, 0)",
-            (guild_id, horse_index, name, user_id, speed, endurance, spirit),
+            "INSERT INTO horses (guild_id, horse_index, is_foal, name, owner_id, speed, endurance, spirit, age, sex, coat) "
+            "VALUES (?, ?, 1, ?, ?, ?, ?, ?, 0, ?, ?)",
+            (guild_id, horse_index, name, user_id, speed, endurance, spirit, sex, coat),
         )
         conn.commit()
         new_balance = conn.execute(
