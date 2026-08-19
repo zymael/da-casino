@@ -38,19 +38,22 @@ def random_coat() -> str:
 # loosely nodding to their real reputations (Seabiscuit's famous comebacks -> high Spirit,
 # Arkle's steeplechase stamina -> high Endurance, etc). sex/coat are researched real-world values
 # for each horse (colt/stallion -> male, filly/mare -> female; geldings are also male here, since
-# this only tracks biological sex). This only seeds a guild's copy of each legend the first time
-# it's touched there (db.seed_legend) — after that, a guild's horses table is the source of
-# truth, since stats/age/name/ownership all become guild-specific and training can move stats
-# away from these starting values.
+# this only tracks biological sex). Coats favor real facts where a horse's color is iconic to its
+# reputation (Secretariat's chestnut "Big Red", Black Caviar's grey), but spread the rest across
+# the palette for variety rather than clustering on the two-or-three most common real colors.
+# This only seeds a guild's copy of each legend the first time it's touched there
+# (db.seed_legend) — after that, a guild's horses table is the source of truth, since stats/age/
+# name/ownership all become guild-specific and training can move stats away from these starting
+# values.
 HORSES = [
     {"name": "Secretariat", "color": (195, 60, 55, 255), "speed": 88, "endurance": 65, "spirit": 55, "sex": "male", "coat": "Chestnut"},
-    {"name": "Man o' War", "color": (50, 95, 200, 255), "speed": 85, "endurance": 70, "spirit": 50, "sex": "male", "coat": "Chestnut"},
-    {"name": "Cigar", "color": (25, 25, 25, 255), "speed": 76, "endurance": 60, "spirit": 78, "sex": "male", "coat": "Bay"},
+    {"name": "Man o' War", "color": (50, 95, 200, 255), "speed": 85, "endurance": 70, "spirit": 50, "sex": "male", "coat": "Bay"},
+    {"name": "Cigar", "color": (25, 25, 25, 255), "speed": 76, "endurance": 60, "spirit": 78, "sex": "male", "coat": "Black"},
     {"name": "Black Caviar", "color": (160, 160, 170, 255), "speed": 82, "endurance": 48, "spirit": 50, "sex": "female", "coat": "Grey"},
-    {"name": "Affirmed", "color": (205, 120, 30, 255), "speed": 79, "endurance": 62, "spirit": 55, "sex": "male", "coat": "Chestnut"},
-    {"name": "Seabiscuit", "color": (45, 45, 50, 255), "speed": 67, "endurance": 55, "spirit": 90, "sex": "male", "coat": "Bay"},
-    {"name": "Arkle", "color": (140, 75, 30, 255), "speed": 70, "endurance": 90, "spirit": 50, "sex": "male", "coat": "Bay"},
-    {"name": "Barbaro", "color": (110, 50, 150, 255), "speed": 73, "endurance": 52, "spirit": 45, "sex": "male", "coat": "Bay"},
+    {"name": "Affirmed", "color": (205, 120, 30, 255), "speed": 79, "endurance": 62, "spirit": 55, "sex": "male", "coat": "Palomino"},
+    {"name": "Seabiscuit", "color": (45, 45, 50, 255), "speed": 67, "endurance": 55, "spirit": 90, "sex": "male", "coat": "Buckskin"},
+    {"name": "Arkle", "color": (140, 75, 30, 255), "speed": 70, "endurance": 90, "spirit": 50, "sex": "male", "coat": "Roan"},
+    {"name": "Barbaro", "color": (110, 50, 150, 255), "speed": 73, "endurance": 52, "spirit": 45, "sex": "male", "coat": "Appaloosa"},
 ]
 LEGEND_COUNT = len(HORSES)
 LEGEND_START_AGE = 10  # legends are already mature, so they're race-eligible from the start
