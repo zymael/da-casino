@@ -224,6 +224,7 @@ async def stats_cmd(ctx):
     currency = db.get_currency_name(guild_id)
 
     balance, pizzas_bought = await asyncio.to_thread(db.get_user_economy, guild_id, user_id)
+    character = await asyncio.to_thread(db.get_character, guild_id, user_id)
     game_stats = await asyncio.to_thread(db.get_user_game_stats, guild_id, user_id)
     bet_count, total_won, total_lost, best_win, worst_loss = await asyncio.to_thread(
         db.get_user_bet_summary, guild_id, user_id
@@ -237,6 +238,17 @@ async def stats_cmd(ctx):
     embed.add_field(name="Balance", value=f"{balance} {currency}", inline=True)
     embed.add_field(name="🍕 Pizzas Bought", value=str(pizzas_bought), inline=True)
     embed.add_field(name="🏆 Achievements", value=f"{achievement_count} unlocked", inline=True)
+
+    if character is not None:
+        name = dungeon.display_name(character["main_class"], character["subclass"])
+        suit_symbol = dungeon.SUIT_SYMBOLS[character["subclass"]]
+        embed.add_field(
+            name="🗡️ Class",
+            value=f"{name} {suit_symbol}\nHP {character['hp']} / ATK {character['atk']} / DEF {character['def']}",
+            inline=True,
+        )
+    else:
+        embed.add_field(name="🗡️ Class", value="None yet — try `!class`.", inline=True)
 
     if game_stats:
         lines = []
