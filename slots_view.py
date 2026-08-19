@@ -2,6 +2,7 @@ import asyncio
 
 import discord
 
+import achievements
 import db
 import slots
 import slots_render
@@ -11,10 +12,10 @@ BASE_LINE_BET = 1  # credits staked per active line at 1x multiplier
 MULTIPLIERS = [1, 2, 5, 10, 20]
 
 
-async def play_spin(guild_id: int, user_id: int, lines: int, multiplier: int) -> tuple[list[list[str]], list, int, int]:
+async def play_spin(guild_id: int, user_id: int, lines: int, multiplier: int) -> tuple[list[list[str]], list, int, int, int]:
     """Escrows the total bet, spins, and pays out.
 
-    Returns (grid, winning_lines, total_payout, new_balance), where winning_lines is a
+    Returns (grid, winning_lines, total_payout, new_balance, net), where winning_lines is a
     list of (line_index, symbols, payout) for each active line that hit.
     """
     bet_per_line = multiplier * BASE_LINE_BET
@@ -35,8 +36,9 @@ async def play_spin(guild_id: int, user_id: int, lines: int, multiplier: int) ->
         balance = await asyncio.to_thread(db.update_balance, guild_id, user_id, total_payout)
     else:
         balance = await asyncio.to_thread(db.get_balance, guild_id, user_id)
-    await asyncio.to_thread(db.log_bet, guild_id, user_id, "slots", bet, total_payout - bet)
-    return grid, winning_lines, total_payout, balance
+    net = total_payout - bet
+    await asyncio.to_thread(db.log_bet, guild_id, user_id, "slots", bet, net)
+    return grid, winning_lines, total_payout, balance, net
 
 
 class LineSelect(discord.ui.Select):
@@ -94,7 +96,7 @@ class SpinButton(discord.ui.Button):
             )
             return
 
-        grid, winning_lines, total_payout, balance = await play_spin(
+        grid, winning_lines, total_payout, balance, net = await play_spin(
             view.guild_id, view.author.id, view.lines, view.multiplier
         )
         view.balance = balance
@@ -102,6 +104,12 @@ class SpinButton(discord.ui.Button):
         embed = view.build_result_embed(winning_lines, total_payout)
         file = discord.File(slots_render.render_reels(grid, winning_lines), filename="slots.png")
         await interaction.response.edit_message(embed=embed, view=view, attachments=[file])
+
+        kinds = achievements.kinds_for_bet("slots", net)
+        if kinds:
+            await achievements.try_award_many(
+                interaction.followup.send, view.guild_id, view.author.id, view.author.display_name, kinds
+            )
 
 
 class SlotsView(discord.ui.View):

@@ -61,6 +61,32 @@ def init_db():
         )
         """
     )
+    # One row per achievement kind per guild -- whoever's INSERT lands first claims it, and it
+    # never moves afterward (unlike the champions crowns above, which follow the current leader).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS achievements (
+            guild_id INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            achieved_at TEXT NOT NULL,
+            PRIMARY KEY (guild_id, kind)
+        )
+        """
+    )
+    # Unlike `achievements` above, every user can claim each kind independently (e.g. everyone
+    # can eventually earn "won a blackjack hand"), so the primary key includes user_id.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS personal_achievements (
+            guild_id INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            achieved_at TEXT NOT NULL,
+            PRIMARY KEY (guild_id, kind, user_id)
+        )
+        """
+    )
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS guild_settings (
@@ -416,6 +442,63 @@ def get_user_badges(guild_id: int, user_id: int) -> set[str]:
     try:
         rows = conn.execute(
             "SELECT kind FROM champions WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchall()
+        return {row[0] for row in rows}
+    finally:
+        conn.close()
+
+
+def award_first_achievement(guild_id: int, kind: str, user_id: int) -> bool:
+    """Claims `kind` for `user_id` in this guild if nobody has claimed it yet. Returns whether
+    this call was the one that claimed it -- False if someone (possibly this same user, on a
+    repeat trigger) already holds it."""
+    conn = _connect()
+    try:
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO achievements (guild_id, kind, user_id, achieved_at) VALUES (?, ?, ?, ?)",
+            (guild_id, kind, user_id, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def get_guild_achievements(guild_id: int) -> dict[str, tuple[int, str]]:
+    """Returns {kind: (user_id, achieved_at)} for every "first"-scoped achievement already
+    claimed in this guild."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT kind, user_id, achieved_at FROM achievements WHERE guild_id = ?", (guild_id,)
+        ).fetchall()
+        return {kind: (user_id, achieved_at) for kind, user_id, achieved_at in rows}
+    finally:
+        conn.close()
+
+
+def award_personal_achievement(guild_id: int, kind: str, user_id: int) -> bool:
+    """Claims `kind` for `user_id` in this guild if they haven't already earned it. Returns
+    whether this call was the one that claimed it -- False if they already had it."""
+    conn = _connect()
+    try:
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO personal_achievements (guild_id, kind, user_id, achieved_at) "
+            "VALUES (?, ?, ?, ?)",
+            (guild_id, kind, user_id, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def get_personal_achievement_holders(guild_id: int, kind: str) -> set[int]:
+    """Returns the set of user_ids who have earned this personal achievement in this guild."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT user_id FROM personal_achievements WHERE guild_id = ? AND kind = ?", (guild_id, kind)
         ).fetchall()
         return {row[0] for row in rows}
     finally:

@@ -2,11 +2,13 @@ import asyncio
 import os
 import random
 import time
+from datetime import datetime
 
 import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
+import achievements
 import db
 from blackjack_view import active_tables as active_blackjack_tables, start_blackjack_table
 from holdem_view import (
@@ -62,6 +64,7 @@ HELP_CATEGORIES = [
     ("💰 Economy", ["balance", "daily", "mine", "tip", "transfer", "pizza", "leaderboard"]),
     ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
     ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train"]),
+    ("🏆 Achievements", ["achievements"]),
     ("⚙️ Utility", ["ping", "setcasino", "setcurrency"]),
 ]
 
@@ -511,6 +514,36 @@ async def horses_cmd(ctx):
     await ctx.send(embed=embed)
 
 
+@bot.command(name="achievements", aliases=["achievement"])
+async def achievements_cmd(ctx):
+    """Show every achievement, who's claimed it, and what's still up for grabs."""
+    first_claimed = await asyncio.to_thread(db.get_guild_achievements, ctx.guild.id)
+    lines = []
+    for achievement in achievements.ACHIEVEMENTS:
+        kind = achievement["kind"]
+        if achievement["scope"] == "first":
+            row = first_claimed.get(kind)
+            if row:
+                user_id, achieved_at = row
+                when = datetime.fromisoformat(achieved_at).strftime("%Y-%m-%d")
+                status = f"<@{user_id}> ({when})"
+            else:
+                status = "*unclaimed*"
+        else:
+            holders = await asyncio.to_thread(db.get_personal_achievement_holders, ctx.guild.id, kind)
+            you = " — ✅ you have this" if ctx.author.id in holders else ""
+            count = len(holders)
+            status = f"earned by {count} player{'s' if count != 1 else ''}{you}"
+        reward = achievement["reward"]
+        reward_text = f" (+{reward} {db.get_currency_name(ctx.guild.id)})" if reward else ""
+        lines.append(
+            f"{achievement['emoji']} **{achievement['name']}**{reward_text} — {status}\n{achievement['description']}"
+        )
+
+    embed = discord.Embed(title="🏆 Achievements", description="\n\n".join(lines), color=discord.Color.gold())
+    await ctx.send(embed=embed)
+
+
 @bot.command(name="buyhorse")
 async def buyhorse_cmd(ctx, number: int = None):
     """Buy an unowned legend: !buyhorse <number> — see !horses for numbers and prices"""
@@ -538,6 +571,7 @@ async def buyhorse_cmd(ctx, number: int = None):
         f"🐴 {ctx.author.display_name} bought **{horse_name}** for **{price}** {currency}! "
         f"Balance: **{balance}**. Rename it with `!renamehorse {number} <name>`."
     )
+    await achievements.try_award_many(ctx.send, ctx.guild.id, ctx.author.id, ctx.author.display_name, ["first_horse"])
 
 
 @bot.command(name="buyfoal")
@@ -568,6 +602,7 @@ async def buyfoal_cmd(ctx, *, name: str = None):
         f"Balance: **{balance}**. Train it with `!train {horse_index + 1}` once a day — it needs to reach "
         f"age {horserace.MIN_RACING_AGE} before it can race."
     )
+    await achievements.try_award_many(ctx.send, ctx.guild.id, ctx.author.id, ctx.author.display_name, ["first_horse"])
 
 
 @bot.command(name="renamehorse")

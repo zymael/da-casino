@@ -2,6 +2,7 @@ import asyncio
 
 import discord
 
+import achievements
 import db
 import horserace
 import horserace_render
@@ -262,6 +263,7 @@ class HorseRaceView(discord.ui.View):
         winner_name = self.roster[winner]["name"]
         lines = []
         pot = 0
+        achievement_bets = []
         for bet in self.bets:
             kind = bet["kind"]
             stake = bet["amount"] * horserace.STAKE_MULTIPLIER[kind]
@@ -281,6 +283,9 @@ class HorseRaceView(discord.ui.View):
                 balance = await asyncio.to_thread(db.get_balance, self.guild_id, bet["user_id"])
             net = payout - stake
             await asyncio.to_thread(db.log_bet, self.guild_id, bet["user_id"], "horserace", stake, net)
+            kinds = achievements.kinds_for_bet("horserace", net)
+            if kinds:
+                achievement_bets.append((bet, kinds))
             outcome = "🎉 WIN" if payout else "❌ LOSE"
             lines.append(
                 f"**{bet['display_name']}** — {self.roster[bet['horse_index']]['name']} "
@@ -324,6 +329,12 @@ class HorseRaceView(discord.ui.View):
                 await self.message.edit(embed=result_embed, attachments=[file], view=self)
             except discord.HTTPException:
                 pass
+
+        if self.message is not None:
+            for bet, kinds in achievement_bets:
+                await achievements.try_award_many(
+                    self.message.channel.send, self.guild_id, bet["user_id"], bet["display_name"], kinds
+                )
 
     async def on_timeout(self):
         await self.resolve()

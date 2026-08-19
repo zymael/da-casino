@@ -2,6 +2,7 @@ import asyncio
 
 import discord
 
+import achievements
 import cards_render
 import db
 import video_poker
@@ -60,6 +61,12 @@ class DrawButton(discord.ui.Button):
         embed = view.build_result_embed()
         file = view.build_hand_file()
         await interaction.response.edit_message(embed=embed, view=view, attachments=[file])
+
+        kinds = achievements.kinds_for_bet(view.variant, net)
+        if kinds:
+            await achievements.try_award_many(
+                interaction.followup.send, view.guild_id, view.author.id, view.author.display_name, kinds
+            )
 
 
 class PlayAgainButton(discord.ui.Button):

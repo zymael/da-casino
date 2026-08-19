@@ -2,6 +2,7 @@ import asyncio
 
 import discord
 
+import achievements
 import cards_render
 import db
 from game import Deck, hand_value, is_blackjack
@@ -274,6 +275,7 @@ async def settle_round(ctx, table: BlackjackTable, hands: list[BlackjackHand], d
     embeds[0].set_image(url="attachment://dealer.png")
     files = [discord.File(dealer_buf, filename="dealer.png")]
 
+    achievement_hands = []
     for i, hand in enumerate(hands):
         outcome = outcome_for(hand, dealer, dealer_natural)
         payout = int(hand.bet * OUTCOME_PAYOUT_MULTIPLIERS[outcome])
@@ -283,6 +285,9 @@ async def settle_round(ctx, table: BlackjackTable, hands: list[BlackjackHand], d
             balance = await asyncio.to_thread(db.get_balance, table.guild_id, hand.member.id)
         net = payout - hand.bet
         await asyncio.to_thread(db.log_bet, table.guild_id, hand.member.id, "blackjack", hand.bet, net)
+        kinds = achievements.kinds_for_bet("blackjack", net)
+        if kinds:
+            achievement_hands.append((hand.member, kinds))
 
         buf = cards_render.render_hand(hand.cards)
         fname = f"hand{i}.png"
@@ -297,6 +302,8 @@ async def settle_round(ctx, table: BlackjackTable, hands: list[BlackjackHand], d
         embeds.append(player_embed)
 
     await ctx.send(embeds=embeds[:10], files=files)
+    for member, kinds in achievement_hands:
+        await achievements.try_award_many(ctx.send, table.guild_id, member.id, member.display_name, kinds)
 
 
 class BetweenHandsBetModal(discord.ui.Modal):
