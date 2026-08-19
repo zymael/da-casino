@@ -21,6 +21,7 @@ import asyncio
 import discord
 
 import db
+import quests
 
 BIG_WIN_TIER_1 = 1_000
 BIG_WIN_TIER_2 = 10_000
@@ -114,6 +115,14 @@ ACHIEVEMENTS = [
         "emoji": "💐",
         "name": "Love in Bloom",
         "description": "You introduced yourself to the ranch hand, Kel!",
+        "reward": 25,
+    },
+    {
+        "kind": "dared_by_mondor",
+        "scope": "personal",
+        "emoji": "🧙",
+        "name": "Dare Accepted",
+        "description": "You greeted Mondor at the dungeon entrance and accepted his challenge!",
         "reward": 25,
     },
 ]
@@ -228,6 +237,8 @@ async def try_award_many(send, guild_id: int, user_id: int, display_name: str, k
 
     if not unlocked:
         return
+
+    await quests.maybe_start_quests(guild_id, user_id, [achievement["kind"] for achievement in unlocked])
 
     total_reward = sum(achievement["reward"] for achievement in unlocked)
     if total_reward:

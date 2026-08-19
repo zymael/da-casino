@@ -1,5 +1,6 @@
 import io
 import math
+import textwrap
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -17,6 +18,54 @@ BACK_WALL_COLOR = (45, 42, 50, 255)
 
 _FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 _label_font = ImageFont.truetype(_FONT_PATH, 20)
+
+# Mondor's dungeon-entrance banner -- a separate photo banner, not the wireframe corridor drawn
+# above. Never mutated on disk -- every call re-composites a fresh copy, same pattern as
+# ranch_render.py's Kel speech bubble.
+BANNER_PATH = "assets/dungeon_banner.png"
+_BUBBLE_FONT = ImageFont.truetype(_FONT_PATH, 13)
+MONDOR_GREETING_TEXT = "I HAVE MANY CHALLENGES FOR YOU. DARE YOU BE CHALLENGED BY MONDOR?"
+_BUBBLE_FILL = (255, 255, 245, 235)
+_BUBBLE_OUTLINE = (30, 20, 15, 255)
+_BUBBLE_TEXT_COLOR = (20, 15, 10, 255)
+
+
+def render_mondor_dialogue(text: str) -> io.BytesIO:
+    """Composites a comic-style speech bubble with arbitrary Mondor dialogue over the dungeon
+    banner, positioned clear of his face (he stands in the left half of the image) with a tail
+    pointing back to him, same layout idea as ranch_render.render_kel_introduction. Shared by
+    every Mondor interaction (greeting, quest prompts, ...) so there's one bubble renderer rather
+    than one per line of dialogue."""
+    base = Image.open(BANNER_PATH).convert("RGBA")
+    draw = ImageDraw.Draw(base)
+
+    wrapped = textwrap.fill(text, width=32)
+    padding = 10
+    text_bbox = draw.multiline_textbbox((0, 0), wrapped, font=_BUBBLE_FONT, spacing=4)
+    text_w, text_h = text_bbox[2] - text_bbox[0], text_bbox[3] - text_bbox[1]
+
+    bubble_w, bubble_h = text_w + padding * 2, text_h + padding * 2
+    bubble_x = max(base.width - bubble_w - 10, base.width // 3)
+    bubble_y = 8
+
+    draw.rounded_rectangle(
+        [bubble_x, bubble_y, bubble_x + bubble_w, bubble_y + bubble_h],
+        radius=12, fill=_BUBBLE_FILL, outline=_BUBBLE_OUTLINE, width=2,
+    )
+    tail = [
+        (bubble_x + 30, bubble_y + bubble_h - 2),
+        (bubble_x + 10, bubble_y + bubble_h + 22),
+        (bubble_x + 55, bubble_y + bubble_h - 2),
+    ]
+    draw.polygon(tail, fill=_BUBBLE_FILL, outline=_BUBBLE_OUTLINE)
+    draw.line([(bubble_x + 12, bubble_y + bubble_h - 2), (bubble_x + bubble_w - 12, bubble_y + bubble_h - 2)], fill=_BUBBLE_FILL, width=3)
+
+    draw.multiline_text((bubble_x + padding, bubble_y + padding), wrapped, font=_BUBBLE_FONT, fill=_BUBBLE_TEXT_COLOR, spacing=4)
+
+    buf = io.BytesIO()
+    base.convert("RGB").save(buf, format="PNG")
+    buf.seek(0)
+    return buf
 
 
 def _parse_color(hex_color: str) -> tuple[int, int, int, int]:

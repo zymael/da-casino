@@ -13,76 +13,9 @@ import asyncio
 import discord
 
 import casino_render
+import hub_ui
 
 CASINO_BANNER_PATH = "assets/casino_banner.png"
-
-
-class _InteractionContext:
-    """Just enough of discord.ext.commands.Context for a command callback written for normal
-    prefix invocation to run unmodified from a button click or modal submission instead."""
-
-    def __init__(self, interaction: discord.Interaction):
-        self.guild = interaction.guild
-        self.channel = interaction.channel
-        self.author = interaction.user
-        self.send = interaction.channel.send
-
-
-class AmountModal(discord.ui.Modal):
-    """Collects a single integer (a bet or buy-in) and hands it to `command_callback` exactly
-    as if it had been typed as a command argument."""
-
-    def __init__(self, title: str, command_callback, input_label: str, required: bool = True):
-        super().__init__(title=title)
-        self.command_callback = command_callback
-        self.amount_input = discord.ui.TextInput(label=input_label, placeholder="e.g. 50", required=required)
-        self.add_item(self.amount_input)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        raw = self.amount_input.value.strip()
-        if not raw:
-            amount = None
-        else:
-            try:
-                amount = int(raw)
-            except ValueError:
-                await interaction.response.send_message("Enter a whole number.", ephemeral=True)
-                return
-        await interaction.response.defer(ephemeral=True)
-        await self.command_callback(_InteractionContext(interaction), amount)
-
-
-class NoArgButton(discord.ui.Button):
-    """A button for a command that takes no arguments -- just runs it."""
-
-    def __init__(self, label: str, style: discord.ButtonStyle, row: int, command_callback):
-        super().__init__(label=label, style=style, row=row)
-        self.command_callback = command_callback
-
-    async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        await self.command_callback(_InteractionContext(interaction))
-
-
-class AmountButton(discord.ui.Button):
-    """A button for a command that takes one integer argument -- opens AmountModal to collect
-    it first, matching this codebase's existing bet-collection convention (e.g. blackjack's
-    Join/Set Bet modal) rather than needing that amount typed on the command line."""
-
-    def __init__(
-        self, label: str, style: discord.ButtonStyle, row: int, command_callback,
-        modal_title: str, input_label: str, required: bool = True,
-    ):
-        super().__init__(label=label, style=style, row=row)
-        self.command_callback = command_callback
-        self.modal_title = modal_title
-        self.input_label = input_label
-        self.required = required
-
-    async def callback(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(
-            AmountModal(self.modal_title, self.command_callback, self.input_label, self.required)
-        )
 
 
 class CasinoView(discord.ui.View):
@@ -95,25 +28,26 @@ class CasinoView(discord.ui.View):
         c = commands
 
         # Row 0-1: games. Bet/buy-in games open a modal; the rest just run.
-        self.add_item(AmountButton("🃏 Blackjack", discord.ButtonStyle.primary, 0, c["blackjack"], "Blackjack Bet", "Bet amount"))
-        self.add_item(NoArgButton("🎰 Slots", discord.ButtonStyle.primary, 0, c["slots"]))
-        self.add_item(NoArgButton("🎡 Roulette", discord.ButtonStyle.primary, 0, c["roulette"]))
-        self.add_item(AmountButton("♠️ Hold'em", discord.ButtonStyle.primary, 0, c["holdem"], "Hold'em Buy-in", "Buy-in (blank = default)", required=False))
-        self.add_item(AmountButton("🎴 Video Poker", discord.ButtonStyle.primary, 0, c["videopoker"], "Video Poker Bet", "Bet amount"))
-        self.add_item(AmountButton("🎴 Deuces Wild", discord.ButtonStyle.primary, 1, c["deuceswild"], "Deuces Wild Bet", "Bet amount"))
-        self.add_item(NoArgButton("🐎 Horse Race", discord.ButtonStyle.primary, 1, c["horserace"]))
+        self.add_item(hub_ui.AmountButton("🃏 Blackjack", discord.ButtonStyle.primary, 0, c["blackjack"], "Blackjack Bet", "Bet amount"))
+        self.add_item(hub_ui.NoArgButton("🎰 Slots", discord.ButtonStyle.primary, 0, c["slots"]))
+        self.add_item(hub_ui.NoArgButton("🎡 Roulette", discord.ButtonStyle.primary, 0, c["roulette"]))
+        self.add_item(hub_ui.AmountButton("♠️ Hold'em", discord.ButtonStyle.primary, 0, c["holdem"], "Hold'em Buy-in", "Buy-in (blank = default)", required=False))
+        self.add_item(hub_ui.AmountButton("🎴 Video Poker", discord.ButtonStyle.primary, 0, c["videopoker"], "Video Poker Bet", "Bet amount"))
+        self.add_item(hub_ui.AmountButton("🎴 Deuces Wild", discord.ButtonStyle.primary, 1, c["deuceswild"], "Deuces Wild Bet", "Bet amount"))
+        self.add_item(hub_ui.NoArgButton("🐎 Horse Race", discord.ButtonStyle.primary, 1, c["horserace"]))
 
         # Row 2: economy quick actions.
-        self.add_item(NoArgButton("💰 Balance", discord.ButtonStyle.secondary, 2, c["balance"]))
-        self.add_item(NoArgButton("🎁 Daily", discord.ButtonStyle.secondary, 2, c["daily"]))
-        self.add_item(NoArgButton("⛏️ Mine", discord.ButtonStyle.secondary, 2, c["mine"]))
-        self.add_item(NoArgButton("🍕 Pizza", discord.ButtonStyle.secondary, 2, c["pizza"]))
-        self.add_item(NoArgButton("🏆 Leaderboard", discord.ButtonStyle.secondary, 2, c["leaderboard"]))
+        self.add_item(hub_ui.NoArgButton("💰 Balance", discord.ButtonStyle.secondary, 2, c["balance"]))
+        self.add_item(hub_ui.NoArgButton("🎁 Daily", discord.ButtonStyle.secondary, 2, c["daily"]))
+        self.add_item(hub_ui.NoArgButton("⛏️ Mine", discord.ButtonStyle.secondary, 2, c["mine"]))
+        self.add_item(hub_ui.NoArgButton("🍕 Pizza", discord.ButtonStyle.secondary, 2, c["pizza"]))
+        self.add_item(hub_ui.NoArgButton("🏆 Leaderboard", discord.ButtonStyle.secondary, 2, c["leaderboard"]))
 
         # Row 3: other hubs / info.
-        self.add_item(NoArgButton("🐴 Ranch", discord.ButtonStyle.secondary, 3, c["ranch"]))
-        self.add_item(NoArgButton("📊 Stats", discord.ButtonStyle.secondary, 3, c["stats"]))
-        self.add_item(NoArgButton("🏅 Achievements", discord.ButtonStyle.secondary, 3, c["achievements"]))
+        self.add_item(hub_ui.NoArgButton("🐴 Ranch", discord.ButtonStyle.secondary, 3, c["ranch"]))
+        self.add_item(hub_ui.NoArgButton("🗡️ Dungeon", discord.ButtonStyle.secondary, 3, c["dungeon"]))
+        self.add_item(hub_ui.NoArgButton("📊 Stats", discord.ButtonStyle.secondary, 3, c["stats"]))
+        self.add_item(hub_ui.NoArgButton("🏅 Achievements", discord.ButtonStyle.secondary, 3, c["achievements"]))
 
         # Row 4: flavor.
         self.add_item(RoyButton())

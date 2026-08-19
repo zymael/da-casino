@@ -2,9 +2,12 @@ import asyncio
 
 import discord
 
+import achievements
 import db
 import dungeon
 import dungeon_render
+import hub_ui
+import quests
 from holdem_view import busy_players
 
 # user_id -> DelveSession, so a player can only have one active delve at a time (across any
@@ -213,7 +216,7 @@ async def _resolve_victory_rewards(session: DelveSession, log_lines: list[str]):
         slot = dropped["slot"]
         current_item_id = session.equipped.get(slot)
         current_item = dungeon.EQUIPMENT.get(current_item_id) if current_item_id else None
-        if current_item is None or dungeon.item_power(dropped) > dungeon.item_power(current_item):
+        if dungeon.is_upgrade(current_item_id, dropped):
             await asyncio.to_thread(db.equip_item, session.guild_id, session.user_id, slot, dropped["id"])
             old_bonuses = current_item["stat_bonuses"] if current_item else {}
             new_bonuses = dropped["stat_bonuses"]
@@ -228,6 +231,10 @@ async def _resolve_victory_rewards(session: DelveSession, log_lines: list[str]):
                 log_lines.append(f"⚔️ Found **{dropped['name']}**! Equipped.")
         else:
             log_lines.append(f"⚔️ Found **{dropped['name']}**, but your current {slot} is better — left behind.")
+
+    quest_item = await quests.roll_item_drop(session.guild_id, session.user_id, session.room_index, session.monster["id"])
+    if quest_item is not None:
+        log_lines.append(f"{quest_item['emoji']} Found a **{quest_item['name']}**...")
 
 
 async def _handle_action(interaction: discord.Interaction, session: DelveSession, ability: bool) -> bool:
@@ -425,3 +432,116 @@ class ConfirmButton(discord.ui.Button):
         )
         await interaction.response.edit_message(embed=embed, view=None)
         picker.stop()
+
+
+DUNGEON_BANNER_PATH = "assets/dungeon_banner.png"
+
+
+async def build_dungeon_hub_display(guild_id: int, user_id: int, commands: dict) -> tuple[discord.Embed, "DungeonHubView"]:
+    """Builds the (embed, view) pair for the !dungeon hub -- reused by the initial !dungeon
+    command and every button refresh afterward (same "always reflects fresh DB state" idea as
+    ranch_view.build_ranch_display), since Mondor's Be Challenged / turn-in buttons are
+    achievement- and quest-progress-gated rather than always present."""
+    embed = discord.Embed(
+        title="🗡️ The Dungeon",
+        description="Pick a class, then delve for loot and XP. The `!class`/`!delve` commands still work too.",
+        color=discord.Color.dark_red(),
+    )
+    embed.set_image(url="attachment://dungeon_banner.png")
+
+    earned = await asyncio.to_thread(db.get_user_personal_achievements, guild_id, user_id)
+    be_challenged = "dared_by_mondor" in earned
+    mondor_state = await quests.talk_to_npc(guild_id, user_id, "mondor")
+
+    view = DungeonHubView(guild_id, user_id, commands, be_challenged, mondor_state["can_turn_in"], mondor_state["item"])
+    return embed, view
+
+
+class DungeonHubView(discord.ui.View):
+    """Persistent (no timeout) launcher for the dungeon RPG's own commands -- same "buttons just
+    invoke the existing @bot.command callback" idea as casino_view.CasinoView -- plus Mondor's
+    achievement/quest-gated buttons, built fresh each render (same "state-aware dashboard" idea
+    as ranch_view.RanchView, unlike the plain launcher this used to be)."""
+
+    def __init__(
+        self, guild_id: int, user_id: int, commands: dict,
+        be_challenged: bool, can_turn_in: bool, turn_in_item: dict | None,
+    ):
+        super().__init__(timeout=None)
+        self.guild_id = guild_id
+        self.user_id = user_id
+        self.commands = commands
+        self.add_item(hub_ui.NoArgButton("🗡️ Class", discord.ButtonStyle.primary, 0, commands["class"]))
+        self.add_item(hub_ui.NoArgButton("⚔️ Delve", discord.ButtonStyle.primary, 0, commands["delve"]))
+        self.add_item(MondorButton())
+        if be_challenged:
+            self.add_item(BeChallengedButton())
+        if can_turn_in:
+            self.add_item(GiveMondorItemButton(turn_in_item))
+
+
+class MondorButton(discord.ui.Button):
+    """Deliberately not a text command -- the only way to meet Mondor is to click this. Grants
+    the (idempotent, one-time) dared_by_mondor achievement and swaps the hub's banner for his
+    challenge greeting, every time it's clicked (mirrors ranch_view.py's Kel button). Rebuilds
+    the whole view (not just the image) so Be Challenged appears immediately on the achievement's
+    first claim, without needing !dungeon run again."""
+
+    def __init__(self):
+        super().__init__(label="🧙 Greet Mondor", style=discord.ButtonStyle.secondary, row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        guild_id, user_id = interaction.guild.id, interaction.user.id
+        await achievements.try_award_many(
+            interaction.channel.send, guild_id, user_id, interaction.user.display_name, ["dared_by_mondor"],
+        )
+        buf = await asyncio.to_thread(dungeon_render.render_mondor_dialogue, dungeon_render.MONDOR_GREETING_TEXT)
+        file = discord.File(buf, filename="mondor_greeting.png")
+        embed, view = await build_dungeon_hub_display(guild_id, user_id, self.view.commands)
+        embed.set_image(url="attachment://mondor_greeting.png")
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+
+
+class BeChallengedButton(discord.ui.Button):
+    """Only added to the view once the player holds dared_by_mondor (see
+    build_dungeon_hub_display) -- reveals Mondor's current quest-stage line in the same
+    speech-bubble style as his greeting."""
+
+    def __init__(self):
+        super().__init__(label="❗ Be Challenged", style=discord.ButtonStyle.danger, row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        guild_id, user_id = interaction.guild.id, interaction.user.id
+        state = await quests.talk_to_npc(guild_id, user_id, "mondor")
+        buf = await asyncio.to_thread(dungeon_render.render_mondor_dialogue, state["prompt"])
+        file = discord.File(buf, filename="mondor_challenge.png")
+        embed, view = await build_dungeon_hub_display(guild_id, user_id, self.view.commands)
+        embed.set_image(url="attachment://mondor_challenge.png")
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+
+
+class GiveMondorItemButton(discord.ui.Button):
+    """Only added to the view once the player is holding the item Mondor's current quest stage
+    wants (see build_dungeon_hub_display) -- mirrors ranch_view.py's Kel turn-in button."""
+
+    def __init__(self, item: dict):
+        super().__init__(label=f"🎁 Give Mondor the {item['name']}", style=discord.ButtonStyle.success, row=2)
+
+    async def callback(self, interaction: discord.Interaction):
+        guild_id, user_id = interaction.guild.id, interaction.user.id
+        result = await quests.turn_in(guild_id, user_id, "mondor")
+        if not result["success"]:
+            await interaction.response.send_message("You don't have anything to give Mondor right now.", ephemeral=True)
+            return
+
+        text = result["message"]
+        reward_item = result["reward_item"]
+        if reward_item:
+            if result["equipped"]:
+                text += f"\n\n⚔️ Received **{reward_item['name']}** — equipped!"
+            else:
+                text += f"\n\n⚔️ Received **{reward_item['name']}**, but your current weapon is better — left behind."
+
+        await interaction.response.send_message(text)
+        embed, view = await build_dungeon_hub_display(guild_id, user_id, self.view.commands)
+        await interaction.message.edit(embed=embed, view=view)

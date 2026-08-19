@@ -191,13 +191,23 @@ def item_power(item: dict) -> int:
     return sum(item["stat_bonuses"].values())
 
 
+def is_upgrade(current_item_id: str | None, new_item: dict) -> bool:
+    """Whether new_item is worth equipping over whatever (if anything) is currently in its slot --
+    the same power comparison used for both ordinary dungeon loot (dungeon_view.py's kill-rewards
+    flow) and quest turn-in gear rewards (quests.py's turn_in), so the rule only lives once."""
+    current_item = EQUIPMENT.get(current_item_id) if current_item_id else None
+    return current_item is None or item_power(new_item) > item_power(current_item)
+
+
 def roll_equipment_drop(room_index: int) -> dict | None:
     """None most of the time (EQUIPMENT_DROP_CHANCE). When it hits, picks one item from this
-    room's tier, weighted by drop_weight so rarer/stronger items are less likely."""
+    room's tier, weighted by drop_weight so rarer/stronger items are less likely. quest_only
+    items (granted exclusively through a quest turn-in, e.g. Mondor's Greasy Pencil) are never
+    candidates here."""
     if random.random() > EQUIPMENT_DROP_CHANCE:
         return None
     tier = room_index + 1
-    candidates = [item for item in EQUIPMENT.values() if item["tier"] == tier]
+    candidates = [item for item in EQUIPMENT.values() if item["tier"] == tier and not item.get("quest_only")]
     if not candidates:
         return None
     weights = [item["drop_weight"] for item in candidates]

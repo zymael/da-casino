@@ -13,7 +13,7 @@ import casino_view
 import db
 from blackjack_view import active_tables as active_blackjack_tables, start_blackjack_table
 import dungeon
-from dungeon_view import ClassPickerView, active_delves, start_delve
+from dungeon_view import ClassPickerView, DUNGEON_BANNER_PATH, active_delves, build_dungeon_hub_display, start_delve
 from holdem_view import (
     BIG_BLIND as HOLDEM_BIG_BLIND,
     active_tables as active_holdem_tables,
@@ -68,7 +68,7 @@ HELP_CATEGORIES = [
     ("💰 Economy", ["balance", "stats", "daily", "mine", "tip", "transfer", "pizza", "leaderboard"]),
     ("🎲 Casino Games", ["casino", "blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
     ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train", "ranch", "facility", "boost"]),
-    ("🗡️ Dungeon", ["class", "delve"]),
+    ("🗡️ Dungeon", ["dungeon", "class", "delve"]),
     ("🏆 Achievements", ["achievements"]),
     ("⚙️ Utility", ["ping", "setcasino", "setcurrency"]),
 ]
@@ -668,7 +668,7 @@ async def class_cmd(ctx):
     await ctx.send(embed=view.build_embed(), view=view)
 
 
-@bot.command(name="delve", aliases=["dungeon"])
+@bot.command(name="delve")
 async def delve_cmd(ctx):
     """Delve today's dungeon level for a class-biased, push-your-luck payout: !delve"""
     if await _reject_if_at_poker_table(ctx):
@@ -687,6 +687,15 @@ async def delve_cmd(ctx):
         return
 
     await start_delve(ctx, character)
+
+
+@bot.command(name="dungeon")
+async def dungeon_cmd(ctx):
+    """One-click hub for the dungeon RPG -- pick your class, delve, and meet Mondor: !dungeon"""
+    commands_map = {"class": class_cmd.callback, "delve": delve_cmd.callback}
+    embed, view = await build_dungeon_hub_display(ctx.guild.id, ctx.author.id, commands_map)
+    file = discord.File(DUNGEON_BANNER_PATH, filename="dungeon_banner.png")
+    await ctx.send(embed=embed, file=file, view=view)
 
 
 @bot.command(name="buyhorse")
@@ -1078,6 +1087,7 @@ async def casino_cmd(ctx):
         "pizza": pizza.callback,
         "leaderboard": leaderboard.callback,
         "ranch": ranch_cmd.callback,
+        "dungeon": dungeon_cmd.callback,
         "stats": stats_cmd.callback,
         "achievements": achievements_cmd.callback,
     }

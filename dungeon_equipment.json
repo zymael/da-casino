@@ -178,5 +178,16 @@
     "drop_weight": 1,
     "stat_bonuses": {"hp": 4, "atk": 1},
     "flavor": "Warm to the touch. Faintly humming."
+  },
+  {
+    "id": "greasy_pencil",
+    "name": "Greasy Pencil",
+    "slot": "weapon",
+    "tier": 2,
+    "rarity": "rare",
+    "drop_weight": 4,
+    "stat_bonuses": {"atk": 3},
+    "flavor": "Reward for defeating the Goblin Chief.",
+    "quest_only": true
   }
 ]

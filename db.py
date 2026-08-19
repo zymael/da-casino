@@ -235,6 +235,35 @@ def init_db():
         )
         """
     )
+    # A player's progress through a quests.py QUESTS entry -- absence means not started, stage 0
+    # is the first stage. Never deleted once started, same "claims are permanent" idea as
+    # achievements/personal_achievements.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS quest_progress (
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            quest_id TEXT NOT NULL,
+            stage INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (guild_id, user_id, quest_id)
+        )
+        """
+    )
+    # Generic item bag for stuff that isn't equippable dungeon gear (quest items, keepsakes) --
+    # separate from character_equipment, which auto-equips by stat power rather than being held.
+    # No row for an item_id means 0 of it, same "absence = default state" idea as ranch_facilities.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS inventory (
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            item_id TEXT NOT NULL,
+            qty INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id, item_id)
+        )
+        """
+    )
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS bet_log (
@@ -1449,6 +1478,112 @@ def equip_item(guild_id: int, user_id: int, slot: str, item_id: str):
             (guild_id, user_id, slot, item_id),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def start_quest(guild_id: int, user_id: int, quest_id: str) -> bool:
+    """Starts `quest_id` for `user_id` at stage 0 if they haven't already started it. Returns
+    whether this call was the one that started it -- idempotent, same INSERT OR IGNORE shape as
+    award_personal_achievement, so a quest's start trigger can fire repeatedly (e.g. an
+    achievement re-checked on every claim attempt) without restarting progress."""
+    conn = _connect()
+    try:
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO quest_progress (guild_id, user_id, quest_id, stage, updated_at) "
+            "VALUES (?, ?, ?, 0, ?)",
+            (guild_id, user_id, quest_id, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def get_quest_stage(guild_id: int, user_id: int, quest_id: str) -> int | None:
+    """Returns this user's current stage index in `quest_id`, or None if they haven't started it."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT stage FROM quest_progress WHERE guild_id = ? AND user_id = ? AND quest_id = ?",
+            (guild_id, user_id, quest_id),
+        ).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def advance_quest_stage(guild_id: int, user_id: int, quest_id: str, from_stage: int) -> bool:
+    """Advances `quest_id` from `from_stage` to `from_stage + 1`. Returns whether it actually
+    moved -- False if the stored stage no longer matches from_stage (e.g. a stale view double
+    button-clicked), same stale-state guard as upgrade_facility's wrong_tier check."""
+    conn = _connect()
+    try:
+        cursor = conn.execute(
+            "UPDATE quest_progress SET stage = ?, updated_at = ? "
+            "WHERE guild_id = ? AND user_id = ? AND quest_id = ? AND stage = ?",
+            (from_stage + 1, datetime.now(timezone.utc).isoformat(), guild_id, user_id, quest_id, from_stage),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def add_inventory_item(guild_id: int, user_id: int, item_id: str, qty: int = 1):
+    """Adds qty of item_id to this user's inventory, creating the row if it's their first one."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "INSERT INTO inventory (guild_id, user_id, item_id, qty) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(guild_id, user_id, item_id) DO UPDATE SET qty = qty + excluded.qty",
+            (guild_id, user_id, item_id, qty),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_inventory(guild_id: int, user_id: int) -> dict[str, int]:
+    """Returns {item_id: qty} for everything this user is holding -- an item not in the dict
+    means 0, same "absence = default state" idea as get_equipped_items."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT item_id, qty FROM inventory WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchall()
+        return {item_id: qty for item_id, qty in rows}
+    finally:
+        conn.close()
+
+
+def consume_inventory_item(guild_id: int, user_id: int, item_id: str, qty: int = 1) -> bool:
+    """Removes qty of item_id from this user's inventory if they're holding at least that many.
+    Returns whether it succeeded -- False leaves their inventory untouched. Deletes the row
+    entirely once it hits 0 rather than leaving a 0-qty row around."""
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT qty FROM inventory WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+            (guild_id, user_id, item_id),
+        ).fetchone()
+        current = row[0] if row else 0
+        if current < qty:
+            conn.rollback()
+            return False
+        if current == qty:
+            conn.execute(
+                "DELETE FROM inventory WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                (guild_id, user_id, item_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE inventory SET qty = qty - ? WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                (qty, guild_id, user_id, item_id),
+            )
+        conn.commit()
+        return True
     finally:
         conn.close()
 
