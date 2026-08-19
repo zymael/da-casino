@@ -101,6 +101,25 @@ def init_db():
         )
         """
     )
+    # A player's dungeon RPG character: a permanent one-time choice (main class x subclass),
+    # created via create_character()'s INSERT OR IGNORE and never overwritten after that. Stats
+    # are snapshotted at creation (dungeon.compute_stats) rather than recomputed live, so a
+    # character's power stays stable even if the base numbers get rebalanced later.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS characters (
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            main_class TEXT NOT NULL,
+            subclass TEXT NOT NULL,
+            hp INTEGER NOT NULL,
+            atk INTEGER NOT NULL,
+            def INTEGER NOT NULL,
+            last_delve TEXT,
+            PRIMARY KEY (guild_id, user_id)
+        )
+        """
+    )
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS guild_settings (
@@ -1106,5 +1125,72 @@ def tip(guild_id: int, from_id: int, to_id: int, amount: int) -> tuple[str, floa
             "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, to_id)
         ).fetchone()[0]
         return "ok", to_balance
+    finally:
+        conn.close()
+
+
+def create_character(
+    guild_id: int, user_id: int, main_class: str, subclass: str, hp: int, atk: int, def_: int
+) -> bool:
+    """Creates this user's dungeon character if they don't already have one -- permanent and
+    never overwritten once chosen, same idempotent INSERT OR IGNORE pattern as
+    award_first_achievement/seed_legend. Returns whether this call was the one that created it."""
+    conn = _connect()
+    try:
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO characters (guild_id, user_id, main_class, subclass, hp, atk, def) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (guild_id, user_id, main_class, subclass, hp, atk, def_),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def get_character(guild_id: int, user_id: int) -> dict | None:
+    """Returns this user's dungeon character, or None if they haven't picked one yet."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT main_class, subclass, hp, atk, def, last_delve FROM characters "
+            "WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ).fetchone()
+        if row is None:
+            return None
+        main_class, subclass, hp, atk, def_, last_delve = row
+        return {
+            "main_class": main_class, "subclass": subclass,
+            "hp": hp, "atk": atk, "def": def_, "last_delve": last_delve,
+        }
+    finally:
+        conn.close()
+
+
+def claim_delve(guild_id: int, user_id: int) -> tuple[str, float | None]:
+    """Once-per-calendar-day gate for starting a dungeon delve -- same shape as claim_daily.
+    Marks last_delve immediately (delve outcome/payout is applied separately via update_balance/
+    log_bet once the delve resolves), so a player can't start two delves in one day even if the
+    first is abandoned.
+
+    Returns (status, value):
+      - ("cooldown", seconds_remaining) — already delved today
+      - ("ok", None) — cleared to start a delve
+    """
+    conn = _connect()
+    try:
+        today = date.today().isoformat()
+        row = conn.execute(
+            "SELECT last_delve FROM characters WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()
+        if row is not None and row[0] == today:
+            return "cooldown", _seconds_until_next_day()
+        conn.execute(
+            "UPDATE characters SET last_delve = ? WHERE guild_id = ? AND user_id = ?",
+            (today, guild_id, user_id),
+        )
+        conn.commit()
+        return "ok", None
     finally:
         conn.close()

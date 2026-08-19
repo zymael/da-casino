@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 import achievements
 import db
 from blackjack_view import active_tables as active_blackjack_tables, start_blackjack_table
+import dungeon
+from dungeon_view import ClassPickerView, active_delves, start_delve
 from holdem_view import (
     BIG_BLIND as HOLDEM_BIG_BLIND,
     active_tables as active_holdem_tables,
@@ -64,6 +66,7 @@ HELP_CATEGORIES = [
     ("💰 Economy", ["balance", "stats", "daily", "mine", "tip", "transfer", "pizza", "leaderboard"]),
     ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
     ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train"]),
+    ("🗡️ Dungeon", ["class", "delve"]),
     ("🏆 Achievements", ["achievements"]),
     ("⚙️ Utility", ["ping", "setcasino", "setcurrency"]),
 ]
@@ -617,6 +620,43 @@ async def achievements_cmd(ctx):
         title=f"🏆 {ctx.author.display_name}'s Achievements", description="\n\n".join(lines), color=discord.Color.gold()
     )
     await ctx.send(embed=embed)
+
+
+@bot.command(name="class")
+async def class_cmd(ctx):
+    """Pick your permanent dungeon class/subclass (one-time), or check your current one: !class"""
+    character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
+    if character is not None:
+        name = dungeon.display_name(character["main_class"], character["subclass"])
+        await ctx.send(
+            f"{ctx.author.display_name}, you are a **{name}** — "
+            f"HP {character['hp']} / ATK {character['atk']} / DEF {character['def']}. This choice is permanent."
+        )
+        return
+
+    view = ClassPickerView(ctx.guild.id, ctx.author.id)
+    await ctx.send(embed=view.build_embed(), view=view)
+
+
+@bot.command(name="delve", aliases=["dungeon"])
+async def delve_cmd(ctx):
+    """Delve today's dungeon level for a class-biased, push-your-luck payout: !delve"""
+    if await _reject_if_at_poker_table(ctx):
+        return
+    character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
+    if character is None:
+        await ctx.send(f"You don't have a character yet, {ctx.author.display_name} — run `!class` to pick one first.")
+        return
+    if ctx.author.id in active_delves:
+        await ctx.send("You're already mid-delve — finish that one first!")
+        return
+
+    status, seconds_remaining = await asyncio.to_thread(db.claim_delve, ctx.guild.id, ctx.author.id)
+    if status == "cooldown":
+        await ctx.send(f"You've already delved today, {ctx.author.display_name} — come back {_in_seconds(seconds_remaining)}.")
+        return
+
+    await start_delve(ctx, character)
 
 
 @bot.command(name="buyhorse")

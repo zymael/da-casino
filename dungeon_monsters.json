@@ -1,0 +1,80 @@
+[
+  {
+    "id": "goblin_grunt",
+    "name": "Goblin Grunt",
+    "tier": 1,
+    "hp": 10,
+    "atk": 3,
+    "def": 1,
+    "shape": "triangle",
+    "color": "#4a7c3c",
+    "flavor": "A scrawny goblin snarls and raises a rusty knife.",
+    "loot_min": 30,
+    "loot_max": 60
+  },
+  {
+    "id": "goblin_scavenger",
+    "name": "Goblin Scavenger",
+    "tier": 1,
+    "hp": 8,
+    "atk": 4,
+    "def": 0,
+    "shape": "triangle",
+    "color": "#6b8e3a",
+    "flavor": "A goblin picks through a pile of bones, then hisses at you.",
+    "loot_min": 30,
+    "loot_max": 60
+  },
+  {
+    "id": "goblin_skirmisher",
+    "name": "Goblin Skirmisher",
+    "tier": 2,
+    "hp": 16,
+    "atk": 5,
+    "def": 2,
+    "shape": "pentagon",
+    "color": "#3c6e4a",
+    "flavor": "A wiry goblin circles you, twin blades flashing.",
+    "loot_min": 60,
+    "loot_max": 120
+  },
+  {
+    "id": "goblin_archer",
+    "name": "Goblin Archer",
+    "tier": 2,
+    "hp": 14,
+    "atk": 6,
+    "def": 1,
+    "shape": "pentagon",
+    "color": "#2f6b57",
+    "flavor": "An arrow whistles past your ear -- this one keeps its distance.",
+    "loot_min": 60,
+    "loot_max": 120
+  },
+  {
+    "id": "goblin_chief",
+    "name": "Goblin Chief",
+    "tier": 3,
+    "hp": 28,
+    "atk": 8,
+    "def": 3,
+    "shape": "hexagon",
+    "color": "#8a3c2a",
+    "flavor": "The goblin chief hefts a jagged cleaver, crowned in stolen gold.",
+    "loot_min": 120,
+    "loot_max": 250
+  },
+  {
+    "id": "goblin_warlord",
+    "name": "Goblin Warlord",
+    "tier": 3,
+    "hp": 30,
+    "atk": 7,
+    "def": 4,
+    "shape": "hexagon",
+    "color": "#6b2a3c",
+    "flavor": "Scarred and armored in scavenged plate, the warlord roars a challenge.",
+    "loot_min": 120,
+    "loot_max": 250
+  }
+]
