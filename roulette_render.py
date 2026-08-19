@@ -8,10 +8,12 @@ import roulette
 CELL = 60
 ZERO_WIDTH = 60
 OUTSIDE_HEIGHT = 74
+COLUMN_BOX_WIDTH = 50
+DOZEN_HEIGHT = 36
 GRID_WIDTH = ZERO_WIDTH + 12 * CELL
 GRID_HEIGHT = 3 * CELL
-IMG_WIDTH = GRID_WIDTH
-IMG_HEIGHT = GRID_HEIGHT + OUTSIDE_HEIGHT
+IMG_WIDTH = GRID_WIDTH + COLUMN_BOX_WIDTH
+IMG_HEIGHT = GRID_HEIGHT + DOZEN_HEIGHT + OUTSIDE_HEIGHT
 
 FELT = (10, 90, 40, 255)
 RED = (176, 30, 30, 255)
@@ -29,6 +31,7 @@ _chip_font = ImageFont.truetype(_FONT_PATH, 13)
 
 OUTSIDE_BOXES = ["low", "even", "red", "black", "odd", "high"]
 OUTSIDE_LABELS = {"low": "1-18", "even": "EVEN", "red": "RED", "black": "BLACK", "odd": "ODD", "high": "19-36"}
+DOZEN_LABELS = {1: "1st12", 2: "2nd12", 3: "3rd12"}
 
 # Standard European single-zero wheel pocket order, reading around the rim.
 WHEEL_ORDER = [
@@ -60,7 +63,22 @@ def _outside_rect(kind: str) -> tuple[int, int, int, int]:
     idx = OUTSIDE_BOXES.index(kind)
     box_w = IMG_WIDTH / len(OUTSIDE_BOXES)
     x0 = idx * box_w
-    return (int(x0), GRID_HEIGHT, int(x0 + box_w), GRID_HEIGHT + OUTSIDE_HEIGHT)
+    y0 = GRID_HEIGHT + DOZEN_HEIGHT
+    return (int(x0), y0, int(x0 + box_w), y0 + OUTSIDE_HEIGHT)
+
+
+def _dozen_rect(value: int) -> tuple[int, int, int, int]:
+    """value is 1, 2, or 3 — the three dozen boxes sit under the number grid (not the column boxes)."""
+    box_w = (GRID_WIDTH - ZERO_WIDTH) / 3
+    x0 = ZERO_WIDTH + (value - 1) * box_w
+    return (int(x0), GRID_HEIGHT, int(x0 + box_w), GRID_HEIGHT + DOZEN_HEIGHT)
+
+
+def _column_box_rect(value: int) -> tuple[int, int, int, int]:
+    """value is 1, 2, or 3 — the "2 to 1" boxes to the right of the grid, aligned with that column's row."""
+    visual_row = 3 - value
+    y0 = visual_row * CELL
+    return (GRID_WIDTH, y0, GRID_WIDTH + COLUMN_BOX_WIDTH, y0 + CELL)
 
 
 def _centered_text(draw: ImageDraw.ImageDraw, rect, text, font, fill):
@@ -87,13 +105,39 @@ def _base_table() -> Image.Image:
         label_rect = (rect[0], rect[1], rect[2], rect[1] + 24)
         _centered_text(draw, label_rect, OUTSIDE_LABELS[kind], _label_font, (255, 255, 255, 255))
 
+    for value in (1, 2, 3):
+        rect = _dozen_rect(value)
+        draw.rectangle(rect, fill=FELT, outline=LINE, width=1)
+        _centered_text(draw, rect, DOZEN_LABELS[value], _label_font, (255, 255, 255, 255))
+
+    for value in (1, 2, 3):
+        rect = _column_box_rect(value)
+        draw.rectangle(rect, fill=FELT, outline=LINE, width=1)
+        _centered_text(draw, rect, "2:1", _label_font, (255, 255, 255, 255))
+
     return img
 
 
+def _combo_rect(numbers) -> tuple[int, int, int, int]:
+    """A small rect centered on the average position of the given numbers' cells."""
+    centers = [_cell_rect(n) for n in numbers]
+    cx = sum((r[0] + r[2]) / 2 for r in centers) / len(centers)
+    cy = sum((r[1] + r[3]) / 2 for r in centers) / len(centers)
+    half = CELL / 4
+    return (int(cx - half), int(cy - half), int(cx + half), int(cy + half))
+
+
 def _bet_cell_rect(bet: dict) -> tuple[int, int, int, int]:
-    if bet["kind"] == "number":
+    kind = bet["kind"]
+    if kind == "number":
         return _cell_rect(bet["value"])
-    return _outside_rect(bet["kind"])
+    if kind == "column":
+        return _column_box_rect(bet["value"])
+    if kind == "dozen":
+        return _dozen_rect(bet["value"])
+    if kind == "combo":
+        return _combo_rect(bet["value"])
+    return _outside_rect(kind)
 
 
 def _draw_chip(draw: ImageDraw.ImageDraw, cx: int, cy: int, label: str):
@@ -127,9 +171,10 @@ def render_table(bets: list[dict], winning_number: int | None = None) -> io.Byte
     for key, group in grouped.items():
         x0, y0, x1, y1 = _bet_cell_rect(group[0])
         cx = (x0 + x1) / 2
-        # Number cells: chip sits dead-center (covering the printed number, like a real table).
-        # Outside boxes: chips sit below the label so the bet name stays readable.
-        cy = y0 + 24 + (y1 - y0 - 24) / 2 if group[0]["kind"] != "number" else (y0 + y1) / 2
+        # Outside boxes (red/black/odd/even/low/high) have a label at the top, so chips sit below
+        # it. Everything else (number/column/dozen/combo cells) is small enough that the chip
+        # sits dead-center, covering the label/number, like a real table.
+        cy = y0 + 24 + (y1 - y0 - 24) / 2 if group[0]["kind"] in OUTSIDE_BOXES else (y0 + y1) / 2
         shown = group[:5]
         for i, bet in enumerate(shown):
             dx, dy = OFFSETS[i]
