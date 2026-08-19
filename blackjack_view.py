@@ -10,7 +10,7 @@ from holdem_view import busy_players
 
 JOIN_SECONDS = 45
 ACTION_SECONDS = 45
-BETWEEN_HANDS_SECONDS = 30  # how long to wait for everyone who just played to decide before dealing anyway
+BETWEEN_HANDS_SECONDS = 120  # how long to wait for everyone who just played to decide before standing them up
 
 OUTCOME_LABELS = {
     "blackjack": "🂡 Blackjack! You win",
@@ -440,7 +440,7 @@ class BetweenHandsView(discord.ui.View):
         if self.pending:
             names = ", ".join(f"<@{uid}>" for uid in self.pending)
             if timed_out:
-                status.description = f"Still waiting on: {names} — dealing anyway with their current bet."
+                status.description = f"Still waiting on: {names} — standing up before the next round."
             else:
                 status.description = f"Waiting on: {names}\nKeep your bet, change it, or quit before the next round deals."
         else:
@@ -542,6 +542,14 @@ async def run_between_hands(ctx, table: BlackjackTable, played_ids: set[int]):
         pass
 
     if view.pending:
+        # Defaulting a non-response to standing up (rather than the old behavior of quietly
+        # re-dealing them in with their current bet) means an AFK player's balance stops being
+        # put at risk just because they stepped away -- same reasoning as Quit already being the
+        # explicit-click default action, just applied to silence too.
+        for user_id in view.pending:
+            seat = table.seat_for(user_id)
+            if seat is not None:
+                seat.standing = True
         view._disable_all()
         try:
             await view.message.edit(embeds=view.build_embeds(timed_out=True), view=view)
