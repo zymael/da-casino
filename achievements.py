@@ -108,6 +108,14 @@ ACHIEVEMENTS = [
         "description": f"Lose {-BIG_LOSS_TIER_2}+ credits on a single bet.",
         "reward": 250,
     },
+    {
+        "kind": "love_in_bloom",
+        "scope": "personal",
+        "emoji": "💐",
+        "name": "Love in Bloom",
+        "description": "You introduced yourself to the ranch hand, Kel!",
+        "reward": 25,
+    },
 ]
 
 # Maps each game bucket to its emoji/title and the db.log_bet() `game` string(s) that feed it

@@ -116,7 +116,29 @@ def init_db():
             atk INTEGER NOT NULL,
             def INTEGER NOT NULL,
             last_delve TEXT,
+            level INTEGER NOT NULL DEFAULT 1,
+            xp INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (guild_id, user_id)
+        )
+        """
+    )
+    # characters predates leveling -- added non-destructively for the same reason as every other
+    # migration in this file (existing characters just start at level 1 / 0 xp, which is already
+    # the column default).
+    character_columns = {row[1] for row in conn.execute("PRAGMA table_info(characters)")}
+    for column in ("level", "xp"):
+        if column not in character_columns:
+            conn.execute(f"ALTER TABLE characters ADD COLUMN {column} INTEGER NOT NULL DEFAULT {1 if column == 'level' else 0}")
+    # A character's currently equipped gear -- one row per filled slot, upserted on equip/replace.
+    # No row for a slot means empty, same "absence = default state" idea as ranch_facilities.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS character_equipment (
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            slot TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            PRIMARY KEY (guild_id, user_id, slot)
         )
         """
     )
@@ -174,6 +196,7 @@ def init_db():
             last_trained TEXT,
             sex TEXT,
             coat TEXT,
+            pending_boost_stat TEXT,
             PRIMARY KEY (guild_id, horse_index)
         )
         """
@@ -195,6 +218,23 @@ def init_db():
     for column in ("sex", "coat"):
         if column not in columns:
             conn.execute(f"ALTER TABLE horses ADD COLUMN {column} TEXT")
+    # horses predates the !ranch training-boost items too -- same non-destructive add. NULL means
+    # no boost queued, which is also what a freshly-created row gets by default.
+    if "pending_boost_stat" not in columns:
+        conn.execute("ALTER TABLE horses ADD COLUMN pending_boost_stat TEXT")
+    # Per-owner, per-guild permanent training facility tier (0 = none). Absence of a row means
+    # tier 0, same "no row yet = default state" idea as everything else lazily created on first
+    # purchase (e.g. champion_base_nick).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ranch_facilities (
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            tier INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id)
+        )
+        """
+    )
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS bet_log (
@@ -757,7 +797,7 @@ def get_guild_horses(guild_id: int) -> dict[int, dict]:
     try:
         rows = conn.execute(
             "SELECT horse_index, is_foal, name, owner_id, speed, endurance, spirit, age, wins, places, shows, "
-            "races, race_starts, last_trained, sex, coat FROM horses WHERE guild_id = ?",
+            "races, race_starts, last_trained, sex, coat, pending_boost_stat FROM horses WHERE guild_id = ?",
             (guild_id,),
         ).fetchall()
         return {
@@ -777,10 +817,11 @@ def get_guild_horses(guild_id: int) -> dict[int, dict]:
                 "last_trained": last_trained,
                 "sex": sex,
                 "coat": coat,
+                "pending_boost_stat": pending_boost_stat,
             }
             for (
                 horse_index, is_foal, name, owner_id, speed, endurance, spirit, age, wins, places, shows,
-                races, race_starts, last_trained, sex, coat,
+                races, race_starts, last_trained, sex, coat, pending_boost_stat,
             ) in rows
         }
     finally:
@@ -885,6 +926,138 @@ def buy_legend_horse(guild_id: int, horse_index: int, user_id: int, price: int) 
             "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
         ).fetchone()[0]
         return "ok", new_balance
+    finally:
+        conn.close()
+
+
+def get_facility_tier(guild_id: int, user_id: int) -> int:
+    """Returns this owner's current ranch facility tier in this guild, 0 if they've never
+    bought one."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT tier FROM ranch_facilities WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()
+        return row[0] if row else 0
+    finally:
+        conn.close()
+
+
+def upgrade_facility(guild_id: int, user_id: int, next_tier: int, cost: int, max_tier: int) -> tuple[str, int]:
+    """Attempts to buy the next facility tier (must be exactly current_tier + 1 -- tiers can't be
+    skipped -- and no higher than max_tier). Returns (status, balance): "ok", "wrong_tier"
+    (next_tier isn't current+1 or exceeds max_tier, e.g. the caller's view of the current tier
+    was stale), or "broke"."""
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT tier FROM ranch_facilities WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()
+        current_tier = row[0] if row else 0
+        if next_tier != current_tier + 1 or next_tier > max_tier:
+            conn.rollback()
+            balance = conn.execute(
+                "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+            ).fetchone()[0]
+            return "wrong_tier", balance
+        balance = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
+        if balance < cost:
+            conn.rollback()
+            return "broke", balance
+        conn.execute(
+            "UPDATE users SET balance = balance - ? WHERE guild_id = ? AND user_id = ?",
+            (cost, guild_id, user_id),
+        )
+        conn.execute(
+            "INSERT INTO ranch_facilities (guild_id, user_id, tier) VALUES (?, ?, ?) "
+            "ON CONFLICT(guild_id, user_id) DO UPDATE SET tier = excluded.tier",
+            (guild_id, user_id, next_tier),
+        )
+        conn.commit()
+        new_balance = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
+        return "ok", new_balance
+    finally:
+        conn.close()
+
+
+def buy_horse_item(guild_id: int, user_id: int, horse_index: int, stat: str, cost: int) -> tuple[str, int]:
+    """Buys a training-boost item and immediately queues it on `horse_index`'s next training.
+    Returns (status, balance): "ok", "not_owner", "pending" (that horse already has a boost
+    queued -- train it first), or "broke"."""
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT owner_id, pending_boost_stat FROM horses WHERE guild_id = ? AND horse_index = ?",
+            (guild_id, horse_index),
+        ).fetchone()
+        if row is None or row[0] != user_id:
+            conn.rollback()
+            balance = conn.execute(
+                "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+            ).fetchone()[0]
+            return "not_owner", balance
+        if row[1] is not None:
+            conn.rollback()
+            balance = conn.execute(
+                "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+            ).fetchone()[0]
+            return "pending", balance
+        balance = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
+        if balance < cost:
+            conn.rollback()
+            return "broke", balance
+        conn.execute(
+            "UPDATE users SET balance = balance - ? WHERE guild_id = ? AND user_id = ?",
+            (cost, guild_id, user_id),
+        )
+        conn.execute(
+            "UPDATE horses SET pending_boost_stat = ? WHERE guild_id = ? AND horse_index = ?",
+            (stat, guild_id, horse_index),
+        )
+        conn.commit()
+        new_balance = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
+        return "ok", new_balance
+    finally:
+        conn.close()
+
+
+def get_ranch_horses(guild_id: int, user_id: int) -> list[dict]:
+    """Full detail (stats, sex/coat, pending boost) for every horse this user owns in this
+    guild, ordered by index -- the !ranch dashboard's listing, richer than get_horses_owned_by's
+    compact !stats summary."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT horse_index, is_foal, name, age, speed, endurance, spirit, wins, places, shows, races, "
+            "sex, coat, pending_boost_stat FROM horses WHERE guild_id = ? AND owner_id = ? ORDER BY horse_index",
+            (guild_id, user_id),
+        ).fetchall()
+        return [
+            {
+                "horse_index": horse_index, "is_foal": bool(is_foal), "name": name, "age": age,
+                "speed": speed, "endurance": endurance, "spirit": spirit,
+                "wins": wins, "places": places, "shows": shows, "races": races,
+                "sex": sex, "coat": coat, "pending_boost_stat": pending_boost_stat,
+            }
+            for (
+                horse_index, is_foal, name, age, speed, endurance, spirit, wins, places, shows, races,
+                sex, coat, pending_boost_stat,
+            ) in rows
+        ]
     finally:
         conn.close()
 
@@ -1022,9 +1195,12 @@ def train_horse(
         new_endurance = min(stat_cap, endurance + endurance_gain)
         new_spirit = min(stat_cap, spirit + spirit_gain)
         new_age = age + 1
+        # Any queued !boost item is consumed here regardless of whether the caller actually
+        # folded its bonus into the gains passed in -- by the time train_horse runs, that
+        # decision has already been made, so this just clears the flag either way.
         conn.execute(
-            "UPDATE horses SET speed = ?, endurance = ?, spirit = ?, age = ?, last_trained = ? "
-            "WHERE guild_id = ? AND horse_index = ?",
+            "UPDATE horses SET speed = ?, endurance = ?, spirit = ?, age = ?, last_trained = ?, "
+            "pending_boost_stat = NULL WHERE guild_id = ? AND horse_index = ?",
             (new_speed, new_endurance, new_spirit, new_age, today, guild_id, horse_index),
         )
         conn.commit()
@@ -1177,21 +1353,102 @@ def create_character(
 
 
 def get_character(guild_id: int, user_id: int) -> dict | None:
-    """Returns this user's dungeon character, or None if they haven't picked one yet."""
+    """Returns this user's dungeon character, or None if they haven't picked one yet. hp/atk/def
+    already include all permanent level growth (see add_xp) -- equipment bonuses are separate,
+    see get_equipped_items/dungeon.compute_effective_stats."""
     conn = _connect()
     try:
         row = conn.execute(
-            "SELECT main_class, subclass, hp, atk, def, last_delve FROM characters "
+            "SELECT main_class, subclass, hp, atk, def, last_delve, level, xp FROM characters "
             "WHERE guild_id = ? AND user_id = ?",
             (guild_id, user_id),
         ).fetchone()
         if row is None:
             return None
-        main_class, subclass, hp, atk, def_, last_delve = row
+        main_class, subclass, hp, atk, def_, last_delve, level, xp = row
         return {
             "main_class": main_class, "subclass": subclass,
             "hp": hp, "atk": atk, "def": def_, "last_delve": last_delve,
+            "level": level, "xp": xp,
         }
+    finally:
+        conn.close()
+
+
+def add_xp(
+    guild_id: int, user_id: int, xp_gain: int, hp_gain: int, atk_gain: int, def_gain: int
+) -> dict:
+    """Awards xp_gain, then loops applying level-ups (mutating the character's stored hp/atk/def
+    in place, same idea as train_horse growing a horse's stats) for as long as the accumulated xp
+    clears the next threshold -- so one big award can cross several levels in one call, same
+    inclusive-tiers idea used elsewhere in this codebase (e.g. achievement tiers).
+
+    Returns {new_level, levels_gained, new_hp, new_atk, new_def, new_xp} so the caller can apply
+    the same deltas to a live delve session immediately rather than waiting for the next one."""
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        level, xp, hp, atk, def_ = conn.execute(
+            "SELECT level, xp, hp, atk, def FROM characters WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ).fetchone()
+        xp += xp_gain
+        levels_gained = 0
+        while xp >= _xp_to_next_level(level):
+            xp -= _xp_to_next_level(level)
+            level += 1
+            levels_gained += 1
+            hp += hp_gain
+            atk += atk_gain
+            def_ += def_gain
+        conn.execute(
+            "UPDATE characters SET level = ?, xp = ?, hp = ?, atk = ?, def = ? "
+            "WHERE guild_id = ? AND user_id = ?",
+            (level, xp, hp, atk, def_, guild_id, user_id),
+        )
+        conn.commit()
+        return {
+            "new_level": level, "levels_gained": levels_gained, "new_xp": xp,
+            "new_hp": hp, "new_atk": atk, "new_def": def_,
+        }
+    finally:
+        conn.close()
+
+
+def _xp_to_next_level(level: int) -> int:
+    """Duplicated from dungeon.xp_to_next_level rather than imported -- db.py doesn't import
+    game-content modules (dungeon.py already imports db.py; importing back would be circular),
+    same reasoning as horserace.py owning its own constants that db.py's callers pass in."""
+    return 50 * level
+
+
+def get_equipped_items(guild_id: int, user_id: int) -> dict[str, str]:
+    """Returns {slot: item_id} for whatever this character currently has equipped -- a slot
+    with nothing equipped is simply absent from the dict."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT slot, item_id FROM character_equipment WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ).fetchall()
+        return {slot: item_id for slot, item_id in rows}
+    finally:
+        conn.close()
+
+
+def equip_item(guild_id: int, user_id: int, slot: str, item_id: str):
+    """Unconditionally equips item_id in `slot`, replacing whatever was there. Pure storage --
+    the decision of *whether* this item is worth equipping (empty slot, or better than what's
+    already there) is made by the caller (dungeon_view.py), which has the item stat data via
+    dungeon.EQUIPMENT; this function doesn't need to know anything about equipment content."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "INSERT INTO character_equipment (guild_id, user_id, slot, item_id) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(guild_id, user_id, slot) DO UPDATE SET item_id = excluded.item_id",
+            (guild_id, user_id, slot, item_id),
+        )
+        conn.commit()
     finally:
         conn.close()
 

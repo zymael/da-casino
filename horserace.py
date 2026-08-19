@@ -109,6 +109,46 @@ STAT_CAP = 100
 # real race starts (not the virtual seed races used to calibrate odds) to add 1 age.
 RACE_AGE_INTERVAL = 10
 
+# !ranch facilities: a per-owner, permanent, sequential upgrade (can't skip tiers) that boosts
+# every owned horse's training gains by a flat percentage. Priced as a long-term credit sink --
+# well above a foal (FOAL_PRICE) but each tier still cheap next to a top legend (BASE_HORSE_PRICE)
+# -- with a deliberately modest bonus per tier rather than a fast-track. Starting numbers, tune
+# after playtesting like everything else balance-related in this file.
+FACILITY_TIERS = [
+    {"tier": 1, "name": "Training Paddock", "cost": 5_000, "bonus": 0.10},
+    {"tier": 2, "name": "Training Grounds", "cost": 20_000, "bonus": 0.20},
+    {"tier": 3, "name": "Elite Training Center", "cost": 75_000, "bonus": 0.30},
+]
+
+# !boost training items: one per stat, cheap, single-use -- buying one immediately queues a flat
+# bonus (on top of the normal TRAIN_STAT_GAIN_MIN/MAX roll) onto that specific horse's very next
+# training. Only one can be queued per horse at a time (db.buy_horse_item rejects a second while
+# one's still pending).
+ITEM_COST = 150
+ITEM_BONUS = 3
+ITEM_STATS = ("speed", "endurance", "spirit")
+
+
+def facility_bonus_for_tier(tier: int) -> float:
+    return FACILITY_TIERS[tier - 1]["bonus"] if tier > 0 else 0.0
+
+
+def compute_training_gains(facility_bonus: float, pending_stat: str | None) -> tuple[float, float, float]:
+    """Rolls one training's random speed/endurance/spirit gains, applying a facility's flat %
+    boost to all three and a queued !boost item's flat bonus to just its one matching stat.
+    Shared by !train and the !ranch dashboard's Train button so the math can't drift between the
+    two entry points to the same action."""
+    speed_gain = random.uniform(TRAIN_STAT_GAIN_MIN, TRAIN_STAT_GAIN_MAX) * (1 + facility_bonus)
+    endurance_gain = random.uniform(TRAIN_STAT_GAIN_MIN, TRAIN_STAT_GAIN_MAX) * (1 + facility_bonus)
+    spirit_gain = random.uniform(TRAIN_STAT_GAIN_MIN, TRAIN_STAT_GAIN_MAX) * (1 + facility_bonus)
+    if pending_stat == "speed":
+        speed_gain += ITEM_BONUS
+    elif pending_stat == "endurance":
+        endurance_gain += ITEM_BONUS
+    elif pending_stat == "spirit":
+        spirit_gain += ITEM_BONUS
+    return speed_gain, endurance_gain, spirit_gain
+
 
 def color_for_index(horse_index: int) -> tuple[int, int, int, int]:
     """A legend keeps its hand-picked color; a foal gets one spread around the hue wheel by the

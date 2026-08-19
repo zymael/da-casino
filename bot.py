@@ -9,6 +9,7 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 import achievements
+import casino_view
 import db
 from blackjack_view import active_tables as active_blackjack_tables, start_blackjack_table
 import dungeon
@@ -21,6 +22,7 @@ from holdem_view import (
 )
 import horserace
 from horserace_view import HorseRaceView, active_races
+import ranch_view
 from roulette_view import RouletteView, active_rounds
 from slots_view import SlotsView
 import video_poker
@@ -64,8 +66,8 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 HELP_CATEGORIES = [
     ("💰 Economy", ["balance", "stats", "daily", "mine", "tip", "transfer", "pizza", "leaderboard"]),
-    ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
-    ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train"]),
+    ("🎲 Casino Games", ["casino", "blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
+    ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train", "ranch", "facility", "boost"]),
     ("🗡️ Dungeon", ["class", "delve"]),
     ("🏆 Achievements", ["achievements"]),
     ("⚙️ Utility", ["ping", "setcasino", "setcurrency"]),
@@ -242,9 +244,12 @@ async def stats_cmd(ctx):
     if character is not None:
         name = dungeon.display_name(character["main_class"], character["subclass"])
         suit_symbol = dungeon.SUIT_SYMBOLS[character["subclass"]]
+        equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
+        effective = dungeon.compute_effective_stats(character, equipped)
         embed.add_field(
             name="🗡️ Class",
-            value=f"{name} {suit_symbol}\nHP {character['hp']} / ATK {character['atk']} / DEF {character['def']}",
+            value=f"{name} {suit_symbol} — Level {character['level']}\n"
+            f"HP {effective['hp']} / ATK {effective['atk']} / DEF {effective['def']}",
             inline=True,
         )
     else:
@@ -641,10 +646,22 @@ async def class_cmd(ctx):
     character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
     if character is not None:
         name = dungeon.display_name(character["main_class"], character["subclass"])
-        await ctx.send(
-            f"{ctx.author.display_name}, you are a **{name}** — "
-            f"HP {character['hp']} / ATK {character['atk']} / DEF {character['def']}. This choice is permanent."
+        equipped = await asyncio.to_thread(db.get_equipped_items, ctx.guild.id, ctx.author.id)
+        effective = dungeon.compute_effective_stats(character, equipped)
+        xp_needed = dungeon.xp_to_next_level(character["level"])
+
+        embed = discord.Embed(title=name, color=discord.Color.blurple())
+        embed.add_field(name="Level", value=f"{character['level']} ({character['xp']}/{xp_needed} XP)", inline=True)
+        embed.add_field(
+            name="Stats", value=f"HP {effective['hp']} / ATK {effective['atk']} / DEF {effective['def']}", inline=True
         )
+        gear_lines = []
+        for slot in dungeon.EQUIPMENT_SLOTS:
+            item = dungeon.EQUIPMENT.get(equipped.get(slot))
+            gear_lines.append(f"{slot.title()}: {item['name'] if item else '*none*'}")
+        embed.add_field(name="⚔️ Equipment", value="\n".join(gear_lines), inline=False)
+        embed.set_footer(text="Class/subclass is permanent — gear and levels grow from delving.")
+        await ctx.send(embed=embed)
         return
 
     view = ClassPickerView(ctx.guild.id, ctx.author.id)
@@ -765,9 +782,18 @@ async def train_cmd(ctx, number: int = None):
         return
 
     horse_index = number - 1
-    speed_gain = random.uniform(horserace.TRAIN_STAT_GAIN_MIN, horserace.TRAIN_STAT_GAIN_MAX)
-    endurance_gain = random.uniform(horserace.TRAIN_STAT_GAIN_MIN, horserace.TRAIN_STAT_GAIN_MAX)
-    spirit_gain = random.uniform(horserace.TRAIN_STAT_GAIN_MIN, horserace.TRAIN_STAT_GAIN_MAX)
+    # Fetched up front (rather than after training) so the facility bonus and any queued !boost
+    # item can be folded into the gains *before* calling db.train_horse -- it applies whatever
+    # gains it's given and unconditionally clears pending_boost_stat, so the bonus has to already
+    # be baked in by this point.
+    horses = await asyncio.to_thread(db.get_guild_horses, ctx.guild.id)
+    horse = horses.get(horse_index)
+    pending_stat = horse["pending_boost_stat"] if horse else None
+
+    tier = await asyncio.to_thread(db.get_facility_tier, ctx.guild.id, ctx.author.id)
+    facility_bonus = horserace.facility_bonus_for_tier(tier)
+    speed_gain, endurance_gain, spirit_gain = horserace.compute_training_gains(facility_bonus, pending_stat)
+
     status, payload = await asyncio.to_thread(
         db.train_horse, ctx.guild.id, horse_index, ctx.author.id,
         speed_gain, endurance_gain, spirit_gain, horserace.STAT_CAP,
@@ -780,14 +806,107 @@ async def train_cmd(ctx, number: int = None):
         return
 
     new_speed, new_endurance, new_spirit, new_age = payload
-    horses = await asyncio.to_thread(db.get_guild_horses, ctx.guild.id)
-    name = horses[horse_index]["name"]
+    name = horse["name"]
     lines = [f"🏋️ **{name}** trained! SPD {new_speed:.0f} / END {new_endurance:.0f} / SPI {new_spirit:.0f} — Age {new_age}"]
+    extras = []
+    if facility_bonus:
+        extras.append(f"+{int(facility_bonus * 100)}% from your ranch facility")
+    if pending_stat:
+        extras.append(f"🧪 used your queued {pending_stat} boost")
+    if extras:
+        lines.append(" — ".join(extras))
     if new_age < horserace.MIN_RACING_AGE:
         lines.append(f"Still growing — needs age {horserace.MIN_RACING_AGE} to enter a race.")
     elif new_age == horserace.MIN_RACING_AGE:
         lines.append("🎉 Old enough to race now!")
     await ctx.send("\n".join(lines))
+
+
+@bot.command(name="ranch")
+async def ranch_cmd(ctx):
+    """Your personal horse dashboard: owned horses, ranch facility tier, quick Train/Boost/Upgrade buttons: !ranch"""
+    embed, view = await ranch_view.build_ranch_display(ctx.guild.id, ctx.author.id, ctx.author.display_name, None)
+    file = discord.File(ranch_view.RANCH_BANNER_PATH, filename="ranch_banner.png")
+    await ctx.send(embed=embed, file=file, view=view)
+
+
+@bot.command(name="facility")
+async def facility_cmd(ctx, action: str = None):
+    """Check or upgrade your ranch's permanent training facility: !facility or !facility buy"""
+    guild_id, user_id = ctx.guild.id, ctx.author.id
+    currency = db.get_currency_name(guild_id)
+    tier = await asyncio.to_thread(db.get_facility_tier, guild_id, user_id)
+
+    if action is None or action.lower() != "buy":
+        if tier > 0:
+            current = horserace.FACILITY_TIERS[tier - 1]
+            status_text = f"You have **{current['name']}** (Tier {tier}) — +{int(current['bonus'] * 100)}% training gains."
+        else:
+            status_text = "You don't have a training facility yet."
+        if tier < len(horserace.FACILITY_TIERS):
+            next_facility = horserace.FACILITY_TIERS[tier]
+            status_text += (
+                f"\nNext: **{next_facility['name']}** (Tier {next_facility['tier']}) — "
+                f"+{int(next_facility['bonus'] * 100)}% training gains for **{next_facility['cost']}** {currency}. "
+                f"Run `!facility buy` to purchase it."
+            )
+        else:
+            status_text += "\nYou're already at the highest tier!"
+        await ctx.send(status_text)
+        return
+
+    if tier >= len(horserace.FACILITY_TIERS):
+        await ctx.send("You're already at the highest facility tier!")
+        return
+
+    next_facility = horserace.FACILITY_TIERS[tier]
+    status, balance = await asyncio.to_thread(
+        db.upgrade_facility, guild_id, user_id, next_facility["tier"], next_facility["cost"],
+        len(horserace.FACILITY_TIERS),
+    )
+    if status == "broke":
+        await ctx.send(f"**{next_facility['name']}** costs **{next_facility['cost']}** {currency} — you only have **{balance}**.")
+        return
+    if status == "wrong_tier":
+        await ctx.send("Your facility tier changed since you last checked — run `!facility` again.")
+        return
+
+    await ctx.send(
+        f"🏗️ {ctx.author.display_name} built **{next_facility['name']}**! All your horses now train "
+        f"+{int(next_facility['bonus'] * 100)}% faster. Balance: **{balance}** {currency}."
+    )
+
+
+@bot.command(name="boost")
+async def boost_cmd(ctx, number: int = None, stat: str = None):
+    """Buy a training-boost item for a horse you own, queued for its next training: !boost <number> <speed|endurance|spirit>"""
+    currency = db.get_currency_name(ctx.guild.id)
+    if number is None or number < 1 or stat is None or stat.lower() not in horserace.ITEM_STATS:
+        await ctx.send(
+            f"Usage: `!boost <number> <speed|endurance|spirit>` — costs {horserace.ITEM_COST} {currency}, "
+            f"see `!ranch` for your horses' numbers."
+        )
+        return
+
+    horse_index = number - 1
+    stat = stat.lower()
+    status, balance = await asyncio.to_thread(
+        db.buy_horse_item, ctx.guild.id, ctx.author.id, horse_index, stat, horserace.ITEM_COST
+    )
+    if status == "not_owner":
+        await ctx.send("You don't own that horse — check `!ranch` to see your own.")
+        return
+    if status == "pending":
+        await ctx.send("That horse already has a boost queued — train it first to use it up.")
+        return
+    if status == "broke":
+        await ctx.send(f"A training-boost item costs **{horserace.ITEM_COST}** {currency} — you only have **{balance}**.")
+        return
+
+    await ctx.send(
+        f"🧪 {ctx.author.display_name} queued a **{stat}** boost on horse #{number} — "
+        f"it'll apply on its next `!train`. Balance: **{balance}** {currency}."
+    )
 
 
 @bot.command(name="holdem", aliases=["poker"])
@@ -940,6 +1059,36 @@ async def pizza(ctx):
     embed.set_footer(text=f"Balance: {balance} {currency}")
     await ctx.send(embed=embed)
     await _update_pizza_champion(ctx.guild)
+
+
+@bot.command(name="casino")
+async def casino_cmd(ctx):
+    """One-click hub for every game and economy command: !casino"""
+    commands_map = {
+        "blackjack": blackjack_cmd.callback,
+        "slots": slots_cmd.callback,
+        "roulette": roulette_cmd.callback,
+        "holdem": holdem_cmd.callback,
+        "videopoker": video_poker_cmd.callback,
+        "deuceswild": deuces_wild_cmd.callback,
+        "horserace": horserace_cmd.callback,
+        "balance": balance.callback,
+        "daily": daily.callback,
+        "mine": mine.callback,
+        "pizza": pizza.callback,
+        "leaderboard": leaderboard.callback,
+        "ranch": ranch_cmd.callback,
+        "stats": stats_cmd.callback,
+        "achievements": achievements_cmd.callback,
+    }
+    embed = discord.Embed(
+        title="🎰 Casino Hub",
+        description="Every game and shortcut in one place — the `!` commands still work too.",
+        color=discord.Color.gold(),
+    )
+    embed.set_image(url="attachment://casino_banner.png")
+    file = discord.File(casino_view.CASINO_BANNER_PATH, filename="casino_banner.png")
+    await ctx.send(embed=embed, file=file, view=casino_view.CasinoView(commands_map))
 
 
 db.init_db()

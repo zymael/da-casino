@@ -121,6 +121,105 @@ def monster_for_room(room_index: int) -> dict:
     return random.choice(candidates)
 
 
+# --- Leveling ------------------------------------------------------------------------------
+# XP is awarded per monster kill, scaled by room tier (deeper = more XP, same "push deeper pays
+# off more" logic already driving loot). Leveling grants automatic flat stat growth -- no player
+# choice -- applied by mutating the character's stored stats in place (db.add_xp), the same way
+# horse training already grows a horse's stats via db.train_horse. Subclass-specific skills
+# unlocked by level are a deferred follow-up; `level` is tracked now specifically so that pass
+# won't need a data-model change.
+XP_PER_TIER = {1: 10, 2: 20, 3: 40}
+LEVEL_HP_GAIN, LEVEL_ATK_GAIN, LEVEL_DEF_GAIN = 2, 1, 1
+
+
+def xp_for_monster(tier: int) -> int:
+    return XP_PER_TIER[tier]
+
+
+def xp_to_next_level(level: int) -> int:
+    """XP required to advance from `level` to `level + 1`."""
+    return 50 * level
+
+
+# --- Equipment -----------------------------------------------------------------------------
+# Same registry pattern as MONSTERS above -- content lives in dungeon_equipment.json so new gear
+# is a JSON edit, not a code change. Found as dungeon loot (roll_equipment_drop), never bought.
+
+_EQUIPMENT_PATH = os.path.join(os.path.dirname(__file__), "dungeon_equipment.json")
+_REQUIRED_EQUIPMENT_FIELDS = {
+    "id", "name", "slot", "tier", "rarity", "drop_weight", "stat_bonuses", "flavor",
+}
+EQUIPMENT_SLOTS = ("weapon", "armor", "trinket")
+_STAT_BONUS_KEYS = {"hp", "atk", "def"}
+
+EQUIPMENT_DROP_CHANCE = 0.25  # per room win, independent of whether currency loot also lands
+
+
+def _load_equipment(path: str = _EQUIPMENT_PATH) -> dict[str, dict]:
+    with open(path) as f:
+        raw = json.load(f)
+    equipment: dict[str, dict] = {}
+    for entry in raw:
+        entry_id = entry.get("id", "?")
+        missing = _REQUIRED_EQUIPMENT_FIELDS - entry.keys()
+        if missing:
+            raise ValueError(f"dungeon_equipment.json: item {entry_id!r} missing field(s): {sorted(missing)}")
+        if entry_id in equipment:
+            raise ValueError(f"dungeon_equipment.json: duplicate item id {entry_id!r}")
+        if entry["slot"] not in EQUIPMENT_SLOTS:
+            raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has unknown slot {entry['slot']!r}")
+        if entry["tier"] < 1 or entry["drop_weight"] <= 0:
+            raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has invalid tier/drop_weight")
+        bonuses = entry["stat_bonuses"]
+        if not bonuses:
+            raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has empty stat_bonuses")
+        bad_keys = set(bonuses) - _STAT_BONUS_KEYS
+        if bad_keys:
+            raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has unknown stat_bonuses key(s): {bad_keys}")
+        if any(v < 0 for v in bonuses.values()):
+            raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has a negative stat bonus")
+        equipment[entry_id] = entry
+    return equipment
+
+
+EQUIPMENT = _load_equipment()
+
+
+def item_power(item: dict) -> int:
+    """Total stat value of an item -- the yardstick used to decide whether a newly found piece
+    of gear replaces what's currently equipped in that slot."""
+    return sum(item["stat_bonuses"].values())
+
+
+def roll_equipment_drop(room_index: int) -> dict | None:
+    """None most of the time (EQUIPMENT_DROP_CHANCE). When it hits, picks one item from this
+    room's tier, weighted by drop_weight so rarer/stronger items are less likely."""
+    if random.random() > EQUIPMENT_DROP_CHANCE:
+        return None
+    tier = room_index + 1
+    candidates = [item for item in EQUIPMENT.values() if item["tier"] == tier]
+    if not candidates:
+        return None
+    weights = [item["drop_weight"] for item in candidates]
+    return random.choices(candidates, weights=weights, k=1)[0]
+
+
+def compute_effective_stats(character: dict, equipped: dict[str, str]) -> dict:
+    """A character's stored hp/atk/def (which already include all permanent level growth) plus
+    whatever's currently equipped in each slot. `equipped` is {slot: item_id}, e.g. from
+    db.get_equipped_items."""
+    hp, atk, def_ = character["hp"], character["atk"], character["def"]
+    for item_id in equipped.values():
+        item = EQUIPMENT.get(item_id)
+        if item is None:
+            continue  # defensive: an item removed from the JSON after being equipped
+        bonuses = item["stat_bonuses"]
+        hp += bonuses.get("hp", 0)
+        atk += bonuses.get("atk", 0)
+        def_ += bonuses.get("def", 0)
+    return {"hp": hp, "atk": atk, "def": def_}
+
+
 # --- Combat ------------------------------------------------------------------------------------
 # Deliberately lightweight: one attacker at a time, no status effects. Signature abilities are
 # one-time modifiers to the same roll_damage/heal calls rather than a separate resolution system.

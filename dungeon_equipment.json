@@ -1,0 +1,182 @@
+[
+  {
+    "id": "rusty_dagger",
+    "name": "Rusty Dagger",
+    "slot": "weapon",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 10,
+    "stat_bonuses": {"atk": 1},
+    "flavor": "Better than fists."
+  },
+  {
+    "id": "wooden_club",
+    "name": "Wooden Club",
+    "slot": "weapon",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 10,
+    "stat_bonuses": {"atk": 2},
+    "flavor": "Blunt, heavy, effective."
+  },
+  {
+    "id": "leather_vest",
+    "name": "Leather Vest",
+    "slot": "armor",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 10,
+    "stat_bonuses": {"hp": 1, "def": 1},
+    "flavor": "Cracked but wearable."
+  },
+  {
+    "id": "padded_jerkin",
+    "name": "Padded Jerkin",
+    "slot": "armor",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 10,
+    "stat_bonuses": {"hp": 2},
+    "flavor": "Stuffed with straw and old rags."
+  },
+  {
+    "id": "lucky_coin",
+    "name": "Lucky Coin",
+    "slot": "trinket",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 10,
+    "stat_bonuses": {"hp": 1},
+    "flavor": "Worn smooth by someone else's luck."
+  },
+  {
+    "id": "copper_ring",
+    "name": "Copper Ring",
+    "slot": "trinket",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 10,
+    "stat_bonuses": {"atk": 1},
+    "flavor": "A dull ring with a duller gem."
+  },
+  {
+    "id": "iron_sword",
+    "name": "Iron Sword",
+    "slot": "weapon",
+    "tier": 2,
+    "rarity": "rare",
+    "drop_weight": 4,
+    "stat_bonuses": {"atk": 3},
+    "flavor": "Properly forged, properly balanced."
+  },
+  {
+    "id": "steel_hatchet",
+    "name": "Steel Hatchet",
+    "slot": "weapon",
+    "tier": 2,
+    "rarity": "rare",
+    "drop_weight": 4,
+    "stat_bonuses": {"atk": 2, "def": 1},
+    "flavor": "Good for chopping wood or goblins."
+  },
+  {
+    "id": "chainmail",
+    "name": "Chainmail",
+    "slot": "armor",
+    "tier": 2,
+    "rarity": "rare",
+    "drop_weight": 4,
+    "stat_bonuses": {"hp": 2, "def": 2},
+    "flavor": "Heavy, but it'll stop a blade."
+  },
+  {
+    "id": "reinforced_buckler",
+    "name": "Reinforced Buckler",
+    "slot": "armor",
+    "tier": 2,
+    "rarity": "rare",
+    "drop_weight": 4,
+    "stat_bonuses": {"def": 3},
+    "flavor": "Small shield, big attitude."
+  },
+  {
+    "id": "jade_pendant",
+    "name": "Jade Pendant",
+    "slot": "trinket",
+    "tier": 2,
+    "rarity": "rare",
+    "drop_weight": 4,
+    "stat_bonuses": {"atk": 1, "def": 1},
+    "flavor": "Cool to the touch, always."
+  },
+  {
+    "id": "swift_boots",
+    "name": "Swift Boots",
+    "slot": "trinket",
+    "tier": 2,
+    "rarity": "rare",
+    "drop_weight": 4,
+    "stat_bonuses": {"hp": 2, "atk": 1},
+    "flavor": "You feel lighter on your feet already."
+  },
+  {
+    "id": "goblin_chiefs_cleaver",
+    "name": "Goblin Chief's Cleaver",
+    "slot": "weapon",
+    "tier": 3,
+    "rarity": "epic",
+    "drop_weight": 1,
+    "stat_bonuses": {"atk": 5},
+    "flavor": "Still stained. Still sharp."
+  },
+  {
+    "id": "warlords_blade",
+    "name": "Warlord's Blade",
+    "slot": "weapon",
+    "tier": 3,
+    "rarity": "epic",
+    "drop_weight": 1,
+    "stat_bonuses": {"atk": 4, "def": 1},
+    "flavor": "Scavenged plate steel, expertly re-forged."
+  },
+  {
+    "id": "plate_of_the_vanguard",
+    "name": "Plate of the Vanguard",
+    "slot": "armor",
+    "tier": 3,
+    "rarity": "epic",
+    "drop_weight": 1,
+    "stat_bonuses": {"hp": 3, "def": 4},
+    "flavor": "Dented, but it kept someone alive."
+  },
+  {
+    "id": "dragonhide_cloak",
+    "name": "Dragonhide Cloak",
+    "slot": "armor",
+    "tier": 3,
+    "rarity": "epic",
+    "drop_weight": 1,
+    "stat_bonuses": {"hp": 5},
+    "flavor": "Probably not actually dragon."
+  },
+  {
+    "id": "signet_of_kings",
+    "name": "Signet of Kings",
+    "slot": "trinket",
+    "tier": 3,
+    "rarity": "epic",
+    "drop_weight": 1,
+    "stat_bonuses": {"hp": 1, "atk": 2, "def": 2},
+    "flavor": "Someone important once wore this."
+  },
+  {
+    "id": "amulet_of_vigor",
+    "name": "Amulet of Vigor",
+    "slot": "trinket",
+    "tier": 3,
+    "rarity": "epic",
+    "drop_weight": 1,
+    "stat_bonuses": {"hp": 4, "atk": 1},
+    "flavor": "Warm to the touch. Faintly humming."
+  }
+]

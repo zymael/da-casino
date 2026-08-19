@@ -26,14 +26,17 @@ SUBCLASS_OPTIONS = [
 
 
 class DelveSession:
-    def __init__(self, guild_id: int, user_id: int, character: dict):
+    def __init__(self, guild_id: int, user_id: int, character: dict, equipped: dict[str, str]):
         self.guild_id = guild_id
         self.user_id = user_id
         self.main_class = character["main_class"]
         self.subclass = character["subclass"]
-        self.max_hp = character["hp"]
-        self.atk = character["atk"]
-        self.def_ = character["def"]
+        self.level = character["level"]
+        self.equipped = equipped
+        effective = dungeon.compute_effective_stats(character, equipped)
+        self.max_hp = effective["hp"]
+        self.atk = effective["atk"]
+        self.def_ = effective["def"]
         self.loot_mult = dungeon.SUBCLASSES[self.subclass]["loot_mult"]
         self.display_name = dungeon.display_name(self.main_class, self.subclass)
         self.ability_name = dungeon.CLASSES[self.main_class]["ability"]
@@ -181,6 +184,52 @@ class RoomResultView(discord.ui.View):
             pass
 
 
+async def _resolve_victory_rewards(session: DelveSession, log_lines: list[str]):
+    """Called once a monster is confirmed defeated -- awards XP (applying any level-up's stat
+    growth to the session *immediately*, not just the stored character row, so leveling up
+    mid-delve actually helps you survive deeper right then) and rolls a chance at equipment
+    (auto-equipping if it's an upgrade over what's in that slot, discarding otherwise). Mutates
+    session in place and appends result lines to log_lines."""
+    xp_gain = dungeon.xp_for_monster(session.monster["tier"])
+    level_result = await asyncio.to_thread(
+        db.add_xp, session.guild_id, session.user_id, xp_gain,
+        dungeon.LEVEL_HP_GAIN, dungeon.LEVEL_ATK_GAIN, dungeon.LEVEL_DEF_GAIN,
+    )
+    log_lines.append(f"+{xp_gain} XP")
+    if level_result["levels_gained"] > 0:
+        session.level = level_result["new_level"]
+        hp_delta = dungeon.LEVEL_HP_GAIN * level_result["levels_gained"]
+        atk_delta = dungeon.LEVEL_ATK_GAIN * level_result["levels_gained"]
+        def_delta = dungeon.LEVEL_DEF_GAIN * level_result["levels_gained"]
+        session.max_hp += hp_delta
+        session.hp += hp_delta
+        session.atk += atk_delta
+        session.def_ += def_delta
+        plural = "s" if level_result["levels_gained"] > 1 else ""
+        log_lines.append(f"🎉 Level up! Now level {session.level} (+{level_result['levels_gained']} level{plural}).")
+
+    dropped = dungeon.roll_equipment_drop(session.room_index)
+    if dropped is not None:
+        slot = dropped["slot"]
+        current_item_id = session.equipped.get(slot)
+        current_item = dungeon.EQUIPMENT.get(current_item_id) if current_item_id else None
+        if current_item is None or dungeon.item_power(dropped) > dungeon.item_power(current_item):
+            await asyncio.to_thread(db.equip_item, session.guild_id, session.user_id, slot, dropped["id"])
+            old_bonuses = current_item["stat_bonuses"] if current_item else {}
+            new_bonuses = dropped["stat_bonuses"]
+            session.max_hp += new_bonuses.get("hp", 0) - old_bonuses.get("hp", 0)
+            session.hp += new_bonuses.get("hp", 0) - old_bonuses.get("hp", 0)
+            session.atk += new_bonuses.get("atk", 0) - old_bonuses.get("atk", 0)
+            session.def_ += new_bonuses.get("def", 0) - old_bonuses.get("def", 0)
+            session.equipped[slot] = dropped["id"]
+            if current_item:
+                log_lines.append(f"⚔️ Found **{dropped['name']}**! Replaced {current_item['name']} — equipped.")
+            else:
+                log_lines.append(f"⚔️ Found **{dropped['name']}**! Equipped.")
+        else:
+            log_lines.append(f"⚔️ Found **{dropped['name']}**, but your current {slot} is better — left behind.")
+
+
 async def _handle_action(interaction: discord.Interaction, session: DelveSession, ability: bool) -> bool:
     """Returns whether this actually consumed the player's turn (False only for the
     already-used-ability rejection, which leaves the calling CombatView live and waiting) --
@@ -216,6 +265,7 @@ async def _handle_action(interaction: discord.Interaction, session: DelveSession
         loot = dungeon.roll_loot(session.monster, session.loot_mult)
         session.loot_total += loot
         log_lines.append(f"**{session.monster['name']} is defeated!** You find **{loot}** {currency}.")
+        await _resolve_victory_rewards(session, log_lines)
         await _present_room_result(interaction, session, log_lines)
         return True
 
@@ -270,7 +320,8 @@ async def start_delve(ctx, character: dict):
     """Starts a fresh delve for a player who already has a character and just cleared today's
     cooldown (both checked by the caller). Sends the one persistent message this whole delve
     session will reuse via edits."""
-    session = DelveSession(ctx.guild.id, ctx.author.id, character)
+    equipped = await asyncio.to_thread(db.get_equipped_items, ctx.guild.id, ctx.author.id)
+    session = DelveSession(ctx.guild.id, ctx.author.id, character, equipped)
     active_delves[session.user_id] = session
     busy_players.add(session.user_id)
 
