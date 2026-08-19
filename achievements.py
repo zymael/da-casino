@@ -8,7 +8,12 @@ Two scopes:
                   the first time). Backed by db.award_personal_achievement().
 
 To add a new achievement: add an entry to ACHIEVEMENTS, then call `try_award_many()` (or have
-`kinds_for_bet()` pick it up automatically, for bet-outcome-based ones) at the point it's earned.
+`kinds_for_bet()` / `record_and_check()` pick it up automatically, for bet-outcome-based ones) at
+the point it's earned.
+
+Achievements sharing a "track" (e.g. every blackjack_wins_* tier) represent one progression --
+callers that only want the highest tier a user has reached (like !achievements) should group by
+`achievement.get("track", achievement["kind"])` and take the max by `achievement.get("tier", 0)`.
 """
 
 import asyncio
@@ -105,18 +110,60 @@ ACHIEVEMENTS = [
     },
 ]
 
+# Maps each game bucket to its emoji/title and the db.log_bet() `game` string(s) that feed it
+# -- video poker's two variants share one bucket, matching win_video_poker above. Buckets not
+# listed elsewhere (e.g. horserace_owner) don't get win/loss tracking or tier achievements.
+GAMES = {
+    "blackjack": {"emoji": "🃏", "title": "Blackjack", "log_keys": ["blackjack"], "first_win_kind": "win_blackjack"},
+    "slots": {"emoji": "🎰", "title": "Slots", "log_keys": ["slots"], "first_win_kind": "win_slots"},
+    "roulette": {"emoji": "🎡", "title": "Roulette", "log_keys": ["roulette"], "first_win_kind": "win_roulette"},
+    "horserace": {"emoji": "🏁", "title": "Horse Racing", "log_keys": ["horserace"], "first_win_kind": "win_horserace"},
+    "video_poker": {
+        "emoji": "🎴", "title": "Video Poker", "log_keys": ["jacks_or_better", "deuces_wild"],
+        "first_win_kind": "win_video_poker",
+    },
+}
+
+# Win/loss count tiers -- reaching a tier claims that tier's kind ({bucket}_wins_{tier} /
+# {bucket}_losses_{tier}), generated below for every game bucket. Rewards scale with the tier;
+# losses earn less than a win at the same tier, same asymmetry as big_win_1/2 vs big_loss_1/2.
+TIERS = [10, 25, 50, 100, 200, 500, 1000]
+WIN_TIER_REWARDS = {10: 25, 25: 50, 50: 100, 100: 200, 200: 350, 500: 750, 1000: 1500}
+LOSS_TIER_REWARDS = {10: 15, 25: 25, 50: 50, 100: 100, 200: 175, 500: 375, 1000: 750}
+
+for _bucket, _info in GAMES.items():
+    for _tier in TIERS:
+        ACHIEVEMENTS.append({
+            "kind": f"{_bucket}_wins_{_tier}",
+            "scope": "personal",
+            "emoji": _info["emoji"],
+            "name": f"{_info['title']} — {_tier} Wins",
+            "description": f"Win {_tier} bets of {_info['title']}.",
+            "reward": WIN_TIER_REWARDS[_tier],
+            "track": f"{_bucket}_wins",
+            "tier": _tier,
+        })
+        ACHIEVEMENTS.append({
+            "kind": f"{_bucket}_losses_{_tier}",
+            "scope": "personal",
+            "emoji": _info["emoji"],
+            "name": f"{_info['title']} — {_tier} Losses",
+            "description": f"Lose {_tier} bets of {_info['title']}.",
+            "reward": LOSS_TIER_REWARDS[_tier],
+            "track": f"{_bucket}_losses",
+            "tier": _tier,
+        })
+
 BY_KIND = {achievement["kind"]: achievement for achievement in ACHIEVEMENTS}
 
-# Maps a db.log_bet() `game` string to the personal achievement for winning it the first
-# time. Games not listed here (e.g. horserace_owner) don't have a "first win" achievement.
-WIN_GAME_KIND = {
-    "blackjack": "win_blackjack",
-    "slots": "win_slots",
-    "roulette": "win_roulette",
-    "horserace": "win_horserace",
-    "jacks_or_better": "win_video_poker",
-    "deuces_wild": "win_video_poker",
-}
+# Maps a db.log_bet() `game` string to the personal achievement for winning it the first time,
+# and to the game bucket its win/loss counts accumulate into.
+WIN_GAME_KIND = {}
+STAT_BUCKET = {}
+for _bucket, _info in GAMES.items():
+    for _log_key in _info["log_keys"]:
+        WIN_GAME_KIND[_log_key] = _info["first_win_kind"]
+        STAT_BUCKET[_log_key] = _bucket
 
 
 def kinds_for_bet(game: str, net: int) -> list[str]:
@@ -138,6 +185,22 @@ def kinds_for_bet(game: str, net: int) -> list[str]:
         if net <= BIG_LOSS_TIER_2:
             kinds.append("big_loss_2")
     return kinds
+
+
+async def record_and_check(guild_id: int, user_id: int, game: str, net: int) -> list[str]:
+    """Records this bet's outcome in the user's per-game win/loss counts (a no-op for `game`
+    buckets not in GAMES, and for a push where net == 0) and returns every tier-achievement kind
+    now satisfied by the updated count. Inclusive like kinds_for_bet -- a count that jumps past
+    several tiers at once (or already-claimed tiers) is fine, since try_award_many is idempotent
+    per kind."""
+    if net == 0:
+        return []
+    bucket = STAT_BUCKET.get(game)
+    if bucket is None:
+        return []
+    wins, losses = await asyncio.to_thread(db.record_game_outcome, guild_id, user_id, bucket, net)
+    count, direction = (wins, "wins") if net > 0 else (losses, "losses")
+    return [f"{bucket}_{direction}_{tier}" for tier in TIERS if count >= tier]
 
 
 async def try_award_many(send, guild_id: int, user_id: int, display_name: str, kinds: list[str]):

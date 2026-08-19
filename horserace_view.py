@@ -284,6 +284,7 @@ class HorseRaceView(discord.ui.View):
             net = payout - stake
             await asyncio.to_thread(db.log_bet, self.guild_id, bet["user_id"], "horserace", stake, net)
             kinds = achievements.kinds_for_bet("horserace", net)
+            kinds += await achievements.record_and_check(self.guild_id, bet["user_id"], "horserace", net)
             if kinds:
                 achievement_bets.append((bet, kinds))
             outcome = "🎉 WIN" if payout else "❌ LOSE"

@@ -87,6 +87,20 @@ def init_db():
         )
         """
     )
+    # Per-user, per-game win/loss counts, started fresh (not backfilled from bet_log) --
+    # feeds the achievements.py tier achievements (10/25/50/... wins or losses of a game).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS game_stats (
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            game TEXT NOT NULL,
+            wins INTEGER NOT NULL DEFAULT 0,
+            losses INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id, game)
+        )
+        """
+    )
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS guild_settings (
@@ -192,7 +206,12 @@ def init_db():
 
 
 def _connect():
-    return sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH)
+    # journal_size_limit isn't persisted in the database file like journal_mode is -- it has to
+    # be set on every connection. Caps how large the WAL file is allowed to stay on disk after a
+    # checkpoint (8MB), as a defensive bound independent of the default auto-checkpoint threshold.
+    conn.execute("PRAGMA journal_size_limit = 8388608")
+    return conn
 
 
 def migrate_legacy_users_into_guilds(guild_ids: list[int]):
@@ -237,6 +256,20 @@ def get_balance(guild_id: int, user_id: int) -> int:
             "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
         ).fetchone()
         return row[0]
+    finally:
+        conn.close()
+
+
+def get_user_economy(guild_id: int, user_id: int) -> tuple[int, int]:
+    """Returns (balance, pizzas_bought) for this user in this guild."""
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.commit()
+        row = conn.execute(
+            "SELECT balance, pizzas_bought FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()
+        return row
     finally:
         conn.close()
 
@@ -402,6 +435,29 @@ def get_biggest_loss(guild_id: int, limit: int = 10) -> list[tuple[int, int, str
         conn.close()
 
 
+def get_user_bet_summary(guild_id: int, user_id: int) -> tuple[int, int, int, int | None, int | None]:
+    """Returns (bet_count, total_won, total_lost, best_win, worst_loss) across every logged bet
+    for this user in this guild. total_won/total_lost are both non-negative sums; best_win and
+    worst_loss are None if the user has never won (or never lost) a bet."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            """
+            SELECT
+                COUNT(*),
+                COALESCE(SUM(CASE WHEN net > 0 THEN net ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN net < 0 THEN -net ELSE 0 END), 0),
+                MAX(CASE WHEN net > 0 THEN net END),
+                MIN(CASE WHEN net < 0 THEN net END)
+            FROM bet_log WHERE guild_id = ? AND user_id = ?
+            """,
+            (guild_id, user_id),
+        ).fetchone()
+        return row
+    finally:
+        conn.close()
+
+
 def get_champion(guild_id: int, kind: str) -> int | None:
     """Returns the user_id currently holding the given badge `kind` in this guild, or None."""
     conn = _connect()
@@ -493,14 +549,49 @@ def award_personal_achievement(guild_id: int, kind: str, user_id: int) -> bool:
         conn.close()
 
 
-def get_personal_achievement_holders(guild_id: int, kind: str) -> set[int]:
-    """Returns the set of user_ids who have earned this personal achievement in this guild."""
+def get_user_personal_achievements(guild_id: int, user_id: int) -> set[str]:
+    """Returns every personal achievement kind this user has earned in this guild."""
     conn = _connect()
     try:
         rows = conn.execute(
-            "SELECT user_id FROM personal_achievements WHERE guild_id = ? AND kind = ?", (guild_id, kind)
+            "SELECT kind FROM personal_achievements WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
         ).fetchall()
         return {row[0] for row in rows}
+    finally:
+        conn.close()
+
+
+def record_game_outcome(guild_id: int, user_id: int, game: str, net: int) -> tuple[int, int]:
+    """Increments this user's win or loss count for `game` in this guild based on the sign of
+    `net` (net == 0, e.g. a blackjack push, is a caller error -- don't call this for it). Returns
+    (wins, losses) after the update."""
+    column = "wins" if net > 0 else "losses"
+    conn = _connect()
+    try:
+        conn.execute(
+            f"INSERT INTO game_stats (guild_id, user_id, game, {column}) VALUES (?, ?, ?, 1) "
+            f"ON CONFLICT(guild_id, user_id, game) DO UPDATE SET {column} = {column} + 1",
+            (guild_id, user_id, game),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT wins, losses FROM game_stats WHERE guild_id = ? AND user_id = ? AND game = ?",
+            (guild_id, user_id, game),
+        ).fetchone()
+        return row
+    finally:
+        conn.close()
+
+
+def get_user_game_stats(guild_id: int, user_id: int) -> dict[str, tuple[int, int]]:
+    """Returns {game: (wins, losses)} for every game bucket this user has played in this guild."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT game, wins, losses FROM game_stats WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ).fetchall()
+        return {game: (wins, losses) for game, wins, losses in rows}
     finally:
         conn.close()
 
@@ -662,6 +753,21 @@ def get_guild_horses(guild_id: int) -> dict[int, dict]:
                 races, race_starts, last_trained,
             ) in rows
         }
+    finally:
+        conn.close()
+
+
+def get_horses_owned_by(guild_id: int, user_id: int) -> list[tuple[int, bool, str, int, int, int, int]]:
+    """Returns (horse_index, is_foal, name, age, wins, places, races) for every horse this
+    user owns in this guild, ordered by index."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT horse_index, is_foal, name, age, wins, places, races FROM horses "
+            "WHERE guild_id = ? AND owner_id = ? ORDER BY horse_index",
+            (guild_id, user_id),
+        ).fetchall()
+        return rows
     finally:
         conn.close()
 

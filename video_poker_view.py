@@ -63,6 +63,7 @@ class DrawButton(discord.ui.Button):
         await interaction.response.edit_message(embed=embed, view=view, attachments=[file])
 
         kinds = achievements.kinds_for_bet(view.variant, net)
+        kinds += await achievements.record_and_check(view.guild_id, view.author.id, view.variant, net)
         if kinds:
             await achievements.try_award_many(
                 interaction.followup.send, view.guild_id, view.author.id, view.author.display_name, kinds

@@ -61,7 +61,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 HELP_CATEGORIES = [
-    ("💰 Economy", ["balance", "daily", "mine", "tip", "transfer", "pizza", "leaderboard"]),
+    ("💰 Economy", ["balance", "stats", "daily", "mine", "tip", "transfer", "pizza", "leaderboard"]),
     ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
     ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train"]),
     ("🏆 Achievements", ["achievements"]),
@@ -208,6 +208,68 @@ async def balance(ctx):
     bal = await asyncio.to_thread(db.get_balance, ctx.guild.id, ctx.author.id)
     currency = db.get_currency_name(ctx.guild.id)
     await ctx.send(f"💰 {ctx.author.display_name} has **{bal}** {currency}.")
+
+
+MAX_STATS_HORSES = 10
+
+
+@bot.command(name="stats")
+async def stats_cmd(ctx):
+    """Show your personal stats: wins/losses per game, horses owned, and lifetime credits."""
+    guild_id = ctx.guild.id
+    user_id = ctx.author.id
+    currency = db.get_currency_name(guild_id)
+
+    balance, pizzas_bought = await asyncio.to_thread(db.get_user_economy, guild_id, user_id)
+    game_stats = await asyncio.to_thread(db.get_user_game_stats, guild_id, user_id)
+    bet_count, total_won, total_lost, best_win, worst_loss = await asyncio.to_thread(
+        db.get_user_bet_summary, guild_id, user_id
+    )
+    owned_horses = await asyncio.to_thread(db.get_horses_owned_by, guild_id, user_id)
+    personal_earned = await asyncio.to_thread(db.get_user_personal_achievements, guild_id, user_id)
+    first_claimed = await asyncio.to_thread(db.get_guild_achievements, guild_id)
+    achievement_count = len(personal_earned) + sum(1 for holder, _ in first_claimed.values() if holder == user_id)
+
+    embed = discord.Embed(title=f"📊 {ctx.author.display_name}'s Stats", color=discord.Color.blurple())
+    embed.add_field(name="Balance", value=f"{balance} {currency}", inline=True)
+    embed.add_field(name="🍕 Pizzas Bought", value=str(pizzas_bought), inline=True)
+    embed.add_field(name="🏆 Achievements", value=f"{achievement_count} unlocked", inline=True)
+
+    if game_stats:
+        lines = []
+        for bucket, (wins, losses) in sorted(game_stats.items()):
+            info = achievements.GAMES.get(bucket)
+            emoji = info["emoji"] if info else "🎮"
+            title = info["title"] if info else bucket.replace("_", " ").title()
+            lines.append(f"{emoji} **{title}** — {wins}W / {losses}L")
+        embed.add_field(name="Wins & Losses", value="\n".join(lines), inline=False)
+    else:
+        embed.add_field(name="Wins & Losses", value="No games played yet.", inline=False)
+
+    money_lines = [
+        f"Bets placed: **{bet_count}**",
+        f"Total won: **+{total_won}** {currency}",
+        f"Total lost: **-{total_lost}** {currency}",
+    ]
+    if best_win is not None:
+        money_lines.append(f"Best single win: **+{best_win}** {currency}")
+    if worst_loss is not None:
+        money_lines.append(f"Worst single loss: **{worst_loss}** {currency}")
+    embed.add_field(name="Lifetime Winnings", value="\n".join(money_lines), inline=False)
+
+    if owned_horses:
+        horse_lines = [
+            f"{'🐣' if is_foal else '🏆'} **{name}** (#{horse_index + 1}) — Age {age} — "
+            f"{f'{wins}W-{places}P ({races} starts)' if races else 'unraced'}"
+            for horse_index, is_foal, name, age, wins, places, races in owned_horses[:MAX_STATS_HORSES]
+        ]
+        if len(owned_horses) > MAX_STATS_HORSES:
+            horse_lines.append(f"...and {len(owned_horses) - MAX_STATS_HORSES} more — see `!horses`.")
+        embed.add_field(name=f"🐴 Horses Owned ({len(owned_horses)})", value="\n".join(horse_lines), inline=False)
+    else:
+        embed.add_field(name="🐴 Horses Owned", value="None yet — try `!buyhorse` or `!buyfoal`.", inline=False)
+
+    await ctx.send(embed=embed)
 
 
 @bot.command(name="leaderboard", aliases=["lb", "top"])
@@ -516,31 +578,44 @@ async def horses_cmd(ctx):
 
 @bot.command(name="achievements", aliases=["achievement"])
 async def achievements_cmd(ctx):
-    """Show every achievement, who's claimed it, and what's still up for grabs."""
+    """Show the achievements you've earned -- only your highest tier in each tiered track."""
     first_claimed = await asyncio.to_thread(db.get_guild_achievements, ctx.guild.id)
-    lines = []
-    for achievement in achievements.ACHIEVEMENTS:
-        kind = achievement["kind"]
-        if achievement["scope"] == "first":
-            row = first_claimed.get(kind)
-            if row:
-                user_id, achieved_at = row
-                when = datetime.fromisoformat(achieved_at).strftime("%Y-%m-%d")
-                status = f"<@{user_id}> ({when})"
-            else:
-                status = "*unclaimed*"
-        else:
-            holders = await asyncio.to_thread(db.get_personal_achievement_holders, ctx.guild.id, kind)
-            you = " — ✅ you have this" if ctx.author.id in holders else ""
-            count = len(holders)
-            status = f"earned by {count} player{'s' if count != 1 else ''}{you}"
-        reward = achievement["reward"]
-        reward_text = f" (+{reward} {db.get_currency_name(ctx.guild.id)})" if reward else ""
-        lines.append(
-            f"{achievement['emoji']} **{achievement['name']}**{reward_text} — {status}\n{achievement['description']}"
-        )
+    personal_earned = await asyncio.to_thread(db.get_user_personal_achievements, ctx.guild.id, ctx.author.id)
+    currency = db.get_currency_name(ctx.guild.id)
 
-    embed = discord.Embed(title="🏆 Achievements", description="\n\n".join(lines), color=discord.Color.gold())
+    tracks: dict[str, list[dict]] = {}
+    for achievement in achievements.ACHIEVEMENTS:
+        track = achievement.get("track", achievement["kind"])
+        tracks.setdefault(track, []).append(achievement)
+
+    lines = []
+    for members in tracks.values():
+        members.sort(key=lambda a: a.get("tier", 0), reverse=True)
+        for achievement in members:
+            kind = achievement["kind"]
+            if achievement["scope"] == "first":
+                row = first_claimed.get(kind)
+                if row is None or row[0] != ctx.author.id:
+                    continue
+                date_text = f" — {datetime.fromisoformat(row[1]).strftime('%Y-%m-%d')}"
+            else:
+                if kind not in personal_earned:
+                    continue
+                date_text = ""
+            reward = achievement["reward"]
+            reward_text = f" (+{reward} {currency})" if reward else ""
+            lines.append(
+                f"{achievement['emoji']} **{achievement['name']}**{reward_text}{date_text}\n{achievement['description']}"
+            )
+            break  # highest tier already found for this track
+
+    if not lines:
+        await ctx.send(f"{ctx.author.display_name} hasn't unlocked any achievements yet — go play!")
+        return
+
+    embed = discord.Embed(
+        title=f"🏆 {ctx.author.display_name}'s Achievements", description="\n\n".join(lines), color=discord.Color.gold()
+    )
     await ctx.send(embed=embed)
 
 
