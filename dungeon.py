@@ -2,9 +2,11 @@
 between game logic here and Discord UI in dungeon_view.py.
 
 Characters are a permanent one-time choice: a main class (face rank) x a subclass (suit) = 16
-builds. Combat is deliberately lightweight -- HP/ATK/DEF only, no status effects, one signature
-ability per class usable once per fight. Monster content lives in dungeon_monsters.json (not
-here) specifically so new monsters can be added without touching this file -- see MONSTERS below.
+builds. Combat is deliberately lightweight -- HP/ATK/DEF only, no persistent status effects, one
+skill usable once per fight, unlocked automatically as the character levels. Each of the 16
+builds has its own skill line (dungeon_skills.json, see SKILLS below) rather than sharing one
+ability per class. Monster content lives in dungeon_monsters.json (not here) specifically so new
+monsters can be added without touching this file -- see MONSTERS below.
 """
 
 import json
@@ -17,13 +19,13 @@ import random
 # Healer's ATK was originally 4, which combined with tougher monsters' DEF made roll_damage floor
 # at 1 almost every hit -- an unwinnable slog regardless of how tanky Healer otherwise is. Bumped
 # to 6 so Healer can still meaningfully damage things; simulated combat confirms this fixed it
-# without needing to touch any other class. `ability` is the signature move each class gets,
-# usable once per fight -- see FIREBALL_MULTIPLIER etc below for what each one actually does.
+# without needing to touch any other class. Each class's signature skill(s) now live in SKILLS
+# below, keyed by (main_class, subclass) rather than on this dict.
 CLASSES = {
-    "fighter": {"rank": "A", "hp": 32, "atk": 6, "def": 6, "ability": "Guard"},
-    "healer": {"rank": "K", "hp": 26, "atk": 6, "def": 5, "ability": "Heal"},
-    "mage": {"rank": "Q", "hp": 16, "atk": 10, "def": 2, "ability": "Fireball"},
-    "rogue": {"rank": "J", "hp": 22, "atk": 7, "def": 3, "ability": "Sneak Attack"},
+    "fighter": {"rank": "A", "hp": 32, "atk": 6, "def": 6},
+    "healer": {"rank": "K", "hp": 26, "atk": 6, "def": 5},
+    "mage": {"rank": "Q", "hp": 16, "atk": 10, "def": 2},
+    "rogue": {"rank": "J", "hp": 22, "atk": 7, "def": 3},
 }
 RANK_TO_CLASS = {info["rank"]: name for name, info in CLASSES.items()}
 
@@ -141,6 +143,118 @@ def xp_to_next_level(level: int) -> int:
     return 50 * level
 
 
+# --- Skills ----------------------------------------------------------------------------------
+# Each of the 16 (main_class, subclass) builds has its own skill line, loaded from
+# dungeon_skills.json so new skills are a JSON edit, not a code change -- same registry pattern
+# as MONSTERS/EQUIPMENT above. A skill unlocks automatically once the character's level (already
+# tracked in the characters table) reaches its unlock_level; there's no player choice and nothing
+# extra to persist -- unlocked_skills below derives the answer live from level.
+#
+# A skill's `effects` is a list of {"type": ..., **params} entries built from a small fixed set
+# of reusable primitives (EFFECT_PARAM_SCHEMAS) rather than bespoke per-skill code, so combining
+# 1-2 primitives is how skills stay distinct from each other. dungeon_view.py's EFFECT_HANDLERS
+# is what actually interprets these during combat; this module only validates their shape.
+
+_SKILLS_PATH = os.path.join(os.path.dirname(__file__), "dungeon_skills.json")
+_REQUIRED_SKILL_FIELDS = {"id", "main_class", "subclass", "unlock_level", "name", "flavor", "effects"}
+
+# type -> (required param names, optional param names, fraction param names). Fraction params
+# must be in (0, 1] (they scale a max-HP heal, a damage reduction, etc); every other numeric
+# param just needs to be > 0 (a raw multiplier, a flat stat delta, ...). Shared with consumables
+# (dungeon_consumables.json) via _validate_effects, so there is exactly one definition of what an
+# effect is, used by every kind of content that can carry one.
+EFFECT_PARAM_SCHEMAS = {
+    "damage_multiplier": ({"value"}, set(), set()),
+    "heal_fraction": ({"value"}, set(), {"value"}),
+    "guard": ({"reduction"}, set(), {"reduction"}),
+    "lifesteal_fraction": ({"value"}, set(), {"value"}),
+    "def_shred": ({"value"}, set(), set()),
+    "extra_attack": (set(), {"multiplier"}, set()),
+    "atk_buff": ({"value"}, set(), set()),
+    "def_buff": ({"value"}, set(), set()),
+}
+
+
+def _validate_effects(effects, context: str):
+    """Shared by skill and consumable loading -- `context` is a f-string-ready label (e.g.
+    "dungeon_skills.json: skill 'foo'") prefixed onto every error so a bad JSON edit points
+    straight at the offending entry."""
+    if not effects:
+        raise ValueError(f"{context} has empty effects")
+    for effect in effects:
+        effect_type = effect.get("type")
+        if effect_type not in EFFECT_PARAM_SCHEMAS:
+            raise ValueError(f"{context} has unknown effect type {effect_type!r}")
+        required, optional, fraction_params = EFFECT_PARAM_SCHEMAS[effect_type]
+        params = effect.keys() - {"type"}
+        missing = required - params
+        if missing:
+            raise ValueError(f"{context} effect {effect_type!r} missing param(s): {sorted(missing)}")
+        unknown = params - required - optional
+        if unknown:
+            raise ValueError(f"{context} effect {effect_type!r} has unknown param(s): {sorted(unknown)}")
+        for param in params:
+            value = effect[param]
+            if param in fraction_params and not (0 < value <= 1):
+                raise ValueError(f"{context} effect {effect_type!r} param {param!r} must be in (0, 1]")
+            elif param not in fraction_params and value <= 0:
+                raise ValueError(f"{context} effect {effect_type!r} param {param!r} must be > 0")
+
+
+def _load_skills(path: str = _SKILLS_PATH) -> dict[str, dict]:
+    with open(path) as f:
+        raw = json.load(f)
+    skills: dict[str, dict] = {}
+    for entry in raw:
+        entry_id = entry.get("id", "?")
+        missing = _REQUIRED_SKILL_FIELDS - entry.keys()
+        if missing:
+            raise ValueError(f"dungeon_skills.json: skill {entry_id!r} missing field(s): {sorted(missing)}")
+        if entry_id in skills:
+            raise ValueError(f"dungeon_skills.json: duplicate skill id {entry_id!r}")
+        if entry["main_class"] not in CLASSES:
+            raise ValueError(f"dungeon_skills.json: skill {entry_id!r} has unknown main_class {entry['main_class']!r}")
+        if entry["subclass"] not in SUBCLASSES:
+            raise ValueError(f"dungeon_skills.json: skill {entry_id!r} has unknown subclass {entry['subclass']!r}")
+        if entry["unlock_level"] < 1:
+            raise ValueError(f"dungeon_skills.json: skill {entry_id!r} has invalid unlock_level")
+        _validate_effects(entry["effects"], f"dungeon_skills.json: skill {entry_id!r}")
+        skills[entry_id] = entry
+    return skills
+
+
+def _build_skills_by_combo(skills: dict[str, dict]) -> dict[tuple[str, str], list[dict]]:
+    by_combo: dict[tuple[str, str], list[dict]] = {}
+    for skill in skills.values():
+        combo = (skill["main_class"], skill["subclass"])
+        by_combo.setdefault(combo, []).append(skill)
+    for combo, combo_skills in by_combo.items():
+        combo_skills.sort(key=lambda s: s["unlock_level"])
+    # Every build must have exactly one level-1 skill -- otherwise a fresh character could get an
+    # empty Ability button, which is a strictly worse UX regression than anything a content typo
+    # elsewhere in this file would cause, so it's checked here rather than left to be noticed live.
+    for main_class in CLASSES:
+        for subclass in SUBCLASSES:
+            combo = (main_class, subclass)
+            level_ones = [s for s in by_combo.get(combo, []) if s["unlock_level"] == 1]
+            if len(level_ones) != 1:
+                raise ValueError(
+                    f"dungeon_skills.json: {main_class}/{subclass} must have exactly one unlock_level=1 "
+                    f"skill, found {len(level_ones)}"
+                )
+    return by_combo
+
+
+SKILLS = _load_skills()
+SKILLS_BY_COMBO = _build_skills_by_combo(SKILLS)
+
+
+def unlocked_skills(main_class: str, subclass: str, level: int) -> list[dict]:
+    """All skills this build has unlocked by `level`, sorted by unlock_level ascending (so
+    index 0 is always the level-1 base skill)."""
+    return [s for s in SKILLS_BY_COMBO[(main_class, subclass)] if s["unlock_level"] <= level]
+
+
 # --- Equipment -----------------------------------------------------------------------------
 # Same registry pattern as MONSTERS above -- content lives in dungeon_equipment.json so new gear
 # is a JSON edit, not a code change. Found as dungeon loot (roll_equipment_drop), never bought.
@@ -231,15 +345,10 @@ def compute_effective_stats(character: dict, equipped: dict[str, str]) -> dict:
 
 
 # --- Combat ------------------------------------------------------------------------------------
-# Deliberately lightweight: one attacker at a time, no status effects. Signature abilities are
-# one-time modifiers to the same roll_damage/heal calls rather than a separate resolution system.
+# Deliberately lightweight: one attacker at a time, no persistent status effects beyond what a
+# skill's own effects apply for the rest of the fight (see dungeon_view.py's EFFECT_HANDLERS).
 
 DAMAGE_VARIANCE_LOW, DAMAGE_VARIANCE_HIGH = 0.85, 1.15
-
-FIREBALL_MULTIPLIER = 1.8      # Mage: one big hit instead of a normal attack
-SNEAK_ATTACK_MULTIPLIER = 1.5  # Rogue: bonus damage on one attack
-GUARD_DAMAGE_REDUCTION = 0.5   # Fighter: halves the monster's next hit this exchange
-HEAL_FRACTION = 0.4            # Healer: restores this fraction of max HP instead of attacking
 
 
 def roll_damage(atk: int, defense: int, multiplier: float = 1.0) -> int:

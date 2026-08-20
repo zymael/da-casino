@@ -15,10 +15,10 @@ from holdem_view import busy_players
 active_delves: dict[int, "DelveSession"] = {}
 
 CLASS_OPTIONS = [
-    ("fighter", "Fighter (Ace)", "Tank — high HP/DEF. Signature: Guard."),
-    ("healer", "Healer (King)", "Support — balanced spread. Signature: Heal."),
-    ("mage", "Mage (Queen)", "High ATK, fragile. Signature: Fireball."),
-    ("rogue", "Rogue (Jack)", "Balanced/quick. Signature: Sneak Attack."),
+    ("fighter", "Fighter (Ace)", "Tank — high HP/DEF. Skill varies by subclass."),
+    ("healer", "Healer (King)", "Support — balanced spread. Skill varies by subclass."),
+    ("mage", "Mage (Queen)", "High ATK, fragile. Skill varies by subclass."),
+    ("rogue", "Rogue (Jack)", "Balanced/quick. Skill varies by subclass."),
 ]
 SUBCLASS_OPTIONS = [
     ("clubs", "♣ Brawler", "More HP/ATK."),
@@ -42,12 +42,16 @@ class DelveSession:
         self.def_ = effective["def"]
         self.loot_mult = dungeon.SUBCLASSES[self.subclass]["loot_mult"]
         self.display_name = dungeon.display_name(self.main_class, self.subclass)
-        self.ability_name = dungeon.CLASSES[self.main_class]["ability"]
+        # Level-1 skill is guaranteed to exist for every build (validated at import time in
+        # dungeon.py) and is always sorted first, so unlocked_skills is never empty.
+        self.unlocked_skills = dungeon.unlocked_skills(self.main_class, self.subclass, self.level)
+        self.ability_name = self.unlocked_skills[0]["name"]
 
         self.hp = self.max_hp
         self.room_index = 0
         self.monster = dungeon.monster_for_room(0)
         self.monster_hp = self.monster["hp"]
+        self.monster_def_debuff = 0  # from def_shred-type skills; resets each new monster
         self.ability_used = False
         self.loot_total = 0
 
@@ -115,12 +119,15 @@ class CombatView(discord.ui.View):
         # combat has long since moved on to a new view (or ended), incorrectly overwriting an
         # already-concluded delve with a false "abandoned" message despite the real payout
         # having already landed.
-        if await _handle_action(interaction, self.session, ability=False):
+        if await _handle_action(interaction, self.session, skill=None):
             self.stop()
 
     @discord.ui.button(label="Ability", style=discord.ButtonStyle.success)
     async def ability_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if await _handle_action(interaction, self.session, ability=True):
+        # Only one skill is unlockable at level 1, so index 0 is unambiguous for now -- once
+        # higher-level skills land, this single fixed button becomes one button per unlocked
+        # skill (see dungeon_skills.json stage 3), each passing its own skill dict here.
+        if await _handle_action(interaction, self.session, skill=self.session.unlocked_skills[0]):
             self.stop()
 
     async def on_timeout(self):
@@ -167,6 +174,7 @@ class RoomResultView(discord.ui.View):
         session.room_index += 1
         session.monster = dungeon.monster_for_room(session.room_index)
         session.monster_hp = session.monster["hp"]
+        session.monster_def_debuff = 0
         session.ability_used = False
         embed, file = _combat_embed(session, f"You press deeper into the dungeon...\n\n*{session.monster['flavor']}*")
         view = CombatView(session)
@@ -208,6 +216,7 @@ async def _resolve_victory_rewards(session: DelveSession, log_lines: list[str]):
         session.hp += hp_delta
         session.atk += atk_delta
         session.def_ += def_delta
+        session.unlocked_skills = dungeon.unlocked_skills(session.main_class, session.subclass, session.level)
         plural = "s" if level_result["levels_gained"] > 1 else ""
         log_lines.append(f"🎉 Level up! Now level {session.level} (+{level_result['levels_gained']} level{plural}).")
 
@@ -238,35 +247,117 @@ async def _resolve_victory_rewards(session: DelveSession, log_lines: list[str]):
         log_lines.append(f"{quest_item['emoji']} Found a **{quest_item['name']}**...")
 
 
-async def _handle_action(interaction: discord.Interaction, session: DelveSession, ability: bool) -> bool:
-    """Returns whether this actually consumed the player's turn (False only for the
+# --- Effect dispatch --------------------------------------------------------------------------
+# Interprets the `effects` list on a skill (dungeon.SKILLS) or, later, a consumable
+# (dungeon.CONSUMABLES) -- one handler per primitive type in dungeon.EFFECT_PARAM_SCHEMAS, each
+# mutating `session` and/or `mods` in place. Lives here rather than in dungeon.py because these
+# handlers mutate DelveSession, a Discord-layer concept -- the same reason the ability logic this
+# replaces already lived here rather than in dungeon.py.
+
+# Effect types that make this action roll monster damage (as opposed to a pure utility action
+# like Heal/Guard, which resolve entirely inside _apply_effects and skip the damage roll below).
+DAMAGE_EFFECT_TYPES = {"damage_multiplier", "extra_attack"}
+
+
+def _default_mods() -> dict:
+    return {"multiplier": 1.0, "guard_reduction": None, "lifesteal_fraction": None, "extra_attack_multipliers": []}
+
+
+def _effect_damage_multiplier(session: DelveSession, effect: dict, log_lines: list[str], mods: dict):
+    mods["multiplier"] *= effect["value"]
+
+
+def _effect_heal_fraction(session: DelveSession, effect: dict, log_lines: list[str], mods: dict):
+    healed = min(session.max_hp, session.hp + round(session.max_hp * effect["value"])) - session.hp
+    session.hp += healed
+    log_lines.append(f"You recover **{healed}** HP.")
+
+
+def _effect_guard(session: DelveSession, effect: dict, log_lines: list[str], mods: dict):
+    mods["guard_reduction"] = effect["reduction"]
+    log_lines.append("You raise your guard, ready to blunt the next blow.")
+
+
+def _effect_lifesteal_fraction(session: DelveSession, effect: dict, log_lines: list[str], mods: dict):
+    mods["lifesteal_fraction"] = effect["value"]  # applied against total damage dealt, once known
+
+
+def _effect_def_shred(session: DelveSession, effect: dict, log_lines: list[str], mods: dict):
+    session.monster_def_debuff += effect["value"]
+    log_lines.append(f"**{session.monster['name']}**'s defenses crumble by **{effect['value']}**.")
+
+
+def _effect_extra_attack(session: DelveSession, effect: dict, log_lines: list[str], mods: dict):
+    mods["extra_attack_multipliers"].append(effect.get("multiplier", 1.0))
+
+
+def _effect_atk_buff(session: DelveSession, effect: dict, log_lines: list[str], mods: dict):
+    session.atk += effect["value"]
+    log_lines.append(f"Your ATK rises by **{effect['value']}** for the rest of the fight.")
+
+
+def _effect_def_buff(session: DelveSession, effect: dict, log_lines: list[str], mods: dict):
+    session.def_ += effect["value"]
+    log_lines.append(f"Your DEF rises by **{effect['value']}** for the rest of the fight.")
+
+
+EFFECT_HANDLERS = {
+    "damage_multiplier": _effect_damage_multiplier,
+    "heal_fraction": _effect_heal_fraction,
+    "guard": _effect_guard,
+    "lifesteal_fraction": _effect_lifesteal_fraction,
+    "def_shred": _effect_def_shred,
+    "extra_attack": _effect_extra_attack,
+    "atk_buff": _effect_atk_buff,
+    "def_buff": _effect_def_buff,
+}
+
+
+def _apply_effects(session: DelveSession, effects: list[dict], log_lines: list[str]) -> dict:
+    """Runs every effect in order, mutating session (HP/ATK/DEF/monster DEF debuff) and appending
+    log lines as it goes. Returns this-action modifiers the caller still needs for the damage
+    roll: multiplier, guard_reduction (None if not guarding), lifesteal_fraction (None if no
+    lifesteal), and extra_attack_multipliers (one roll_damage call per entry, on top of the
+    primary hit)."""
+    mods = _default_mods()
+    for effect in effects:
+        EFFECT_HANDLERS[effect["type"]](session, effect, log_lines, mods)
+    return mods
+
+
+async def _handle_action(interaction: discord.Interaction, session: DelveSession, skill: dict | None) -> bool:
+    """`skill` is the unlocked skill dict the player chose (an Ability button), or None for a
+    plain Attack. Returns whether this actually consumed the player's turn (False only for the
     already-used-ability rejection, which leaves the calling CombatView live and waiting) --
     callers use this to decide whether to stop() the view that dispatched them."""
-    if ability and session.ability_used:
+    if skill is not None and session.ability_used:
         await interaction.response.send_message("You've already used your ability this fight.", ephemeral=True)
         return False
 
     currency = db.get_currency_name(session.guild_id)
     log_lines = []
-    guard_active = False
+    effects = skill["effects"] if skill is not None else []
+    # A plain Attack (no effects) always rolls damage; an ability rolls damage only if at least
+    # one of its effects is damage-shaped -- everything else (Heal, Guard, ...) is pure utility
+    # and skips the roll_damage call below entirely, same branch shape as the old class-name ladder.
+    is_damage_action = not effects or any(e["type"] in DAMAGE_EFFECT_TYPES for e in effects)
 
-    if ability and session.main_class == "healer":
-        healed = min(session.max_hp, session.hp + round(session.max_hp * dungeon.HEAL_FRACTION)) - session.hp
-        session.hp += healed
-        log_lines.append(f"You use **{session.ability_name}** and recover **{healed}** HP.")
+    mods = _apply_effects(session, effects, log_lines)
+    if skill is not None:
         session.ability_used = True
-    elif ability and session.main_class == "fighter":
-        guard_active = True
-        log_lines.append("You raise your guard, ready to blunt the next blow.")
-        session.ability_used = True
-    else:
-        multiplier = 1.0
-        if ability:
-            multiplier = dungeon.FIREBALL_MULTIPLIER if session.main_class == "mage" else dungeon.SNEAK_ATTACK_MULTIPLIER
-            session.ability_used = True
-        dmg = dungeon.roll_damage(session.atk, session.monster["def"], multiplier)
+
+    if is_damage_action:
+        effective_monster_def = max(0, session.monster["def"] - session.monster_def_debuff)
+        dmg = dungeon.roll_damage(session.atk, effective_monster_def, mods["multiplier"])
+        for extra_multiplier in mods["extra_attack_multipliers"]:
+            dmg += dungeon.roll_damage(session.atk, effective_monster_def, extra_multiplier)
+        if mods["lifesteal_fraction"]:
+            healed = min(session.max_hp, session.hp + round(dmg * mods["lifesteal_fraction"])) - session.hp
+            session.hp += healed
+            if healed:
+                log_lines.append(f"You drain **{healed}** HP from the strike.")
         session.monster_hp -= dmg
-        verb = f"unleash **{session.ability_name}**" if ability else "attack"
+        verb = f"unleash **{skill['name']}**" if skill is not None else "attack"
         log_lines.append(f"You {verb} for **{dmg}** damage.")
 
     if session.monster_hp <= 0:
@@ -278,8 +369,8 @@ async def _handle_action(interaction: discord.Interaction, session: DelveSession
         return True
 
     monster_dmg = dungeon.roll_damage(session.monster["atk"], session.def_)
-    if guard_active:
-        monster_dmg = max(1, round(monster_dmg * dungeon.GUARD_DAMAGE_REDUCTION))
+    if mods["guard_reduction"] is not None:
+        monster_dmg = max(1, round(monster_dmg * mods["guard_reduction"]))
         log_lines.append(f"Your guard softens the blow — **{session.monster['name']}** hits for **{monster_dmg}**.")
     else:
         log_lines.append(f"**{session.monster['name']}** strikes back for **{monster_dmg}**.")
@@ -397,9 +488,10 @@ class ClassPickerView(discord.ui.View):
         if self.main_class and self.subclass:
             name = dungeon.display_name(self.main_class, self.subclass)
             stats = dungeon.compute_stats(self.main_class, self.subclass)
+            skill = dungeon.unlocked_skills(self.main_class, self.subclass, 1)[0]
             embed.add_field(
                 name=f"Preview: {name}",
-                value=f"HP {stats['hp']} / ATK {stats['atk']} / DEF {stats['def']}",
+                value=f"HP {stats['hp']} / ATK {stats['atk']} / DEF {stats['def']}\nSkill: **{skill['name']}** — {skill['flavor']}",
                 inline=False,
             )
         return embed

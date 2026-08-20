@@ -1,0 +1,146 @@
+[
+    {
+        "id": "barbarian_guard",
+        "main_class": "fighter",
+        "subclass": "clubs",
+        "unlock_level": 1,
+        "name": "Reckless Guard",
+        "flavor": "Grits teeth and takes the hit on purpose.",
+        "effects": [{"type": "guard", "reduction": 0.5}]
+    },
+    {
+        "id": "duelist_guard",
+        "main_class": "fighter",
+        "subclass": "spades",
+        "unlock_level": 1,
+        "name": "Riposte Guard",
+        "flavor": "A guard stance built for a counter, not just a block.",
+        "effects": [{"type": "guard", "reduction": 0.5}]
+    },
+    {
+        "id": "guardian_guard",
+        "main_class": "fighter",
+        "subclass": "hearts",
+        "unlock_level": 1,
+        "name": "Bulwark",
+        "flavor": "Plants their feet and dares the monster to try again.",
+        "effects": [{"type": "guard", "reduction": 0.5}]
+    },
+    {
+        "id": "mercenary_guard",
+        "main_class": "fighter",
+        "subclass": "diamonds",
+        "unlock_level": 1,
+        "name": "Paid-For Guard",
+        "flavor": "Protecting the client -- themself -- is the whole job.",
+        "effects": [{"type": "guard", "reduction": 0.5}]
+    },
+    {
+        "id": "bonesetter_heal",
+        "main_class": "healer",
+        "subclass": "clubs",
+        "unlock_level": 1,
+        "name": "Field Dressing",
+        "flavor": "Blunt, effective first aid. Might leave a scar.",
+        "effects": [{"type": "heal_fraction", "value": 0.4}]
+    },
+    {
+        "id": "plague_doctor_heal",
+        "main_class": "healer",
+        "subclass": "spades",
+        "unlock_level": 1,
+        "name": "Toxic Remedy",
+        "flavor": "Whatever's in this vial, it works. Don't ask what it is.",
+        "effects": [{"type": "heal_fraction", "value": 0.4}]
+    },
+    {
+        "id": "priest_heal",
+        "main_class": "healer",
+        "subclass": "hearts",
+        "unlock_level": 1,
+        "name": "Prayer of Mending",
+        "flavor": "A quiet word and the wounds start closing.",
+        "effects": [{"type": "heal_fraction", "value": 0.4}]
+    },
+    {
+        "id": "charlatan_heal",
+        "main_class": "healer",
+        "subclass": "diamonds",
+        "unlock_level": 1,
+        "name": "Quack Cure",
+        "flavor": "Snake oil, sincerely applied. It somehow helps.",
+        "effects": [{"type": "heal_fraction", "value": 0.4}]
+    },
+    {
+        "id": "war_mage_fireball",
+        "main_class": "mage",
+        "subclass": "clubs",
+        "unlock_level": 1,
+        "name": "War Blast",
+        "flavor": "Battle magic with none of the finesse and all of the boom.",
+        "effects": [{"type": "damage_multiplier", "value": 1.8}]
+    },
+    {
+        "id": "nightweaver_fireball",
+        "main_class": "mage",
+        "subclass": "spades",
+        "unlock_level": 1,
+        "name": "Shadow Bolt",
+        "flavor": "A bolt of dark flame that swallows the light around it.",
+        "effects": [{"type": "damage_multiplier", "value": 1.8}]
+    },
+    {
+        "id": "enchanter_fireball",
+        "main_class": "mage",
+        "subclass": "hearts",
+        "unlock_level": 1,
+        "name": "Arcane Flame",
+        "flavor": "A carefully woven spell, warm at the edges.",
+        "effects": [{"type": "damage_multiplier", "value": 1.8}]
+    },
+    {
+        "id": "artificer_fireball",
+        "main_class": "mage",
+        "subclass": "diamonds",
+        "unlock_level": 1,
+        "name": "Overcharged Bolt",
+        "flavor": "A gadget never rated for this much mana.",
+        "effects": [{"type": "damage_multiplier", "value": 1.8}]
+    },
+    {
+        "id": "bar_fighter_sneak_attack",
+        "main_class": "rogue",
+        "subclass": "clubs",
+        "unlock_level": 1,
+        "name": "Haymaker",
+        "flavor": "Not sneaky. Just fast, and thrown while nobody's looking.",
+        "effects": [{"type": "damage_multiplier", "value": 1.5}]
+    },
+    {
+        "id": "assassin_sneak_attack",
+        "main_class": "rogue",
+        "subclass": "spades",
+        "unlock_level": 1,
+        "name": "Gut Strike",
+        "flavor": "A blade finds the gap in the armor.",
+        "effects": [{"type": "damage_multiplier", "value": 1.5}]
+    },
+    {
+        "id": "con_artist_sneak_attack",
+        "main_class": "rogue",
+        "subclass": "hearts",
+        "unlock_level": 1,
+        "name": "Cheap Shot",
+        "flavor": "\"Wait, is that--\" It was not. It was a fist.",
+        "effects": [{"type": "damage_multiplier", "value": 1.5}]
+    },
+    {
+        "id": "treasure_hunter_sneak_attack",
+        "main_class": "rogue",
+        "subclass": "diamonds",
+        "unlock_level": 1,
+        "name": "Grab and Go",
+        "flavor": "Strike first, loot the corpse, ask questions never.",
+        "effects": [{"type": "damage_multiplier", "value": 1.5}]
+    }
+]
