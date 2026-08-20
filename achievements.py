@@ -125,6 +125,14 @@ ACHIEVEMENTS = [
         "description": "You greeted Mondor at the dungeon entrance and accepted his challenge!",
         "reward": 25,
     },
+    {
+        "kind": "bitten_by_princess",
+        "scope": "personal",
+        "emoji": "🐀",
+        "name": "Bitten by a Princess",
+        "description": "You greeted the \"Princess\". She was not appreciative.",
+        "reward": 25,
+    },
 ]
 
 # Maps each game bucket to its emoji/title and the db.log_bet() `game` string(s) that feed it

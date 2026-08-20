@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 
 DB_PATH = "casino.db"
 STARTING_BALANCE = 100
+ENERGY_MAX = 3  # currently spent only by !delve (1 per delve); refilled to this by !rest
 
 
 def init_db():
@@ -41,6 +42,11 @@ def init_db():
     for column in ("last_mine_start", "last_mine_claim", "last_tip"):
         if column not in columns:
             conn.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
+    # Energy: a delve-gating resource (spent 1 per delve, refilled to bot.ENERGY_MAX by !rest) --
+    # separate from the last_daily cooldown that gates *when* !rest can be claimed. DEFAULT 3
+    # backfills existing rows to full on upgrade, same as any other ALTER ADD COLUMN here.
+    if "energy" not in columns:
+        conn.execute(f"ALTER TABLE users ADD COLUMN energy INTEGER NOT NULL DEFAULT {ENERGY_MAX}")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS champions (
@@ -256,6 +262,20 @@ def init_db():
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS inventory (
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            item_id TEXT NOT NULL,
+            qty INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id, item_id)
+        )
+        """
+    )
+    # Dungeon gear a player has found/been granted but isn't currently wearing -- character_equipment
+    # holds at most one item per slot, this holds everything else so a non-upgrade drop is stored
+    # instead of silently discarded, and !equipment can let a player swap back to it later.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS equipment_inventory (
             guild_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
             item_id TEXT NOT NULL,
@@ -1245,12 +1265,14 @@ def _seconds_until_next_day() -> float:
     return max(0.0, (next_reset - datetime.now()).total_seconds())
 
 
-def claim_daily(guild_id: int, user_id: int, amount: int) -> tuple[str, float | int]:
-    """Grants `amount` credits once per calendar day.
+def claim_rest(guild_id: int, user_id: int, gold_amount: int) -> tuple[str, float | int]:
+    """Grants `gold_amount` credits and refills energy to ENERGY_MAX, once per calendar day
+    (still gated by last_daily -- renamed from claim_daily now that resting does double duty,
+    the column itself wasn't worth an ALTER just for the name).
 
     Returns (status, value):
       - ("cooldown", seconds_remaining) — already claimed today
-      - ("claimed", new_balance) — credits granted
+      - ("claimed", new_balance) — credits granted and energy refilled
     """
     conn = _connect()
     try:
@@ -1262,13 +1284,51 @@ def claim_daily(guild_id: int, user_id: int, amount: int) -> tuple[str, float | 
         ).fetchone()
         if last_daily == today:
             return "cooldown", _seconds_until_next_day()
-        new_balance = balance + amount
+        new_balance = balance + gold_amount
         conn.execute(
-            "UPDATE users SET balance = ?, last_daily = ? WHERE guild_id = ? AND user_id = ?",
-            (new_balance, today, guild_id, user_id),
+            "UPDATE users SET balance = ?, last_daily = ?, energy = ? WHERE guild_id = ? AND user_id = ?",
+            (new_balance, today, ENERGY_MAX, guild_id, user_id),
         )
         conn.commit()
         return "claimed", new_balance
+    finally:
+        conn.close()
+
+
+def get_energy(guild_id: int, user_id: int) -> int:
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.commit()
+        row = conn.execute(
+            "SELECT energy FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()
+        return row[0]
+    finally:
+        conn.close()
+
+
+def spend_energy(guild_id: int, user_id: int, amount: int = 1) -> bool:
+    """Spends `amount` energy (e.g. for a delve) if the player has enough. Returns whether it
+    succeeded -- False leaves their energy untouched."""
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT energy FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()
+        energy = row[0]
+        if energy < amount:
+            conn.rollback()
+            return False
+        conn.execute(
+            "UPDATE users SET energy = ? WHERE guild_id = ? AND user_id = ?",
+            (energy - amount, guild_id, user_id),
+        )
+        conn.commit()
+        return True
     finally:
         conn.close()
 
@@ -1327,7 +1387,7 @@ def claim_mine(
 
 def tip(guild_id: int, from_id: int, to_id: int, amount: int) -> tuple[str, float | int]:
     """Grants `amount` newly generated credits to `to_id`, once per calendar day per
-    sender -- same once-a-day gating as claim_daily.
+    sender -- same once-a-day gating as claim_rest.
 
     Returns (status, value):
       - ("cooldown", seconds_remaining) — sender already tipped today
@@ -1469,7 +1529,8 @@ def equip_item(guild_id: int, user_id: int, slot: str, item_id: str):
     """Unconditionally equips item_id in `slot`, replacing whatever was there. Pure storage --
     the decision of *whether* this item is worth equipping (empty slot, or better than what's
     already there) is made by the caller (dungeon_view.py), which has the item stat data via
-    dungeon.EQUIPMENT; this function doesn't need to know anything about equipment content."""
+    dungeon.EQUIPMENT; this function doesn't need to know anything about equipment content.
+    Doesn't touch equipment_inventory -- see equip_item_smart for the version that does."""
     conn = _connect()
     try:
         conn.execute(
@@ -1478,6 +1539,119 @@ def equip_item(guild_id: int, user_id: int, slot: str, item_id: str):
             (guild_id, user_id, slot, item_id),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def _add_equipment_inventory(conn, guild_id: int, user_id: int, item_id: str, qty: int = 1):
+    """Internal helper sharing one already-open connection/transaction -- see store_equipment_item
+    for the standalone public version."""
+    conn.execute(
+        "INSERT INTO equipment_inventory (guild_id, user_id, item_id, qty) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(guild_id, user_id, item_id) DO UPDATE SET qty = qty + excluded.qty",
+        (guild_id, user_id, item_id, qty),
+    )
+
+
+def _remove_equipment_inventory(conn, guild_id: int, user_id: int, item_id: str, qty: int = 1) -> bool:
+    """Internal helper sharing one already-open connection/transaction. Returns whether enough
+    was held -- False leaves the row untouched."""
+    row = conn.execute(
+        "SELECT qty FROM equipment_inventory WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+        (guild_id, user_id, item_id),
+    ).fetchone()
+    current = row[0] if row else 0
+    if current < qty:
+        return False
+    if current == qty:
+        conn.execute(
+            "DELETE FROM equipment_inventory WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+            (guild_id, user_id, item_id),
+        )
+    else:
+        conn.execute(
+            "UPDATE equipment_inventory SET qty = qty - ? WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+            (qty, guild_id, user_id, item_id),
+        )
+    return True
+
+
+def store_equipment_item(guild_id: int, user_id: int, item_id: str, qty: int = 1):
+    """Adds qty of item_id to equipment_inventory without equipping it -- used when a found/
+    rewarded item isn't worth equipping over what's already in that slot, so it's kept (swappable
+    later via !equipment) rather than discarded."""
+    conn = _connect()
+    try:
+        _add_equipment_inventory(conn, guild_id, user_id, item_id, qty)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_equipment_inventory(guild_id: int, user_id: int) -> dict[str, int]:
+    """Returns {item_id: qty} for gear this character has found/been granted but isn't currently
+    wearing -- an item not in the dict means 0, same "absence = default state" idea as
+    get_equipped_items."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT item_id, qty FROM equipment_inventory WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ).fetchall()
+        return {item_id: qty for item_id, qty in rows}
+    finally:
+        conn.close()
+
+
+def equip_item_smart(guild_id: int, user_id: int, slot: str, item_id: str) -> str | None:
+    """Equips item_id into `slot` (from a fresh find, a quest reward, or swapping in something
+    from equipment_inventory), moving whatever was previously in that slot into
+    equipment_inventory instead of overwriting it into oblivion, and removing item_id from
+    equipment_inventory if it was stored there (it's worn now, not held). Returns the
+    previously-equipped item_id that got bumped into inventory, or None if the slot was empty."""
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT item_id FROM character_equipment WHERE guild_id = ? AND user_id = ? AND slot = ?",
+            (guild_id, user_id, slot),
+        ).fetchone()
+        previous = row[0] if row else None
+        conn.execute(
+            "INSERT INTO character_equipment (guild_id, user_id, slot, item_id) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(guild_id, user_id, slot) DO UPDATE SET item_id = excluded.item_id",
+            (guild_id, user_id, slot, item_id),
+        )
+        if previous and previous != item_id:
+            _add_equipment_inventory(conn, guild_id, user_id, previous)
+        _remove_equipment_inventory(conn, guild_id, user_id, item_id)
+        conn.commit()
+        return previous
+    finally:
+        conn.close()
+
+
+def unequip_item(guild_id: int, user_id: int, slot: str) -> str | None:
+    """Empties `slot` entirely, moving whatever was equipped there into equipment_inventory.
+    Returns the item_id that was removed, or None if the slot was already empty."""
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT item_id FROM character_equipment WHERE guild_id = ? AND user_id = ? AND slot = ?",
+            (guild_id, user_id, slot),
+        ).fetchone()
+        if row is None:
+            conn.rollback()
+            return None
+        item_id = row[0]
+        conn.execute(
+            "DELETE FROM character_equipment WHERE guild_id = ? AND user_id = ? AND slot = ?",
+            (guild_id, user_id, slot),
+        )
+        _add_equipment_inventory(conn, guild_id, user_id, item_id)
+        conn.commit()
+        return item_id
     finally:
         conn.close()
 
@@ -1496,6 +1670,20 @@ def start_quest(guild_id: int, user_id: int, quest_id: str) -> bool:
         )
         conn.commit()
         return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def get_all_quest_progress(guild_id: int, user_id: int) -> dict[str, int]:
+    """Returns {quest_id: stage} for every quest this user has started -- a quest_id not in the
+    dict means they haven't started it. Backs !quests, which needs every quest's status in one
+    go rather than a get_quest_stage call per QUESTS entry."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT quest_id, stage FROM quest_progress WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchall()
+        return {quest_id: stage for quest_id, stage in rows}
     finally:
         conn.close()
 
@@ -1588,29 +1776,3 @@ def consume_inventory_item(guild_id: int, user_id: int, item_id: str, qty: int =
         conn.close()
 
 
-def claim_delve(guild_id: int, user_id: int) -> tuple[str, float | None]:
-    """Once-per-calendar-day gate for starting a dungeon delve -- same shape as claim_daily.
-    Marks last_delve immediately (delve outcome/payout is applied separately via update_balance/
-    log_bet once the delve resolves), so a player can't start two delves in one day even if the
-    first is abandoned.
-
-    Returns (status, value):
-      - ("cooldown", seconds_remaining) — already delved today
-      - ("ok", None) — cleared to start a delve
-    """
-    conn = _connect()
-    try:
-        today = date.today().isoformat()
-        row = conn.execute(
-            "SELECT last_delve FROM characters WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
-        ).fetchone()
-        if row is not None and row[0] == today:
-            return "cooldown", _seconds_until_next_day()
-        conn.execute(
-            "UPDATE characters SET last_delve = ? WHERE guild_id = ? AND user_id = ?",
-            (today, guild_id, user_id),
-        )
-        conn.commit()
-        return "ok", None
-    finally:
-        conn.close()

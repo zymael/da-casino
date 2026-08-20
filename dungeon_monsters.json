@@ -10,7 +10,8 @@
     "color": "#4a7c3c",
     "flavor": "A scrawny goblin snarls and raises a rusty knife.",
     "loot_min": 30,
-    "loot_max": 60
+    "loot_max": 60,
+    "sprite_path": "assets/dungeon/monsters/goblin_grunt.png"
   },
   {
     "id": "goblin_scavenger",
@@ -23,7 +24,8 @@
     "color": "#6b8e3a",
     "flavor": "A goblin picks through a pile of bones, then hisses at you.",
     "loot_min": 30,
-    "loot_max": 60
+    "loot_max": 60,
+    "sprite_path": "assets/dungeon/monsters/goblin_scavenger.png"
   },
   {
     "id": "goblin_skirmisher",
@@ -36,7 +38,8 @@
     "color": "#3c6e4a",
     "flavor": "A wiry goblin circles you, twin blades flashing.",
     "loot_min": 60,
-    "loot_max": 120
+    "loot_max": 120,
+    "sprite_path": "assets/dungeon/monsters/goblin_skirmisher.png"
   },
   {
     "id": "goblin_archer",
@@ -49,7 +52,8 @@
     "color": "#2f6b57",
     "flavor": "An arrow whistles past your ear -- this one keeps its distance.",
     "loot_min": 60,
-    "loot_max": 120
+    "loot_max": 120,
+    "sprite_path": "assets/dungeon/monsters/goblin_archer.png"
   },
   {
     "id": "goblin_chief",
@@ -62,7 +66,8 @@
     "color": "#8a3c2a",
     "flavor": "The goblin chief hefts a jagged cleaver, crowned in stolen gold.",
     "loot_min": 120,
-    "loot_max": 250
+    "loot_max": 250,
+    "sprite_path": "assets/dungeon/monsters/goblin_chief.png"
   },
   {
     "id": "goblin_warlord",
@@ -75,6 +80,7 @@
     "color": "#6b2a3c",
     "flavor": "Scarred and armored in scavenged plate, the warlord roars a challenge.",
     "loot_min": 120,
-    "loot_max": 250
+    "loot_max": 250,
+    "sprite_path": "assets/dungeon/monsters/goblin_warlord.png"
   }
 ]

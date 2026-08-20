@@ -20,15 +20,17 @@ _BUBBLE_OUTLINE = (30, 20, 15, 255)
 _TEXT_COLOR = (20, 15, 10, 255)
 
 
-def render_kel_introduction() -> io.BytesIO:
-    """Composites a comic-style speech bubble with Kel's introduction over the ranch banner,
+def render_kel_dialogue(text: str) -> io.BytesIO:
+    """Composites a comic-style speech bubble with arbitrary Kel dialogue over the ranch banner,
     positioned clear of his face (left third of the image) with a tail pointing back to him.
     Bubble size is measured from the actual wrapped text rather than guessed, so it stays
-    legible if the intro line is ever edited."""
+    legible regardless of the line's length. Shared by every Kel interaction (intro, quest
+    turn-in, ...) so there's one bubble renderer rather than one per line of dialogue -- same
+    "generalize past the first caller" move as dungeon_render.render_mondor_dialogue."""
     base = Image.open(BANNER_PATH).convert("RGBA")
     draw = ImageDraw.Draw(base)
 
-    wrapped = textwrap.fill(KEL_INTRO_TEXT, width=40)
+    wrapped = textwrap.fill(text, width=40)
     padding = 10
     text_bbox = draw.multiline_textbbox((0, 0), wrapped, font=_font, spacing=4)
     text_w, text_h = text_bbox[2] - text_bbox[0], text_bbox[3] - text_bbox[1]

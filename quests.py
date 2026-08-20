@@ -18,7 +18,14 @@ import dungeon
 _QUEST_ITEMS_PATH = os.path.join(os.path.dirname(__file__), "quest_items.json")
 _REQUIRED_ITEM_FIELDS = {"id", "name", "emoji", "description"}
 
-QUEST_ITEM_DROP_CHANCE = 0.15  # per room win, only rolled among items a player is actually waiting on
+# Shown once every stage is turned in, for a quest with no quest-level "complete_message" of its
+# own -- most quests won't bother writing one until/unless there's a reason to (a follow-up
+# stage, a reveal, ...).
+DEFAULT_COMPLETE_MESSAGE = "\"...\" (There's nothing more for now -- come back later.)"
+
+QUEST_ITEM_DROP_CHANCE = 1.0  # guaranteed -- a quest stage's own monster/inventory gating (see
+# roll_item_drop) already controls when an item is even eligible to drop; stacking a random
+# chance on top of that just meant grinding the right monster repeatedly for no story reason
 
 
 def _load_quest_items(path: str = _QUEST_ITEMS_PATH) -> dict[str, dict]:
@@ -58,8 +65,7 @@ QUESTS = [
                 ),
                 "turn_in_item": "wooden_horse_carving",
                 "on_complete_message": (
-                    "Kel's eyes go wide as you hand it over. \"...You found it. I can't believe "
-                    "you actually found it.\" He turns it over in his hands like it's made of glass. "
+                    "...You're giving this to me? It's beautiful.\" "
                     "\"Thank you. Really.\""
                 ),
                 "reward": 0,
@@ -70,6 +76,7 @@ QUESTS = [
         "id": "mondor_goblin_chieftain",
         "npc": "mondor",
         "start_achievement": "dared_by_mondor",
+        "complete_message": "You have returned the \"Princess\" to her rightful place at Mondor's side.",
         "stages": [
             {
                 "prompt": (
@@ -101,6 +108,33 @@ async def maybe_start_quests(guild_id: int, user_id: int, unlocked_kinds: list[s
     for quest in QUESTS:
         if quest["start_achievement"] in unlocked_kinds:
             await asyncio.to_thread(db.start_quest, guild_id, user_id, quest["id"])
+
+
+async def quest_log(guild_id: int, user_id: int) -> list[dict]:
+    """Every quest this player has started (in QUESTS order), each as {"quest_id", "npc",
+    "stage_index", "total_stages", "complete", "prompt"} -- prompt is the current stage's own
+    text (or None once complete). Backs !quests; deliberately doesn't invent quest titles or any
+    other copy -- npc id and each stage's existing prompt are the only text surfaced."""
+    progress = await asyncio.to_thread(db.get_all_quest_progress, guild_id, user_id)
+    entries = []
+    for quest in QUESTS:
+        stage_index = progress.get(quest["id"])
+        if stage_index is None:
+            continue
+        complete = stage_index >= len(quest["stages"])
+        if complete:
+            prompt = quest.get("complete_message", DEFAULT_COMPLETE_MESSAGE)
+        else:
+            prompt = quest["stages"][stage_index]["prompt"]
+        entries.append({
+            "quest_id": quest["id"],
+            "npc": quest["npc"],
+            "stage_index": stage_index,
+            "total_stages": len(quest["stages"]),
+            "complete": complete,
+            "prompt": prompt,
+        })
+    return entries
 
 
 async def roll_item_drop(guild_id: int, user_id: int, room_index: int, monster_id: str) -> dict | None:
@@ -136,16 +170,18 @@ async def roll_item_drop(guild_id: int, user_id: int, room_index: int, monster_i
 
 
 async def talk_to_npc(guild_id: int, user_id: int, npc_id: str) -> dict:
-    """Returns {"active", "prompt", "can_turn_in", "item"} describing whatever quest+stage the
-    player is on with this NPC. "active" is False if they have no quest started with this NPC at
-    all (nothing to show). A stage with no turn-in requirement (dialogue-only endpoint) reports
-    can_turn_in False.
+    """Returns {"active", "prompt", "can_turn_in", "item", "complete_quest_id"} describing
+    whatever quest+stage the player is on with this NPC. "active" is False if they have no quest
+    started with this NPC at all (nothing to show). A stage with no turn-in requirement
+    (dialogue-only endpoint) reports can_turn_in False. complete_quest_id is the id of whichever
+    quest just reported its complete_message (None otherwise) -- lets a caller key a one-off
+    visual (e.g. a reveal sprite) to one specific quest rather than "any NPC quest is done".
 
     Self-healing: if a quest's start_achievement is already earned but the quest was never
     started (e.g. the achievement was claimed before this quest existed in QUESTS, or any other
     gap in maybe_start_quests firing at unlock time), starts it here rather than reporting
     "nothing to show" for someone who's actually eligible."""
-    result = {"active": False, "prompt": None, "can_turn_in": False, "item": None}
+    result = {"active": False, "prompt": None, "can_turn_in": False, "item": None, "complete_quest_id": None}
     earned = None
     for quest in BY_NPC.get(npc_id, []):
         stage_index = await asyncio.to_thread(db.get_quest_stage, guild_id, user_id, quest["id"])
@@ -158,7 +194,8 @@ async def talk_to_npc(guild_id: int, user_id: int, npc_id: str) -> dict:
             stage_index = 0
         result["active"] = True
         if stage_index >= len(quest["stages"]):
-            result["prompt"] = "\"...\" (There's nothing more for now -- come back later.)"
+            result["prompt"] = quest.get("complete_message", DEFAULT_COMPLETE_MESSAGE)
+            result["complete_quest_id"] = quest["id"]
             continue
         stage = quest["stages"][stage_index]
         result["prompt"] = stage["prompt"]
@@ -175,10 +212,11 @@ async def talk_to_npc(guild_id: int, user_id: int, npc_id: str) -> dict:
 async def turn_in(guild_id: int, user_id: int, npc_id: str) -> dict:
     """Resolves whatever quest+stage the player is on with this NPC and, if they're holding the
     item that stage wants, consumes it and advances the stage. Returns {"success", "message",
-    "reward", "reward_item", "equipped"} -- success is False (everything else None/0/False) if
-    there's nothing to turn in. reward_item is the dungeon.EQUIPMENT dict if this stage grants
-    one (None otherwise); equipped says whether it actually got equipped (same is_upgrade rule
-    as ordinary loot -- there's no separate "backpack" for gear that doesn't win the slot)."""
+    "reward", "reward_item", "equipped", "quest_complete"} -- success is False (everything else
+    None/0/False) if there's nothing to turn in. reward_item is the dungeon.EQUIPMENT dict if
+    this stage grants one (None otherwise); equipped says whether it actually got equipped (same
+    is_upgrade rule as ordinary loot) -- if not, it's stored in equipment_inventory instead, swappable later via
+    !equipment rather than lost."""
     for quest in BY_NPC.get(npc_id, []):
         stage_index = await asyncio.to_thread(db.get_quest_stage, guild_id, user_id, quest["id"])
         if stage_index is None or stage_index >= len(quest["stages"]):
@@ -207,12 +245,18 @@ async def turn_in(guild_id: int, user_id: int, npc_id: str) -> dict:
             equipped_items = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
             slot = reward_item["slot"]
             if dungeon.is_upgrade(equipped_items.get(slot), reward_item):
-                await asyncio.to_thread(db.equip_item, guild_id, user_id, slot, reward_item_id)
+                await asyncio.to_thread(db.equip_item_smart, guild_id, user_id, slot, reward_item_id)
                 equipped = True
+            else:
+                await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, reward_item_id)
 
         return {
             "success": True, "message": stage.get("on_complete_message"), "reward": reward,
             "reward_item": reward_item, "equipped": equipped,
+            "quest_complete": stage_index + 1 >= len(quest["stages"]),
         }
 
-    return {"success": False, "message": None, "reward": 0, "reward_item": None, "equipped": False}
+    return {
+        "success": False, "message": None, "reward": 0, "reward_item": None, "equipped": False,
+        "quest_complete": False,
+    }

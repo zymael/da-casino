@@ -187,7 +187,7 @@
     "rarity": "rare",
     "drop_weight": 4,
     "stat_bonuses": {"atk": 3},
-    "flavor": "Reward for defeating the Goblin Chief.",
+    "flavor": "You can barely hold on to this thing.",
     "quest_only": true
   }
 ]

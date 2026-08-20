@@ -5,15 +5,16 @@ import time
 from datetime import datetime
 
 import discord
+from discord import app_commands
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 import achievements
-import casino_view
 import db
 from blackjack_view import active_tables as active_blackjack_tables, start_blackjack_table
 import dungeon
-from dungeon_view import ClassPickerView, DUNGEON_BANNER_PATH, active_delves, build_dungeon_hub_display, start_delve
+from dungeon_view import ClassPickerView, active_delves, start_delve
+import explorer_view
 from holdem_view import (
     BIG_BLIND as HOLDEM_BIG_BLIND,
     active_tables as active_holdem_tables,
@@ -22,7 +23,9 @@ from holdem_view import (
 )
 import horserace
 from horserace_view import HorseRaceView, active_races
-import ranch_view
+import hub_ui
+import inventory_view
+import quests
 from roulette_view import RouletteView, active_rounds
 from slots_view import SlotsView
 import video_poker
@@ -65,13 +68,15 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 HELP_CATEGORIES = [
-    ("💰 Economy", ["balance", "stats", "daily", "mine", "tip", "transfer", "pizza", "leaderboard"]),
-    ("🎲 Casino Games", ["casino", "blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
-    ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train", "ranch", "facility", "boost"]),
-    ("🗡️ Dungeon", ["dungeon", "class", "delve"]),
+    ("💰 Economy", ["balance", "stats", "rest", "mine", "tip", "transfer", "pizza", "leaderboard"]),
+    ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
+    ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost"]),
+    ("🗡️ Dungeon", ["class", "delve", "inventory", "equipment", "quests"]),
     ("🏆 Achievements", ["achievements"]),
     ("⚙️ Utility", ["ping", "setcasino", "setcurrency"]),
 ]
+
+_SYNCED_GUILD_IDS: set[int] = set()
 
 
 @bot.check
@@ -109,6 +114,13 @@ async def on_ready():
     for guild in bot.guilds:  # warm each guild's seed so it's not the first command paying for it
         await asyncio.to_thread(horserace.current_probabilities, guild.id)
         await asyncio.to_thread(db.load_currency_name_cache, guild.id)
+        if guild.id not in _SYNCED_GUILD_IDS:
+            # Guild-scoped sync (vs a bare global sync) so /play shows up immediately rather than
+            # waiting up to an hour for global command propagation. Guarded by _SYNCED_GUILD_IDS
+            # so a reconnect-triggered on_ready refire doesn't resync every time.
+            bot.tree.copy_global_to(guild=guild)
+            await bot.tree.sync(guild=guild)
+            _SYNCED_GUILD_IDS.add(guild.id)
     if not sync_champions_loop.is_running():
         sync_champions_loop.start()
 
@@ -187,7 +199,10 @@ async def help_cmd(ctx, *, command_name: str = None):
 
     embed = discord.Embed(
         title="🎰 Da Casino — Commands",
-        description="Run `!help <command>` for details on any command below.",
+        description=(
+            "Run `!help <command>` for details on any command below.\n"
+            "🏘️ Run `/play` for a private menu to the Casino, Ranch, and Dungeon."
+        ),
         color=discord.Color.gold(),
     )
     for category, names in HELP_CATEGORIES:
@@ -235,9 +250,11 @@ async def stats_cmd(ctx):
     personal_earned = await asyncio.to_thread(db.get_user_personal_achievements, guild_id, user_id)
     first_claimed = await asyncio.to_thread(db.get_guild_achievements, guild_id)
     achievement_count = len(personal_earned) + sum(1 for holder, _ in first_claimed.values() if holder == user_id)
+    energy = await asyncio.to_thread(db.get_energy, guild_id, user_id)
 
     embed = discord.Embed(title=f"📊 {ctx.author.display_name}'s Stats", color=discord.Color.blurple())
     embed.add_field(name="Balance", value=f"{balance} {currency}", inline=True)
+    embed.add_field(name="⚡ Energy", value=f"{energy}/{db.ENERGY_MAX}", inline=True)
     embed.add_field(name="🍕 Pizzas Bought", value=str(pizzas_bought), inline=True)
     embed.add_field(name="🏆 Achievements", value=f"{achievement_count} unlocked", inline=True)
 
@@ -246,10 +263,14 @@ async def stats_cmd(ctx):
         suit_symbol = dungeon.SUIT_SYMBOLS[character["subclass"]]
         equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
         effective = dungeon.compute_effective_stats(character, equipped)
+        gear = ", ".join(
+            dungeon.EQUIPMENT[equipped[slot]]["name"] for slot in dungeon.EQUIPMENT_SLOTS if slot in equipped
+        ) or "none"
         embed.add_field(
             name="🗡️ Class",
             value=f"{name} {suit_symbol} — Level {character['level']}\n"
-            f"HP {effective['hp']} / ATK {effective['atk']} / DEF {effective['def']}",
+            f"HP {effective['hp']} / ATK {effective['atk']} / DEF {effective['def']}\n"
+            f"Gear: {gear}",
             inline=True,
         )
     else:
@@ -343,20 +364,21 @@ async def leaderboard(ctx):
     await ctx.send(embed=embed)
 
 
-@bot.command(name="daily")
-async def daily(ctx):
-    """Claim your daily credits (once per day)."""
-    status, value = await asyncio.to_thread(db.claim_daily, ctx.guild.id, ctx.author.id, DAILY_AMOUNT)
+@bot.command(name="rest")
+async def rest_cmd(ctx):
+    """Rest for the day: claim your daily credits and refill your energy (once per day)."""
+    status, value = await asyncio.to_thread(db.claim_rest, ctx.guild.id, ctx.author.id, DAILY_AMOUNT)
     if status == "cooldown":
         await ctx.send(
-            f"⏳ {ctx.author.display_name}, you already claimed your daily credits today. "
-            f"You can claim again {_in_seconds(value)}."
+            f"⏳ {ctx.author.display_name}, you've already rested today. "
+            f"You can rest again {_in_seconds(value)}."
         )
         return
 
     currency = db.get_currency_name(ctx.guild.id)
     await ctx.send(
-        f"✅ {ctx.author.display_name} claimed their daily **{DAILY_AMOUNT}** {currency}! Balance: **{value}**"
+        f"✅ {ctx.author.display_name} rested up! Claimed **{DAILY_AMOUNT}** {currency} and refilled to "
+        f"**{db.ENERGY_MAX}** ⚡ energy. Balance: **{value}**"
     )
 
 
@@ -670,7 +692,7 @@ async def class_cmd(ctx):
 
 @bot.command(name="delve")
 async def delve_cmd(ctx):
-    """Delve today's dungeon level for a class-biased, push-your-luck payout: !delve"""
+    """Delve the dungeon for a class-biased, push-your-luck payout -- costs 1 ⚡ energy: !delve"""
     if await _reject_if_at_poker_table(ctx):
         return
     character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
@@ -681,21 +703,41 @@ async def delve_cmd(ctx):
         await ctx.send("You're already mid-delve — finish that one first!")
         return
 
-    status, seconds_remaining = await asyncio.to_thread(db.claim_delve, ctx.guild.id, ctx.author.id)
-    if status == "cooldown":
-        await ctx.send(f"You've already delved today, {ctx.author.display_name} — come back {_in_seconds(seconds_remaining)}.")
+    has_energy = await asyncio.to_thread(db.spend_energy, ctx.guild.id, ctx.author.id, 1)
+    if not has_energy:
+        await ctx.send(f"You're out of energy, {ctx.author.display_name} — run `!rest` to refill it.")
         return
 
     await start_delve(ctx, character)
 
 
-@bot.command(name="dungeon")
-async def dungeon_cmd(ctx):
-    """One-click hub for the dungeon RPG -- pick your class, delve, and meet Mondor: !dungeon"""
-    commands_map = {"class": class_cmd.callback, "delve": delve_cmd.callback}
-    embed, view = await build_dungeon_hub_display(ctx.guild.id, ctx.author.id, commands_map)
-    file = discord.File(DUNGEON_BANNER_PATH, filename="dungeon_banner.png")
-    await ctx.send(embed=embed, file=file, view=view)
+@bot.command(name="inventory")
+async def inventory_cmd(ctx):
+    """See your quest items and dungeon gear (equipped + stored): !inventory"""
+    embed = await inventory_view.build_inventory_embed(ctx.guild.id, ctx.author.id)
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="equipment")
+async def equipment_cmd(ctx):
+    """Equip, unequip, or swap in stored dungeon gear per slot: !equipment"""
+    embed, view = await inventory_view.build_equipment_display(ctx.guild.id, ctx.author.id)
+    await ctx.send(embed=embed, view=view)
+
+
+@bot.command(name="quests")
+async def quests_cmd(ctx):
+    """See your active and completed quests: !quests"""
+    log = await quests.quest_log(ctx.guild.id, ctx.author.id)
+    embed = discord.Embed(title=f"🗺️ {ctx.author.display_name}'s Quest Log", color=discord.Color.blurple())
+    if not log:
+        embed.description = "No quests started yet."
+    else:
+        for entry in log:
+            status = "✅ Complete" if entry["complete"] else f"Stage {entry['stage_index'] + 1}/{entry['total_stages']}"
+            value = entry["prompt"]
+            embed.add_field(name=f"{entry['npc'].title()} — {status}", value=value, inline=False)
+    await ctx.send(embed=embed)
 
 
 @bot.command(name="buyhorse")
@@ -829,14 +871,6 @@ async def train_cmd(ctx, number: int = None):
     elif new_age == horserace.MIN_RACING_AGE:
         lines.append("🎉 Old enough to race now!")
     await ctx.send("\n".join(lines))
-
-
-@bot.command(name="ranch")
-async def ranch_cmd(ctx):
-    """Your personal horse dashboard: owned horses, ranch facility tier, quick Train/Boost/Upgrade buttons: !ranch"""
-    embed, view = await ranch_view.build_ranch_display(ctx.guild.id, ctx.author.id, ctx.author.display_name, None)
-    file = discord.File(ranch_view.RANCH_BANNER_PATH, filename="ranch_banner.png")
-    await ctx.send(embed=embed, file=file, view=view)
 
 
 @bot.command(name="facility")
@@ -1070,9 +1104,20 @@ async def pizza(ctx):
     await _update_pizza_champion(ctx.guild)
 
 
-@bot.command(name="casino")
-async def casino_cmd(ctx):
-    """One-click hub for every game and economy command: !casino"""
+async def in_casino_channel_slash(interaction: discord.Interaction) -> bool:
+    """app_commands equivalent of in_casino_channel above -- @bot.check only wires up for prefix
+    commands, so /play needs its own copy of the same channel-lookup logic."""
+    if interaction.guild is None:
+        return False
+    channel_id = await asyncio.to_thread(db.get_casino_channel_id, interaction.guild.id)
+    if channel_id is not None:
+        return interaction.channel.id == channel_id
+    return getattr(interaction.channel, "name", None) == CASINO_CHANNEL_NAME
+
+
+@bot.tree.command(name="play", description="Open a private menu to the Casino, Ranch, and Dungeon")
+@app_commands.check(in_casino_channel_slash)
+async def play_slash(interaction: discord.Interaction):
     commands_map = {
         "blackjack": blackjack_cmd.callback,
         "slots": slots_cmd.callback,
@@ -1082,23 +1127,28 @@ async def casino_cmd(ctx):
         "deuceswild": deuces_wild_cmd.callback,
         "horserace": horserace_cmd.callback,
         "balance": balance.callback,
-        "daily": daily.callback,
+        "rest": rest_cmd.callback,
         "mine": mine.callback,
         "pizza": pizza.callback,
         "leaderboard": leaderboard.callback,
-        "ranch": ranch_cmd.callback,
-        "dungeon": dungeon_cmd.callback,
         "stats": stats_cmd.callback,
         "achievements": achievements_cmd.callback,
+        "class": class_cmd.callback,
+        "delve": delve_cmd.callback,
     }
-    embed = discord.Embed(
-        title="🎰 Casino Hub",
-        description="Every game and shortcut in one place — the `!` commands still work too.",
-        color=discord.Color.gold(),
-    )
-    embed.set_image(url="attachment://casino_banner.png")
-    file = discord.File(casino_view.CASINO_BANNER_PATH, filename="casino_banner.png")
-    await ctx.send(embed=embed, file=file, view=casino_view.CasinoView(commands_map))
+    session = hub_ui.HubSession(interaction)
+    embed, view = await explorer_view.build_explorer_display(interaction.guild.id, interaction.user.id, commands_map, session)
+    file = hub_ui.banner_file(explorer_view.EXPLORER_BANNER_PATH)
+    await interaction.response.send_message(embed=embed, file=file, view=view, ephemeral=True)
+
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.CheckFailure):
+        if not interaction.response.is_done():
+            await interaction.response.send_message("Use this in the casino channel.", ephemeral=True)
+        return
+    raise error
 
 
 db.init_db()

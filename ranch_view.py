@@ -5,6 +5,7 @@ import discord
 import achievements
 import db
 import horserace
+import hub_ui
 import quests
 import ranch_render
 
@@ -14,10 +15,11 @@ MAX_SELECT_OPTIONS = 25  # Discord's hard limit on a single Select's options
 
 
 async def build_ranch_display(
-    guild_id: int, user_id: int, display_name: str, selected_horse_index: int | None
+    guild_id: int, user_id: int, display_name: str, selected_horse_index: int | None,
+    session: hub_ui.HubSession, go_home,
 ) -> tuple[discord.Embed, "RanchView"]:
     """Builds the (embed, view) pair for a player's ranch dashboard -- reused by the initial
-    !ranch command and every button/select refresh afterward, so the dashboard always reflects
+    /play navigation and every button/select refresh afterward, so the dashboard always reflects
     fresh DB state rather than the state at the time the message was first sent."""
     currency = db.get_currency_name(guild_id)
     owned = await asyncio.to_thread(db.get_ranch_horses, guild_id, user_id)
@@ -65,7 +67,7 @@ async def build_ranch_display(
     if kel_state["active"]:
         embed.add_field(name="💬 Kel", value=kel_state["prompt"], inline=False)
 
-    view = RanchView(guild_id, user_id, owned, selected_horse_index, kel_state["can_turn_in"])
+    view = RanchView(guild_id, user_id, owned, selected_horse_index, kel_state["can_turn_in"], session, go_home)
     return embed, view
 
 
@@ -83,8 +85,9 @@ class RanchHorseSelect(discord.ui.Select):
         self.ranch_view = ranch_view
 
     async def callback(self, interaction: discord.Interaction):
+        rv = self.ranch_view
         embed, view = await build_ranch_display(
-            self.ranch_view.guild_id, self.ranch_view.user_id, interaction.user.display_name, int(self.values[0])
+            rv.guild_id, rv.user_id, interaction.user.display_name, int(self.values[0]), rv.session, rv.go_home
         )
         await interaction.response.edit_message(embed=embed, view=view)
 
@@ -92,24 +95,27 @@ class RanchHorseSelect(discord.ui.Select):
 class RanchView(discord.ui.View):
     def __init__(
         self, guild_id: int, user_id: int, owned: list[dict], selected_horse_index: int | None,
-        kel_can_turn_in: bool = False,
+        kel_can_turn_in: bool, session: hub_ui.HubSession, go_home,
     ):
         super().__init__(timeout=300)
         self.guild_id = guild_id
         self.user_id = user_id
         self.owned = owned
         self.selected_horse_index = selected_horse_index
+        self.session = session
+        self.go_home = go_home
         if owned:
             self.add_item(RanchHorseSelect(self))
         if kel_can_turn_in:
             button = discord.ui.Button(label="🎁 Give Kel the carving", style=discord.ButtonStyle.success, row=4)
             button.callback = self._kel_turn_in
             self.add_item(button)
+        self.add_item(hub_ui.InventoryButton(row=4))
+        self.add_item(hub_ui.EquipmentButton(row=4))
+        self.add_item(hub_ui.TownSquareButton(go_home, row=4))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message("This isn't your ranch.", ephemeral=True)
-            return False
+        self.session.touch(interaction)
         return True
 
     def _selected_horse(self) -> dict | None:
@@ -117,15 +123,19 @@ class RanchView(discord.ui.View):
             return None
         return next((h for h in self.owned if h["horse_index"] == self.selected_horse_index), None)
 
-    async def _refresh_display(self, interaction: discord.Interaction):
-        """Rebuilds and re-edits the dashboard message in place after an action succeeds --
-        separate from the interaction's own (already-sent, ephemeral) response, matching how
-        this codebase's other views update a persistent message outside the initial response
-        (e.g. blackjack's on_timeout editing self.message directly)."""
+    async def _refresh_display(self, interaction: discord.Interaction, text: str | None = None):
+        """The primary response to a button click that changed state: edits the dashboard in
+        place (the *only* way to update it once it's ephemeral -- interaction.message.edit hits
+        the normal channel-message endpoint, which ephemeral messages aren't reachable through,
+        only interaction.response.edit_message/interaction.followup are), then optionally sends
+        a small private confirmation as a followup."""
         embed, view = await build_ranch_display(
-            self.guild_id, self.user_id, interaction.user.display_name, self.selected_horse_index
+            self.guild_id, self.user_id, interaction.user.display_name, self.selected_horse_index,
+            self.session, self.go_home,
         )
-        await interaction.message.edit(embed=embed, view=view)
+        await interaction.response.edit_message(embed=embed, view=view)
+        if text:
+            await interaction.followup.send(text, ephemeral=True)
 
     @discord.ui.button(label="🏋️ Train", style=discord.ButtonStyle.primary, row=1)
     async def train_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -151,12 +161,11 @@ class RanchView(discord.ui.View):
             return
 
         new_speed, new_endurance, new_spirit, new_age = payload
-        await interaction.response.send_message(
+        await self._refresh_display(
+            interaction,
             f"🏋️ **{horse['name']}** trained! SPD {new_speed:.0f} / END {new_endurance:.0f} / "
             f"SPI {new_spirit:.0f} — Age {new_age}",
-            ephemeral=True,
         )
-        await self._refresh_display(interaction)
 
     async def _boost(self, interaction: discord.Interaction, stat: str):
         horse = self._selected_horse()
@@ -182,10 +191,9 @@ class RanchView(discord.ui.View):
             await interaction.response.send_message("You don't own that horse anymore.", ephemeral=True)
             return
 
-        await interaction.response.send_message(
-            f"🧪 Queued a **{stat}** boost on **{horse['name']}**! Balance: **{balance}** {currency}.", ephemeral=True
+        await self._refresh_display(
+            interaction, f"🧪 Queued a **{stat}** boost on **{horse['name']}**! Balance: **{balance}** {currency}."
         )
-        await self._refresh_display(interaction)
 
     @discord.ui.button(label="⚡ Boost SPD", style=discord.ButtonStyle.secondary, row=2)
     async def boost_speed_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -223,12 +231,11 @@ class RanchView(discord.ui.View):
             await interaction.response.send_message("Your facility tier changed — try again.", ephemeral=True)
             return
 
-        await interaction.response.send_message(
+        await self._refresh_display(
+            interaction,
             f"🏗️ Built **{next_facility['name']}**! All your horses now train "
             f"+{int(next_facility['bonus'] * 100)}% faster. Balance: **{balance}** {currency}.",
-            ephemeral=True,
         )
-        await self._refresh_display(interaction)
 
     @discord.ui.button(label="👋 Introduce yourself to Kel", style=discord.ButtonStyle.secondary, row=4)
     async def kel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -241,9 +248,10 @@ class RanchView(discord.ui.View):
         )
 
         embed, view = await build_ranch_display(
-            self.guild_id, self.user_id, interaction.user.display_name, self.selected_horse_index
+            self.guild_id, self.user_id, interaction.user.display_name, self.selected_horse_index,
+            self.session, self.go_home,
         )
-        buf = await asyncio.to_thread(ranch_render.render_kel_introduction)
+        buf = await asyncio.to_thread(ranch_render.render_kel_dialogue, ranch_render.KEL_INTRO_TEXT)
         file = discord.File(buf, filename="kel_intro.png")
         embed.set_image(url="attachment://kel_intro.png")
         await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
@@ -253,5 +261,12 @@ class RanchView(discord.ui.View):
         if not result["success"]:
             await interaction.response.send_message("You don't have anything to give Kel right now.", ephemeral=True)
             return
-        await interaction.response.send_message(result["message"])
-        await self._refresh_display(interaction)
+
+        buf = await asyncio.to_thread(ranch_render.render_kel_dialogue, result["message"])
+        file = discord.File(buf, filename="kel_turnin.png")
+        embed, view = await build_ranch_display(
+            self.guild_id, self.user_id, interaction.user.display_name, self.selected_horse_index,
+            self.session, self.go_home,
+        )
+        embed.set_image(url="attachment://kel_turnin.png")
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)

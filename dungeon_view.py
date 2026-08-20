@@ -217,7 +217,7 @@ async def _resolve_victory_rewards(session: DelveSession, log_lines: list[str]):
         current_item_id = session.equipped.get(slot)
         current_item = dungeon.EQUIPMENT.get(current_item_id) if current_item_id else None
         if dungeon.is_upgrade(current_item_id, dropped):
-            await asyncio.to_thread(db.equip_item, session.guild_id, session.user_id, slot, dropped["id"])
+            await asyncio.to_thread(db.equip_item_smart, session.guild_id, session.user_id, slot, dropped["id"])
             old_bonuses = current_item["stat_bonuses"] if current_item else {}
             new_bonuses = dropped["stat_bonuses"]
             session.max_hp += new_bonuses.get("hp", 0) - old_bonuses.get("hp", 0)
@@ -226,11 +226,12 @@ async def _resolve_victory_rewards(session: DelveSession, log_lines: list[str]):
             session.def_ += new_bonuses.get("def", 0) - old_bonuses.get("def", 0)
             session.equipped[slot] = dropped["id"]
             if current_item:
-                log_lines.append(f"⚔️ Found **{dropped['name']}**! Replaced {current_item['name']} — equipped.")
+                log_lines.append(f"⚔️ Found **{dropped['name']}**! Replaced {current_item['name']} — equipped (stored in `!equipment`).")
             else:
                 log_lines.append(f"⚔️ Found **{dropped['name']}**! Equipped.")
         else:
-            log_lines.append(f"⚔️ Found **{dropped['name']}**, but your current {slot} is better — left behind.")
+            await asyncio.to_thread(db.store_equipment_item, session.guild_id, session.user_id, dropped["id"])
+            log_lines.append(f"⚔️ Found **{dropped['name']}**, but your current {slot} is better — stored in `!equipment`.")
 
     quest_item = await quests.roll_item_drop(session.guild_id, session.user_id, session.room_index, session.monster["id"])
     if quest_item is not None:
@@ -437,11 +438,16 @@ class ConfirmButton(discord.ui.Button):
 DUNGEON_BANNER_PATH = "assets/dungeon_banner.png"
 
 
-async def build_dungeon_hub_display(guild_id: int, user_id: int, commands: dict) -> tuple[discord.Embed, "DungeonHubView"]:
-    """Builds the (embed, view) pair for the !dungeon hub -- reused by the initial !dungeon
-    command and every button refresh afterward (same "always reflects fresh DB state" idea as
-    ranch_view.build_ranch_display), since Mondor's Be Challenged / turn-in buttons are
-    achievement- and quest-progress-gated rather than always present."""
+async def build_dungeon_hub_display(
+    guild_id: int, user_id: int, commands: dict, session: hub_ui.HubSession, go_home,
+) -> tuple[discord.Embed, "DungeonHubView", discord.File]:
+    """Builds the (embed, view, file) triple for the dungeon hub -- reused by the initial /play
+    navigation and every button refresh afterward (same "always reflects fresh DB state" idea as
+    ranch_view.build_ranch_display), since Mondor's Be Challenged / turn-in buttons -- and now
+    the banner itself -- are achievement- and quest-progress-gated rather than always the same.
+    `file` is the plain banner, or the banner with a completed quest's reveal sprite composited
+    on (e.g. the Greasy Princess) -- callers that are about to overwrite the image with their own
+    bubble render anyway (MondorButton etc.) can just ignore it."""
     embed = discord.Embed(
         title="🗡️ The Dungeon",
         description="Pick a class, then delve for loot and XP. The `!class`/`!delve` commands still work too.",
@@ -449,35 +455,59 @@ async def build_dungeon_hub_display(guild_id: int, user_id: int, commands: dict)
     )
     embed.set_image(url="attachment://dungeon_banner.png")
 
+    energy = await asyncio.to_thread(db.get_energy, guild_id, user_id)
+    embed.add_field(name="⚡ Energy", value=f"{energy}/{db.ENERGY_MAX} — 1 per delve, refills with `!rest`", inline=False)
+
     earned = await asyncio.to_thread(db.get_user_personal_achievements, guild_id, user_id)
     be_challenged = "dared_by_mondor" in earned
     mondor_state = await quests.talk_to_npc(guild_id, user_id, "mondor")
+    mondor_complete = mondor_state["complete_quest_id"] == "mondor_goblin_chieftain"
 
-    view = DungeonHubView(guild_id, user_id, commands, be_challenged, mondor_state["can_turn_in"], mondor_state["item"])
-    return embed, view
+    sprite = dungeon_render.GREASY_PRINCESS_SPRITE_PATH if mondor_complete else None
+    buf = await asyncio.to_thread(dungeon_render.render_dungeon_banner, sprite)
+    file = discord.File(buf, filename="dungeon_banner.png")
+
+    view = DungeonHubView(
+        guild_id, user_id, commands, be_challenged, mondor_state["can_turn_in"], mondor_state["item"],
+        mondor_complete, session, go_home,
+    )
+    return embed, view, file
 
 
 class DungeonHubView(discord.ui.View):
-    """Persistent (no timeout) launcher for the dungeon RPG's own commands -- same "buttons just
-    invoke the existing @bot.command callback" idea as casino_view.CasinoView -- plus Mondor's
-    achievement/quest-gated buttons, built fresh each render (same "state-aware dashboard" idea
-    as ranch_view.RanchView, unlike the plain launcher this used to be)."""
+    """Launcher for the dungeon RPG's own commands -- same "buttons just invoke the existing
+    @bot.command callback" idea as casino_view.CasinoView -- plus Mondor's achievement/quest-gated
+    buttons, built fresh each render (same "state-aware dashboard" idea as ranch_view.RanchView)."""
 
     def __init__(
         self, guild_id: int, user_id: int, commands: dict,
-        be_challenged: bool, can_turn_in: bool, turn_in_item: dict | None,
+        be_challenged: bool, can_turn_in: bool, turn_in_item: dict | None, mondor_complete: bool,
+        session: hub_ui.HubSession, go_home,
     ):
-        super().__init__(timeout=None)
+        super().__init__(timeout=300)
         self.guild_id = guild_id
         self.user_id = user_id
         self.commands = commands
+        self.session = session
+        self.go_home = go_home
         self.add_item(hub_ui.NoArgButton("🗡️ Class", discord.ButtonStyle.primary, 0, commands["class"]))
-        self.add_item(hub_ui.NoArgButton("⚔️ Delve", discord.ButtonStyle.primary, 0, commands["delve"]))
+        # closes_hub=True -- once a delve actually starts (its own combat message posted below),
+        # the hub's job is done, matching casino_view's game buttons.
+        self.add_item(hub_ui.NoArgButton("⚔️ Delve", discord.ButtonStyle.primary, 0, commands["delve"], closes_hub=True))
         self.add_item(MondorButton())
         if be_challenged:
             self.add_item(BeChallengedButton())
         if can_turn_in:
             self.add_item(GiveMondorItemButton(turn_in_item))
+        if mondor_complete:
+            self.add_item(GreetPrincessButton())
+        self.add_item(hub_ui.InventoryButton(row=2))
+        self.add_item(hub_ui.EquipmentButton(row=2))
+        self.add_item(hub_ui.TownSquareButton(go_home, row=2))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        self.session.touch(interaction)
+        return True
 
 
 class MondorButton(discord.ui.Button):
@@ -497,7 +527,7 @@ class MondorButton(discord.ui.Button):
         )
         buf = await asyncio.to_thread(dungeon_render.render_mondor_dialogue, dungeon_render.MONDOR_GREETING_TEXT)
         file = discord.File(buf, filename="mondor_greeting.png")
-        embed, view = await build_dungeon_hub_display(guild_id, user_id, self.view.commands)
+        embed, view, _file = await build_dungeon_hub_display(guild_id, user_id, self.view.commands, self.view.session, self.view.go_home)
         embed.set_image(url="attachment://mondor_greeting.png")
         await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
 
@@ -513,9 +543,10 @@ class BeChallengedButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         guild_id, user_id = interaction.guild.id, interaction.user.id
         state = await quests.talk_to_npc(guild_id, user_id, "mondor")
-        buf = await asyncio.to_thread(dungeon_render.render_mondor_dialogue, state["prompt"])
+        sprite = dungeon_render.GREASY_PRINCESS_SPRITE_PATH if state["complete_quest_id"] == "mondor_goblin_chieftain" else None
+        buf = await asyncio.to_thread(dungeon_render.render_mondor_dialogue, state["prompt"], sprite)
         file = discord.File(buf, filename="mondor_challenge.png")
-        embed, view = await build_dungeon_hub_display(guild_id, user_id, self.view.commands)
+        embed, view, _file = await build_dungeon_hub_display(guild_id, user_id, self.view.commands, self.view.session, self.view.go_home)
         embed.set_image(url="attachment://mondor_challenge.png")
         await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
 
@@ -534,14 +565,40 @@ class GiveMondorItemButton(discord.ui.Button):
             await interaction.response.send_message("You don't have anything to give Mondor right now.", ephemeral=True)
             return
 
-        text = result["message"]
+        sprite = dungeon_render.GREASY_PRINCESS_SPRITE_PATH if result["quest_complete"] else None
+        buf = await asyncio.to_thread(dungeon_render.render_mondor_dialogue, result["message"], sprite)
+        file = discord.File(buf, filename="mondor_turnin.png")
+        embed, view, _file = await build_dungeon_hub_display(guild_id, user_id, self.view.commands, self.view.session, self.view.go_home)
+        embed.set_image(url="attachment://mondor_turnin.png")
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+
         reward_item = result["reward_item"]
         if reward_item:
             if result["equipped"]:
-                text += f"\n\n⚔️ Received **{reward_item['name']}** — equipped!"
+                status_text = f"⚔️ Received **{reward_item['name']}** — equipped!"
             else:
-                text += f"\n\n⚔️ Received **{reward_item['name']}**, but your current weapon is better — left behind."
+                status_text = f"⚔️ Received **{reward_item['name']}**, but your current weapon is better — stored in `!equipment`."
+            await interaction.followup.send(status_text, ephemeral=True)
 
-        await interaction.response.send_message(text)
-        embed, view = await build_dungeon_hub_display(guild_id, user_id, self.view.commands)
-        await interaction.message.edit(embed=embed, view=view)
+
+class GreetPrincessButton(discord.ui.Button):
+    """Only added once mondor_goblin_chieftain is complete (see build_dungeon_hub_display) --
+    grants the (idempotent, one-time) bitten_by_princess achievement and shows her line in the
+    same speech-bubble style as Mondor's, replaying every time it's clicked like the other NPC
+    greet buttons."""
+
+    def __init__(self):
+        super().__init__(label="🐀 Greet Princess", style=discord.ButtonStyle.secondary, row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        guild_id, user_id = interaction.guild.id, interaction.user.id
+        await achievements.try_award_many(
+            interaction.channel.send, guild_id, user_id, interaction.user.display_name, ["bitten_by_princess"],
+        )
+        buf = await asyncio.to_thread(
+            dungeon_render.render_mondor_dialogue, "Squeak. *Bites*", dungeon_render.GREASY_PRINCESS_SPRITE_PATH,
+        )
+        file = discord.File(buf, filename="princess_greeting.png")
+        embed, view, _file = await build_dungeon_hub_display(guild_id, user_id, self.view.commands, self.view.session, self.view.go_home)
+        embed.set_image(url="attachment://princess_greeting.png")
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
