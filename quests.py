@@ -45,6 +45,15 @@ def _load_quest_items(path: str = _QUEST_ITEMS_PATH) -> dict[str, dict]:
 
 QUEST_ITEMS = _load_quest_items()
 
+# Quest items, crafting materials, and consumables all key the same generic `inventory` table by
+# item_id with no type column -- dungeon.py can't check this itself (it can't import quests.py,
+# which already imports dungeon.py). A collision here is a genuine, easy-to-hit content bug (two
+# hand-edited JSON files independently picking the same id), so it's caught loudly at import time
+# rather than silently letting one kind of item shadow another in someone's inventory.
+_item_id_collisions = QUEST_ITEMS.keys() & (dungeon.MATERIALS.keys() | dungeon.CONSUMABLES.keys())
+if _item_id_collisions:
+    raise ValueError(f"quest_items.json ids collide with dungeon materials/consumables: {sorted(_item_id_collisions)}")
+
 # Each stage: "prompt" (NPC dialogue shown while this stage is active), "turn_in_item" (item id
 # that advances it, or absent for a dialogue-only endpoint), "on_complete_message", and either a
 # currency "reward" or an equipment "reward_item" (id into dungeon.EQUIPMENT -- equipped via the

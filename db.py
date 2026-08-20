@@ -1775,3 +1775,69 @@ def consume_inventory_item(guild_id: int, user_id: int, item_id: str, qty: int =
         conn.close()
 
 
+def craft_item(guild_id: int, user_id: int, materials: dict[str, int], currency_cost: int) -> tuple[str, int]:
+    """Atomically checks and consumes every required material qty plus currency_cost for a
+    crafting recipe -- either all of it succeeds or none of it does. Returns (status, balance):
+    "ok", "insufficient_materials" (rolled back, nothing touched), or "broke". Modeled on
+    upgrade_facility/buy_horse_item's validate-with-rollback shape, and inlines the same
+    check-then-decrement-or-delete logic as consume_inventory_item (rather than calling it) since
+    that would need its own nested BEGIN IMMEDIATE, unsafe on a connection with one already open.
+
+    Deliberately covers materials/currency consumption only, not the resulting item grant --
+    crafting.craft composes this with a separate equip_item_smart/store_equipment_item/
+    add_inventory_item call afterward, the same way quests.turn_in already composes
+    consume_inventory_item with its own separately-atomic reward step rather than one
+    all-encompassing transaction."""
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        for item_id, qty in materials.items():
+            row = conn.execute(
+                "SELECT qty FROM inventory WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                (guild_id, user_id, item_id),
+            ).fetchone()
+            if (row[0] if row else 0) < qty:
+                conn.rollback()
+                balance = conn.execute(
+                    "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+                ).fetchone()[0]
+                return "insufficient_materials", balance
+
+        balance = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
+        if balance < currency_cost:
+            conn.rollback()
+            return "broke", balance
+
+        for item_id, qty in materials.items():
+            current = conn.execute(
+                "SELECT qty FROM inventory WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                (guild_id, user_id, item_id),
+            ).fetchone()[0]
+            if current == qty:
+                conn.execute(
+                    "DELETE FROM inventory WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                    (guild_id, user_id, item_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE inventory SET qty = qty - ? WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                    (qty, guild_id, user_id, item_id),
+                )
+        if currency_cost:
+            conn.execute(
+                "UPDATE users SET balance = balance - ? WHERE guild_id = ? AND user_id = ?",
+                (currency_cost, guild_id, user_id),
+            )
+        conn.commit()
+        new_balance = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
+        return "ok", new_balance
+    finally:
+        conn.close()
+
+

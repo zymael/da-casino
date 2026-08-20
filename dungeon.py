@@ -347,6 +347,86 @@ def roll_material_drop(room_index: int) -> dict | None:
     return random.choices(candidates, weights=weights, k=1)[0]
 
 
+# --- Consumables -------------------------------------------------------------------------------
+# One-time-use crafted items, usable mid-combat (dungeon_view.py). Their own registry rather than
+# a flag on EQUIPMENT since they're not gear -- no slot, no character_equipment row, no stats of
+# their own beyond an effects list, using the exact same _validate_effects as SKILLS above so
+# there's one definition of what an effect is for every kind of content that carries one. Held in
+# the same generic `inventory` table as quest items and materials.
+
+_CONSUMABLES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_consumables.json")
+_REQUIRED_CONSUMABLE_FIELDS = {"id", "name", "kind", "flavor", "effects"}
+
+
+def _load_consumables(path: str = _CONSUMABLES_PATH) -> dict[str, dict]:
+    with open(path) as f:
+        raw = json.load(f)
+    consumables: dict[str, dict] = {}
+    for entry in raw:
+        entry_id = entry.get("id", "?")
+        missing = _REQUIRED_CONSUMABLE_FIELDS - entry.keys()
+        if missing:
+            raise ValueError(f"dungeon_consumables.json: item {entry_id!r} missing field(s): {sorted(missing)}")
+        if entry_id in consumables:
+            raise ValueError(f"dungeon_consumables.json: duplicate item id {entry_id!r}")
+        if entry["kind"] != "consumable":
+            raise ValueError(f"dungeon_consumables.json: item {entry_id!r} has kind {entry['kind']!r}, expected 'consumable'")
+        _validate_effects(entry["effects"], f"dungeon_consumables.json: item {entry_id!r}")
+        consumables[entry_id] = entry
+    return consumables
+
+
+CONSUMABLES = _load_consumables()
+
+
+# --- Recipes -------------------------------------------------------------------------------
+# Crafting turns materials (+ optional currency) into either an EQUIPMENT item or a CONSUMABLES
+# item -- see crafting.py for the orchestration and db.craft_item for the atomic consumption
+# transaction. Loaded last among the four registries above since a recipe's output_id is
+# cross-validated against whichever of EQUIPMENT/CONSUMABLES it points into.
+
+_RECIPES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_recipes.json")
+_REQUIRED_RECIPE_FIELDS = {"id", "name", "output_kind", "output_id", "materials"}
+RECIPE_OUTPUT_KINDS = ("equipment", "consumable")
+
+
+def _load_recipes(path: str = _RECIPES_PATH) -> dict[str, dict]:
+    with open(path) as f:
+        raw = json.load(f)
+    recipes: dict[str, dict] = {}
+    for entry in raw:
+        entry_id = entry.get("id", "?")
+        missing = _REQUIRED_RECIPE_FIELDS - entry.keys()
+        if missing:
+            raise ValueError(f"dungeon_recipes.json: recipe {entry_id!r} missing field(s): {sorted(missing)}")
+        if entry_id in recipes:
+            raise ValueError(f"dungeon_recipes.json: duplicate recipe id {entry_id!r}")
+        if entry["output_kind"] not in RECIPE_OUTPUT_KINDS:
+            raise ValueError(f"dungeon_recipes.json: recipe {entry_id!r} has unknown output_kind {entry['output_kind']!r}")
+        materials = entry["materials"]
+        if not materials:
+            raise ValueError(f"dungeon_recipes.json: recipe {entry_id!r} has empty materials")
+        for material_id, qty in materials.items():
+            if material_id not in MATERIALS:
+                raise ValueError(f"dungeon_recipes.json: recipe {entry_id!r} references unknown material {material_id!r}")
+            if qty <= 0:
+                raise ValueError(f"dungeon_recipes.json: recipe {entry_id!r} has non-positive qty for {material_id!r}")
+        currency_cost = entry.get("currency_cost", 0)
+        if currency_cost < 0:
+            raise ValueError(f"dungeon_recipes.json: recipe {entry_id!r} has negative currency_cost")
+        registry = EQUIPMENT if entry["output_kind"] == "equipment" else CONSUMABLES
+        if entry["output_id"] not in registry:
+            raise ValueError(
+                f"dungeon_recipes.json: recipe {entry_id!r} output_id {entry['output_id']!r} not found in "
+                f"{'EQUIPMENT' if entry['output_kind'] == 'equipment' else 'CONSUMABLES'}"
+            )
+        recipes[entry_id] = entry
+    return recipes
+
+
+RECIPES = _load_recipes()
+
+
 def item_power(item: dict) -> int:
     """Total stat value of an item -- the yardstick used to decide whether a newly found piece
     of gear replaces what's currently equipped in that slot."""

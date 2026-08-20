@@ -1,0 +1,92 @@
+[
+    {
+        "id": "recipe_iron_sword",
+        "name": "Iron Sword",
+        "output_kind": "equipment",
+        "output_id": "iron_sword",
+        "materials": {"iron_ore": 3, "goblin_ear": 1},
+        "currency_cost": 20,
+        "flavor": "A goblin blacksmith taught you this, once."
+    },
+    {
+        "id": "recipe_steel_hatchet",
+        "name": "Steel Hatchet",
+        "output_kind": "equipment",
+        "output_id": "steel_hatchet",
+        "materials": {"iron_ore": 2, "wolf_pelt": 1},
+        "currency_cost": 20,
+        "flavor": "Balanced for throwing, mostly used for chopping."
+    },
+    {
+        "id": "recipe_chainmail",
+        "name": "Chainmail",
+        "output_kind": "equipment",
+        "output_id": "chainmail",
+        "materials": {"iron_ore": 3, "rusty_scrap": 2},
+        "currency_cost": 25,
+        "flavor": "Ring by ring, by hand, by candlelight."
+    },
+    {
+        "id": "recipe_reinforced_buckler",
+        "name": "Reinforced Buckler",
+        "output_kind": "equipment",
+        "output_id": "reinforced_buckler",
+        "materials": {"iron_ore": 2, "cursed_bone": 1},
+        "currency_cost": 25,
+        "flavor": "The bone hums faintly whenever it blocks a hit."
+    },
+    {
+        "id": "recipe_warlords_blade",
+        "name": "Warlord's Blade",
+        "output_kind": "equipment",
+        "output_id": "warlords_blade",
+        "materials": {"dragon_scale": 2, "void_crystal": 1, "ancient_rune": 1},
+        "currency_cost": 60,
+        "flavor": "Forged from the parts of the dungeon that fight back."
+    },
+    {
+        "id": "recipe_plate_of_the_vanguard",
+        "name": "Plate of the Vanguard",
+        "output_kind": "equipment",
+        "output_id": "plate_of_the_vanguard",
+        "materials": {"dragon_scale": 3, "ancient_rune": 1},
+        "currency_cost": 60,
+        "flavor": "Scaled, plated, and stubbornly unwilling to dent."
+    },
+    {
+        "id": "recipe_minor_healing_draught",
+        "name": "Minor Healing Draught",
+        "output_kind": "consumable",
+        "output_id": "minor_healing_draught",
+        "materials": {"slime_residue": 2},
+        "currency_cost": 5,
+        "flavor": "Cheap, easy, and only mostly gross."
+    },
+    {
+        "id": "recipe_greater_healing_draught",
+        "name": "Greater Healing Draught",
+        "output_kind": "consumable",
+        "output_id": "greater_healing_draught",
+        "materials": {"slime_residue": 2, "cursed_bone": 1},
+        "currency_cost": 15,
+        "flavor": "Stronger stuff needs a stranger ingredient."
+    },
+    {
+        "id": "recipe_battle_tonic",
+        "name": "Battle Tonic",
+        "output_kind": "consumable",
+        "output_id": "battle_tonic",
+        "materials": {"goblin_ear": 2, "wolf_pelt": 1},
+        "currency_cost": 10,
+        "flavor": "Don't think about the ingredients too hard."
+    },
+    {
+        "id": "recipe_iron_skin_elixir",
+        "name": "Iron Skin Elixir",
+        "output_kind": "consumable",
+        "output_id": "iron_skin_elixir",
+        "materials": {"rusty_scrap": 2, "iron_ore": 1},
+        "currency_cost": 10,
+        "flavor": "Filings, mostly. It's fine. Probably."
+    }
+]

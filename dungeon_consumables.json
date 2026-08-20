@@ -1,0 +1,30 @@
+[
+    {
+        "id": "minor_healing_draught",
+        "name": "Minor Healing Draught",
+        "kind": "consumable",
+        "flavor": "Tastes like copper and regret. Works anyway.",
+        "effects": [{"type": "heal_fraction", "value": 0.3}]
+    },
+    {
+        "id": "greater_healing_draught",
+        "name": "Greater Healing Draught",
+        "kind": "consumable",
+        "flavor": "The good stuff. Don't ask what's floating in it.",
+        "effects": [{"type": "heal_fraction", "value": 0.6}]
+    },
+    {
+        "id": "battle_tonic",
+        "name": "Battle Tonic",
+        "kind": "consumable",
+        "flavor": "Bottled adrenaline. Legal in most jurisdictions.",
+        "effects": [{"type": "atk_buff", "value": 3}]
+    },
+    {
+        "id": "iron_skin_elixir",
+        "name": "Iron Skin Elixir",
+        "kind": "consumable",
+        "flavor": "Your skin doesn't turn to iron. It just feels like it does.",
+        "effects": [{"type": "def_buff", "value": 3}]
+    }
+]
