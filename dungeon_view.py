@@ -602,6 +602,7 @@ class DungeonHubView(discord.ui.View):
         # closes_hub=True -- once a delve actually starts (its own combat message posted below),
         # the hub's job is done, matching casino_view's game buttons.
         self.add_item(hub_ui.NoArgButton("⚔️ Delve", discord.ButtonStyle.primary, 0, commands["delve"], closes_hub=True))
+        self.add_item(hub_ui.NoArgButton("🛠️ Craft", discord.ButtonStyle.primary, 0, commands["craft"]))
         self.add_item(MondorButton())
         if be_challenged:
             self.add_item(BeChallengedButton())

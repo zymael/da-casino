@@ -52,26 +52,33 @@ def _material_line(item_id: str, qty: int) -> str:
     return f"⛏️ **{item['name']}**{qty_suffix} · *{item['rarity']}*\n> {item['flavor']}"
 
 
-def _inventory_sections(held: dict[str, int]) -> tuple[dict[str, int], dict[str, int]]:
+def _consumable_line(item_id: str, qty: int) -> str:
+    item = dungeon.CONSUMABLES[item_id]
+    qty_suffix = f" x{qty}" if qty > 1 else ""
+    return f"🧪 **{item['name']}**{qty_suffix}\n> {item['flavor']}"
+
+
+def _inventory_sections(held: dict[str, int]) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
     """The generic `inventory` table holds several kinds of item (quest items, crafting
-    materials, and in the future consumables) told apart only by which content registry
-    recognizes the id -- there's no type column. Splits `held` into (quest_items, materials);
-    an id recognized by neither is a genuine content bug (e.g. two JSON files picking the same
-    id, or a kind this function hasn't been taught about yet) and is reported loudly rather than
+    materials, consumables) told apart only by which content registry recognizes the id --
+    there's no type column. Splits `held` into (quest_items, materials, consumables); an id
+    recognized by none of them is a genuine content bug (e.g. two JSON files picking the same id,
+    or a kind this function hasn't been taught about yet) and is reported loudly rather than
     silently dropped, since that's exactly the class of bug this split exists to catch."""
     quest_item_ids = {item_id: qty for item_id, qty in held.items() if item_id in quests.QUEST_ITEMS}
     material_ids = {item_id: qty for item_id, qty in held.items() if item_id in dungeon.MATERIALS}
-    unrecognized = held.keys() - quest_item_ids.keys() - material_ids.keys()
+    consumable_ids = {item_id: qty for item_id, qty in held.items() if item_id in dungeon.CONSUMABLES}
+    unrecognized = held.keys() - quest_item_ids.keys() - material_ids.keys() - consumable_ids.keys()
     if unrecognized:
         raise ValueError(f"inventory has unrecognized item id(s): {sorted(unrecognized)}")
-    return quest_item_ids, material_ids
+    return quest_item_ids, material_ids, consumable_ids
 
 
 async def build_inventory_embed(guild_id: int, user_id: int) -> discord.Embed:
     held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
     equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
     stored = await asyncio.to_thread(db.get_equipment_inventory, guild_id, user_id)
-    quest_items, materials = _inventory_sections(held)
+    quest_items, materials, consumables = _inventory_sections(held)
 
     embed = discord.Embed(title="🎒 Inventory", color=discord.Color.blurple())
 
@@ -87,6 +94,12 @@ async def build_inventory_embed(guild_id: int, user_id: int) -> discord.Embed:
     else:
         embed.add_field(name="Materials", value="None yet.", inline=False)
 
+    if consumables:
+        lines = [_consumable_line(item_id, qty) for item_id, qty in consumables.items()]
+        embed.add_field(name="Consumables", value="\n\n".join(lines), inline=False)
+    else:
+        embed.add_field(name="Consumables", value="None yet.", inline=False)
+
     embed.add_field(name="Equipped", value=_equipped_lines(equipped), inline=False)
 
     if stored:
@@ -95,7 +108,7 @@ async def build_inventory_embed(guild_id: int, user_id: int) -> discord.Embed:
     else:
         embed.add_field(name="Stored Equipment", value="None yet.", inline=False)
 
-    embed.set_footer(text="Manage your gear with !equipment.")
+    embed.set_footer(text="Manage your gear with !equipment, craft more with !craft.")
     return embed
 
 

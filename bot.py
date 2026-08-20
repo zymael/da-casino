@@ -10,6 +10,7 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 import achievements
+import crafting_view
 import db
 from blackjack_view import active_tables as active_blackjack_tables, start_blackjack_table
 import dungeon
@@ -71,7 +72,7 @@ HELP_CATEGORIES = [
     ("💰 Economy", ["balance", "stats", "rest", "mine", "tip", "transfer", "pizza", "leaderboard"]),
     ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
     ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost"]),
-    ("🗡️ Dungeon", ["class", "delve", "inventory", "equipment", "quests"]),
+    ("🗡️ Dungeon", ["class", "delve", "inventory", "equipment", "craft", "quests"]),
     ("🏆 Achievements", ["achievements"]),
     ("⚙️ Utility", ["ping", "setcasino", "setcurrency"]),
 ]
@@ -725,6 +726,13 @@ async def equipment_cmd(ctx):
     await ctx.send(embed=embed, view=view)
 
 
+@bot.command(name="craft")
+async def craft_cmd(ctx):
+    """Craft gear or consumables from materials you've found: !craft"""
+    embed, view = await crafting_view.build_craft_display(ctx.guild.id, ctx.author.id)
+    await ctx.send(embed=embed, view=view)
+
+
 @bot.command(name="quests")
 async def quests_cmd(ctx):
     """See your active and completed quests: !quests"""
@@ -1156,6 +1164,7 @@ async def play_slash(interaction: discord.Interaction):
         "achievements": achievements_cmd.callback,
         "class": class_cmd.callback,
         "delve": delve_cmd.callback,
+        "craft": craft_cmd.callback,
     }
     session = hub_ui.HubSession(interaction)
     embed, view = await explorer_view.build_explorer_display(interaction.guild.id, interaction.user.id, commands_map, session)
