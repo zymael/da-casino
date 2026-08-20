@@ -1,9 +1,11 @@
 """!inventory (read-only) and !equipment (manage gear) -- and the ephemeral popups the hub
 shortcut buttons open for the same two views, via hub_ui.InventoryButton/EquipmentButton.
 
-Covers both quest items (quests.py's inventory, never equippable) and dungeon gear
-(dungeon.EQUIPMENT, currently equipped or sitting in equipment_inventory -- see db.equip_item_smart
-for why non-upgrade drops/rewards land there instead of being discarded).
+Covers quest items and crafting materials (both quests.py's/dungeon.py's rows in the same
+generic `inventory` table -- see _inventory_sections below for how one row is told from the
+other) and dungeon gear (dungeon.EQUIPMENT, currently equipped or sitting in equipment_inventory
+-- see db.equip_item_smart for why non-upgrade drops/rewards land there instead of being
+discarded).
 """
 
 import asyncio
@@ -44,10 +46,32 @@ def _quest_item_line(item_id: str, qty: int) -> str:
     return f"{item['emoji']} **{item['name']}**{qty_suffix}\n> {item['description']}"
 
 
+def _material_line(item_id: str, qty: int) -> str:
+    item = dungeon.MATERIALS[item_id]
+    qty_suffix = f" x{qty}" if qty > 1 else ""
+    return f"⛏️ **{item['name']}**{qty_suffix} · *{item['rarity']}*\n> {item['flavor']}"
+
+
+def _inventory_sections(held: dict[str, int]) -> tuple[dict[str, int], dict[str, int]]:
+    """The generic `inventory` table holds several kinds of item (quest items, crafting
+    materials, and in the future consumables) told apart only by which content registry
+    recognizes the id -- there's no type column. Splits `held` into (quest_items, materials);
+    an id recognized by neither is a genuine content bug (e.g. two JSON files picking the same
+    id, or a kind this function hasn't been taught about yet) and is reported loudly rather than
+    silently dropped, since that's exactly the class of bug this split exists to catch."""
+    quest_item_ids = {item_id: qty for item_id, qty in held.items() if item_id in quests.QUEST_ITEMS}
+    material_ids = {item_id: qty for item_id, qty in held.items() if item_id in dungeon.MATERIALS}
+    unrecognized = held.keys() - quest_item_ids.keys() - material_ids.keys()
+    if unrecognized:
+        raise ValueError(f"inventory has unrecognized item id(s): {sorted(unrecognized)}")
+    return quest_item_ids, material_ids
+
+
 async def build_inventory_embed(guild_id: int, user_id: int) -> discord.Embed:
-    quest_items = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
+    held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
     equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
     stored = await asyncio.to_thread(db.get_equipment_inventory, guild_id, user_id)
+    quest_items, materials = _inventory_sections(held)
 
     embed = discord.Embed(title="🎒 Inventory", color=discord.Color.blurple())
 
@@ -56,6 +80,12 @@ async def build_inventory_embed(guild_id: int, user_id: int) -> discord.Embed:
         embed.add_field(name="Quest Items", value="\n\n".join(lines), inline=False)
     else:
         embed.add_field(name="Quest Items", value="None yet.", inline=False)
+
+    if materials:
+        lines = [_material_line(item_id, qty) for item_id, qty in materials.items()]
+        embed.add_field(name="Materials", value="\n\n".join(lines), inline=False)
+    else:
+        embed.add_field(name="Materials", value="None yet.", inline=False)
 
     embed.add_field(name="Equipped", value=_equipped_lines(equipped), inline=False)
 

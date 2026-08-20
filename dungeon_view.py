@@ -253,6 +253,11 @@ async def _resolve_victory_rewards(session: DelveSession, log_lines: list[str]):
             await asyncio.to_thread(db.store_equipment_item, session.guild_id, session.user_id, dropped["id"])
             log_lines.append(f"⚔️ Found **{dropped['name']}**, but your current {slot} is better — stored in `!equipment`.")
 
+    material = dungeon.roll_material_drop(session.room_index)
+    if material is not None:
+        await asyncio.to_thread(db.add_inventory_item, session.guild_id, session.user_id, material["id"])
+        log_lines.append(f"⛏️ You scavenge some **{material['name']}**.")
+
     quest_item = await quests.roll_item_drop(session.guild_id, session.user_id, session.room_index, session.monster["id"])
     if quest_item is not None:
         log_lines.append(f"{quest_item['emoji']} Found a **{quest_item['name']}**...")

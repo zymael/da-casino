@@ -1,0 +1,74 @@
+[
+    {
+        "id": "goblin_ear",
+        "name": "Goblin Ear",
+        "tier": 1,
+        "rarity": "common",
+        "drop_weight": 10,
+        "flavor": "Still twitching, somehow."
+    },
+    {
+        "id": "rusty_scrap",
+        "name": "Rusty Scrap",
+        "tier": 1,
+        "rarity": "common",
+        "drop_weight": 10,
+        "flavor": "Barely metal anymore, but a smith could still use it."
+    },
+    {
+        "id": "slime_residue",
+        "name": "Slime Residue",
+        "tier": 1,
+        "rarity": "common",
+        "drop_weight": 8,
+        "flavor": "It's still faintly moving. Try not to think about it."
+    },
+    {
+        "id": "iron_ore",
+        "name": "Iron Ore",
+        "tier": 2,
+        "rarity": "uncommon",
+        "drop_weight": 10,
+        "flavor": "Heavy, dense, and worth the trip back to town."
+    },
+    {
+        "id": "wolf_pelt",
+        "name": "Wolf Pelt",
+        "tier": 2,
+        "rarity": "uncommon",
+        "drop_weight": 10,
+        "flavor": "Warm, if you can get the smell out."
+    },
+    {
+        "id": "cursed_bone",
+        "name": "Cursed Bone",
+        "tier": 2,
+        "rarity": "uncommon",
+        "drop_weight": 6,
+        "flavor": "It hums faintly when you're not looking at it directly."
+    },
+    {
+        "id": "dragon_scale",
+        "name": "Dragon Scale",
+        "tier": 3,
+        "rarity": "rare",
+        "drop_weight": 6,
+        "flavor": "Still warm to the touch, long after the fight ends."
+    },
+    {
+        "id": "void_crystal",
+        "name": "Void Crystal",
+        "tier": 3,
+        "rarity": "rare",
+        "drop_weight": 5,
+        "flavor": "Looking directly at it feels like a mistake."
+    },
+    {
+        "id": "ancient_rune",
+        "name": "Ancient Rune",
+        "tier": 3,
+        "rarity": "rare",
+        "drop_weight": 4,
+        "flavor": "Older than the dungeon itself, and twice as stubborn."
+    }
+]

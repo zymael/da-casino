@@ -299,6 +299,54 @@ def _load_equipment(path: str = _EQUIPMENT_PATH) -> dict[str, dict]:
 EQUIPMENT = _load_equipment()
 
 
+# --- Materials -------------------------------------------------------------------------------
+# Crafting inputs -- same registry pattern as MONSTERS/EQUIPMENT/SKILLS, but deliberately their
+# own drop table (roll_material_drop below) rather than reusing roll_equipment_drop, since a
+# monster kill can drop equipment and a material independently. Materials have no combat stats;
+# they're only meaningful once dungeon_recipes.json exists to turn them into something. Held in
+# the same generic `inventory` table as quest items (db.add_inventory_item etc) rather than a
+# dedicated table.
+
+_MATERIALS_PATH = os.path.join(os.path.dirname(__file__), "dungeon_materials.json")
+_REQUIRED_MATERIAL_FIELDS = {"id", "name", "tier", "rarity", "drop_weight", "flavor"}
+
+MATERIAL_DROP_CHANCE = 0.35  # independent roll from EQUIPMENT_DROP_CHANCE and from currency loot
+
+
+def _load_materials(path: str = _MATERIALS_PATH) -> dict[str, dict]:
+    with open(path) as f:
+        raw = json.load(f)
+    materials: dict[str, dict] = {}
+    for entry in raw:
+        entry_id = entry.get("id", "?")
+        missing = _REQUIRED_MATERIAL_FIELDS - entry.keys()
+        if missing:
+            raise ValueError(f"dungeon_materials.json: material {entry_id!r} missing field(s): {sorted(missing)}")
+        if entry_id in materials:
+            raise ValueError(f"dungeon_materials.json: duplicate material id {entry_id!r}")
+        if entry["tier"] < 1 or entry["drop_weight"] <= 0:
+            raise ValueError(f"dungeon_materials.json: material {entry_id!r} has invalid tier/drop_weight")
+        materials[entry_id] = entry
+    return materials
+
+
+MATERIALS = _load_materials()
+
+
+def roll_material_drop(room_index: int) -> dict | None:
+    """None most of the time (MATERIAL_DROP_CHANCE). When it hits, picks one material from this
+    room's tier, weighted by drop_weight -- same shape as roll_equipment_drop, but a separate
+    roll so a single kill can drop both a material and a piece of gear."""
+    if random.random() > MATERIAL_DROP_CHANCE:
+        return None
+    tier = room_index + 1
+    candidates = [m for m in MATERIALS.values() if m["tier"] == tier]
+    if not candidates:
+        return None
+    weights = [m["drop_weight"] for m in candidates]
+    return random.choices(candidates, weights=weights, k=1)[0]
+
+
 def item_power(item: dict) -> int:
     """Total stat value of an item -- the yardstick used to decide whether a newly found piece
     of gear replaces what's currently equipped in that slot."""
