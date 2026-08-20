@@ -45,7 +45,6 @@ class DelveSession:
         # Level-1 skill is guaranteed to exist for every build (validated at import time in
         # dungeon.py) and is always sorted first, so unlocked_skills is never empty.
         self.unlocked_skills = dungeon.unlocked_skills(self.main_class, self.subclass, self.level)
-        self.ability_name = self.unlocked_skills[0]["name"]
 
         self.hp = self.max_hp
         self.room_index = 0
@@ -98,12 +97,42 @@ def _forfeit(session: DelveSession):
 DELVE_ACTION_TIMEOUT = 1200  # 20 minutes -- plenty of time to notice it's your turn and act
 
 
+class AttackButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Attack", style=discord.ButtonStyle.primary, row=0)
+
+    async def callback(self, interaction: discord.Interaction):
+        # stop() cancels this view's own pending timeout once its turn is actually resolved --
+        # without it, this view's on_timeout could still fire ~20 minutes later even after
+        # combat has long since moved on to a new view (or ended), incorrectly overwriting an
+        # already-concluded delve with a false "abandoned" message despite the real payout
+        # having already landed.
+        if await _handle_action(interaction, self.view.session, skill=None):
+            self.view.stop()
+
+
+class SkillButton(discord.ui.Button):
+    """One button per skill the character has unlocked so far -- a build with only its level-1
+    skill gets one, a higher-level build gets more, all sharing the same once-per-fight charge
+    (session.ability_used), so unlocking more skills is a choice of *which* effect to use in a
+    given fight, not extra actions."""
+
+    def __init__(self, skill: dict, disabled: bool):
+        super().__init__(label=skill["name"], style=discord.ButtonStyle.success, disabled=disabled, row=0)
+        self.skill = skill
+
+    async def callback(self, interaction: discord.Interaction):
+        if await _handle_action(interaction, self.view.session, skill=self.skill):
+            self.view.stop()
+
+
 class CombatView(discord.ui.View):
     def __init__(self, session: DelveSession):
         super().__init__(timeout=DELVE_ACTION_TIMEOUT)
         self.session = session
-        self.ability_button.label = session.ability_name
-        self.ability_button.disabled = session.ability_used
+        self.add_item(AttackButton())
+        for skill in session.unlocked_skills:
+            self.add_item(SkillButton(skill, disabled=session.ability_used))
         session.current_view = self
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -111,24 +140,6 @@ class CombatView(discord.ui.View):
             await interaction.response.send_message("This isn't your delve.", ephemeral=True)
             return False
         return True
-
-    @discord.ui.button(label="Attack", style=discord.ButtonStyle.primary)
-    async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # stop() cancels this view's own pending timeout once its turn is actually resolved --
-        # without it, this view's on_timeout could still fire ~20 minutes later even after
-        # combat has long since moved on to a new view (or ended), incorrectly overwriting an
-        # already-concluded delve with a false "abandoned" message despite the real payout
-        # having already landed.
-        if await _handle_action(interaction, self.session, skill=None):
-            self.stop()
-
-    @discord.ui.button(label="Ability", style=discord.ButtonStyle.success)
-    async def ability_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Only one skill is unlockable at level 1, so index 0 is unambiguous for now -- once
-        # higher-level skills land, this single fixed button becomes one button per unlocked
-        # skill (see dungeon_skills.json stage 3), each passing its own skill dict here.
-        if await _handle_action(interaction, self.session, skill=self.session.unlocked_skills[0]):
-            self.stop()
 
     async def on_timeout(self):
         session = self.session

@@ -142,5 +142,293 @@
         "name": "Grab and Go",
         "flavor": "Strike first, loot the corpse, ask questions never.",
         "effects": [{"type": "damage_multiplier", "value": 1.5}]
+    },
+    {
+        "id": "barbarian_berserkers_fury",
+        "main_class": "fighter",
+        "subclass": "clubs",
+        "unlock_level": 4,
+        "name": "Berserker's Fury",
+        "flavor": "The angrier they get, the harder they hit.",
+        "effects": [{"type": "atk_buff", "value": 3}]
+    },
+    {
+        "id": "barbarian_skullcrusher_swing",
+        "main_class": "fighter",
+        "subclass": "clubs",
+        "unlock_level": 8,
+        "name": "Skullcrusher Swing",
+        "flavor": "One big overhead swing, then another for good measure.",
+        "effects": [{"type": "damage_multiplier", "value": 1.6}, {"type": "extra_attack"}]
+    },
+    {
+        "id": "duelist_riposte_strike",
+        "main_class": "fighter",
+        "subclass": "spades",
+        "unlock_level": 4,
+        "name": "Riposte Strike",
+        "flavor": "Deflects the opening, then cuts through the follow-up.",
+        "effects": [{"type": "damage_multiplier", "value": 1.4}, {"type": "def_shred", "value": 1}]
+    },
+    {
+        "id": "duelist_perfect_parry",
+        "main_class": "fighter",
+        "subclass": "spades",
+        "unlock_level": 8,
+        "name": "Perfect Parry",
+        "flavor": "Turns the monster's own momentum against it.",
+        "effects": [{"type": "guard", "reduction": 0.75}, {"type": "atk_buff", "value": 2}]
+    },
+    {
+        "id": "guardian_fortify",
+        "main_class": "fighter",
+        "subclass": "hearts",
+        "unlock_level": 4,
+        "name": "Fortify",
+        "flavor": "Sets their shoulders and simply refuses to move.",
+        "effects": [{"type": "def_buff", "value": 2}]
+    },
+    {
+        "id": "guardian_last_stand",
+        "main_class": "fighter",
+        "subclass": "hearts",
+        "unlock_level": 8,
+        "name": "Last Stand",
+        "flavor": "Draws on sheer stubbornness to stay standing.",
+        "effects": [{"type": "guard", "reduction": 0.75}, {"type": "heal_fraction", "value": 0.15}]
+    },
+    {
+        "id": "mercenary_efficient_strike",
+        "main_class": "fighter",
+        "subclass": "diamonds",
+        "unlock_level": 4,
+        "name": "Efficient Strike",
+        "flavor": "No wasted motion -- this job pays by the kill, not the hour.",
+        "effects": [{"type": "damage_multiplier", "value": 1.3}, {"type": "lifesteal_fraction", "value": 0.1}]
+    },
+    {
+        "id": "mercenary_contract_killer",
+        "main_class": "fighter",
+        "subclass": "diamonds",
+        "unlock_level": 8,
+        "name": "Contract Killer",
+        "flavor": "Closes the job in two hits, not one.",
+        "effects": [{"type": "damage_multiplier", "value": 1.5}, {"type": "extra_attack"}]
+    },
+    {
+        "id": "bonesetter_reset_the_bone",
+        "main_class": "healer",
+        "subclass": "clubs",
+        "unlock_level": 4,
+        "name": "Reset the Bone",
+        "flavor": "Hurts a lot less once it's set right.",
+        "effects": [{"type": "heal_fraction", "value": 0.3}, {"type": "def_buff", "value": 1}]
+    },
+    {
+        "id": "bonesetter_hammer_and_splint",
+        "main_class": "healer",
+        "subclass": "clubs",
+        "unlock_level": 8,
+        "name": "Hammer and Splint",
+        "flavor": "One tool breaks bones, the other fixes them. Multitasking.",
+        "effects": [{"type": "damage_multiplier", "value": 1.3}, {"type": "heal_fraction", "value": 0.15}]
+    },
+    {
+        "id": "plague_doctor_noxious_cloud",
+        "main_class": "healer",
+        "subclass": "spades",
+        "unlock_level": 4,
+        "name": "Noxious Cloud",
+        "flavor": "The mask isn't just for show.",
+        "effects": [{"type": "def_shred", "value": 2}]
+    },
+    {
+        "id": "plague_doctor_miasma_strike",
+        "main_class": "healer",
+        "subclass": "spades",
+        "unlock_level": 8,
+        "name": "Miasma Strike",
+        "flavor": "A cane strike that leaves more than a bruise.",
+        "effects": [{"type": "damage_multiplier", "value": 1.4}, {"type": "def_shred", "value": 1}]
+    },
+    {
+        "id": "priest_greater_mending",
+        "main_class": "healer",
+        "subclass": "hearts",
+        "unlock_level": 4,
+        "name": "Greater Mending",
+        "flavor": "A longer prayer, and a deeper healing.",
+        "effects": [{"type": "heal_fraction", "value": 0.55}]
+    },
+    {
+        "id": "priest_divine_ward",
+        "main_class": "healer",
+        "subclass": "hearts",
+        "unlock_level": 8,
+        "name": "Divine Ward",
+        "flavor": "A shield of faith, and the strength to hold it.",
+        "effects": [{"type": "guard", "reduction": 0.6}, {"type": "heal_fraction", "value": 0.2}]
+    },
+    {
+        "id": "charlatan_placebo_rush",
+        "main_class": "healer",
+        "subclass": "diamonds",
+        "unlock_level": 4,
+        "name": "Placebo Rush",
+        "flavor": "Fake medicine, real confidence. Somehow it works.",
+        "effects": [{"type": "atk_buff", "value": 2}]
+    },
+    {
+        "id": "charlatan_miracle_tonic",
+        "main_class": "healer",
+        "subclass": "diamonds",
+        "unlock_level": 8,
+        "name": "Miracle Tonic",
+        "flavor": "Guaranteed to work, or double your money back.",
+        "effects": [{"type": "heal_fraction", "value": 0.35}, {"type": "lifesteal_fraction", "value": 0.1}]
+    },
+    {
+        "id": "war_mage_arcane_smash",
+        "main_class": "mage",
+        "subclass": "clubs",
+        "unlock_level": 4,
+        "name": "Arcane Smash",
+        "flavor": "Magic as a blunt instrument, twice in a row.",
+        "effects": [{"type": "damage_multiplier", "value": 1.5}, {"type": "extra_attack"}]
+    },
+    {
+        "id": "war_mage_meteor",
+        "main_class": "mage",
+        "subclass": "clubs",
+        "unlock_level": 8,
+        "name": "Meteor",
+        "flavor": "Subtlety was never the point.",
+        "effects": [{"type": "damage_multiplier", "value": 2.2}]
+    },
+    {
+        "id": "nightweaver_drain_bolt",
+        "main_class": "mage",
+        "subclass": "spades",
+        "unlock_level": 4,
+        "name": "Drain Bolt",
+        "flavor": "Siphons life through the dark before it even lands.",
+        "effects": [{"type": "damage_multiplier", "value": 1.4}, {"type": "lifesteal_fraction", "value": 0.25}]
+    },
+    {
+        "id": "nightweaver_umbral_collapse",
+        "main_class": "mage",
+        "subclass": "spades",
+        "unlock_level": 8,
+        "name": "Umbral Collapse",
+        "flavor": "The shadows fold inward, taking the armor with them.",
+        "effects": [{"type": "damage_multiplier", "value": 1.6}, {"type": "def_shred", "value": 2}]
+    },
+    {
+        "id": "enchanter_warding_sigil",
+        "main_class": "mage",
+        "subclass": "hearts",
+        "unlock_level": 4,
+        "name": "Warding Sigil",
+        "flavor": "A quiet rune, drawn in the air, that just sort of helps.",
+        "effects": [{"type": "def_buff", "value": 2}]
+    },
+    {
+        "id": "enchanter_radiant_burst",
+        "main_class": "mage",
+        "subclass": "hearts",
+        "unlock_level": 8,
+        "name": "Radiant Burst",
+        "flavor": "Warm light, sharp edges.",
+        "effects": [{"type": "damage_multiplier", "value": 1.6}, {"type": "heal_fraction", "value": 0.15}]
+    },
+    {
+        "id": "artificer_overclock",
+        "main_class": "mage",
+        "subclass": "diamonds",
+        "unlock_level": 4,
+        "name": "Overclock",
+        "flavor": "The warranty definitely does not cover this.",
+        "effects": [{"type": "atk_buff", "value": 3}]
+    },
+    {
+        "id": "artificer_payload_detonation",
+        "main_class": "mage",
+        "subclass": "diamonds",
+        "unlock_level": 8,
+        "name": "Payload Detonation",
+        "flavor": "Two charges. Definitely intentional.",
+        "effects": [{"type": "damage_multiplier", "value": 1.7}, {"type": "extra_attack"}]
+    },
+    {
+        "id": "bar_fighter_bottle_it",
+        "main_class": "rogue",
+        "subclass": "clubs",
+        "unlock_level": 4,
+        "name": "Bottle It",
+        "flavor": "Break it over their head, then throw the pieces too.",
+        "effects": [{"type": "damage_multiplier", "value": 1.3}, {"type": "extra_attack"}]
+    },
+    {
+        "id": "bar_fighter_table_flip",
+        "main_class": "rogue",
+        "subclass": "clubs",
+        "unlock_level": 8,
+        "name": "Table Flip",
+        "flavor": "Escalation is a valid tactic.",
+        "effects": [{"type": "damage_multiplier", "value": 1.6}, {"type": "atk_buff", "value": 1}]
+    },
+    {
+        "id": "assassin_vital_strike",
+        "main_class": "rogue",
+        "subclass": "spades",
+        "unlock_level": 4,
+        "name": "Vital Strike",
+        "flavor": "Knows exactly where it hurts, and takes a little back.",
+        "effects": [{"type": "damage_multiplier", "value": 1.5}, {"type": "lifesteal_fraction", "value": 0.15}]
+    },
+    {
+        "id": "assassin_death_mark",
+        "main_class": "rogue",
+        "subclass": "spades",
+        "unlock_level": 8,
+        "name": "Death Mark",
+        "flavor": "Marks the kill before the fight even started.",
+        "effects": [{"type": "damage_multiplier", "value": 1.9}, {"type": "def_shred", "value": 2}]
+    },
+    {
+        "id": "con_artist_sleight_of_hand",
+        "main_class": "rogue",
+        "subclass": "hearts",
+        "unlock_level": 4,
+        "name": "Sleight of Hand",
+        "flavor": "A distraction, then a second hit nobody saw coming.",
+        "effects": [{"type": "extra_attack"}]
+    },
+    {
+        "id": "con_artist_master_manipulator",
+        "main_class": "rogue",
+        "subclass": "hearts",
+        "unlock_level": 8,
+        "name": "Master Manipulator",
+        "flavor": "Talks their way into an opening, and out of the damage.",
+        "effects": [{"type": "damage_multiplier", "value": 1.4}, {"type": "heal_fraction", "value": 0.2}]
+    },
+    {
+        "id": "treasure_hunter_opportunist",
+        "main_class": "rogue",
+        "subclass": "diamonds",
+        "unlock_level": 4,
+        "name": "Opportunist",
+        "flavor": "Every fight is a smash-and-grab if you're fast enough.",
+        "effects": [{"type": "damage_multiplier", "value": 1.3}, {"type": "lifesteal_fraction", "value": 0.1}]
+    },
+    {
+        "id": "treasure_hunter_smash_and_grab",
+        "main_class": "rogue",
+        "subclass": "diamonds",
+        "unlock_level": 8,
+        "name": "Smash and Grab",
+        "flavor": "Hit it twice, take the loot, be gone.",
+        "effects": [{"type": "damage_multiplier", "value": 1.6}, {"type": "extra_attack"}]
     }
 ]
