@@ -126,13 +126,48 @@ class SkillButton(discord.ui.Button):
             self.view.stop()
 
 
+MAX_SELECT_OPTIONS = 25  # Discord's hard limit on a single Select's options
+
+
+class UseItemButton(discord.ui.Button):
+    """Shown instead of a Select when there's exactly one usable consumable -- one fewer click
+    than opening a dropdown to pick from a list of one."""
+
+    def __init__(self, item: dict):
+        super().__init__(label=f"🧪 {item['name']}", style=discord.ButtonStyle.secondary, row=1)
+        self.item = item
+
+    async def callback(self, interaction: discord.Interaction):
+        if await _handle_use_item(interaction, self.view.session, self.item):
+            self.view.stop()
+
+
+class UseItemSelect(discord.ui.Select):
+    def __init__(self, items: list[dict]):
+        options = [
+            discord.SelectOption(label=item["name"], value=item["id"], description=item["flavor"][:100])
+            for item in items[:MAX_SELECT_OPTIONS]
+        ]
+        super().__init__(placeholder="🧪 Use an item...", options=options, row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        item = dungeon.CONSUMABLES[self.values[0]]
+        if await _handle_use_item(interaction, self.view.session, item):
+            self.view.stop()
+
+
 class CombatView(discord.ui.View):
-    def __init__(self, session: DelveSession):
+    def __init__(self, session: DelveSession, usable_items: list[dict] | None = None):
         super().__init__(timeout=DELVE_ACTION_TIMEOUT)
         self.session = session
         self.add_item(AttackButton())
         for skill in session.unlocked_skills:
             self.add_item(SkillButton(skill, disabled=session.ability_used))
+        usable_items = usable_items or []
+        if len(usable_items) == 1:
+            self.add_item(UseItemButton(usable_items[0]))
+        elif len(usable_items) > 1:
+            self.add_item(UseItemSelect(usable_items))
         session.current_view = self
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -188,7 +223,7 @@ class RoomResultView(discord.ui.View):
         session.monster_def_debuff = 0
         session.ability_used = False
         embed, file = _combat_embed(session, f"You press deeper into the dungeon...\n\n*{session.monster['flavor']}*")
-        view = CombatView(session)
+        view = await _build_combat_view(session)
         await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
         self.stop()
 
@@ -341,26 +376,30 @@ def _apply_effects(session: DelveSession, effects: list[dict], log_lines: list[s
     return mods
 
 
-async def _handle_action(interaction: discord.Interaction, session: DelveSession, skill: dict | None) -> bool:
-    """`skill` is the unlocked skill dict the player chose (an Ability button), or None for a
-    plain Attack. Returns whether this actually consumed the player's turn (False only for the
-    already-used-ability rejection, which leaves the calling CombatView live and waiting) --
-    callers use this to decide whether to stop() the view that dispatched them."""
-    if skill is not None and session.ability_used:
-        await interaction.response.send_message("You've already used your ability this fight.", ephemeral=True)
-        return False
+async def _build_combat_view(session: DelveSession) -> "CombatView":
+    """Fetches current consumable holdings fresh (unlike unlocked_skills, these change turn to
+    turn as items get crafted/used) and builds a CombatView reflecting them."""
+    held = await asyncio.to_thread(db.get_inventory, session.guild_id, session.user_id)
+    usable_items = [dungeon.CONSUMABLES[item_id] for item_id, qty in held.items() if item_id in dungeon.CONSUMABLES and qty > 0]
+    return CombatView(session, usable_items)
 
+
+async def _resolve_combat_turn(
+    interaction: discord.Interaction, session: DelveSession, effects: list[dict], verb: str, log_lines: list[str],
+) -> bool:
+    """Shared tail for every kind of combat action (plain Attack, a skill, or a consumed item):
+    applies `effects`, rolls damage if any effect is damage-shaped, resolves victory or the
+    monster's counter-attack, and renders the next view. `verb` only matters if a damage roll
+    happens (e.g. "attack", "unleash **Fireball**", "use **Healing Draught**") -- callers that
+    only heal/buff never reach the line that reads it. Always returns True (this always consumes
+    the turn -- any "can't do this right now" rejection happens before this is called)."""
     currency = db.get_currency_name(session.guild_id)
-    log_lines = []
-    effects = skill["effects"] if skill is not None else []
-    # A plain Attack (no effects) always rolls damage; an ability rolls damage only if at least
-    # one of its effects is damage-shaped -- everything else (Heal, Guard, ...) is pure utility
-    # and skips the roll_damage call below entirely, same branch shape as the old class-name ladder.
+    # A plain Attack (no effects) always rolls damage; anything else rolls damage only if at
+    # least one of its effects is damage-shaped -- everything else (Heal, Guard, ...) is pure
+    # utility and skips the roll_damage call below entirely, same branch shape as the old
+    # class-name ladder this replaced.
     is_damage_action = not effects or any(e["type"] in DAMAGE_EFFECT_TYPES for e in effects)
-
     mods = _apply_effects(session, effects, log_lines)
-    if skill is not None:
-        session.ability_used = True
 
     if is_damage_action:
         effective_monster_def = max(0, session.monster["def"] - session.monster_def_debuff)
@@ -373,7 +412,6 @@ async def _handle_action(interaction: discord.Interaction, session: DelveSession
             if healed:
                 log_lines.append(f"You drain **{healed}** HP from the strike.")
         session.monster_hp -= dmg
-        verb = f"unleash **{skill['name']}**" if skill is not None else "attack"
         log_lines.append(f"You {verb} for **{dmg}** damage.")
 
     if session.monster_hp <= 0:
@@ -404,9 +442,38 @@ async def _handle_action(interaction: discord.Interaction, session: DelveSession
         return True
 
     embed, file = _combat_embed(session, "\n".join(log_lines))
-    view = CombatView(session)
+    view = await _build_combat_view(session)
     await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
     return True
+
+
+async def _handle_action(interaction: discord.Interaction, session: DelveSession, skill: dict | None) -> bool:
+    """`skill` is the unlocked skill dict the player chose (an Ability button), or None for a
+    plain Attack. Returns whether this actually consumed the player's turn (False only for the
+    already-used-ability rejection, which leaves the calling CombatView live and waiting) --
+    callers use this to decide whether to stop() the view that dispatched them."""
+    if skill is not None and session.ability_used:
+        await interaction.response.send_message("You've already used your ability this fight.", ephemeral=True)
+        return False
+
+    effects = skill["effects"] if skill is not None else []
+    if skill is not None:
+        session.ability_used = True
+    verb = f"unleash **{skill['name']}**" if skill is not None else "attack"
+    return await _resolve_combat_turn(interaction, session, effects, verb, [])
+
+
+async def _handle_use_item(interaction: discord.Interaction, session: DelveSession, item: dict) -> bool:
+    """Consumes one of `item` and resolves its effects as a full turn -- not gated by
+    ability_used (items are separately scarce, via what the crafting economy actually produces)
+    but it still costs a turn and still draws the monster's counter-attack, so stockpiling items
+    can't trivialize a fight for free."""
+    consumed = await asyncio.to_thread(db.consume_inventory_item, session.guild_id, session.user_id, item["id"], 1)
+    if not consumed:
+        await interaction.response.send_message("You don't have that anymore.", ephemeral=True)
+        return False
+    verb = f"use **{item['name']}**"
+    return await _resolve_combat_turn(interaction, session, item["effects"], verb, [])
 
 
 async def _present_room_result(interaction: discord.Interaction, session: DelveSession, log_lines: list[str]):
@@ -441,7 +508,7 @@ async def start_delve(ctx, character: dict):
     busy_players.add(session.user_id)
 
     embed, file = _combat_embed(session, f"*{session.monster['flavor']}*")
-    view = CombatView(session)
+    view = await _build_combat_view(session)
     message = await ctx.send(embed=embed, file=file, view=view)
     session.message = message
 
