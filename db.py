@@ -713,21 +713,20 @@ def get_user_game_stats(guild_id: int, user_id: int) -> dict[str, tuple[int, int
         conn.close()
 
 
-def ensure_base_nick(guild_id: int, user_id: int, current_nick: str | None) -> str | None:
-    """Records `current_nick` as the user's badge-free nickname the first time they earn any
-    badge in this guild, and returns it (or the previously recorded one on later calls)."""
+def set_base_nick(guild_id: int, user_id: int, base_nick: str | None) -> str | None:
+    """Records `base_nick` (the caller's already badge-stripped nickname) as this user's current
+    badge-free nickname in this guild, overwriting whatever was stored before -- unlike the old
+    insert-once behavior, this tracks nickname changes made while a badge is held instead of
+    reverting to a stale snapshot from the first time they were ever crowned. Returns it back."""
     conn = _connect()
     try:
         conn.execute(
-            "INSERT OR IGNORE INTO champion_base_nick (guild_id, user_id, base_nick) VALUES (?, ?, ?)",
-            (guild_id, user_id, current_nick),
+            "INSERT INTO champion_base_nick (guild_id, user_id, base_nick) VALUES (?, ?, ?) "
+            "ON CONFLICT(guild_id, user_id) DO UPDATE SET base_nick = excluded.base_nick",
+            (guild_id, user_id, base_nick),
         )
         conn.commit()
-        row = conn.execute(
-            "SELECT base_nick FROM champion_base_nick WHERE guild_id = ? AND user_id = ?",
-            (guild_id, user_id),
-        ).fetchone()
-        return row[0] if row else None
+        return base_nick
     finally:
         conn.close()
 

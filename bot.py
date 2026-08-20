@@ -982,6 +982,24 @@ async def _fetch_member(guild: discord.Guild, user_id: int) -> discord.Member | 
 BADGES = [("money", MONEY_CHAMPION_EMOJI), ("pizza", PIZZA_CHAMPION_EMOJI)]
 
 
+def _strip_badge_prefix(nick: str | None) -> str | None:
+    """Peels any badge emoji this bot could have prepended off the front of `nick`, so a
+    manual rename made while a badge is held (e.g. "💰 Alice" -> "💰 Bob") is picked up as the
+    new base name instead of being masked by it."""
+    if nick is None:
+        return None
+    stripped = nick
+    peeled = True
+    while peeled:
+        peeled = False
+        for _, emoji in BADGES:
+            prefix = f"{emoji} "
+            if stripped.startswith(prefix):
+                stripped = stripped[len(prefix):]
+                peeled = True
+    return stripped or None
+
+
 async def _refresh_nick(member: discord.Member, guild_id: int) -> bool:
     """Rebuilds a member's nickname from every badge they currently hold, or restores
     their original nickname if they hold none. Returns False only if Discord rejected the edit."""
@@ -992,7 +1010,10 @@ async def _refresh_nick(member: discord.Member, guild_id: int) -> bool:
         return True
 
     held = await asyncio.to_thread(db.get_user_badges, guild_id, member.id)
-    base = await asyncio.to_thread(db.ensure_base_nick, guild_id, member.id, member.nick)
+    # Always derive the base from the member's *current* nickname (badge prefix stripped off),
+    # not a value frozen the first time they were ever crowned -- otherwise a nickname change
+    # made while badged gets silently discarded the next time their badges change.
+    base = await asyncio.to_thread(db.set_base_nick, guild_id, member.id, _strip_badge_prefix(member.nick))
     prefix = "".join(f"{emoji} " for kind, emoji in BADGES if kind in held)
     target_nick = f"{prefix}{base or member.name}"[:32] if held else base
 
