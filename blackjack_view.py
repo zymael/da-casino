@@ -24,6 +24,24 @@ OUTCOME_PAYOUT_MULTIPLIERS = {"blackjack": 2.5, "win": 2, "push": 1, "lose": 0}
 # channel_id -> BlackjackTable, so only one table can be running per channel
 active_tables: dict[int, "BlackjackTable"] = {}
 
+# Set by activity_server.py (if the web Activity's server is running) to push a fresh
+# table_view_model() to any web clients watching a table -- None (the default) when no web layer
+# is registered, so this module has zero hard dependency on activity_server.py (which already
+# imports this module; the reverse would be circular). Deliberately a single global hook rather
+# than a per-table callback list -- there's only ever one web layer, if any.
+on_table_changed = None  # Callable[[int], Awaitable[None]] | None
+
+
+async def _notify(table: "BlackjackTable"):
+    """Called at every point Discord's own rendering already re-renders a table (lobby edits,
+    turn/settlement/between-hands round_message edits) so a web client watching the same table
+    never goes stale just because the change that triggered it came from a Discord interaction
+    rather than a web action. Without this, only web-initiated actions ever pushed a fresh state
+    (as a side effect of handling that action) -- meaning a round dealt by the join-window timing
+    out, or another player's Discord click, would never reach a web client at all."""
+    if on_table_changed is not None:
+        await on_table_changed(table.channel_id)
+
 
 class BlackjackSeat:
     def __init__(self, member: discord.abc.User, bet: int):
@@ -52,6 +70,14 @@ class BlackjackTable:
         # The shoe persists across rounds and is only reshuffled once it runs out, so
         # the running count carries between hands -- that's what makes counting possible.
         self.shoe = Deck()
+        # The round currently in progress (or just-settled, kept until the next round starts) --
+        # None only before the table's first round ever deals. Populated by play_round as it
+        # runs, specifically so a second renderer (the web Activity) can read "what does this
+        # table look like right now" straight off the table object via table_view_model(),
+        # instead of needing access to play_round's local variables or a live BlackjackTurnView
+        # instance the way Discord's own rendering does. Same underlying hand/dealer objects
+        # either way -- this doesn't change what Discord renders, just also exposes it here.
+        self.round: "RoundState | None" = None
 
     def seat_for(self, user_id: int) -> BlackjackSeat | None:
         return next((s for s in self.seats if s.member.id == user_id), None)
@@ -61,6 +87,34 @@ class BlackjackTable:
             self.shoe = Deck()
         return self.shoe.draw()
 
+    # --- Mutations shared by the Discord buttons/modals and (later) web actions --------------
+    # Simple, single-statement mutations -- no await in between, so no locking need beyond
+    # asyncio's own cooperative scheduling already provides. Extracted for one code path per
+    # action, not because these specifically were race-prone (unlike turn actions -- see
+    # RoundState.turn_lock for the one mutation path that actually spans an await).
+
+    def join(self, member: discord.abc.User, bet: int) -> BlackjackSeat:
+        seat = BlackjackSeat(member, bet)
+        self.seats.append(seat)
+        return seat
+
+    def quit_seat(self, user_id: int) -> bool:
+        seat = self.seat_for(user_id)
+        if seat is None:
+            return False
+        seat.standing = True
+        return True
+
+    def set_bet(self, user_id: int, bet: int) -> bool:
+        seat = self.seat_for(user_id)
+        if seat is None:
+            return False
+        seat.bet = bet
+        return True
+
+    def start(self):
+        self.start_event.set()
+
 
 class BlackjackHand:
     def __init__(self, member: discord.abc.User, bet: int):
@@ -68,6 +122,32 @@ class BlackjackHand:
         self.bet = bet
         self.cards: list = []
         self.busted = False
+
+
+class RoundState:
+    """Live state for one round, held on BlackjackTable.round for the round's whole life
+    (including the between-hands window right after it settles) -- see BlackjackTable.round."""
+
+    def __init__(self, hands: list[BlackjackHand], dealer: list, dealer_natural: bool):
+        self.hands = hands
+        self.dealer = dealer
+        self.dealer_natural = dealer_natural
+        self.active_hand_index: int | None = None  # None between turns, or once the round's done
+        self.phase = "playing"  # "playing" -> "dealer_turn" -> "settled"
+        # The live BetweenHandsView once this round has settled and run_between_hands is waiting
+        # on keep-bet/change-bet/quit decisions -- None otherwise. Same purpose as active_view:
+        # lets a web action find the live view to resolve (mark_decided), not just mutate table
+        # state Discord's own rendering wouldn't know to reflect.
+        self.between_hands_view: "BetweenHandsView | None" = None
+        # Guards hit/stand/double_down/on_timeout against each other, and (once a second caller
+        # exists -- the web Activity) against a concurrent web action on the same hand. One lock
+        # per round (not per turn) since only one hand can validly be acting at a time anyway.
+        self.turn_lock = asyncio.Lock()
+        # The live BlackjackTurnView for whichever hand is currently acting, or None between
+        # turns. Lets a non-Discord caller (a web action handler) find the same view Discord's
+        # buttons are attached to, so it can finish that turn (edit the message, disable buttons,
+        # unblock play_round's wait) instead of the two frontends drifting out of sync.
+        self.active_view: "BlackjackTurnView | None" = None
 
 
 def outcome_for(hand: BlackjackHand, dealer: list, dealer_natural: bool) -> str:
@@ -86,6 +166,69 @@ def outcome_for(hand: BlackjackHand, dealer: list, dealer_natural: bool) -> str:
     if player_total < dealer_total:
         return "lose"
     return "push"
+
+
+def _card_dict(card) -> dict:
+    return {"rank": card.rank, "suit": card.suit}
+
+
+def table_view_model(table: BlackjackTable) -> dict:
+    """A pure, discord-agnostic snapshot of "what does this table look like right now" -- seats,
+    and the in-progress/just-settled round's dealer hand, each player's hand, and whose turn it
+    is. This is the one canonical read path a second renderer (the web Activity) uses instead of
+    Discord embeds/views, which it has no access to. Critically, respects the exact same
+    hole-card-hidden-until-the-dealer's-turn rule Discord's own rendering already follows
+    (cards_render.render_hand(..., hide_first=True)) -- getting this wrong would leak the
+    dealer's hole card to a web client mid-hand, a real fairness bug, not just a cosmetic one."""
+    # user_id is serialized as a string, not a bare JSON number -- Discord snowflakes (~10^18)
+    # are far past JavaScript's safe-integer ceiling (2^53), so a raw number would silently lose
+    # precision the instant the browser's JSON.parse touches it, breaking every "is this my
+    # turn/seat" comparison client-side without ever raising an error.
+    seats = [
+        {"user_id": str(s.member.id), "name": s.member.display_name, "bet": s.bet, "standing": s.standing}
+        for s in table.seats
+    ]
+    model = {"channel_id": str(table.channel_id), "seats": seats, "shoe_count": len(table.shoe.cards), "round": None}
+
+    round_ = table.round
+    if round_ is None:
+        return model
+
+    dealer_hidden = round_.phase not in ("dealer_turn", "settled")
+    if dealer_hidden and round_.dealer:
+        dealer_cards = [None] + [_card_dict(c) for c in round_.dealer[1:]]
+        dealer_value = None
+    else:
+        dealer_cards = [_card_dict(c) for c in round_.dealer]
+        dealer_value = hand_value(round_.dealer)
+
+    model["round"] = {
+        "phase": round_.phase,
+        "dealer_cards": dealer_cards,
+        "dealer_hole_card_hidden": dealer_hidden,
+        "dealer_value": dealer_value,
+        "active_hand_index": round_.active_hand_index,
+        # None when there's no between-hands decision in progress (mid-round, or the next round
+        # has already been dealt); otherwise the user_ids (as strings -- see the seats/hands
+        # user_id comment above) still waiting to keep/change their bet or quit before the next
+        # round deals.
+        "between_hands_pending": (
+            [str(uid) for uid in round_.between_hands_view.pending]
+            if round_.between_hands_view is not None else None
+        ),
+        "hands": [
+            {
+                "user_id": str(h.member.id),
+                "name": h.member.display_name,
+                "bet": h.bet,
+                "cards": [_card_dict(c) for c in h.cards],
+                "value": hand_value(h.cards),
+                "busted": h.busted,
+            }
+            for h in round_.hands
+        ],
+    }
+    return model
 
 
 def build_control_embed(table: BlackjackTable) -> discord.Embed:
@@ -108,12 +251,12 @@ def build_control_embed(table: BlackjackTable) -> discord.Embed:
 
 
 async def update_control_message(table: BlackjackTable):
-    if table.control_message is None:
-        return
-    try:
-        await table.control_message.edit(embed=build_control_embed(table))
-    except discord.HTTPException:
-        pass
+    if table.control_message is not None:
+        try:
+            await table.control_message.edit(embed=build_control_embed(table))
+        except discord.HTTPException:
+            pass
+    await _notify(table)
 
 
 async def _send_or_edit_round(
@@ -133,6 +276,7 @@ async def _send_or_edit_round(
     result images stay visible instead of vanishing the instant the prompt appears."""
     if table.round_message is None:
         table.round_message = await ctx.send(embeds=embeds, files=files or [], view=view)
+        await _notify(table)
         return table.round_message
     edit_kwargs = {"embeds": embeds, "view": view}
     if files is not None:
@@ -143,6 +287,7 @@ async def _send_or_edit_round(
         table.round_message = await ctx.send(embeds=embeds, files=files or [], view=view)
     except discord.HTTPException:
         pass
+    await _notify(table)
     return table.round_message
 
 
@@ -163,7 +308,7 @@ class JoinModal(discord.ui.Modal):
             await interaction.response.send_message("Bet must be positive.", ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER)
             return
 
-        self.table.seats.append(BlackjackSeat(interaction.user, bet))
+        self.table.join(interaction.user, bet)
         await interaction.response.send_message("You're seated! You'll be dealt into the next round.", ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER)
         await update_control_message(self.table)
 
@@ -200,11 +345,9 @@ class QuitButton(discord.ui.Button):
         self.table = table
 
     async def callback(self, interaction: discord.Interaction):
-        seat = self.table.seat_for(interaction.user.id)
-        if seat is None:
+        if not self.table.quit_seat(interaction.user.id):
             await interaction.response.send_message("You're not seated at this table.", ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER)
             return
-        seat.standing = True
         await interaction.response.send_message("Noted — you'll stand up after the current round.", ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER)
         await update_control_message(self.table)
 
@@ -222,7 +365,7 @@ class StartButton(discord.ui.Button):
         if self.table.seat_for(interaction.user.id) is None:
             await interaction.response.send_message("You're not seated at this table.", ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER)
             return
-        self.table.start_event.set()
+        self.table.start()
         await interaction.response.send_message("Starting the first round now!", ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER)
 
 
@@ -236,6 +379,30 @@ class TableControlView(discord.ui.View):
         self.add_item(self.start_button)
 
 
+def apply_hit(table: BlackjackTable, hand: BlackjackHand) -> bool:
+    """Draws one card into hand, marking it busted if that pushes it over 21. Returns whether it
+    busted. Extracted so both the Discord Hit button and a future web action call the exact same
+    mutation rather than each reimplementing it."""
+    hand.cards.append(table.draw())
+    if hand_value(hand.cards) > 21:
+        hand.busted = True
+    return hand.busted
+
+
+async def apply_double_down(table: BlackjackTable, hand: BlackjackHand) -> tuple[bool, str | None]:
+    """Escrows and doubles the bet, then draws one card. Returns (busted, error) -- error is set
+    (and nothing is mutated) if the player can't afford it, same affordability check the Discord
+    button already did inline."""
+    balance = await asyncio.to_thread(db.get_balance, table.guild_id, hand.member.id)
+    if balance < hand.bet:
+        return False, "insufficient_balance"
+    await asyncio.to_thread(db.update_balance, table.guild_id, hand.member.id, -hand.bet)
+    hand.bet *= 2
+    hand.cards.append(table.draw())
+    hand.busted = hand_value(hand.cards) > 21
+    return hand.busted, None
+
+
 class BlackjackTurnView(discord.ui.View):
     def __init__(self, table: BlackjackTable, hand: BlackjackHand, dealer: list):
         super().__init__(timeout=ACTION_SECONDS)
@@ -244,11 +411,6 @@ class BlackjackTurnView(discord.ui.View):
         self.dealer = dealer
         self.done = False
         self.message: discord.Message | None = None
-        # Guards hit/stand/double_down/on_timeout against each other -- without it, a slow
-        # double_down (it does a DB round-trip before finishing) straddling the view's timeout
-        # could let play_round move on to settle_round while the callback is still mutating
-        # hand.cards/hand.bet and adjusting balance, which is a currency bug, not just cosmetic.
-        self._lock = asyncio.Lock()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.hand.member.id:
@@ -281,71 +443,87 @@ class BlackjackTurnView(discord.ui.View):
 
         return [dealer_embed, player_embed], files
 
-    async def _finish(self, interaction: discord.Interaction, result_text: str):
+    async def refresh_message(self):
+        """Re-renders and edits the live message without ending the turn -- for a mutation that
+        doesn't finish the turn (e.g. a Hit that didn't bust) triggered from outside a Discord
+        interaction (a web action), mirroring what interaction.response.edit_message already does
+        inline for the Discord-button path."""
+        if self.message is None:
+            return
+        embeds, files = self.build_display()
+        try:
+            await self.message.edit(embeds=embeds, attachments=files, view=self)
+        except discord.HTTPException:
+            pass
+        await _notify(self.table)
+
+    async def _finish(self, result_text: str, interaction: discord.Interaction | None = None):
+        """Ends this turn: disables the buttons, renders the final state, and stop()s the view
+        so play_round's `await view.wait()` unblocks. `interaction` is only present for a
+        Discord-button-triggered finish (edits via interaction.response, the required way to
+        answer that specific click); a timeout or a web-triggered finish has no interaction to
+        answer, so it edits self.message directly instead -- same fallback on_timeout already
+        used, now shared by both paths."""
         self.done = True
         self._disable_all()
         embeds, files = self.build_display(result_text=result_text)
-        await interaction.response.edit_message(embeds=embeds, attachments=files, view=self)
+        if interaction is not None:
+            await interaction.response.edit_message(embeds=embeds, attachments=files, view=self)
+        elif self.message is not None:
+            try:
+                await self.message.edit(embeds=embeds, attachments=files, view=self)
+            except discord.HTTPException:
+                pass
+        await _notify(self.table)
         self.stop()
 
     @discord.ui.button(label="Hit", style=discord.ButtonStyle.primary, row=0)
     async def hit(self, interaction: discord.Interaction, button: discord.ui.Button):
-        async with self._lock:
+        async with self.table.round.turn_lock:
             if self.done:
                 await interaction.response.defer()
                 return
-            self.hand.cards.append(self.table.draw())
+            busted = apply_hit(self.table, self.hand)
             if len(self.hand.cards) > 2:
                 self.double_down.disabled = True
-            if hand_value(self.hand.cards) > 21:
-                self.hand.busted = True
-                await self._finish(interaction, "💥 Bust!")
+            if busted:
+                await self._finish("💥 Bust!", interaction=interaction)
                 return
             embeds, files = self.build_display()
             await interaction.response.edit_message(embeds=embeds, attachments=files, view=self)
+            await _notify(self.table)
 
     @discord.ui.button(label="Stand", style=discord.ButtonStyle.secondary, row=0)
     async def stand(self, interaction: discord.Interaction, button: discord.ui.Button):
-        async with self._lock:
+        async with self.table.round.turn_lock:
             if self.done:
                 await interaction.response.defer()
                 return
-            await self._finish(interaction, "✋ Stand")
+            await self._finish("✋ Stand", interaction=interaction)
 
     @discord.ui.button(label="Double Down", style=discord.ButtonStyle.danger, row=0)
     async def double_down(self, interaction: discord.Interaction, button: discord.ui.Button):
-        async with self._lock:
+        async with self.table.round.turn_lock:
             if self.done:
                 await interaction.response.defer()
                 return
-            currency = db.get_currency_name(self.table.guild_id)
-            balance = await asyncio.to_thread(db.get_balance, self.table.guild_id, self.hand.member.id)
-            if balance < self.hand.bet:
+            busted, error = await apply_double_down(self.table, self.hand)
+            if error:
+                currency = db.get_currency_name(self.table.guild_id)
                 await interaction.response.send_message(f"You don't have enough {currency} to double down.", ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER)
                 return
-
-            await asyncio.to_thread(db.update_balance, self.table.guild_id, self.hand.member.id, -self.hand.bet)
-            self.hand.bet *= 2
-            self.hand.cards.append(self.table.draw())
-            if hand_value(self.hand.cards) > 21:
-                self.hand.busted = True
-            await self._finish(interaction, "💥 Bust!" if self.hand.busted else "✋ Doubled down")
+            await self._finish("💥 Bust!" if busted else "✋ Doubled down", interaction=interaction)
 
     async def on_timeout(self):
-        async with self._lock:
+        async with self.table.round.turn_lock:
             if self.done:
                 return
-            self.done = True
-            self._disable_all()
-            if self.message is not None:
-                embeds, files = self.build_display(result_text="⌛ Timed out — standing")
-                try:
-                    await self.message.edit(embeds=embeds, attachments=files, view=self)
-                except discord.HTTPException:
-                    pass
+            await self._finish("⌛ Timed out — standing")
 
 
 async def settle_round(ctx, table: BlackjackTable, hands: list[BlackjackHand], dealer: list, dealer_natural: bool):
+    if table.round is not None:
+        table.round.phase = "settled"
     currency = db.get_currency_name(table.guild_id)
 
     dealer_buf = cards_render.render_hand(dealer)
@@ -405,8 +583,7 @@ class BetweenHandsBetModal(discord.ui.Modal):
             await interaction.response.send_message("Bet must be positive.", ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER)
             return
 
-        seat = self.view.table.seat_for(interaction.user.id)
-        seat.bet = bet
+        self.view.table.set_bet(interaction.user.id, bet)
         await interaction.response.send_message(f"Bet updated to {bet} for the next round.", ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER)
         await self.view.mark_decided(interaction.user.id)
 
@@ -459,6 +636,7 @@ class BetweenHandsView(discord.ui.View):
                 await self.message.edit(embeds=self.build_embeds(), view=self)
             except discord.HTTPException:
                 pass
+        await _notify(self.table)
 
     def _disable_all(self):
         for item in self.children:
@@ -475,9 +653,7 @@ class BetweenHandsView(discord.ui.View):
 
     @discord.ui.button(label="Quit", style=discord.ButtonStyle.danger)
     async def quit_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        seat = self.table.seat_for(interaction.user.id)
-        if seat is not None:
-            seat.standing = True
+        self.table.quit_seat(interaction.user.id)
         await interaction.response.send_message("Noted — you'll stand up before the next round.", ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER)
         await self.mark_decided(interaction.user.id)
 
@@ -494,11 +670,17 @@ async def play_round(ctx, table: BlackjackTable, seats: list[BlackjackSeat]) -> 
             hand.cards = [table.draw(), table.draw()]
 
         dealer_natural = is_blackjack(dealer)
+        # Populated here (not earlier) since this is the first point all three pieces exist --
+        # from here on, table.round reflects this round's live state for any reader, Discord's
+        # own rendering or otherwise.
+        table.round = RoundState(hands, dealer, dealer_natural)
 
         for hand in hands:
             if is_blackjack(hand.cards) or dealer_natural:
                 continue  # natural blackjack, or the dealer already has one -- no turn to take
+            table.round.active_hand_index = hands.index(hand)
             view = BlackjackTurnView(table, hand, dealer)
+            table.round.active_view = view
             embeds, files = view.build_display()
             view.message = await _send_or_edit_round(table, ctx, embeds=embeds, files=files, view=view)
             # Editing round_message doesn't notify anyone -- Discord only pings on new messages --
@@ -508,17 +690,20 @@ async def play_round(ctx, table: BlackjackTable, seats: list[BlackjackSeat]) -> 
             ping = await ctx.send(f"{hand.member.mention} — your turn! {view.message.jump_url}")
             try:
                 await view.wait()
-                async with view._lock:
+                async with table.round.turn_lock:
                     pass  # drain any in-flight callback (e.g. a slow double_down) before reading hand state
             finally:
+                table.round.active_view = None
                 try:
                     await ping.delete()
                 except discord.HTTPException:
                     pass
+        table.round.active_hand_index = None
 
         needs_dealer_play = not dealer_natural and any(
             not h.busted and not is_blackjack(h.cards) for h in hands
         )
+        table.round.phase = "dealer_turn"
         if needs_dealer_play:
             while hand_value(dealer) < 17:
                 dealer.append(table.draw())
@@ -535,6 +720,8 @@ async def run_between_hands(ctx, table: BlackjackTable, played_ids: set[int]):
     responded just keeps their current bet."""
     pending_ids = {uid for uid in played_ids if table.seat_for(uid) is not None}
     view = BetweenHandsView(table, pending_ids)
+    if table.round is not None:
+        table.round.between_hands_view = view
     # files omitted (not []) so the result images from settle_round stay attached and visible.
     view.message = await _send_or_edit_round(table, ctx, embeds=view.build_embeds(), view=view)
 
@@ -573,6 +760,10 @@ async def run_between_hands(ctx, table: BlackjackTable, played_ids: set[int]):
             await view.message.edit(embeds=view.build_embeds(timed_out=True), view=view)
         except discord.HTTPException:
             pass
+        await _notify(table)
+
+    if table.round is not None:
+        table.round.between_hands_view = None
 
 
 async def _close_round_message(table: BlackjackTable, ctx, text: str):
@@ -629,21 +820,43 @@ async def run_table(ctx, table: BlackjackTable):
                 await table.round_message.edit(view=None)
             except discord.HTTPException:
                 pass
+        # Pushed after active_tables.pop, so a watching web client's next table_view_model()
+        # correctly comes back None -- otherwise it'd have no way to learn the table closed
+        # short of it happening to send its own action first.
+        await _notify(table)
 
 
-async def start_blackjack_table(ctx, bet: int):
-    table = BlackjackTable(ctx.channel, ctx.channel.id, ctx.guild.id)
-    table.seats.append(BlackjackSeat(ctx.author, bet))
-    active_tables[ctx.channel.id] = table
+def create_table(channel: discord.abc.Messageable, channel_id: int, guild_id: int, author: discord.abc.User, bet: int) -> BlackjackTable:
+    """Creates and registers a new table with its opener already seated -- the fully synchronous
+    setup shared by both the Discord `!blackjack` command and a web-triggered table creation
+    (see activity_server.py's "create_table" action). Entirely synchronous and side-effect-free
+    beyond the active_tables registration, so a caller can rely on the table existing in
+    active_tables the instant this returns, with no await-related race to worry about."""
+    table = BlackjackTable(channel, channel_id, guild_id)
+    table.seats.append(BlackjackSeat(author, bet))
+    active_tables[channel_id] = table
+    return table
 
+
+async def run_new_table(ctx, table: BlackjackTable):
+    """Posts the lobby message, waits out the join window (or an early Start Game click), then
+    runs the table until it closes. Split out from start_blackjack_table so a web-triggered table
+    can run this as a background task (asyncio.create_task) instead of blocking whatever handler
+    is creating it for this table's entire lifetime -- create_table's synchronous registration is
+    what a caller awaits/relies on instead."""
     view = TableControlView(table)
     message = await ctx.send(
-        content=f"🃏 {ctx.author.mention} opened a blackjack table! Dealing the first round in "
-        f"{JOIN_SECONDS}s, or click **Start Game** to deal now.",
+        content=f"🃏 {table.seats[0].member.mention} opened a blackjack table! Dealing the first "
+        f"round in {JOIN_SECONDS}s, or click **Start Game** to deal now.",
         embed=build_control_embed(table),
         view=view,
     )
     table.control_message = message
+    # The web-created path (activity_server.py's "create_table" action) already broadcasts once
+    # create_table() registers the table; a Discord-created table (the !blackjack command) has no
+    # equivalent, so a web client already watching this channel would otherwise never learn a
+    # table just started here until some later, unrelated notify happened to fire.
+    await _notify(table)
 
     try:
         await asyncio.wait_for(table.start_event.wait(), timeout=JOIN_SECONDS)
@@ -659,3 +872,8 @@ async def start_blackjack_table(ctx, bet: int):
         pass
 
     await run_table(ctx, table)
+
+
+async def start_blackjack_table(ctx, bet: int):
+    table = create_table(ctx.channel, ctx.channel.id, ctx.guild.id, ctx.author, bet)
+    await run_new_table(ctx, table)

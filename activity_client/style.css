@@ -1,0 +1,76 @@
+html, body {
+    margin: 0;
+    padding: 0;
+    background: #1a1a1f;
+    color: #e8e8ec;
+    font-family: system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overscroll-behavior: none; /* stop pull-to-refresh/rubber-banding from fighting the dpad on mobile */
+}
+
+canvas {
+    background: #2b2b33;
+    border: 2px solid #45454f;
+    image-rendering: pixelated;
+    max-width: 95vw; /* scales down on narrow phone screens; internal 640x480 drawing grid is unchanged */
+    height: auto;
+    touch-action: none; /* the canvas itself isn't a control surface, but this stops it eating swipes as scroll gestures */
+}
+
+#status {
+    font-size: 0.85rem;
+    opacity: 0.7;
+    padding: 0 1rem;
+    text-align: center;
+}
+
+#dpad {
+    display: grid;
+    grid-template-columns: repeat(3, 56px);
+    grid-template-rows: repeat(3, 56px);
+    gap: 6px;
+    margin: 16px 0;
+}
+
+.dpad-btn {
+    font-size: 1.4rem;
+    background: #3a3a44;
+    color: #e8e8ec;
+    border: 2px solid #52525e;
+    border-radius: 8px;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.dpad-btn:active {
+    background: #e8813a;
+    border-color: #e8813a;
+}
+
+.dpad-up { grid-column: 2; grid-row: 1; }
+.dpad-left { grid-column: 1; grid-row: 2; }
+.dpad-right { grid-column: 3; grid-row: 2; }
+.dpad-down { grid-column: 2; grid-row: 3; }
+
+#talk-btn {
+    width: 56px;
+    height: 56px;
+    margin-top: -6px; /* pulls it snug under the dpad rather than adding a second big gap */
+    margin-bottom: 10px;
+}
+
+/* Keyboard is the primary desktop input -- hide the on-screen dpad (and its Talk-button
+   equivalent of Space) on devices that have a precise pointer and hover capability (i.e. a
+   mouse), show both everywhere else (touch). */
+@media (hover: hover) and (pointer: fine) {
+    #dpad, #talk-btn {
+        display: none;
+    }
+}
+

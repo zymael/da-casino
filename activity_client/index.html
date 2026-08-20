@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Da Casino Dungeon (Activity POC)</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <canvas id="game" width="640" height="480"></canvas>
+
+    <!-- Touch D-pad: hidden on desktop/mouse via a media query in style.css, since keyboard is
+         the primary desktop input and Discord mobile has no physical keys. -->
+    <div id="dpad">
+        <button id="dpad-up" class="dpad-btn dpad-up" aria-label="Up">▲</button>
+        <button id="dpad-left" class="dpad-btn dpad-left" aria-label="Left">◀</button>
+        <button id="dpad-right" class="dpad-btn dpad-right" aria-label="Right">▶</button>
+        <button id="dpad-down" class="dpad-btn dpad-down" aria-label="Down">▼</button>
+    </div>
+
+    <!-- Mobile equivalent of pressing Space near the dealer -- same interact action, touch-driven.
+         main.js only acts on this when the player is actually adjacent to the dealer. -->
+    <button id="talk-btn" class="dpad-btn" aria-label="Talk">💬</button>
+
+    <p id="status">Loading...</p>
+    <script type="module" src="main.js"></script>
+</body>
+</html>

@@ -5,11 +5,13 @@ import time
 from datetime import datetime
 
 import discord
+from aiohttp import web as aiohttp_web
 from discord import app_commands
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 import achievements
+import activity_server
 import crafting_view
 import db
 from blackjack_view import active_tables as active_blackjack_tables, start_blackjack_table
@@ -34,6 +36,7 @@ from video_poker_view import VideoPokerView
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
+ACTIVITY_SERVER_PORT = int(os.getenv("ACTIVITY_SERVER_PORT", "8787"))
 
 DAILY_AMOUNT = 100
 CASINO_CHANNEL_NAME = "da-casino"
@@ -105,6 +108,27 @@ async def _reject_if_at_poker_table(ctx) -> bool:
         await ctx.send(f"{ctx.author.display_name}, finish your poker hand first!")
         return True
     return False
+
+
+@bot.event
+async def setup_hook():
+    """Starts the Discord Activity's aiohttp server (activity_server.py) on this same event loop
+    -- discord.py calls this once, after login but before the gateway connects, specifically as
+    the place to bring up extra background services. activity_server.py's own `web.run_app()`
+    (used only for standalone dev) calls asyncio.run() and owns its own loop, incompatible with
+    running alongside bot.run() -- AppRunner/TCPSite are the awaitable equivalent, safe to start
+    from here. Wrapped in try/except so a bug in the web server can't take the Discord connection
+    down with it (Restart=on-failure on the systemd unit would otherwise restart the whole bot
+    over a web-only failure)."""
+    try:
+        runner = aiohttp_web.AppRunner(activity_server.build_app(bot))
+        await runner.setup()
+        site = aiohttp_web.TCPSite(runner, "0.0.0.0", ACTIVITY_SERVER_PORT)
+        await site.start()
+        print(f"Activity server listening on :{ACTIVITY_SERVER_PORT}", flush=True)
+    except Exception:
+        import traceback
+        traceback.print_exc()
 
 
 @bot.event
