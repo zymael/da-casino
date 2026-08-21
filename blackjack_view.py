@@ -216,19 +216,32 @@ def table_view_model(table: BlackjackTable) -> dict:
             [str(uid) for uid in round_.between_hands_view.pending]
             if round_.between_hands_view is not None else None
         ),
-        "hands": [
-            {
-                "user_id": str(h.member.id),
-                "name": h.member.display_name,
-                "bet": h.bet,
-                "cards": [_card_dict(c) for c in h.cards],
-                "value": hand_value(h.cards),
-                "busted": h.busted,
-            }
-            for h in round_.hands
-        ],
+        "hands": [_hand_dict(h, round_) for h in round_.hands],
     }
     return model
+
+
+def _hand_dict(h: "BlackjackHand", round_: "RoundState") -> dict:
+    # outcome/net are only meaningful once the round has actually settled -- outcome_for() is the
+    # same pure function settle_round() uses to build the Discord embeds' "Result" field, so this
+    # is guaranteed to agree with whatever Discord already showed for this hand. Deliberately
+    # recomputed here rather than reading back a value settle_round() stored, since it never
+    # persisted one anywhere -- this is display-only and must NOT re-touch the DB (settle_round
+    # already paid out the balance once, when the round actually settled).
+    outcome = net = None
+    if round_.phase == "settled":
+        outcome = outcome_for(h, round_.dealer, round_.dealer_natural)
+        net = int(h.bet * OUTCOME_PAYOUT_MULTIPLIERS[outcome]) - h.bet
+    return {
+        "user_id": str(h.member.id),
+        "name": h.member.display_name,
+        "bet": h.bet,
+        "cards": [_card_dict(c) for c in h.cards],
+        "value": hand_value(h.cards),
+        "busted": h.busted,
+        "outcome": outcome,
+        "net": net,
+    }
 
 
 def build_control_embed(table: BlackjackTable) -> discord.Embed:

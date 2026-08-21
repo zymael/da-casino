@@ -81,6 +81,22 @@ const SPRITE_SHEETS = {
     female: loadSprite("female", "assets/sprite_female.png"),
 };
 
+// RPG Maker 2000-style pixel fonts (vendored same-origin, see assets/CREDITS.md for license).
+// Canvas text with an unloaded @font-face silently renders in a fallback font forever unless the
+// load is explicitly kicked off -- fillText() alone doesn't trigger the fetch the way DOM text
+// does. The rAF loop redraws every frame regardless, so once these resolve the very next frame
+// just starts rendering correctly with no extra plumbing needed.
+if (document.fonts) {
+    Promise.all([
+        document.fonts.load('14px "Press Start 2P"'),
+        document.fonts.load('20px "VT323"'),
+    ]).catch((err) => console.error("Pixel font load failed:", err));
+}
+const FONT_TITLE = '14px "Press Start 2P"';
+const FONT_MENU = '9px "Press Start 2P"';
+const FONT_BODY = '20px "VT323"';
+const FONT_BODY_SMALL = '18px "VT323"';
+
 const DIRECTION_VECTORS = {
     up: [0, -1],
     down: [0, 1],
@@ -124,7 +140,19 @@ const remotePlayers = new Map();
 // once, e.g. touch + keyboard on a hybrid device, without conflicting).
 const heldDirections = new Set();
 
+// While a menu (currently just blackjack's command window) is active, arrow keys drive menu
+// selection instead of player movement -- both read the exact same keys, so this has to be the
+// first branch checked, with an early return, rather than layered alongside the movement handling.
 window.addEventListener("keydown", (e) => {
+    if (activeMenu) {
+        if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") { activeMenu.moveSelection(-1); e.preventDefault(); return; }
+        if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") { activeMenu.moveSelection(1); e.preventDefault(); return; }
+        if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") { activeMenu.adjust(-1); e.preventDefault(); return; }
+        if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") { activeMenu.adjust(1); e.preventDefault(); return; }
+        if (e.key === "Enter" || e.key === " " || e.key === "z" || e.key === "Z") { activeMenu.confirm(); e.preventDefault(); return; }
+        if (e.key === "Escape" || e.key === "x" || e.key === "X") { closeBlackjack(); e.preventDefault(); return; }
+        return;
+    }
     const dir = KEY_TO_DIRECTION[e.key];
     if (dir) {
         heldDirections.add(dir);
@@ -133,7 +161,7 @@ window.addEventListener("keydown", (e) => {
     }
     if (e.key === " ") {
         e.preventDefault();
-        if (!blackjackMode && isAdjacentToDealer()) openBlackjack();
+        if (isAdjacentToDealer()) openBlackjack();
     }
 });
 window.addEventListener("keyup", (e) => {
@@ -173,6 +201,89 @@ bindDpadButton("dpad-right", "right");
 
 let blackjackMode = false;
 
+// The currently-active arrow-key-driven menu, if any -- null while walking around the world.
+// Only one at a time exists today (the blackjack command window), but keying everything off this
+// rather than blackjackMode directly is what lets the keydown handler above stay generic for
+// whatever menu comes next (inventory, shop, etc.) instead of hardcoding blackjack into it.
+// A reusable command-window widget: items are {label, enabled, onSelect, onAdjust}. Confirm
+// (Enter/Z/click) invokes onSelect; left/right invoke onAdjust(±1) for stepper-style rows (e.g.
+// the blackjack bet amount) that don't have a single "confirm" action. Recreated logically fresh
+// each frame by the caller via setItems() (since enabled state depends on live server state), but
+// the instance itself persists so selectedIndex survives across frames instead of resetting to
+// the top every draw. (Rendering references FONT_MENU/UI_COLOR_*/drawWindow, all defined further
+// down -- fine, since draw() only runs later inside frame(), well after the whole module has
+// finished loading; only the class declaration itself needs to precede first use below.)
+class Menu {
+    constructor() {
+        this.items = [];
+        this.selectedIndex = 0;
+    }
+
+    setItems(items) {
+        const prevLabel = this.items[this.selectedIndex]?.label;
+        this.items = items;
+        let idx = items.findIndex((it) => it.label === prevLabel && it.enabled !== false);
+        if (idx === -1) idx = items.findIndex((it) => it.enabled !== false);
+        this.selectedIndex = idx === -1 ? 0 : idx;
+    }
+
+    moveSelection(delta) {
+        if (this.items.length === 0) return;
+        let i = this.selectedIndex;
+        for (let step = 0; step < this.items.length; step++) {
+            i = (i + delta + this.items.length) % this.items.length;
+            if (this.items[i].enabled !== false) {
+                this.selectedIndex = i;
+                return;
+            }
+        }
+    }
+
+    adjust(delta) {
+        const item = this.items[this.selectedIndex];
+        if (item && item.enabled !== false && item.onAdjust) item.onAdjust(delta);
+    }
+
+    confirm() {
+        const item = this.items[this.selectedIndex];
+        if (item && item.enabled !== false && item.onSelect) item.onSelect();
+    }
+
+    // Draws each item as one row, a "▶" cursor beside the selected (enabled) row, and registers
+    // the same {x,y,w,h,enabled,onClick} hit-box shape the canvas click listener already expects
+    // -- so a click both re-selects and immediately confirms that row, and arrow-key navigation
+    // is additive on top of the pre-existing mouse path rather than a replacement for it.
+    draw(x, y, w, rowH) {
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.font = FONT_MENU;
+        this.items.forEach((item, i) => {
+            const rowY = y + i * rowH;
+            const enabled = item.enabled !== false;
+            const selected = i === this.selectedIndex;
+            ctx.fillStyle = !enabled ? "#8a7368" : selected ? UI_COLOR_GOLD : UI_COLOR_CREAM;
+            if (selected) ctx.fillText("▶", x, rowY + rowH / 2);
+            ctx.fillText(item.label, x + 18, rowY + rowH / 2);
+            bjButtons.push({
+                x, y: rowY, w, h: rowH, enabled,
+                onClick: () => {
+                    this.selectedIndex = i;
+                    this.confirm();
+                },
+            });
+        });
+        ctx.textBaseline = "alphabetic";
+    }
+}
+
+let activeMenu = null;
+// True whenever the round is actively waiting on this player's own decision (their turn to hit/
+// stand/double, or a pending between-hands keep/change/quit choice) -- set each frame by
+// drawBlackjackUI(). closeBlackjack() checks this so Escape/X can't be used to hide the panel out
+// from under a decision the table (and everyone else at it) is blocked on.
+let bjMustAct = false;
+const bjMenu = new Menu();
+
 // Canvas has no native text input, so bet amount is a stepper instead of the DOM version's
 // <input type="number"> -- shared across Create Table / Join / Set Bet, which is a reasonable
 // simplification (there's no real reason those three would want different scratch values).
@@ -191,35 +302,24 @@ if (talkBtn) {
 
 function openBlackjack() {
     blackjackMode = true;
+    activeMenu = bjMenu;
     heldDirections.clear(); // don't resume mid-stride the instant the table closes
     connectBlackjack();
 }
 
 function closeBlackjack() {
+    if (bjMustAct) return; // can't hide the panel while the table is waiting on this player's move
     // Only closes the view -- doesn't disconnect the WS or send any action, so the seat/table
     // state is exactly where you left it if you walk away and come back later.
     blackjackMode = false;
+    activeMenu = null;
 }
 
-// One list, rebuilt every frame drawBlackjackUI() runs -- a lightweight immediate-mode button
-// system since canvas has no native clickable elements. bjButton() both draws a button AND
-// registers its hit-box; the click listener below just tests the latest frame's list.
+// One list, rebuilt every frame drawBlackjackUI() runs -- a lightweight immediate-mode hit-testing
+// system since canvas has no native clickable elements. Menu.draw() (see the Menu class above)
+// both draws each row AND registers its hit-box here; the click listener below just tests the
+// latest frame's list.
 let bjButtons = [];
-
-function bjButton(x, y, w, h, label, enabled, onClick) {
-    bjButtons.push({ x, y, w, h, enabled, onClick });
-    ctx.fillStyle = enabled ? "#3a3a44" : "#2a2a30";
-    ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = "#52525e";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, w, h);
-    ctx.fillStyle = enabled ? "#e8e8ec" : "#6a6a74";
-    ctx.font = "14px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(label, x + w / 2, y + h / 2);
-    ctx.textBaseline = "alphabetic"; // restore the default the rest of the draw code assumes
-}
 
 canvas.addEventListener("click", (e) => {
     if (!blackjackMode) return;
@@ -237,128 +337,328 @@ canvas.addEventListener("click", (e) => {
     }
 });
 
-// Draws the whole blackjack table each frame while blackjackMode is true, reading the exact same
-// bjModel/localUserId the old DOM panel read (see the "Blackjack sync" section below) -- only
-// the rendering target changed, not the state or networking. Read-only for now (stage 2): just
-// table state + Leave Table, proving the mode-switch and one real button before stage 3 adds the
-// full action set.
 function bjAdjustBet(delta) {
     bjBetAmount = Math.max(BJ_BET_MIN, bjBetAmount + delta);
 }
 
-// Fixed button positions (rather than a dynamic flow layout) so buttons never jump around
-// between frames just because something else became enabled/disabled -- only "Keep Bet" is ever
-// fully hidden (not just disabled), matching the old DOM version's behavior of hiding it outside
-// a pending between-hands decision.
-const BJ_BTN_W = 92, BJ_BTN_H = 32, BJ_BTN_GAP = 6;
-const BJ_ROW1_Y = 388, BJ_ROW2_Y = BJ_ROW1_Y + BJ_BTN_H + BJ_BTN_GAP;
+// --- Playing card rendering ----------------------------------------------------------------
+// Ports cards_render.py's card design (the PIL renderer already used for the Discord-embed hand
+// images: white rounded card, rank+suit mirrored into opposite corners, big center suit glyph,
+// crosshatched blue back for hidden cards) to canvas, so both surfaces read as the same game
+// instead of the Activity showing plain "A♠" text where Discord shows real card art.
+const CARD_W = 38, CARD_H = 52, CARD_RADIUS = 5, CARD_GAP = 5;
 
-function bjButtonX(index) {
-    return 16 + index * (BJ_BTN_W + BJ_BTN_GAP);
+// Mirrors blackjack_view.py's OUTCOME_LABELS, but in this UI's own palette/wording rather than
+// reusing Discord's emoji-heavy embed text -- h.outcome is one of these 4 strings once a hand's
+// round has settled (see table_view_model()'s "outcome"/"net" fields), null before that.
+const BJ_OUTCOME_LABELS = { blackjack: "BLACKJACK!", win: "WIN", push: "PUSH", lose: "LOSE" };
+// Hardcoded to the same values as UI_COLOR_GOLD/RED/TEAL rather than referencing those constants
+// directly -- they're declared later in this file (in the windowskin section), and this object
+// literal evaluates eagerly at module-load time, so referencing them here would hit the same
+// const-before-declaration error the Menu class ordering bug did earlier this session.
+const BJ_OUTCOME_COLORS = { blackjack: "#f3cc48", win: "#f3cc48", push: "#71a294", lose: "#d76d55" };
+const CARD_RED_SUITS = new Set(["♥", "♦"]);
+const CARD_COLOR_RED = "#c81e1e";
+const CARD_COLOR_BLACK = "#141414";
+
+function roundedRectPath(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
 }
 
-function drawBlackjackUI() {
-    bjButtons = [];
+function drawCardBack(x, y) {
+    roundedRectPath(x, y, CARD_W, CARD_H, CARD_RADIUS);
+    ctx.fillStyle = "#1e3c82";
+    ctx.fill();
+    ctx.strokeStyle = "#0f1e46";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
 
-    ctx.fillStyle = "rgba(10, 10, 14, 0.92)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    roundedRectPath(x, y, CARD_W, CARD_H, CARD_RADIUS);
+    ctx.clip();
+    ctx.strokeStyle = "#3c5aa0";
+    ctx.lineWidth = 1.5;
+    for (let lx = -CARD_H; lx < CARD_W; lx += 7) {
+        ctx.beginPath();
+        ctx.moveTo(x + lx, y + CARD_H);
+        ctx.lineTo(x + lx + CARD_H, y);
+        ctx.stroke();
+    }
+    ctx.restore();
+
+    const margin = 5;
+    roundedRectPath(x + margin, y + margin, CARD_W - margin * 2, CARD_H - margin * 2, 3);
+    ctx.strokeStyle = "#dcdcf0";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+}
+
+function drawCard(x, y, card) {
+    if (!card) {
+        drawCardBack(x, y);
+        return;
+    }
+    const color = CARD_RED_SUITS.has(card.suit) ? CARD_COLOR_RED : CARD_COLOR_BLACK;
+
+    roundedRectPath(x, y, CARD_W, CARD_H, CARD_RADIUS);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.strokeStyle = "#3c3c3c";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.fillStyle = color;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.font = "bold 11px sans-serif";
+    ctx.fillText(card.rank, x + 4, y + 3);
+    ctx.font = "9px sans-serif";
+    ctx.fillText(card.suit, x + 4, y + 15);
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "22px sans-serif";
+    ctx.fillText(card.suit, x + CARD_W / 2, y + CARD_H / 2 + 2);
+
+    // Bottom-right corner mark, mirrored -- same trick cards_render.py uses (draw the same
+    // top-left glyphs on their own layer, rotate 180°, composite) so it lands at the opposite
+    // corner without colliding with the top-left text.
+    ctx.save();
+    ctx.translate(x + CARD_W, y + CARD_H);
+    ctx.rotate(Math.PI);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.font = "bold 11px sans-serif";
+    ctx.fillText(card.rank, 4, 3);
+    ctx.font = "9px sans-serif";
+    ctx.fillText(card.suit, 4, 15);
+    ctx.restore();
 
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
-    ctx.fillStyle = "#e8e8ec";
-    ctx.font = "bold 18px sans-serif";
-    ctx.fillText("🃏 Blackjack", 16, 30);
+}
 
-    ctx.font = "14px sans-serif";
+// Draws a hand left-to-right starting at (x, y); a null entry (the hidden hole card) draws a
+// card back, matching the WS protocol's existing null-means-hidden convention for that slot.
+function drawHand(cards, x, y) {
+    cards.forEach((card, i) => drawCard(x + i * (CARD_W + CARD_GAP), y, card));
+}
+
+// Draws the whole blackjack table each frame while blackjackMode is true, reading the exact same
+// bjModel/localUserId the old DOM panel read (see the "Blackjack sync" section below) -- only the
+// rendering target and input method changed (windowskin + arrow-key Menu instead of a DOM panel
+// with mouse-only buttons), not the state or networking.
+function drawBlackjackUI() {
+    bjButtons = [];
+    drawWindow(16, 16, 608, 448);
+
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = UI_COLOR_CREAM;
+    ctx.font = FONT_TITLE;
+    ctx.fillText("BLACKJACK", 32, 46);
+
+    ctx.font = FONT_BODY;
 
     if (bjConnectError) {
-        ctx.fillStyle = "#e85c5c";
-        ctx.fillText(bjConnectError, 16, 60);
-        bjButton(canvas.width - 140, canvas.height - 50, 120, 36, "✕ Leave Table", true, closeBlackjack);
+        bjMustAct = false; // nothing to break -- there's no live connection to be blocking anyone
+        ctx.fillStyle = UI_COLOR_RED;
+        ctx.fillText(bjConnectError, 32, 84);
+        bjMenu.setItems([{ label: "✕ Leave Table", enabled: true, onSelect: closeBlackjack }]);
+        bjMenu.draw(32, 420, 560, 24);
         return;
     }
 
     const mySeat = bjModel ? bjModel.seats.find((s) => String(s.user_id) === String(localUserId)) : null;
     const round = bjModel ? bjModel.round : null;
+
+    // Data-only pass before any drawing: the command menu's contents (and whether "Leave Table"
+    // is even offered) depend on myTurn/amPending, so those need to be known up front rather than
+    // discovered mid-render.
     let myHand = null;
     let myTurn = false;
+    if (round) {
+        round.hands.forEach((h, i) => {
+            if (String(h.user_id) === String(localUserId)) {
+                myHand = h;
+                myTurn = i === round.active_hand_index;
+            }
+        });
+    }
+    const pending = round ? round.between_hands_pending : null;
+    const amPending = pending !== null && pending.includes(String(localUserId));
+    // Whenever the round is actively waiting on this player's own decision, closing the panel
+    // doesn't remove them from the table -- it just hides their controls while everyone else
+    // (including the round logic itself) is stuck waiting on an action they can no longer see how
+    // to take. "Leave Table" (a view-only close, no server-side quit) is only safe to offer
+    // outside of that window; a real Quit is what belongs in the menu instead while it's blocking.
+    // (Module-level bjMustAct, not a local const, so closeBlackjack() can see it too.)
+    bjMustAct = myTurn || amPending;
 
+    let infoY = 80;
     if (!bjModel) {
-        ctx.fillText("No table running in this channel.", 16, 60);
+        ctx.fillStyle = UI_COLOR_CREAM;
+        ctx.fillText("No table running in this channel.", 32, infoY);
+        infoY += 26;
     } else {
-        let y = 58;
-        ctx.fillText("Seats:", 16, y);
-        y += 20;
+        ctx.fillStyle = UI_COLOR_CREAM;
+        ctx.fillText("Seats:", 32, infoY);
+        infoY += 24;
         if (bjModel.seats.length === 0) {
-            ctx.fillText("No one seated yet.", 24, y);
-            y += 18;
+            ctx.fillStyle = UI_COLOR_TEAL;
+            ctx.fillText("No one seated yet.", 48, infoY);
+            infoY += 24;
         }
         for (const s of bjModel.seats) {
-            ctx.fillText(`${s.name} — betting ${s.bet}${s.standing ? " (standing up)" : ""}`, 24, y);
-            y += 18;
+            ctx.fillStyle = UI_COLOR_CREAM;
+            ctx.fillText(`${s.name} — betting ${s.bet}${s.standing ? " (standing up)" : ""}`, 48, infoY);
+            infoY += 24;
         }
 
         if (round) {
-            y += 10;
-            const dealerCards = round.dealer_cards.map(cardText).join(" ");
-            const dealerValue = round.dealer_hole_card_hidden ? "?" : round.dealer_value;
-            ctx.fillText(`Dealer: ${dealerCards}  (Value: ${dealerValue})`, 16, y);
-            y += 24;
+            infoY += 8;
+            // "??" rather than a single "?" -- a lone "?" in this pixel font at small/blurry
+            // sizes reads too close to "7" (confirmed live). Not the real scaling/legibility fix
+            // (that's a deferred full UI pass), just a one-glyph swap to stop this specific misread.
+            const dealerValue = round.dealer_hole_card_hidden ? "??" : round.dealer_value;
+            ctx.fillStyle = UI_COLOR_GOLD;
+            ctx.font = FONT_BODY;
+            ctx.fillText(`Dealer (Value: ${dealerValue})`, 32, infoY);
+            infoY += 24;
+            drawHand(round.dealer_cards, 32, infoY);
+            infoY += CARD_H + 14;
+
+            // Only the dealer and the local player's own hand get real card art below -- with an
+            // unbounded number of seated players, drawing every hand's cards would grow this
+            // panel's height without limit and run straight into the command menu (the actual
+            // "overlapping text" bug this replaced). Other players' hands still show their name,
+            // value, and whose turn it is, just as a single compact line instead of a card row.
             round.hands.forEach((h, i) => {
-                if (String(h.user_id) === String(localUserId)) {
-                    myHand = h;
-                    myTurn = i === round.active_hand_index;
-                }
                 const active = i === round.active_hand_index;
-                const cards = h.cards.map(cardText).join(" ");
-                ctx.fillStyle = active ? "#e8813a" : "#e8e8ec";
-                ctx.fillText(`${active ? "▶ " : "  "}${h.name}: ${cards}  (Value: ${h.value}${h.busted ? ", BUST" : ""})  — bet ${h.bet}`, 16, y);
-                ctx.fillStyle = "#e8e8ec";
-                y += 18;
+                const isMine = String(h.user_id) === String(localUserId);
+                // h.outcome is only non-null once the round has settled (see blackjack_view.py's
+                // table_view_model) -- before that there's nothing to report yet.
+                const resultText = h.outcome ? ` — ${BJ_OUTCOME_LABELS[h.outcome]} (${h.net >= 0 ? "+" : ""}${h.net})` : "";
+                ctx.fillStyle = h.outcome ? BJ_OUTCOME_COLORS[h.outcome] : (active ? UI_COLOR_GOLD : UI_COLOR_CREAM);
+                ctx.font = FONT_BODY;
+                const label = `${active ? "▶ " : "  "}${h.name} (Value: ${h.value}${h.busted ? ", BUST" : ""}) — bet ${h.bet}${resultText}`;
+                if (isMine) {
+                    ctx.fillText(label, 32, infoY);
+                    infoY += 24;
+                    drawHand(h.cards, 32, infoY);
+                    infoY += CARD_H + 14;
+                } else {
+                    ctx.fillText(label + ` [${h.cards.length} cards]`, 32, infoY);
+                    infoY += 24;
+                }
             });
         }
     }
 
-    const pending = round ? round.between_hands_pending : null;
-    const amPending = pending !== null && pending.includes(String(localUserId));
+    // Contextual rather than "always show all 8, just gray out the irrelevant ones" -- real card
+    // art eats a lot more vertical room than the old single text line per hand did, and a command
+    // window that only lists what's actually reachable from the current state (a seated player
+    // mid-turn can't Join or Start anyway) is both more compact and closer to how an actual RPG
+    // Maker command window behaves.
+    const items = [];
+    if (!bjModel) {
+        items.push({ label: `Bet: ${bjBetAmount}`, enabled: true, onAdjust: (d) => bjAdjustBet(d * BJ_BET_STEP) });
+        items.push({ label: "Create Table", enabled: true, onSelect: () => sendBjAction("create_table", { bet: bjBetAmount }) });
+    } else if (myTurn) {
+        items.push({ label: "Hit", enabled: true, onSelect: () => sendBjAction("hit", {}) });
+        items.push({ label: "Stand", enabled: true, onSelect: () => sendBjAction("stand", {}) });
+        if (myHand && myHand.cards.length === 2) {
+            items.push({ label: "Double", enabled: true, onSelect: () => sendBjAction("double", {}) });
+        }
+    } else if (amPending) {
+        items.push({ label: `Bet: ${bjBetAmount}`, enabled: true, onAdjust: (d) => bjAdjustBet(d * BJ_BET_STEP) });
+        items.push({ label: "Keep Bet", enabled: true, onSelect: () => sendBjAction("keep_bet", {}) });
+        items.push({ label: "Set Bet", enabled: true, onSelect: () => sendBjAction("set_bet", { bet: bjBetAmount }) });
+        items.push({ label: "Quit", enabled: true, onSelect: () => sendBjAction("quit", {}) });
+    } else if (!mySeat) {
+        items.push({ label: `Bet: ${bjBetAmount}`, enabled: true, onAdjust: (d) => bjAdjustBet(d * BJ_BET_STEP) });
+        items.push({ label: "Join", enabled: true, onSelect: () => sendBjAction("join", { bet: bjBetAmount }) });
+    } else {
+        items.push({ label: `Bet: ${bjBetAmount}`, enabled: true, onAdjust: (d) => bjAdjustBet(d * BJ_BET_STEP) });
+        items.push({ label: "Set Bet", enabled: true, onSelect: () => sendBjAction("set_bet", { bet: bjBetAmount }) });
+        items.push({ label: "Start", enabled: true, onSelect: () => sendBjAction("start", {}) });
+        items.push({ label: "Quit", enabled: true, onSelect: () => sendBjAction("quit", {}) });
+    }
+    if (!bjMustAct) {
+        items.push({ label: "✕ Leave Table", enabled: true, onSelect: closeBlackjack });
+    }
 
-    // Status line, just above the bet stepper/buttons.
+    const rowH = 22;
+    const menuY = 464 - 16 - items.length * rowH;
+
     let status = "";
     if (myTurn) status = "Your turn!";
     else if (amPending) status = "Round over — keep your bet, change it, or quit before the next round.";
     else if (pending && pending.length > 0) status = `Waiting on ${pending.length} player(s) to decide.`;
-    ctx.fillStyle = "#9a9aa4";
-    ctx.font = "12px sans-serif";
-    ctx.fillText(status, 16, BJ_ROW1_Y - 32);
-
-    // Bet stepper
-    ctx.font = "14px sans-serif";
-    ctx.fillStyle = "#e8e8ec";
-    bjButton(16, BJ_ROW1_Y - 26, 28, 22, "−", true, () => bjAdjustBet(-BJ_BET_STEP));
-    ctx.textAlign = "center";
-    ctx.fillText(`Bet: ${bjBetAmount}`, 130, BJ_ROW1_Y - 10);
-    ctx.textAlign = "left";
-    bjButton(220, BJ_ROW1_Y - 26, 28, 22, "+", true, () => bjAdjustBet(BJ_BET_STEP));
-
-    if (!bjModel) {
-        bjButton(bjButtonX(0), BJ_ROW1_Y, 140, BJ_BTN_H, "Create Table", true, () => sendBjAction("create_table", { bet: bjBetAmount }));
-    } else {
-        bjButton(bjButtonX(0), BJ_ROW1_Y, BJ_BTN_W, BJ_BTN_H, "Join", !mySeat, () => sendBjAction("join", { bet: bjBetAmount }));
-        bjButton(bjButtonX(1), BJ_ROW1_Y, BJ_BTN_W, BJ_BTN_H, "Set Bet", !!mySeat, () => sendBjAction("set_bet", { bet: bjBetAmount }));
-        let col = 2;
-        if (amPending) {
-            bjButton(bjButtonX(col), BJ_ROW1_Y, BJ_BTN_W, BJ_BTN_H, "Keep Bet", true, () => sendBjAction("keep_bet", {}));
-            col += 1;
-        }
-        bjButton(bjButtonX(col), BJ_ROW1_Y, BJ_BTN_W, BJ_BTN_H, "Start", !!mySeat, () => sendBjAction("start", {}));
-        bjButton(bjButtonX(col + 1), BJ_ROW1_Y, BJ_BTN_W, BJ_BTN_H, "Quit", !!mySeat, () => sendBjAction("quit", {}));
-
-        bjButton(bjButtonX(0), BJ_ROW2_Y, BJ_BTN_W, BJ_BTN_H, "Hit", myTurn, () => sendBjAction("hit", {}));
-        bjButton(bjButtonX(1), BJ_ROW2_Y, BJ_BTN_W, BJ_BTN_H, "Stand", myTurn, () => sendBjAction("stand", {}));
-        bjButton(bjButtonX(2), BJ_ROW2_Y, BJ_BTN_W, BJ_BTN_H, "Double", myTurn && !!myHand && myHand.cards.length === 2, () => sendBjAction("double", {}));
+    if (status) {
+        ctx.font = FONT_BODY_SMALL;
+        ctx.fillStyle = UI_COLOR_TEAL;
+        ctx.fillText(status, 32, menuY - 14);
     }
 
-    bjButton(canvas.width - 140, canvas.height - 50, 120, 36, "✕ Leave Table", true, closeBlackjack);
+    bjMenu.setItems(items);
+    bjMenu.draw(32, menuY, 560, rowH);
+}
+
+// --- RPG Maker 2000-style windowskin ----------------------------------------------------------
+// Colors sampled directly from assets/ui_system.png (see CREDITS.md), but drawn procedurally
+// rather than 9-sliced from that image: its frame block turned out to be a single fixed 32x32
+// preview tile with a decorative crown baked right into the middle -- not generic 9-slice source
+// material -- while its background fill turned out to be a plain top-to-bottom gradient, which a
+// canvas gradient reproduces exactly and scales to any window size with zero stretching/seam
+// artifacts a stretched raster tile would have.
+const WINDOW_BG_TOP = "#783f31";
+const WINDOW_BG_BOTTOM = "#421d2d";
+const WINDOW_BORDER_GOLD = "#e18112";
+const WINDOW_BORDER_DARK = "#391a32";
+const WINDOW_CORNER_SIZE = 8;
+
+// Text palette, also lifted from ui_system.png's color-chip rows (the classic RM2K message
+// color-code / gauge-gradient swatches) rather than picked arbitrarily, so window chrome and text
+// share one consistent source palette.
+const UI_COLOR_CREAM = "#ffffff";
+const UI_COLOR_GOLD = "#f3cc48";
+const UI_COLOR_RED = "#d76d55";
+const UI_COLOR_TEAL = "#71a294";
+
+function drawWindow(x, y, w, h) {
+    const grad = ctx.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, WINDOW_BG_TOP);
+    grad.addColorStop(1, WINDOW_BG_BOTTOM);
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, y, w, h);
+
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = WINDOW_BORDER_DARK;
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    ctx.strokeStyle = WINDOW_BORDER_GOLD;
+    ctx.strokeRect(x + 3, y + 3, w - 6, h - 6);
+
+    // Corner accents (an L-shaped bracket, echoing the beveled corner squares in ui_system.png's
+    // frame block) -- drawn once and rotated into each of the 4 corners rather than four
+    // hand-mirrored copies. Works because an L with equal-length arms is symmetric under 90°
+    // rotation about its own vertex: each arm always ends up tracing one of the two window edges
+    // that meet at that corner, pointing inward, regardless of which corner it's rotated into.
+    for (let i = 0; i < 4; i++) {
+        ctx.save();
+        ctx.translate(i === 1 || i === 2 ? x + w : x, i === 2 || i === 3 ? y + h : y);
+        ctx.rotate((Math.PI / 2) * i);
+        ctx.fillStyle = WINDOW_BORDER_GOLD;
+        ctx.fillRect(0, 0, WINDOW_CORNER_SIZE, 3);
+        ctx.fillRect(0, 0, 3, WINDOW_CORNER_SIZE);
+        ctx.restore();
+    }
 }
 
 function lerp(a, b, t) {
@@ -482,7 +782,7 @@ function isAdjacentToDealer() {
 }
 
 function drawInteractPrompt() {
-    ctx.font = "16px sans-serif";
+    ctx.font = FONT_BODY;
     ctx.textAlign = "center";
     const text = "Press Space to talk to the Dealer";
     const x = canvas.width / 2;
@@ -490,7 +790,7 @@ function drawInteractPrompt() {
     ctx.lineWidth = 3;
     ctx.strokeStyle = "#000000";
     ctx.strokeText(text, x, y);
-    ctx.fillStyle = "#e8e8ec";
+    ctx.fillStyle = UI_COLOR_CREAM;
     ctx.fillText(text, x, y);
 }
 
@@ -731,10 +1031,6 @@ function connectBlackjack() {
 function sendBjAction(action, extra) {
     if (!bjWs || bjWs.readyState !== WebSocket.OPEN || !localUserId) return;
     bjWs.send(JSON.stringify({ type: "action", action, user_id: localUserId, ...extra }));
-}
-
-function cardText(card) {
-    return card === null ? "🂠" : `${card.rank}${card.suit}`;
 }
 
 main();

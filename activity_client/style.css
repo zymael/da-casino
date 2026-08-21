@@ -1,3 +1,17 @@
+/* Vendored (not CDN-loaded) same-origin, same reasoning as the SDK import in main.js -- Discord's
+   Activity iframe CSP blocks third-party font/CDN requests, so these have to ship from this app's
+   own mapped origin. See assets/CREDITS.md for license/attribution. */
+@font-face {
+    font-family: "Press Start 2P";
+    src: url("assets/fonts/press-start-2p.ttf") format("truetype");
+    font-display: swap;
+}
+@font-face {
+    font-family: "VT323";
+    src: url("assets/fonts/vt323.ttf") format("truetype");
+    font-display: swap;
+}
+
 html, body {
     margin: 0;
     padding: 0;

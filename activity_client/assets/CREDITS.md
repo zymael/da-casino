@@ -16,3 +16,14 @@ complete, authoritative attribution across every layer used by the generator.
 
 These are the bare base body sprites deliberately, with no clothing/hair layered on -- intended
 as a "mannequin" base to layer equipment sprites onto later.
+
+# UI credits
+
+`ui_system.png` is a classic RPG Maker 2000-style "System" graphic sheet (windowskin, digit font,
+and color palette), resource #14098 from [charas-project.net](http://charas-project.net/), used
+under Creative Commons.
+
+`fonts/press-start-2p.ttf` and `fonts/vt323.ttf` are the Press Start 2P and VT323 typefaces,
+copyright their respective Project Authors, licensed under the SIL Open Font License 1.1 (see
+`fonts/OFL-pressstart2p.txt` and `fonts/OFL-vt323.txt`), sourced from Google Fonts'
+[github.com/google/fonts](https://github.com/google/fonts) repo.
