@@ -108,6 +108,22 @@ def init_db():
         )
         """
     )
+    # Discovery-based crafting (crafting.combine): a recipe a player has successfully combined
+    # at least once, purely so !craft can show them a "Known Recipes" reference list instead of
+    # forcing them to re-guess a combo they already found. Same shape as personal_achievements
+    # (each user claims each recipe_id independently) -- presence in this table is the only
+    # state; there's nothing else to store per row.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS discovered_recipes (
+            guild_id INTEGER NOT NULL,
+            recipe_id TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            discovered_at TEXT NOT NULL,
+            PRIMARY KEY (guild_id, recipe_id, user_id)
+        )
+        """
+    )
     # Per-user, per-game win/loss counts, started fresh (not backfilled from bet_log) --
     # feeds the achievements.py tier achievements (10/25/50/... wins or losses of a game).
     conn.execute(
@@ -256,21 +272,51 @@ def init_db():
         )
         """
     )
-    # A player's progress through a quests.py QUESTS entry -- absence means not started, stage 0
-    # is the first stage. Never deleted once started, same "claims are permanent" idea as
-    # achievements/personal_achievements.
+    # Generic per-player key -> int store. Quest stages, quest counters, and (soon) NPC/room
+    # presence conditions all read/write through here instead of each getting their own
+    # purpose-built table -- one condition language ("flag X compared to Y"), one storage
+    # mechanism. Absence means 0, same "absence = default state" idea as inventory. A quest's
+    # stage lives at key "quest:<id>" (see quests.py's _quest_flag_key) -- stored as stage+1 so 0
+    # unambiguously means "not started" rather than colliding with real stage 0; a counted
+    # trigger's progress lives at "quest:<id>:stage<N>:count" (quests.py's _stage_counter_key).
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS quest_progress (
+        CREATE TABLE IF NOT EXISTS flags (
             guild_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
-            quest_id TEXT NOT NULL,
-            stage INTEGER NOT NULL DEFAULT 0,
-            updated_at TEXT NOT NULL,
-            PRIMARY KEY (guild_id, user_id, quest_id)
+            key TEXT NOT NULL,
+            value INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id, key)
         )
         """
     )
+    # One-time migration: quest_progress/quest_counters folded into the generic flags table above.
+    # Guarded by table existence so this only ever runs once per database, same idempotent
+    # convention as every other migration block in this function -- a fresh install never creates
+    # either old table, so this is a no-op there.
+    existing_tables = {
+        row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+    }
+    if "quest_progress" in existing_tables:
+        for guild_id, user_id, quest_id, stage in conn.execute(
+            "SELECT guild_id, user_id, quest_id, stage FROM quest_progress"
+        ).fetchall():
+            conn.execute(
+                "INSERT INTO flags (guild_id, user_id, key, value) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(guild_id, user_id, key) DO UPDATE SET value = excluded.value",
+                (guild_id, user_id, f"quest:{quest_id}", stage + 1),
+            )
+        conn.execute("DROP TABLE quest_progress")
+    if "quest_counters" in existing_tables:
+        for guild_id, user_id, quest_id, stage, count in conn.execute(
+            "SELECT guild_id, user_id, quest_id, stage, count FROM quest_counters"
+        ).fetchall():
+            conn.execute(
+                "INSERT INTO flags (guild_id, user_id, key, value) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(guild_id, user_id, key) DO UPDATE SET value = excluded.value",
+                (guild_id, user_id, f"quest:{quest_id}:stage{stage}:count", count),
+            )
+        conn.execute("DROP TABLE quest_counters")
     # Generic item bag for stuff that isn't equippable dungeon gear (quest items, keepsakes) --
     # separate from character_equipment, which auto-equips by stat power rather than being held.
     # No row for an item_id means 0 of it, same "absence = default state" idea as ranch_facilities.
@@ -285,6 +331,38 @@ def init_db():
         )
         """
     )
+    # One-time content-rename migration: the crafting redo (2026-08-21) fully replaced
+    # dungeon_materials.json's old id set with a new one. inventory_view.py deliberately raises
+    # if it sees an item id it doesn't recognize (a real content-bug tripwire), which broke
+    # !inventory for anyone still holding an old material id. Rather than keep the old ids around
+    # as inert legacy content, merge whatever a player still holds into the new material closest
+    # to it (adding onto any of that new material they already have) and drop the old row.
+    # Idempotent and safe to run every startup -- once converted, no old-id rows remain to match,
+    # so this is a no-op on every run after the first.
+    _LEGACY_MATERIAL_RENAMES = {
+        "goblin_ear": "rat_tooth",
+        "rusty_scrap": "nail",
+        "slime_residue": "droppings",
+        "iron_ore": "shiny_rock",
+        "wolf_pelt": "dirty_cloth",
+        "cursed_bone": "pointy_rock",
+        "dragon_scale": "pan",
+        "void_crystal": "shiny_rock",
+        "ancient_rune": "comb",
+    }
+    for _old_id, _new_id in _LEGACY_MATERIAL_RENAMES.items():
+        for _guild_id, _user_id, _qty in conn.execute(
+            "SELECT guild_id, user_id, qty FROM inventory WHERE item_id = ?", (_old_id,)
+        ).fetchall():
+            conn.execute(
+                "INSERT INTO inventory (guild_id, user_id, item_id, qty) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT (guild_id, user_id, item_id) DO UPDATE SET qty = qty + excluded.qty",
+                (_guild_id, _user_id, _new_id, _qty),
+            )
+            conn.execute(
+                "DELETE FROM inventory WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                (_guild_id, _user_id, _old_id),
+            )
     # Dungeon gear a player has found/been granted but isn't currently wearing -- character_equipment
     # holds at most one item per slot, this holds everything else so a non-upgrade drop is stored
     # instead of silently discarded, and !equipment can let a player swap back to it later.
@@ -721,6 +799,36 @@ def get_user_personal_achievements(guild_id: int, user_id: int) -> set[str]:
     try:
         rows = conn.execute(
             "SELECT kind FROM personal_achievements WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchall()
+        return {row[0] for row in rows}
+    finally:
+        conn.close()
+
+
+def mark_recipe_discovered(guild_id: int, recipe_id: str, user_id: int) -> bool:
+    """Records that user_id has successfully combined recipe_id in this guild, if they haven't
+    already. Returns whether this call was the one that recorded it -- False if they'd already
+    discovered it, which is how crafting.combine() knows to show a "first time" message only
+    once."""
+    conn = _connect()
+    try:
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO discovered_recipes (guild_id, recipe_id, user_id, discovered_at) "
+            "VALUES (?, ?, ?, ?)",
+            (guild_id, recipe_id, user_id, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def get_discovered_recipes(guild_id: int, user_id: int) -> set[str]:
+    """Returns every recipe_id this user has successfully combined at least once in this guild."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT recipe_id FROM discovered_recipes WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
         ).fetchall()
         return {row[0] for row in rows}
     finally:
@@ -1764,64 +1872,105 @@ def unequip_item(guild_id: int, user_id: int, slot: str) -> str | None:
         conn.close()
 
 
-def start_quest(guild_id: int, user_id: int, quest_id: str) -> bool:
-    """Starts `quest_id` for `user_id` at stage 0 if they haven't already started it. Returns
-    whether this call was the one that started it -- idempotent, same INSERT OR IGNORE shape as
-    award_personal_achievement, so a quest's start trigger can fire repeatedly (e.g. an
-    achievement re-checked on every claim attempt) without restarting progress."""
-    conn = _connect()
-    try:
-        cursor = conn.execute(
-            "INSERT OR IGNORE INTO quest_progress (guild_id, user_id, quest_id, stage, updated_at) "
-            "VALUES (?, ?, ?, 0, ?)",
-            (guild_id, user_id, quest_id, datetime.now(timezone.utc).isoformat()),
-        )
-        conn.commit()
-        return cursor.rowcount > 0
-    finally:
-        conn.close()
-
-
-def get_all_quest_progress(guild_id: int, user_id: int) -> dict[str, int]:
-    """Returns {quest_id: stage} for every quest this user has started -- a quest_id not in the
-    dict means they haven't started it. Backs !quests, which needs every quest's status in one
-    go rather than a get_quest_stage call per QUESTS entry."""
-    conn = _connect()
-    try:
-        rows = conn.execute(
-            "SELECT quest_id, stage FROM quest_progress WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
-        ).fetchall()
-        return {quest_id: stage for quest_id, stage in rows}
-    finally:
-        conn.close()
-
-
-def get_quest_stage(guild_id: int, user_id: int, quest_id: str) -> int | None:
-    """Returns this user's current stage index in `quest_id`, or None if they haven't started it."""
+def get_flag(guild_id: int, user_id: int, key: str) -> int:
+    """Returns this user's value for `key`, or 0 if no row (nothing set yet), same "absence =
+    default state" idea as get_inventory. The generic per-player state primitive -- quest stages,
+    quest counters, and NPC/room presence conditions all read through here."""
     conn = _connect()
     try:
         row = conn.execute(
-            "SELECT stage FROM quest_progress WHERE guild_id = ? AND user_id = ? AND quest_id = ?",
-            (guild_id, user_id, quest_id),
+            "SELECT value FROM flags WHERE guild_id = ? AND user_id = ? AND key = ?", (guild_id, user_id, key),
         ).fetchone()
-        return row[0] if row else None
+        return row[0] if row else 0
     finally:
         conn.close()
 
 
-def advance_quest_stage(guild_id: int, user_id: int, quest_id: str, from_stage: int) -> bool:
-    """Advances `quest_id` from `from_stage` to `from_stage + 1`. Returns whether it actually
-    moved -- False if the stored stage no longer matches from_stage (e.g. a stale view double
-    button-clicked), same stale-state guard as upgrade_facility's wrong_tier check."""
+def get_distinct_flag_keys() -> list[str]:
+    """Every distinct flag key currently in use, across every guild/user -- not itself a gameplay
+    function, just a discoverability aid for admin_server.py's "flag_at_least" trigger editor
+    (a raw text field otherwise has zero hints as to what keys already mean something)."""
+    conn = _connect()
+    try:
+        rows = conn.execute("SELECT DISTINCT key FROM flags ORDER BY key").fetchall()
+        return [row[0] for row in rows]
+    finally:
+        conn.close()
+
+
+def set_flag(guild_id: int, user_id: int, key: str, value: int):
+    """Unconditionally sets `key` to `value`, creating the row if it's the first write."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "INSERT INTO flags (guild_id, user_id, key, value) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(guild_id, user_id, key) DO UPDATE SET value = excluded.value",
+            (guild_id, user_id, key, value),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_flag_if_zero(guild_id: int, user_id: int, key: str, value: int) -> bool:
+    """Sets `key` to `value` only if it's currently unset/0. Returns whether this call was the one
+    that set it -- idempotent, same INSERT OR IGNORE shape as award_personal_achievement, so a
+    quest's start trigger can fire repeatedly (e.g. an achievement re-checked on every claim
+    attempt) without restarting progress."""
     conn = _connect()
     try:
         cursor = conn.execute(
-            "UPDATE quest_progress SET stage = ?, updated_at = ? "
-            "WHERE guild_id = ? AND user_id = ? AND quest_id = ? AND stage = ?",
-            (from_stage + 1, datetime.now(timezone.utc).isoformat(), guild_id, user_id, quest_id, from_stage),
+            "INSERT INTO flags (guild_id, user_id, key, value) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(guild_id, user_id, key) DO UPDATE SET value = excluded.value WHERE flags.value = 0",
+            (guild_id, user_id, key, value),
         )
         conn.commit()
         return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def compare_and_set_flag(guild_id: int, user_id: int, key: str, expected: int, new: int) -> bool:
+    """Sets `key` to `new` only if its current value is `expected`. Returns whether it actually
+    moved -- False if the stored value no longer matches `expected` (e.g. a stale view double
+    button-clicked), same stale-state guard as upgrade_facility's wrong_tier check. Unlike
+    set_flag_if_zero, this works whether the row already exists at `expected` or is absent and
+    `expected` is 0 (the INSERT branch handles the absent case, the UPDATE's WHERE handles the
+    existing-row case)."""
+    conn = _connect()
+    try:
+        if expected == 0:
+            cursor = conn.execute(
+                "INSERT INTO flags (guild_id, user_id, key, value) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(guild_id, user_id, key) DO UPDATE SET value = excluded.value WHERE flags.value = 0",
+                (guild_id, user_id, key, new),
+            )
+        else:
+            cursor = conn.execute(
+                "UPDATE flags SET value = ? WHERE guild_id = ? AND user_id = ? AND key = ? AND value = ?",
+                (new, guild_id, user_id, key, expected),
+            )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def increment_flag(guild_id: int, user_id: int, key: str, by: int = 1) -> int:
+    """Bumps `key` by `by` (row auto-creates at `by` on first call, same upsert shape as
+    add_inventory_item) and returns the new value."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "INSERT INTO flags (guild_id, user_id, key, value) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(guild_id, user_id, key) DO UPDATE SET value = value + excluded.value",
+            (guild_id, user_id, key, by),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT value FROM flags WHERE guild_id = ? AND user_id = ? AND key = ?", (guild_id, user_id, key),
+        ).fetchone()
+        return row[0]
     finally:
         conn.close()
 

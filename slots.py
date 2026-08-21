@@ -1,5 +1,7 @@
 import random
 
+import moon
+
 # symbol -> (spawn weight, total-return multiplier for three-of-a-kind)
 SYMBOLS = {
     "🍒": {"weight": 30, "triple": 7},
@@ -14,6 +16,11 @@ CHERRY_PAIR_PAYOUT = 2  # any two (not three) cherries on a line
 
 _POOL = list(SYMBOLS.keys())
 _WEIGHTS = [SYMBOLS[symbol]["weight"] for symbol in _POOL]
+
+# The 3 rarest/highest-paying symbols -- what a "lucky" or "unlucky" slots night secretly leans
+# toward or away from. See moon.py; never surfaced to players.
+MOON_HIGH_TIER = {"🍀", "💎", "7️⃣"}
+MOON_TIER_SHIFT = 0.15  # relative weight change applied to the favored/disfavored tier
 
 GRID_ROWS = 3
 GRID_COLS = 3
@@ -30,9 +37,23 @@ PAYLINES: list[tuple[int, int, int]] = [
 MAX_LINES = len(PAYLINES)
 
 
+def _moon_weights() -> list[int | float]:
+    """_WEIGHTS, perturbed by tonight's secret moon effect (if slots is even its night --
+    usually it isn't, and this is just _WEIGHTS unchanged)."""
+    effect = moon.effect_for("slots")
+    if effect is None:
+        return _WEIGHTS
+    favor_high = effect == "player"
+    return [
+        w * (1 + MOON_TIER_SHIFT if (symbol in MOON_HIGH_TIER) == favor_high else 1 - MOON_TIER_SHIFT)
+        for symbol, w in zip(_POOL, _WEIGHTS)
+    ]
+
+
 def spin_grid() -> list[list[str]]:
     """A GRID_ROWS x GRID_COLS grid of symbols, grid[row][col]."""
-    return [random.choices(_POOL, weights=_WEIGHTS, k=GRID_COLS) for _ in range(GRID_ROWS)]
+    weights = _moon_weights()
+    return [random.choices(_POOL, weights=weights, k=GRID_COLS) for _ in range(GRID_ROWS)]
 
 
 def line_symbols(grid: list[list[str]], line: tuple[int, int, int]) -> list[str]:

@@ -21,7 +21,6 @@ import asyncio
 import discord
 
 import db
-import quests
 
 BIG_WIN_TIER_1 = 1_000
 BIG_WIN_TIER_2 = 10_000
@@ -132,6 +131,14 @@ ACHIEVEMENTS = [
         "name": "Bitten by a Princess",
         "description": "You greeted the \"Princess\". She was not appreciative.",
         "reward": 25,
+    },
+    {
+        "kind": "stolen_from",
+        "scope": "personal",
+        "emoji": "💃",
+        "name": "Sweet Talked",
+        "description": "Get your roulette winnings stolen by a Lady of the evening (or a Classy Escort).",
+        "reward": 50,
     },
 ]
 
@@ -245,8 +252,6 @@ async def try_award_many(send, guild_id: int, user_id: int, display_name: str, k
 
     if not unlocked:
         return
-
-    await quests.maybe_start_quests(guild_id, user_id, [achievement["kind"] for achievement in unlocked])
 
     total_reward = sum(achievement["reward"] for achievement in unlocked)
     if total_reward:

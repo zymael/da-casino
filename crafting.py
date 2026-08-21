@@ -10,6 +10,7 @@ import asyncio
 
 import db
 import dungeon
+import quests
 
 
 async def craft(guild_id: int, user_id: int, recipe_id: str) -> dict:
@@ -41,7 +42,39 @@ async def craft(guild_id: int, user_id: int, recipe_id: str) -> dict:
         await asyncio.to_thread(db.add_inventory_item, guild_id, user_id, item["id"], 1)
         equipped = False
 
+    await quests.record_progress(guild_id, user_id, "craft_item", recipe_id=recipe_id)
+
     return {
         "success": True, "status": "ok", "balance": balance,
         "output_item": item, "output_kind": recipe["output_kind"], "equipped": equipped,
     }
+
+
+async def combine(guild_id: int, user_id: int, material_ids: list[str]) -> dict:
+    """Discovery-based crafting: `material_ids` is what the player picked (e.g. ["stick",
+    "stick"] for a 2-stick combo) with no recipe chosen up front -- this is what figures out
+    whether that combo actually means anything. Delegates the real consumption/grant work to
+    craft() once a match is found, so there's exactly one place that logic lives; this only adds
+    the material-combo lookup and discovery tracking on top.
+
+    Returns everything craft() does, plus "newly_discovered" (True only the first time this
+    player has ever landed on this particular recipe -- lets the UI call out a genuine discovery
+    differently from a routine repeat craft). On "no_match", nothing is touched -- a failed guess
+    costs nothing, so experimenting isn't punishing."""
+    materials: dict[str, int] = {}
+    for material_id in material_ids:
+        materials[material_id] = materials.get(material_id, 0) + 1
+
+    recipe = dungeon.find_recipe_by_materials(materials)
+    if recipe is None:
+        return {
+            "success": False, "status": "no_match", "balance": None,
+            "output_item": None, "output_kind": None, "equipped": False, "newly_discovered": False,
+        }
+
+    result = await craft(guild_id, user_id, recipe["id"])
+    result["newly_discovered"] = (
+        await asyncio.to_thread(db.mark_recipe_discovered, guild_id, recipe["id"], user_id)
+        if result["success"] else False
+    )
+    return result

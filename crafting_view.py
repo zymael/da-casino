@@ -1,8 +1,8 @@
-"""!craft -- browse dungeon.RECIPES, pick one, and craft it if you're holding enough materials
-(and currency). Same two-step "pick from a list, preview, confirm" flow as dungeon_view.py's
-ClassPickerView, and the same "rebuild the whole display from fresh DB state" idea as
-ranch_view/dungeon_view's hub displays, so the listing always reflects what you're actually
-holding right now.
+"""!craft -- discovery-based crafting: pick two materials you're holding and find out what they
+make, rather than choosing from a list of recipes you already know by name. A successful combo
+crafts the item (same consumption/grant logic as before, see crafting.combine) and remembers it
+as "discovered" so a Known Recipes reference list can jog your memory later -- but re-crafting
+something you already know still goes through the same pick-two-materials flow, not a shortcut.
 """
 
 import asyncio
@@ -16,114 +16,150 @@ import dungeon
 MAX_SELECT_OPTIONS = 25  # Discord's hard limit on a single Select's options
 
 
-def _recipe_output_name(recipe: dict) -> str:
-    registry = dungeon.EQUIPMENT if recipe["output_kind"] == "equipment" else dungeon.CONSUMABLES
-    return registry[recipe["output_id"]]["name"]
-
-
-def _material_status_line(material_id: str, needed: int, held: int) -> str:
+def _material_option(material_id: str, held_qty: int) -> discord.SelectOption:
     material = dungeon.MATERIALS[material_id]
-    check = "✅" if held >= needed else "❌"
-    return f"{check} {material['name']} {held}/{needed}"
+    return discord.SelectOption(
+        label=material["name"], value=material_id, description=f"You have {held_qty}"
+    )
 
 
-def _recipe_field_value(recipe: dict, held: dict[str, int]) -> str:
-    lines = [_material_status_line(m_id, qty, held.get(m_id, 0)) for m_id, qty in recipe["materials"].items()]
-    cost = recipe.get("currency_cost", 0)
-    if cost:
-        lines.append(f"💰 {cost}")
-    return f"→ {_recipe_output_name(recipe)}\n" + "\n".join(lines)
-
-
-def _recipe_option_description(recipe: dict) -> str:
-    cost = recipe.get("currency_cost", 0)
-    cost_part = f"{cost} coins + " if cost else ""
-    count = len(recipe["materials"])
-    return f"{cost_part}{count} material kind{'s' if count != 1 else ''}"
-
-
-async def build_craft_display(guild_id: int, user_id: int) -> tuple[discord.Embed, "CraftPickerView"]:
-    """Lists every recipe -- not just ones you can currently afford -- so you can see what to
-    farm for, same spirit as EquipmentView showing both equipped and stored gear."""
+async def build_craft_display(guild_id: int, user_id: int) -> tuple[discord.Embed, "CombineView"]:
     held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
+    held_materials = {m_id: qty for m_id, qty in held.items() if m_id in dungeon.MATERIALS and qty > 0}
 
+    embed = _combine_embed(held_materials, first=None, second=None)
+    view = CombineView(guild_id, user_id, held_materials)
+    return embed, view
+
+
+def _combine_embed(held_materials: dict[str, int], first: str | None, second: str | None) -> discord.Embed:
     embed = discord.Embed(
         title="🛠️ Crafting",
-        description="Pick a recipe below to see full details and craft it.",
+        description="Pick two materials to combine. If it's a real recipe, you'll find out.",
         color=discord.Color.blurple(),
     )
-    for recipe in dungeon.RECIPES.values():
-        embed.add_field(name=recipe["name"], value=_recipe_field_value(recipe, held), inline=False)
+    if held_materials:
+        lines = [f"{dungeon.MATERIALS[m_id]['name']} — {qty}" for m_id, qty in sorted(held_materials.items())]
+        embed.add_field(name="Materials on hand", value="\n".join(lines), inline=False)
+    else:
+        embed.add_field(name="Materials on hand", value="None yet -- go delve and find some.", inline=False)
 
-    return embed, CraftPickerView()
+    first_name = dungeon.MATERIALS[first]["name"] if first else "*(pick one)*"
+    second_name = dungeon.MATERIALS[second]["name"] if second else "*(pick one)*"
+    embed.add_field(name="Combining", value=f"{first_name}  +  {second_name}", inline=False)
+    return embed
 
 
-class RecipeSelect(discord.ui.Select):
-    def __init__(self):
+class MaterialSelect(discord.ui.Select):
+    """One of the two material pickers on a CombineView -- `slot` (0 or 1) says which of the
+    view's two picks this one sets. Options and the currently-chosen value come from the parent
+    view, so both selects can show the same material as a valid choice in each (picking Stick in
+    both slots is how a "2 Stick" combo gets made)."""
+
+    def __init__(self, view: "CombineView", slot: int):
+        self.slot = slot
         options = [
-            discord.SelectOption(label=recipe["name"], value=recipe_id, description=_recipe_option_description(recipe))
-            for recipe_id, recipe in list(dungeon.RECIPES.items())[:MAX_SELECT_OPTIONS]
+            _material_option(m_id, qty) for m_id, qty in list(view.held_materials.items())[:MAX_SELECT_OPTIONS]
         ]
-        super().__init__(placeholder="Choose a recipe...", options=options, row=0)
+        current = view.first_material if slot == 0 else view.second_material
+        for option in options:
+            option.default = option.value == current
+        super().__init__(
+            placeholder=f"Choose material {slot + 1}...",
+            options=options or [discord.SelectOption(label="(nothing held)", value="_none", default=True)],
+            disabled=not options,
+            row=slot,
+        )
 
     async def callback(self, interaction: discord.Interaction):
-        recipe = dungeon.RECIPES[self.values[0]]
-        embed, view = await build_craft_confirm_display(interaction.guild.id, interaction.user.id, recipe)
-        await interaction.response.edit_message(embed=embed, view=view)
+        view: "CombineView" = self.view
+        if self.slot == 0:
+            view.first_material = self.values[0]
+        else:
+            view.second_material = self.values[0]
+        embed = _combine_embed(view.held_materials, view.first_material, view.second_material)
+        await interaction.response.edit_message(embed=embed, view=view.rebuilt())
 
 
-class CraftPickerView(discord.ui.View):
-    def __init__(self):
+class CombineView(discord.ui.View):
+    def __init__(
+        self, guild_id: int, user_id: int, held_materials: dict[str, int],
+        first_material: str | None = None, second_material: str | None = None,
+    ):
         super().__init__(timeout=180)
-        self.add_item(RecipeSelect())
+        self.guild_id = guild_id
+        self.user_id = user_id
+        self.held_materials = held_materials
+        self.first_material = first_material
+        self.second_material = second_material
+        self.add_item(MaterialSelect(self, 0))
+        self.add_item(MaterialSelect(self, 1))
 
+    def rebuilt(self) -> "CombineView":
+        """A fresh view carrying forward the same picks -- MaterialSelect.options bake in
+        `option.default` at construction time, so the simplest way to reflect a new selection is
+        a new view/select pair rather than mutating options on the existing ones in place."""
+        return CombineView(self.guild_id, self.user_id, self.held_materials, self.first_material, self.second_material)
 
-async def build_craft_confirm_display(guild_id: int, user_id: int, recipe: dict) -> tuple[discord.Embed, "CraftConfirmView"]:
-    held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
-    balance = await asyncio.to_thread(db.get_balance, guild_id, user_id)
+    @discord.ui.button(label="Combine", style=discord.ButtonStyle.success, row=2)
+    async def combine_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.first_material or not self.second_material:
+            await interaction.response.send_message("Pick two materials first.", ephemeral=True)
+            return
 
-    embed = discord.Embed(
-        title=f"🛠️ Craft: {recipe['name']}", description=recipe.get("flavor", ""), color=discord.Color.blurple(),
-    )
-    embed.add_field(name="Produces", value=_recipe_output_name(recipe), inline=False)
-    lines = [_material_status_line(m_id, qty, held.get(m_id, 0)) for m_id, qty in recipe["materials"].items()]
-    embed.add_field(name="Materials", value="\n".join(lines), inline=False)
-    cost = recipe.get("currency_cost", 0)
-    if cost:
-        check = "✅" if balance >= cost else "❌"
-        embed.add_field(name="Cost", value=f"{check} {cost} (you have {balance})", inline=False)
+        result = await crafting.combine(self.guild_id, self.user_id, [self.first_material, self.second_material])
 
-    return embed, CraftConfirmView(recipe["id"])
-
-
-class CraftConfirmView(discord.ui.View):
-    def __init__(self, recipe_id: str):
-        super().__init__(timeout=180)
-        self.recipe_id = recipe_id
-
-    @discord.ui.button(label="Craft", style=discord.ButtonStyle.success, row=0)
-    async def craft_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        result = await crafting.craft(interaction.guild.id, interaction.user.id, self.recipe_id)
+        if result["status"] == "no_match":
+            await interaction.response.send_message("💨 Nothing happens.", ephemeral=True)
+            return
         if not result["success"]:
             reason = (
-                "You're missing materials for this." if result["status"] == "insufficient_materials"
-                else "You can't afford this."
+                "You're missing materials for that." if result["status"] == "insufficient_materials"
+                else "You can't afford that."
             )
             await interaction.response.send_message(reason, ephemeral=True)
             return
 
         item = result["output_item"]
         if result["output_kind"] == "equipment":
-            if result["equipped"]:
-                status_text = f"⚔️ Crafted **{item['name']}** — equipped!"
-            else:
-                status_text = f"⚔️ Crafted **{item['name']}**, but your current gear is better — stored in `!equipment`."
+            gear_note = "equipped!" if result["equipped"] else "stored in `!equipment` (your current gear's better)."
+            status_text = f"⚔️ Crafted **{item['name']}** — {gear_note}"
         else:
             status_text = f"🧪 Crafted **{item['name']}** — check `!inventory`."
+        if result["newly_discovered"]:
+            status_text = f"🎉 New recipe discovered!\n{status_text}"
 
-        embed, view = await build_craft_display(interaction.guild.id, interaction.user.id)
+        embed, view = await build_craft_display(self.guild_id, self.user_id)
         await interaction.response.edit_message(embed=embed, view=view)
         await interaction.followup.send(status_text, ephemeral=True)
+
+    @discord.ui.button(label="📖 Known Recipes", style=discord.ButtonStyle.secondary, row=2)
+    async def known_recipes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed, view = await build_known_recipes_display(self.guild_id, self.user_id)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+def _known_recipe_line(recipe: dict) -> str:
+    materials = ", ".join(
+        f"{qty} {dungeon.MATERIALS[m_id]['name']}" for m_id, qty in recipe["materials"].items()
+    )
+    return f"**{recipe['name']}** — {materials}"
+
+
+async def build_known_recipes_display(guild_id: int, user_id: int) -> tuple[discord.Embed, "KnownRecipesView"]:
+    discovered_ids = await asyncio.to_thread(db.get_discovered_recipes, guild_id, user_id)
+    embed = discord.Embed(title="📖 Known Recipes", color=discord.Color.blurple())
+    if not discovered_ids:
+        embed.description = "You haven't discovered any recipes yet -- try combining materials and see what happens."
+    else:
+        recipes = sorted((dungeon.RECIPES[r_id] for r_id in discovered_ids), key=lambda r: r["name"])
+        embed.description = "\n".join(_known_recipe_line(r) for r in recipes)
+    return embed, KnownRecipesView()
+
+
+class KnownRecipesView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=180)
 
     @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=0)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):

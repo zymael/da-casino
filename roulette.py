@@ -1,5 +1,7 @@
 import random
 
+import moon
+
 RED_NUMBERS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
 BLACK_NUMBERS = {2, 4, 6, 8, 10, 11, 13, 15, 17, 20, 22, 24, 26, 28, 29, 31, 33, 35}
 
@@ -72,8 +74,17 @@ def combo_label(numbers) -> str:
     return COMBO_LABELS.get(len(numbers), "Combo")
 
 
+# 0 is what loses every outside bet (red/black/odd/even/low/high) -- see moon.py; never surfaced
+# to players. On a house night it's relatively more likely; on a player night, less.
+MOON_ZERO_SHIFT = 0.5
+
+
 def spin() -> int:
-    return random.randint(0, 36)
+    effect = moon.effect_for("roulette")
+    if effect is None:
+        return random.randint(0, 36)
+    zero_weight = 1 + MOON_ZERO_SHIFT if effect == "house" else 1 - MOON_ZERO_SHIFT
+    return random.choices(range(37), weights=[zero_weight] + [1] * 36, k=1)[0]
 
 
 def color_of(number: int) -> str:

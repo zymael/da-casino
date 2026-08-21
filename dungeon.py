@@ -110,17 +110,51 @@ def _load_monsters(path: str = _MONSTERS_PATH) -> dict[str, dict]:
 
 MONSTERS = _load_monsters()
 
-ROOM_COUNT = 3
 
-
-def monster_for_room(room_index: int) -> dict:
-    """room_index is 0-based (0, 1, 2 for a 3-room dungeon); tier is 1-based to match the JSON
-    content, so room N faces a monster of tier N+1."""
-    tier = room_index + 1
+def monster_for_tier(tier: int) -> dict:
     candidates = [m for m in MONSTERS.values() if m["tier"] == tier]
     if not candidates:
         raise ValueError(f"No monsters defined for tier {tier} in dungeon_monsters.json")
     return random.choice(candidates)
+
+
+# --- Delve content ---------------------------------------------------------------------------
+# A delve is a named dungeon layout: an ordered sequence of room tiers (room count is just
+# len(room_tiers), no separate field). Loaded after MONSTERS since a delve's room_tiers gets
+# cross-validated against it -- a tier with no monster defined would otherwise only surface as a
+# crash mid-delve (monster_for_tier's own ValueError), not at startup where a bad edit belongs.
+
+_DELVES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_delves.json")
+_REQUIRED_DELVE_FIELDS = {"id", "name", "flavor", "room_tiers"}
+
+
+def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
+    with open(path) as f:
+        raw = json.load(f)
+    delves: dict[str, dict] = {}
+    for entry in raw:
+        entry_id = entry.get("id", "?")
+        missing = _REQUIRED_DELVE_FIELDS - entry.keys()
+        if missing:
+            raise ValueError(f"dungeon_delves.json: delve {entry_id!r} missing field(s): {sorted(missing)}")
+        if entry_id in delves:
+            raise ValueError(f"dungeon_delves.json: duplicate delve id {entry_id!r}")
+        room_tiers = entry["room_tiers"]
+        if not room_tiers:
+            raise ValueError(f"dungeon_delves.json: delve {entry_id!r} has empty room_tiers")
+        for tier in room_tiers:
+            if tier < 1:
+                raise ValueError(f"dungeon_delves.json: delve {entry_id!r} has a non-positive tier in room_tiers")
+            if not any(m["tier"] == tier for m in MONSTERS.values()):
+                raise ValueError(
+                    f"dungeon_delves.json: delve {entry_id!r} references tier {tier}, "
+                    f"which has no monsters defined in dungeon_monsters.json"
+                )
+        delves[entry_id] = entry
+    return delves
+
+
+DELVES = _load_delves()
 
 
 # --- Leveling ------------------------------------------------------------------------------
@@ -333,13 +367,12 @@ def _load_materials(path: str = _MATERIALS_PATH) -> dict[str, dict]:
 MATERIALS = _load_materials()
 
 
-def roll_material_drop(room_index: int) -> dict | None:
+def roll_material_drop(tier: int) -> dict | None:
     """None most of the time (MATERIAL_DROP_CHANCE). When it hits, picks one material from this
-    room's tier, weighted by drop_weight -- same shape as roll_equipment_drop, but a separate
-    roll so a single kill can drop both a material and a piece of gear."""
+    tier, weighted by drop_weight -- same shape as roll_equipment_drop, but a separate roll so a
+    single kill can drop both a material and a piece of gear."""
     if random.random() > MATERIAL_DROP_CHANCE:
         return None
-    tier = room_index + 1
     candidates = [m for m in MATERIALS.values() if m["tier"] == tier]
     if not candidates:
         return None
@@ -427,6 +460,19 @@ def _load_recipes(path: str = _RECIPES_PATH) -> dict[str, dict]:
 RECIPES = _load_recipes()
 
 
+def find_recipe_by_materials(materials: dict[str, int]) -> dict | None:
+    """The recipe whose `materials` exactly matches `materials` -- same material ids *and*
+    quantities, nothing extra, nothing missing. Powers discovery-based crafting (crafting.combine):
+    a player picks materials without knowing the recipe first, and this is what tells them
+    whether their guess landed on something. Exact-match (not "materials is a superset of the
+    recipe's") is what makes two recipes distinguishable purely by quantity, e.g. Smelly Bomb
+    (used_thong: 1, droppings: 1) vs. Bulging Tights (used_thong: 1, droppings: 2)."""
+    for recipe in RECIPES.values():
+        if recipe["materials"] == materials:
+            return recipe
+    return None
+
+
 def item_power(item: dict) -> int:
     """Total stat value of an item -- the yardstick used to decide whether a newly found piece
     of gear replaces what's currently equipped in that slot."""
@@ -441,14 +487,13 @@ def is_upgrade(current_item_id: str | None, new_item: dict) -> bool:
     return current_item is None or item_power(new_item) > item_power(current_item)
 
 
-def roll_equipment_drop(room_index: int) -> dict | None:
+def roll_equipment_drop(tier: int) -> dict | None:
     """None most of the time (EQUIPMENT_DROP_CHANCE). When it hits, picks one item from this
-    room's tier, weighted by drop_weight so rarer/stronger items are less likely. quest_only
-    items (granted exclusively through a quest turn-in, e.g. Mondor's Greasy Pencil) are never
+    tier, weighted by drop_weight so rarer/stronger items are less likely. quest_only items
+    (granted exclusively through a quest turn-in, e.g. Mondor's Greasy Pencil) are never
     candidates here."""
     if random.random() > EQUIPMENT_DROP_CHANCE:
         return None
-    tier = room_index + 1
     candidates = [item for item in EQUIPMENT.values() if item["tier"] == tier and not item.get("quest_only")]
     if not candidates:
         return None

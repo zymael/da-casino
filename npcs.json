@@ -1,0 +1,31 @@
+[
+  {
+    "id": "mondor",
+    "name": "Mondor",
+    "room": "dungeon",
+    "greet_message": "I HAVE MANY CHALLENGES FOR YOU. DARE YOU BE CHALLENGED BY MONDOR?",
+    "greet_achievement": "dared_by_mondor"
+  },
+  {
+    "id": "kel",
+    "name": "Kel",
+    "room": "ranch",
+    "greet_message": "Yes, I am Kel. Your assistant and a proud breeder of horses. You may look to me whenever you need help tending to the ranch, or whenever you need a horse bred.",
+    "greet_achievement": "love_in_bloom"
+  },
+  {
+    "id": "roy",
+    "name": "Roy",
+    "room": "casino",
+    "greet_message": "LET IT RIDE"
+  },
+  {
+    "id": "princess",
+    "name": "the \"Princess\"",
+    "room": "dungeon",
+    "greet_message": "Squeak. *Bites*",
+    "greet_achievement": "bitten_by_princess",
+    "sprite_path": "assets/greasy_princess.png",
+    "visible_trigger": {"type": "quest_complete", "quest_id": "mondor_goblin_chieftain"}
+  }
+]

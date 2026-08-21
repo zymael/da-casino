@@ -189,5 +189,135 @@
     "stat_bonuses": {"atk": 3},
     "flavor": "You can barely hold on to this thing.",
     "quest_only": true
+  },
+  {
+    "id": "bonk_stick",
+    "name": "Bonk Stick",
+    "slot": "weapon",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 8,
+    "stat_bonuses": {"atk": 2},
+    "flavor": "Bonk."
+  },
+  {
+    "id": "shiny_pin",
+    "name": "Shiny Pin",
+    "slot": "trinket",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 8,
+    "stat_bonuses": {"atk": 1},
+    "flavor": "Catches the light. Catches attention."
+  },
+  {
+    "id": "fancy_cowl",
+    "name": "Fancy Cowl",
+    "slot": "armor",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 8,
+    "stat_bonuses": {"hp": 1, "def": 1},
+    "flavor": "A shawl, technically. Don't argue with it."
+  },
+  {
+    "id": "bulging_tights",
+    "name": "Bulging Tights",
+    "slot": "armor",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 8,
+    "stat_bonuses": {"def": 2},
+    "flavor": "Leaves little to the imagination. Somehow still protective."
+  },
+  {
+    "id": "shield",
+    "name": "Shield",
+    "slot": "armor",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 8,
+    "stat_bonuses": {"def": 2},
+    "flavor": "A stick and a pan. Genius, really."
+  },
+  {
+    "id": "gladius",
+    "name": "Gladius",
+    "slot": "weapon",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 8,
+    "stat_bonuses": {"atk": 3},
+    "flavor": "A stick with delusions of grandeur."
+  },
+  {
+    "id": "magic_wand",
+    "name": "Magic Wand",
+    "slot": "weapon",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 8,
+    "stat_bonuses": {"atk": 2},
+    "flavor": "It's not magic. It's a rock on a stick."
+  },
+  {
+    "id": "spear",
+    "name": "Spear",
+    "slot": "weapon",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 8,
+    "stat_bonuses": {"atk": 3},
+    "flavor": "Reach matters."
+  },
+  {
+    "id": "magic_amulet",
+    "name": "Magic Amulet",
+    "slot": "trinket",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 8,
+    "stat_bonuses": {"hp": 2},
+    "flavor": "Hair and a rock. It's the thought that counts."
+  },
+  {
+    "id": "pugilist_gloves",
+    "name": "Pugilist Gloves",
+    "slot": "weapon",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 8,
+    "stat_bonuses": {"atk": 2},
+    "flavor": "The hat part doesn't do much. Don't think about it."
+  },
+  {
+    "id": "shark_punch",
+    "name": "Shark Punch",
+    "slot": "weapon",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 8,
+    "stat_bonuses": {"atk": 3},
+    "flavor": "The tooth does most of the work."
+  },
+  {
+    "id": "fancy_hat",
+    "name": "Fancy Hat",
+    "slot": "trinket",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 8,
+    "stat_bonuses": {"hp": 1, "atk": 1},
+    "flavor": "Trimmed down to something almost respectable."
+  },
+  {
+    "id": "sling",
+    "name": "Sling",
+    "slot": "weapon",
+    "tier": 1,
+    "rarity": "common",
+    "drop_weight": 8,
+    "stat_bonuses": {"atk": 2},
+    "flavor": "Cloth, elastic, and questionable aim."
   }
 ]

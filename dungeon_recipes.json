@@ -1,92 +1,137 @@
 [
     {
-        "id": "recipe_iron_sword",
-        "name": "Iron Sword",
+        "id": "recipe_bonk_stick",
+        "name": "Bonk Stick",
         "output_kind": "equipment",
-        "output_id": "iron_sword",
-        "materials": {"iron_ore": 3, "goblin_ear": 1},
-        "currency_cost": 20,
-        "flavor": "A goblin blacksmith taught you this, once."
+        "output_id": "bonk_stick",
+        "materials": {"stick": 2},
+        "currency_cost": 0,
+        "flavor": "Two sticks. That's it. That's the recipe."
     },
     {
-        "id": "recipe_steel_hatchet",
-        "name": "Steel Hatchet",
+        "id": "recipe_shiny_pin",
+        "name": "Shiny Pin",
         "output_kind": "equipment",
-        "output_id": "steel_hatchet",
-        "materials": {"iron_ore": 2, "wolf_pelt": 1},
-        "currency_cost": 20,
-        "flavor": "Balanced for throwing, mostly used for chopping."
+        "output_id": "shiny_pin",
+        "materials": {"comb": 1, "nail": 1},
+        "currency_cost": 0,
+        "flavor": "Comb it straight, then stab it through."
     },
     {
-        "id": "recipe_chainmail",
-        "name": "Chainmail",
+        "id": "recipe_fancy_cowl",
+        "name": "Fancy Cowl",
         "output_kind": "equipment",
-        "output_id": "chainmail",
-        "materials": {"iron_ore": 3, "rusty_scrap": 2},
-        "currency_cost": 25,
-        "flavor": "Ring by ring, by hand, by candlelight."
+        "output_id": "fancy_cowl",
+        "materials": {"dirty_cloth": 1, "hair": 1},
+        "currency_cost": 0,
+        "flavor": "The hair really pulls the look together."
     },
     {
-        "id": "recipe_reinforced_buckler",
-        "name": "Reinforced Buckler",
+        "id": "recipe_bulging_tights",
+        "name": "Bulging Tights",
         "output_kind": "equipment",
-        "output_id": "reinforced_buckler",
-        "materials": {"iron_ore": 2, "cursed_bone": 1},
-        "currency_cost": 25,
-        "flavor": "The bone hums faintly whenever it blocks a hit."
+        "output_id": "bulging_tights",
+        "materials": {"used_thong": 1, "droppings": 2},
+        "currency_cost": 0,
+        "flavor": "More filling than flattering."
     },
     {
-        "id": "recipe_warlords_blade",
-        "name": "Warlord's Blade",
-        "output_kind": "equipment",
-        "output_id": "warlords_blade",
-        "materials": {"dragon_scale": 2, "void_crystal": 1, "ancient_rune": 1},
-        "currency_cost": 60,
-        "flavor": "Forged from the parts of the dungeon that fight back."
-    },
-    {
-        "id": "recipe_plate_of_the_vanguard",
-        "name": "Plate of the Vanguard",
-        "output_kind": "equipment",
-        "output_id": "plate_of_the_vanguard",
-        "materials": {"dragon_scale": 3, "ancient_rune": 1},
-        "currency_cost": 60,
-        "flavor": "Scaled, plated, and stubbornly unwilling to dent."
-    },
-    {
-        "id": "recipe_minor_healing_draught",
-        "name": "Minor Healing Draught",
+        "id": "recipe_healing_tonic",
+        "name": "Healing Tonic",
         "output_kind": "consumable",
-        "output_id": "minor_healing_draught",
-        "materials": {"slime_residue": 2},
-        "currency_cost": 5,
-        "flavor": "Cheap, easy, and only mostly gross."
+        "output_id": "healing_tonic",
+        "materials": {"charcoal": 1, "droppings": 1},
+        "currency_cost": 0,
+        "flavor": "Drink fast. Don't smell it first."
     },
     {
-        "id": "recipe_greater_healing_draught",
-        "name": "Greater Healing Draught",
-        "output_kind": "consumable",
-        "output_id": "greater_healing_draught",
-        "materials": {"slime_residue": 2, "cursed_bone": 1},
-        "currency_cost": 15,
-        "flavor": "Stronger stuff needs a stranger ingredient."
+        "id": "recipe_shield",
+        "name": "Shield",
+        "output_kind": "equipment",
+        "output_id": "shield",
+        "materials": {"stick": 1, "pan": 1},
+        "currency_cost": 0,
+        "flavor": "Handle on one side, dents on the other."
     },
     {
-        "id": "recipe_battle_tonic",
-        "name": "Battle Tonic",
-        "output_kind": "consumable",
-        "output_id": "battle_tonic",
-        "materials": {"goblin_ear": 2, "wolf_pelt": 1},
-        "currency_cost": 10,
-        "flavor": "Don't think about the ingredients too hard."
+        "id": "recipe_gladius",
+        "name": "Gladius",
+        "output_kind": "equipment",
+        "output_id": "gladius",
+        "materials": {"stick": 1, "razor": 1},
+        "currency_cost": 0,
+        "flavor": "Rome would not approve."
     },
     {
-        "id": "recipe_iron_skin_elixir",
-        "name": "Iron Skin Elixir",
+        "id": "recipe_magic_wand",
+        "name": "Magic Wand",
+        "output_kind": "equipment",
+        "output_id": "magic_wand",
+        "materials": {"stick": 1, "shiny_rock": 1},
+        "currency_cost": 0,
+        "flavor": "Wave it around with confidence. That's the whole trick."
+    },
+    {
+        "id": "recipe_spear",
+        "name": "Spear",
+        "output_kind": "equipment",
+        "output_id": "spear",
+        "materials": {"stick": 1, "pointy_rock": 1},
+        "currency_cost": 0,
+        "flavor": "The pointy end goes toward the monster."
+    },
+    {
+        "id": "recipe_magic_amulet",
+        "name": "Magic Amulet",
+        "output_kind": "equipment",
+        "output_id": "magic_amulet",
+        "materials": {"hair": 1, "shiny_rock": 1},
+        "currency_cost": 0,
+        "flavor": "The hair is doing absolutely nothing. It looks cool though."
+    },
+    {
+        "id": "recipe_pugilist_gloves",
+        "name": "Pugilist Gloves",
+        "output_kind": "equipment",
+        "output_id": "pugilist_gloves",
+        "materials": {"used_thong": 1, "oversized_hat": 1},
+        "currency_cost": 0,
+        "flavor": "Stretched, stitched, and somehow wearable."
+    },
+    {
+        "id": "recipe_shark_punch",
+        "name": "Shark Punch",
+        "output_kind": "equipment",
+        "output_id": "shark_punch",
+        "materials": {"used_thong": 1, "rat_tooth": 1},
+        "currency_cost": 0,
+        "flavor": "Bites back, in a manner of speaking."
+    },
+    {
+        "id": "recipe_fancy_hat",
+        "name": "Fancy Hat",
+        "output_kind": "equipment",
+        "output_id": "fancy_hat",
+        "materials": {"oversized_hat": 1, "razor": 1},
+        "currency_cost": 0,
+        "flavor": "A quick trim changes everything."
+    },
+    {
+        "id": "recipe_smelly_bomb",
+        "name": "Smelly Bomb",
         "output_kind": "consumable",
-        "output_id": "iron_skin_elixir",
-        "materials": {"rusty_scrap": 2, "iron_ore": 1},
-        "currency_cost": 10,
-        "flavor": "Filings, mostly. It's fine. Probably."
+        "output_id": "smelly_bomb",
+        "materials": {"used_thong": 1, "droppings": 1},
+        "currency_cost": 0,
+        "flavor": "Throw it and run. Mostly run."
+    },
+    {
+        "id": "recipe_sling",
+        "name": "Sling",
+        "output_kind": "equipment",
+        "output_id": "sling",
+        "materials": {"dirty_cloth": 1, "used_thong": 1},
+        "currency_cost": 0,
+        "flavor": "Elastic enough to launch a rock. Probably."
     }
 ]

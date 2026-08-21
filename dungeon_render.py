@@ -1,7 +1,6 @@
 import io
 import math
 import os
-import textwrap
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -15,78 +14,10 @@ ROOM_BG_PATH = "assets/dungeon/dungeon1.png"
 _FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 _label_font = ImageFont.truetype(_FONT_PATH, 20)
 
-# Mondor's dungeon-entrance banner -- a separate photo banner, not the room background above.
-# Never mutated on disk -- every call re-composites a fresh copy, same pattern as
-# ranch_render.py's Kel speech bubble.
+# The dungeon-entrance banner -- a separate photo banner, not the room background above.
+# Dialogue rendering itself now lives in npc_render.py (shared by every NPC/hub); this module just
+# owns the path, same as ranch_render.BANNER_PATH/casino_render.BANNER_PATH.
 BANNER_PATH = "assets/dungeon_banner.png"
-_BUBBLE_FONT = ImageFont.truetype(_FONT_PATH, 13)
-MONDOR_GREETING_TEXT = "I HAVE MANY CHALLENGES FOR YOU. DARE YOU BE CHALLENGED BY MONDOR?"
-_BUBBLE_FILL = (255, 255, 245, 235)
-_BUBBLE_OUTLINE = (30, 20, 15, 255)
-_BUBBLE_TEXT_COLOR = (20, 15, 10, 255)
-
-# Reveal sprite for mondor_goblin_chieftain's completed state -- pre-sized/positioned to the
-# dungeon banner's exact dimensions with a transparent background, so it's a straight
-# alpha_composite at (0, 0) rather than needing any scale/placement logic.
-GREASY_PRINCESS_SPRITE_PATH = "assets/greasy_princess.png"
-
-
-def render_mondor_dialogue(text: str, sprite_path: str | None = None) -> io.BytesIO:
-    """Composites a comic-style speech bubble with arbitrary Mondor dialogue over the dungeon
-    banner, positioned clear of his face (he stands in the left half of the image) with a tail
-    pointing back to him, same layout idea as ranch_render.render_kel_dialogue. Shared by
-    every Mondor interaction (greeting, quest prompts, ...) so there's one bubble renderer rather
-    than one per line of dialogue. sprite_path, if given, is composited onto the banner first
-    (e.g. quests.py's complete_quest_id reveals) so the bubble still draws on top and stays
-    legible over it."""
-    base = Image.open(BANNER_PATH).convert("RGBA")
-    if sprite_path:
-        sprite = Image.open(sprite_path).convert("RGBA")
-        base.alpha_composite(sprite)
-    draw = ImageDraw.Draw(base)
-
-    wrapped = textwrap.fill(text, width=32)
-    padding = 10
-    text_bbox = draw.multiline_textbbox((0, 0), wrapped, font=_BUBBLE_FONT, spacing=4)
-    text_w, text_h = text_bbox[2] - text_bbox[0], text_bbox[3] - text_bbox[1]
-
-    bubble_w, bubble_h = text_w + padding * 2, text_h + padding * 2
-    bubble_x = max(base.width - bubble_w - 10, base.width // 3)
-    bubble_y = 8
-
-    draw.rounded_rectangle(
-        [bubble_x, bubble_y, bubble_x + bubble_w, bubble_y + bubble_h],
-        radius=12, fill=_BUBBLE_FILL, outline=_BUBBLE_OUTLINE, width=2,
-    )
-    tail = [
-        (bubble_x + 30, bubble_y + bubble_h - 2),
-        (bubble_x + 10, bubble_y + bubble_h + 22),
-        (bubble_x + 55, bubble_y + bubble_h - 2),
-    ]
-    draw.polygon(tail, fill=_BUBBLE_FILL, outline=_BUBBLE_OUTLINE)
-    draw.line([(bubble_x + 12, bubble_y + bubble_h - 2), (bubble_x + bubble_w - 12, bubble_y + bubble_h - 2)], fill=_BUBBLE_FILL, width=3)
-
-    draw.multiline_text((bubble_x + padding, bubble_y + padding), wrapped, font=_BUBBLE_FONT, fill=_BUBBLE_TEXT_COLOR, spacing=4)
-
-    buf = io.BytesIO()
-    base.convert("RGB").save(buf, format="PNG")
-    buf.seek(0)
-    return buf
-
-
-def render_dungeon_banner(sprite_path: str | None = None) -> io.BytesIO:
-    """The plain dungeon banner, optionally with a reveal sprite composited on -- no dialogue
-    bubble, unlike render_mondor_dialogue. Used for the hub's resting/default state so a
-    completed quest's sprite (e.g. the Greasy Princess) stays visible every time the hub is
-    opened, not just mid-conversation."""
-    base = Image.open(BANNER_PATH).convert("RGBA")
-    if sprite_path:
-        sprite = Image.open(sprite_path).convert("RGBA")
-        base.alpha_composite(sprite)
-    buf = io.BytesIO()
-    base.convert("RGB").save(buf, format="PNG")
-    buf.seek(0)
-    return buf
 
 
 def _parse_color(hex_color: str) -> tuple[int, int, int, int]:
@@ -130,11 +61,30 @@ def _load_monster_sprite(sprite_path: str) -> Image.Image | None:
     return sprite.resize(new_size, Image.NEAREST)
 
 
-def render_room(room_index: int, total_rooms: int, monster: dict) -> io.BytesIO:
+def _load_background(background_path: str | None) -> Image.Image:
+    """The delve-specific background if it's set and the file actually exists, else the default
+    -- same forgiving fallback as _load_monster_sprite, so a delve JSON entry with no
+    background_path (or a since-deleted file) still renders instead of erroring mid-delve.
+    Uploaded images won't generally already be exactly WIDTH x HEIGHT the way the hand-placed
+    default is, so this cover-fits: scale to fill the frame, then center-crop, rather than
+    stretching (which would distort) or leaving the frame partially empty."""
+    path = background_path if background_path and os.path.exists(background_path) else ROOM_BG_PATH
+    img = Image.open(path).convert("RGBA")
+    if img.size != (WIDTH, HEIGHT):
+        scale = max(WIDTH / img.width, HEIGHT / img.height)
+        new_size = (round(img.width * scale), round(img.height * scale))
+        img = img.resize(new_size, Image.LANCZOS)
+        left = (img.width - WIDTH) // 2
+        top = (img.height - HEIGHT) // 2
+        img = img.crop((left, top, left + WIDTH, top + HEIGHT))
+    return img
+
+
+def render_room(room_index: int, total_rooms: int, monster: dict, background_path: str | None = None) -> io.BytesIO:
     """Renders the corridor view for one dungeon room, with its monster standing at the far end.
     Combat HP/stats are shown as embed text by the caller, not baked into this image -- this
     only draws the scene. Returns a ready-to-attach BytesIO."""
-    img = Image.open(ROOM_BG_PATH).convert("RGBA")
+    img = _load_background(background_path)
 
     cx, cy = WIDTH / 2, HEIGHT / 2 - 10
     sprite = _load_monster_sprite(monster.get("sprite_path"))

@@ -1,0 +1,73 @@
+[
+  {
+    "id": "town_square",
+    "name": "🏘️ Town Square",
+    "description": "Where to?",
+    "background_path": "assets/town_banner.png",
+    "exits": [
+      {"room_id": "casino", "label": "🎰 Casino"},
+      {"room_id": "ranch", "label": "🐴 Ranch"},
+      {"room_id": "dungeon", "label": "🗡️ Dungeon"}
+    ],
+    "commands": []
+  },
+  {
+    "id": "casino",
+    "name": "🎰 Casino Hub",
+    "description": "Every game and shortcut in one place — the `!` commands still work too.",
+    "background_path": "assets/casino_banner.png",
+    "specialization": "casino",
+    "exits": [
+      {"room_id": "town_square", "label": "🏘️ Town Square"}
+    ],
+    "commands": [
+      {"key": "balance", "kind": "none", "label": "💰 Balance"},
+      {"key": "rest", "kind": "none", "label": "😴 Rest"},
+      {"key": "mine", "kind": "none", "label": "⛏️ Mine"},
+      {"key": "pizza", "kind": "none", "label": "🍕 Pizza"},
+      {"key": "leaderboard", "kind": "none", "label": "🏆 Leaderboard"},
+      {"key": "stats", "kind": "none", "label": "📊 Stats"},
+      {"key": "achievements", "kind": "none", "label": "🏅 Achievements"}
+    ]
+  },
+  {
+    "id": "ranch",
+    "name": "🐴 Ranch",
+    "background_path": "assets/ranch_banner.png",
+    "specialization": "ranch",
+    "exits": [
+      {"room_id": "town_square", "label": "🏘️ Town Square"}
+    ],
+    "commands": [
+      {"key": "train", "kind": "none", "label": "🏋️ Train"},
+      {
+        "key": "boost", "kind": "amount", "label": "⚡ Boost SPD",
+        "modal_title": "Boost Horse", "input_label": "Horse number", "const_args": ["speed"]
+      },
+      {
+        "key": "boost", "kind": "amount", "label": "🛡️ Boost END",
+        "modal_title": "Boost Horse", "input_label": "Horse number", "const_args": ["endurance"]
+      },
+      {
+        "key": "boost", "kind": "amount", "label": "✨ Boost SPI",
+        "modal_title": "Boost Horse", "input_label": "Horse number", "const_args": ["spirit"]
+      },
+      {"key": "facility", "kind": "none", "label": "🏗️ Upgrade Facility", "const_args": ["buy"]}
+    ]
+  },
+  {
+    "id": "dungeon",
+    "name": "🗡️ The Dungeon",
+    "description": "Pick a class, then delve for loot and XP. The `!class`/`!delve` commands still work too.",
+    "background_path": "assets/dungeon_banner.png",
+    "specialization": "dungeon",
+    "exits": [
+      {"room_id": "town_square", "label": "🏘️ Town Square"}
+    ],
+    "commands": [
+      {"key": "class", "kind": "none", "label": "🗡️ Class"},
+      {"key": "delve", "kind": "none", "label": "⚔️ Delve", "closes_hub": true},
+      {"key": "craft", "kind": "none", "label": "🛠️ Craft"}
+    ]
+  }
+]

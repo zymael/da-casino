@@ -1,4 +1,5 @@
 import asyncio
+import random
 
 import discord
 
@@ -9,6 +10,8 @@ import roulette_render
 from holdem_view import busy_players as holdem_busy_players
 
 ROUND_SECONDS = 45
+STEAL_CHANCE = 0.01  # 1-in-100 chance a winning payout gets swiped instead of paid out
+STEAL_NAMES = ["Lady of the evening", "Classy Escort"]
 
 # channel_id -> RouletteView, so only one open table per channel
 active_rounds: dict[int, "RouletteView"] = {}
@@ -518,6 +521,15 @@ class RouletteView(discord.ui.View):
         for bet in self.bets:
             multiplier = roulette.payout_multiplier(bet["kind"], bet["value"], result)
             payout = bet["amount"] * multiplier
+            # 1-in-100 chance a winning payout gets swiped before it's credited -- "Unlucky!" is
+            # deliberate misdirection (see moon.py's own secrecy precedent): this has nothing to
+            # do with the player's actual Luck stat, which still does nothing mechanically
+            # anywhere in the game. Rolled per winning bet, not per round, so a player with
+            # several simultaneous winning bets gets an independent roll on each one.
+            stolen_by = None
+            if payout and random.random() < STEAL_CHANCE:
+                stolen_by = random.choice(STEAL_NAMES)
+                payout = 0
             if payout:
                 balance = await asyncio.to_thread(db.update_balance, self.guild_id, bet["user_id"], payout)
             else:
@@ -526,9 +538,14 @@ class RouletteView(discord.ui.View):
             await asyncio.to_thread(db.log_bet, self.guild_id, bet["user_id"], "roulette", bet["amount"], net)
             kinds = achievements.kinds_for_bet("roulette", net)
             kinds += await achievements.record_and_check(self.guild_id, bet["user_id"], "roulette", net)
+            if stolen_by:
+                kinds.append("stolen_from")
             if kinds:
                 achievement_bets.append((bet, kinds))
-            outcome = "🎉 WIN" if payout else "❌ LOSE"
+            if stolen_by:
+                outcome = f"💃 Unlucky! A {stolen_by} steals your winnings"
+            else:
+                outcome = "🎉 WIN" if payout else "❌ LOSE"
             lines.append(
                 f"**{bet['display_name']}** — {roulette.describe_bet(bet['kind'], bet['value'])} "
                 f"({bet['amount']}) — {outcome} ({'+' if net >= 0 else ''}{net}) — Balance: {balance}"

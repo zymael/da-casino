@@ -1,22 +1,21 @@
-"""/play's Casino destination: a game picker plus one-click buttons for every economy command, so
-players don't have to memorize the ! commands (which still work standalone, unchanged).
+"""Casino-room specialization: a game picker, on top of whatever generic room content
+room_view.py already renders (background, NPCs, the plain `commands` button list). `GameSelect` is
+a documented exception to "rooms only ever invoke a command with 0-or-1 generically-collected
+args" (see CLAUDE.md) -- it's *one* Select representing 7 different possible commands, not one
+button collecting one argument, so it can't be expressed as a `rooms.json` commands[] entry the
+way every other button can. It still only ever invokes an existing command per option, same as
+everything else; it's the "one Select, many commands" *shape* that doesn't fit the schema, not a
+bespoke-argument-collection violation of that rule.
 
 Neither the Select nor the buttons duplicate any game logic -- they invoke the *exact same*
 command callback bot.py already registers via @bot.command, by wrapping the click/modal-submit
 interaction in a minimal ctx-alike (every one of those callbacks only ever touches
-ctx.guild/.channel/.author/.send). Command callbacks are passed in from bot.py at
-hub-construction time (not imported here), since bot.py is what imports this module -- importing
-back would be circular.
+ctx.guild/.channel/.author/.send).
 """
-
-import asyncio
 
 import discord
 
-import casino_render
 import hub_ui
-
-CASINO_BANNER_PATH = "assets/casino_banner.png"
 
 # Every game, collapsed into one Select instead of one button each -- "amount" games open
 # hub_ui.AmountModal first (same bet-collection convention as blackjack's Join/Set Bet modal
@@ -57,63 +56,7 @@ class GameSelect(discord.ui.Select):
             await hub_ui.close_hub(interaction)
 
 
-async def build_casino_display(commands: dict, session: hub_ui.HubSession, go_home) -> tuple[discord.Embed, "CasinoView"]:
-    embed = discord.Embed(
-        title="🎰 Casino Hub",
-        description="Every game and shortcut in one place — the `!` commands still work too.",
-        color=discord.Color.gold(),
-    )
-    embed.set_image(url="attachment://casino_banner.png")
-    view = CasinoView(commands, session, go_home)
-    return embed, view
-
-
-class CasinoView(discord.ui.View):
-    """Rebuilt fresh on every render (see build_casino_display) rather than a static persistent
-    panel, now that it lives inside /play's single ephemeral message alongside the other hubs --
-    same "state-aware dashboard" idea as ranch_view.RanchView."""
-
-    def __init__(self, commands: dict, session: hub_ui.HubSession, go_home):
-        super().__init__(timeout=300)
-        self.session = session
-        c = commands
-
-        # Row 0: every game, one Select instead of 7 buttons across 2 uneven rows.
-        self.add_item(GameSelect(commands, row=0))
-
-        # Row 1: economy quick actions -- instant, no ongoing session, so the hub stays open.
-        self.add_item(hub_ui.NoArgButton("💰 Balance", discord.ButtonStyle.secondary, 1, c["balance"]))
-        self.add_item(hub_ui.NoArgButton("😴 Rest", discord.ButtonStyle.secondary, 1, c["rest"]))
-        self.add_item(hub_ui.NoArgButton("⛏️ Mine", discord.ButtonStyle.secondary, 1, c["mine"]))
-        self.add_item(hub_ui.NoArgButton("🍕 Pizza", discord.ButtonStyle.secondary, 1, c["pizza"]))
-        self.add_item(hub_ui.NoArgButton("🏆 Leaderboard", discord.ButtonStyle.secondary, 1, c["leaderboard"]))
-
-        # Row 2: info + navigation.
-        self.add_item(hub_ui.NoArgButton("📊 Stats", discord.ButtonStyle.secondary, 2, c["stats"]))
-        self.add_item(hub_ui.NoArgButton("🏅 Achievements", discord.ButtonStyle.secondary, 2, c["achievements"]))
-        self.add_item(hub_ui.InventoryButton(row=2))
-        self.add_item(hub_ui.EquipmentButton(row=2))
-        self.add_item(hub_ui.TownSquareButton(go_home, row=2))
-
-        # Row 3: flavor.
-        self.add_item(RoyButton())
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        self.session.touch(interaction)
-        return True
-
-
-class RoyButton(discord.ui.Button):
-    """Deliberately not a text command -- the only way to meet Roy is to click this. Unlike
-    Kel's ranch-hub equivalent, this one has no achievement tied to it (not asked for) -- it just
-    swaps the hub's banner for Roy's "LET IT RIDE" greeting, replaying every time it's clicked."""
-
-    def __init__(self):
-        super().__init__(label="👹 Meet Roy", style=discord.ButtonStyle.secondary, row=3)
-
-    async def callback(self, interaction: discord.Interaction):
-        buf = await asyncio.to_thread(casino_render.render_roy_greeting)
-        file = discord.File(buf, filename="roy_greeting.png")
-        embed = interaction.message.embeds[0]
-        embed.set_image(url="attachment://roy_greeting.png")
-        await interaction.response.edit_message(embed=embed, attachments=[file], view=self.view)
+def extra_items(commands: dict) -> list[discord.ui.Item]:
+    """room_view.py's casino specialization hook -- see module docstring for why GameSelect can't
+    just be a rooms.json commands[] entry like everything else."""
+    return [GameSelect(commands, row=0)]

@@ -11,13 +11,12 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 import achievements
-import activity_server
+import admin_server
 import crafting_view
 import db
 from blackjack_view import active_tables as active_blackjack_tables, start_blackjack_table
 import dungeon
-from dungeon_view import ClassPickerView, active_delves, start_delve
-import explorer_view
+from dungeon_view import ClassPickerView, active_delves, build_delve_picker_display, start_delve
 from holdem_view import (
     BIG_BLIND as HOLDEM_BIG_BLIND,
     active_tables as active_holdem_tables,
@@ -28,7 +27,12 @@ import horserace
 from horserace_view import HorseRaceView, active_races
 import hub_ui
 import inventory_view
+import moon
 import quests
+import ranch_view
+import room_commands
+import room_view
+import rooms
 from roulette_view import RouletteView, active_rounds
 from slots_view import SlotsView
 import video_poker
@@ -112,20 +116,20 @@ async def _reject_if_at_poker_table(ctx) -> bool:
 
 @bot.event
 async def setup_hook():
-    """Starts the Discord Activity's aiohttp server (activity_server.py) on this same event loop
-    -- discord.py calls this once, after login but before the gateway connects, specifically as
-    the place to bring up extra background services. activity_server.py's own `web.run_app()`
-    (used only for standalone dev) calls asyncio.run() and owns its own loop, incompatible with
-    running alongside bot.run() -- AppRunner/TCPSite are the awaitable equivalent, safe to start
-    from here. Wrapped in try/except so a bug in the web server can't take the Discord connection
-    down with it (Restart=on-failure on the systemd unit would otherwise restart the whole bot
-    over a web-only failure)."""
+    """Starts the content-editor's aiohttp server (admin_server.py) on this same event loop --
+    discord.py calls this once, after login but before the gateway connects, specifically as the
+    place to bring up extra background services. admin_server.py's own `web.run_app()` (used only
+    for standalone dev) calls asyncio.run() and owns its own loop, incompatible with running
+    alongside bot.run() -- AppRunner/TCPSite are the awaitable equivalent, safe to start from
+    here. Wrapped in try/except so a bug in the web server can't take the Discord connection down
+    with it (Restart=on-failure on the systemd unit would otherwise restart the whole bot over a
+    web-only failure)."""
     try:
-        runner = aiohttp_web.AppRunner(activity_server.build_app(bot))
+        runner = aiohttp_web.AppRunner(admin_server.build_app(bot))
         await runner.setup()
         site = aiohttp_web.TCPSite(runner, "0.0.0.0", ACTIVITY_SERVER_PORT)
         await site.start()
-        print(f"Activity server listening on :{ACTIVITY_SERVER_PORT}", flush=True)
+        print(f"Content editor listening on :{ACTIVITY_SERVER_PORT}", flush=True)
     except Exception:
         import traceback
         traceback.print_exc()
@@ -407,9 +411,11 @@ async def rest_cmd(ctx):
         return
 
     currency = db.get_currency_name(ctx.guild.id)
+    _, moon_emoji, moon_label, _, _ = moon.current_phase()
     await ctx.send(
         f"✅ {ctx.author.display_name} rested up! Claimed **{DAILY_AMOUNT}** {currency} and refilled to "
-        f"**{db.ENERGY_MAX}** ⚡ energy. Balance: **{value}**"
+        f"**{db.ENERGY_MAX}** ⚡ energy. Balance: **{value}**\n"
+        f"{moon_emoji} Tonight's moon: **{moon_label}**"
     )
 
 
@@ -766,12 +772,20 @@ async def delve_cmd(ctx):
         await ctx.send("You're already mid-delve — finish that one first!")
         return
 
+    if len(dungeon.DELVES) > 1:
+        # More than one dungeon defined -- let the player pick before spending energy, so backing
+        # out or a stale interaction never costs a charge. The picker's own confirm button does
+        # the energy check and starts the delve.
+        embed, view = await build_delve_picker_display(ctx.guild.id, ctx.author.id, character)
+        await ctx.send(embed=embed, view=view)
+        return
+
     has_energy = await asyncio.to_thread(db.spend_energy, ctx.guild.id, ctx.author.id, 1)
     if not has_energy:
         await ctx.send(f"You're out of energy, {ctx.author.display_name} — run `!rest` to refill it.")
         return
 
-    await start_delve(ctx, character)
+    await start_delve(ctx, character, next(iter(dungeon.DELVES.values())))
 
 
 @bot.command(name="inventory")
@@ -895,14 +909,10 @@ async def renamehorse_cmd(ctx, number: int = None, *, name: str = None):
     await ctx.send(f"🐴 Horse #{number} is now named **{name}**!")
 
 
-@bot.command(name="train")
-async def train_cmd(ctx, number: int = None):
-    """Train a horse you own once per day, raising its stats and age: !train <number>"""
-    if number is None or number < 1:
-        await ctx.send("Usage: `!train <number>` — see `!horses` for numbers.")
-        return
-
-    horse_index = number - 1
+async def _train_horse(ctx, horse_index: int):
+    """The actual training logic for one specific horse -- shared by train_cmd's numbered
+    invocation and the horse-picker Select's callback (ranch_view.build_train_horse_picker), so
+    there's exactly one place this logic lives regardless of how the horse index got resolved."""
     # Fetched up front (rather than after training) so the facility bonus and any queued !boost
     # item can be folded into the gains *before* calling db.train_horse -- it applies whatever
     # gains it's given and unconditionally clears pending_boost_stat, so the bonus has to already
@@ -941,6 +951,24 @@ async def train_cmd(ctx, number: int = None):
     elif new_age == horserace.MIN_RACING_AGE:
         lines.append("🎉 Old enough to race now!")
     await ctx.send("\n".join(lines))
+
+
+@bot.command(name="train")
+async def train_cmd(ctx, number: int = None):
+    """Train a horse you own once per day, raising its stats and age: !train <number>, or plain
+    !train to pick from a dropdown of your horses instead of needing to already know its number."""
+    if number is None:
+        owned = await asyncio.to_thread(db.get_ranch_horses, ctx.guild.id, ctx.author.id)
+        if not owned:
+            await ctx.send("You don't own any horses yet — try `!buyhorse` or `!buyfoal`.")
+            return
+        view = ranch_view.build_train_horse_picker(owned, _train_horse)
+        await ctx.send("Pick a horse to train:", view=view)
+        return
+    if number < 1:
+        await ctx.send("Usage: `!train <number>` — see `!horses` for numbers.")
+        return
+    await _train_horse(ctx, number - 1)
 
 
 @bot.command(name="facility")
@@ -1195,6 +1223,39 @@ async def pizza(ctx):
     await _update_pizza_champion(ctx.guild)
 
 
+# Every command a /play room can invoke, keyed exactly as rooms.json's commands[].key references
+# it. Populated once, here (not rebuilt per /play call the way it used to be -- it's static) --
+# see room_commands.py's own docstring for why this dict lives in its own tiny module rather than
+# directly in this one or being read from here: rooms.py's loader and admin_schemas.py's "commands"
+# field both need to check/offer these same keys, and neither can import bot.py without a cycle.
+room_commands.COMMANDS.update({
+    "blackjack": blackjack_cmd.callback,
+    "slots": slots_cmd.callback,
+    "roulette": roulette_cmd.callback,
+    "holdem": holdem_cmd.callback,
+    "videopoker": video_poker_cmd.callback,
+    "deuceswild": deuces_wild_cmd.callback,
+    "horserace": horserace_cmd.callback,
+    "balance": balance.callback,
+    "rest": rest_cmd.callback,
+    "mine": mine.callback,
+    "pizza": pizza.callback,
+    "leaderboard": leaderboard.callback,
+    "stats": stats_cmd.callback,
+    "achievements": achievements_cmd.callback,
+    "class": class_cmd.callback,
+    "delve": delve_cmd.callback,
+    "craft": craft_cmd.callback,
+    "train": train_cmd.callback,
+    "boost": boost_cmd.callback,
+    "facility": facility_cmd.callback,
+})
+# Catches a typo'd rooms.json command key loudly at startup instead of a KeyError the moment some
+# player clicks the broken button -- see rooms.py's own docstring for why this can't run any
+# earlier (room_commands.COMMANDS is empty until the update() above runs).
+rooms.validate_command_keys(room_commands.COMMANDS.keys())
+
+
 async def in_casino_channel_slash(interaction: discord.Interaction) -> bool:
     """app_commands equivalent of in_casino_channel above -- @bot.check only wires up for prefix
     commands, so /play needs its own copy of the same channel-lookup logic."""
@@ -1209,28 +1270,10 @@ async def in_casino_channel_slash(interaction: discord.Interaction) -> bool:
 @bot.tree.command(name="play", description="Open a private menu to the Casino, Ranch, and Dungeon")
 @app_commands.check(in_casino_channel_slash)
 async def play_slash(interaction: discord.Interaction):
-    commands_map = {
-        "blackjack": blackjack_cmd.callback,
-        "slots": slots_cmd.callback,
-        "roulette": roulette_cmd.callback,
-        "holdem": holdem_cmd.callback,
-        "videopoker": video_poker_cmd.callback,
-        "deuceswild": deuces_wild_cmd.callback,
-        "horserace": horserace_cmd.callback,
-        "balance": balance.callback,
-        "rest": rest_cmd.callback,
-        "mine": mine.callback,
-        "pizza": pizza.callback,
-        "leaderboard": leaderboard.callback,
-        "stats": stats_cmd.callback,
-        "achievements": achievements_cmd.callback,
-        "class": class_cmd.callback,
-        "delve": delve_cmd.callback,
-        "craft": craft_cmd.callback,
-    }
     session = hub_ui.HubSession(interaction)
-    embed, view = await explorer_view.build_explorer_display(interaction.guild.id, interaction.user.id, commands_map, session)
-    file = hub_ui.banner_file(explorer_view.EXPLORER_BANNER_PATH)
+    embed, view, file = await room_view.build_room_display(
+        interaction.guild.id, interaction.user.id, "town_square", session,
+    )
     await interaction.response.send_message(embed=embed, file=file, view=view, ephemeral=True)
 
 

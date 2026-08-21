@@ -1,23 +1,15 @@
-"""Shared discord.ui building blocks for hub-style views (/play's explorer, casino, ranch,
-dungeon, ...) that invoke an existing @bot.command's callback from a button click or modal
-submit, instead of a typed command. Command callbacks are passed in from bot.py at
-hub-construction time (not imported here), since bot.py is what imports these hub modules --
-importing back would be circular.
+"""Shared discord.ui building blocks for room views (room_view.py's generic RoomView, and every
+specialization's extra_items) that invoke an existing @bot.command's callback from a button click
+or modal submit, instead of a typed command. Command callbacks are passed in from bot.py/
+room_commands.py at room-construction time (not imported here), since bot.py is what imports these
+view modules -- importing back would be circular.
 """
 
 import asyncio
-import os
 
 import discord
 
 import inventory_view
-
-
-def banner_file(path: str) -> discord.File:
-    """A discord.File for a hub's banner image, named to match the `attachment://<basename>`
-    URL every build_X_display() embed already sets -- the one piece every hub-navigation call
-    site (swapping which hub's banner is showing) needs alongside that hub's (embed, view)."""
-    return discord.File(path, filename=os.path.basename(path))
 
 
 class HubSession:
@@ -55,21 +47,6 @@ class HubSession:
             pass
 
 
-class TownSquareButton(discord.ui.Button):
-    """Returns to the /play explorer landing page -- shared by every hub view so navigating back
-    doesn't need its own bespoke button in each one. `go_home` is an
-    `async def go_home(interaction)` callable that performs the edit itself (built by
-    explorer_view.make_go_home and threaded into each hub's build_X_display), so this module
-    doesn't need to import explorer_view/casino_view/ranch_view/dungeon_view and risk a cycle."""
-
-    def __init__(self, go_home, row: int):
-        super().__init__(label="🏘️ Town Square", style=discord.ButtonStyle.secondary, row=row)
-        self.go_home = go_home
-
-    async def callback(self, interaction: discord.Interaction):
-        await self.go_home(interaction)
-
-
 class InteractionContext:
     """Just enough of discord.ext.commands.Context for a command callback written for normal
     prefix invocation to run unmodified from a button click or modal submission instead."""
@@ -82,13 +59,20 @@ class InteractionContext:
 
 
 class AmountModal(discord.ui.Modal):
-    """Collects a single integer (a bet or buy-in) and hands it to `command_callback` exactly
-    as if it had been typed as a command argument."""
+    """Collects a single integer (a bet, a buy-in, a horse number, ...) and hands it to
+    `command_callback` exactly as if it had been typed as a command argument. `const_args`, if
+    given, are extra arguments appended *after* the collected amount -- fixed at button-build time
+    rather than typed by the player (e.g. a room's "Boost SPD" button pre-binding the `stat`
+    argument of `!boost <number> <stat>`, so the modal only ever has to ask for the number)."""
 
-    def __init__(self, title: str, command_callback, input_label: str, required: bool, closes_hub: bool):
+    def __init__(
+        self, title: str, command_callback, input_label: str, required: bool, closes_hub: bool,
+        const_args: tuple = (),
+    ):
         super().__init__(title=title)
         self.command_callback = command_callback
         self.closes_hub = closes_hub
+        self.const_args = const_args
         self.amount_input = discord.ui.TextInput(label=input_label, placeholder="e.g. 50", required=required)
         self.add_item(self.amount_input)
 
@@ -106,34 +90,44 @@ class AmountModal(discord.ui.Modal):
         # component lived on (the hub) -- ephemeral= would only apply to a fresh application-command
         # response, so it's omitted here rather than left in as a no-op. See closes_hub below.
         await interaction.response.defer()
-        await self.command_callback(InteractionContext(interaction), amount)
+        await self.command_callback(InteractionContext(interaction), amount, *self.const_args)
         if self.closes_hub:
             await close_hub(interaction)
 
 
 class NoArgButton(discord.ui.Button):
-    """A button for a command that takes no arguments -- just runs it."""
+    """A button for a command that takes no *player-typed* arguments -- just runs it.
+    `const_args`, if given, are still passed through (fixed at button-build time, e.g. a room's
+    "Upgrade Facility" button pre-binding the `action` argument of `!facility <action>` to
+    `"buy"`) -- "no arg" means nothing needs collecting from the player, not that the underlying
+    command itself is literally zero-arg."""
 
-    def __init__(self, label: str, style: discord.ButtonStyle, row: int, command_callback, closes_hub: bool = False):
+    def __init__(
+        self, label: str, style: discord.ButtonStyle, row: int, command_callback, closes_hub: bool = False,
+        const_args: tuple = (),
+    ):
         super().__init__(label=label, style=style, row=row)
         self.command_callback = command_callback
         self.closes_hub = closes_hub
+        self.const_args = const_args
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        await self.command_callback(InteractionContext(interaction))
+        await self.command_callback(InteractionContext(interaction), *self.const_args)
         if self.closes_hub:
             await close_hub(interaction)
 
 
 class AmountButton(discord.ui.Button):
-    """A button for a command that takes one integer argument -- opens AmountModal to collect
-    it first, matching this codebase's existing bet-collection convention (e.g. blackjack's
-    Join/Set Bet modal) rather than needing that amount typed on the command line."""
+    """A button for a command that takes one player-typed integer argument -- opens AmountModal
+    to collect it first, matching this codebase's existing bet-collection convention (e.g.
+    blackjack's Join/Set Bet modal) rather than needing that amount typed on the command line.
+    `const_args` -- see AmountModal."""
 
     def __init__(
         self, label: str, style: discord.ButtonStyle, row: int, command_callback,
         modal_title: str, input_label: str, required: bool = True, closes_hub: bool = False,
+        const_args: tuple = (),
     ):
         super().__init__(label=label, style=style, row=row)
         self.command_callback = command_callback
@@ -141,10 +135,14 @@ class AmountButton(discord.ui.Button):
         self.input_label = input_label
         self.required = required
         self.closes_hub = closes_hub
+        self.const_args = const_args
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.send_modal(
-            AmountModal(self.modal_title, self.command_callback, self.input_label, self.required, self.closes_hub)
+            AmountModal(
+                self.modal_title, self.command_callback, self.input_label, self.required, self.closes_hub,
+                self.const_args,
+            )
         )
 
 
