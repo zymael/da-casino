@@ -73,6 +73,8 @@ PIZZA_GIFS = [
 
 ROY_GIF = "https://media.giphy.com/media/ywGp4PMJdeLyuRq7vJ/giphy.gif"
 
+RUB_GIF = "https://images-ext-1.discordapp.net/external/1P77ZqLgK4rKSPC0sX4o7VjLSbabwB22RU3dP_2OEPU/https/static.klipy.com/ii/35ccce3d852f7995dd2da910f2abd795/62/ec/kAMWSWzV.mp4"
+
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
@@ -512,7 +514,9 @@ async def rub_cmd(ctx):
 
     member = await _fetch_member(ctx.guild, target_id)
     mention = member.mention if member else f"<@{target_id}>"
-    await ctx.send(f"{ctx.author.display_name} rubs their belly for good luck 🍀... {mention} feels less lucky.")
+    await ctx.send(
+        f"{ctx.author.display_name} rubs their belly for good luck 🍀... {mention} feels less lucky.\n{RUB_GIF}"
+    )
 
 
 @bot.command(name="roy")

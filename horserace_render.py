@@ -1,47 +1,51 @@
 import io
-import math
+import os
+import random
 
 from PIL import Image, ImageDraw, ImageFont
 
+import horserace
+
+# The track is rendered as a series of side-view "photos" rather than an overhead oval: a fixed
+# 160x120 pixel-art backdrop (assets/horses/bgs/racebg.png), upscaled by PHOTO_SCALE with NEAREST
+# so it stays crisp like the horse sprites rather than blurring like a real photo would.
 LEGEND_W = 190
-TRACK_MARGIN = 30
-TRACK_W = 480
-TRACK_H = 280
-IMG_W = LEGEND_W + TRACK_W
-IMG_H = TRACK_H + 2 * TRACK_MARGIN
+PHOTO_SCALE = 3
+SRC_W, SRC_H = 160, 120
+PHOTO_W, PHOTO_H = SRC_W * PHOTO_SCALE, SRC_H * PHOTO_SCALE
+IMG_W = LEGEND_W + PHOTO_W
+IMG_H = PHOTO_H
 
-# Stadium (rounded-rectangle) track geometry, in track-area-local coordinates. The straight
-# length and turn radius are picked so the loop fills TRACK_W x TRACK_H once TRACK_MARGIN is
-# subtracted on every side.
-TURN_RADIUS = (TRACK_H - 2 * TRACK_MARGIN) / 2
-STRAIGHT_LEN = TRACK_W - 2 * TRACK_MARGIN - 2 * TURN_RADIUS
+HORSE_DIR = "assets/horses"
+BG_DIR = "assets/horses/bgs"
 
-# Horses are spread into concentric "lanes" around the loop by a small perpendicular offset
-# from the centerline. RING_HALF_WIDTH is how far the drawn dirt band extends either side of
-# the centerline; LANE_GAP must keep every horse's marker (LANE_GAP * up to ~3.5 lanes either
-# way, for a full RACE_FIELD_SIZE=8 field, plus its own radius) within that band.
-RING_HALF_WIDTH = 55
-LANE_GAP = 11
+# racebg.png's horizon (sky/grass boundary) sits at source y=47, with the grass band running to
+# the bottom of the canvas -- verified by inspecting the source art, not guessed. tree.png,
+# kelbreeder.png, and stands.png are all authored bottom-aligned to that same y=47, so they read
+# as trackside scenery standing on the horizon once composited at the same scale.
+_HORIZON_SRC_Y = 47
+HORIZON_Y = _HORIZON_SRC_Y * PHOTO_SCALE
+GRASS_TOP = 48 * PHOTO_SCALE
+GRASS_BOTTOM = SRC_H * PHOTO_SCALE
+GRASS_CENTER_Y = (GRASS_TOP + GRASS_BOTTOM) / 2
 
-# Horses run START_T -> FINISH_T (increasing t, wrapping past 1.0) -- a bit less than a full
-# lap, so the race visibly sweeps around most of the oval before hitting the home stretch.
-FINISH_T = 0.0
-ARC_FRACTION = 0.85
-START_T = (FINISH_T - ARC_FRACTION) % 1.0
+# Horses run left -> right, gate at TRACK_LEFT, finish line at FINISH_X. PAST_FINISH_PUSH_X pushes
+# the top 3 further right (staggered by finishing order) on the final frame, same idea as the old
+# oval renderer's PAST_FINISH_T -- "clearly past the line, in the right order" -- just along a
+# straight line instead of around a loop. LANE_GAP_Y/RANK_LANE_GAP_Y are the equivalent vertical
+# spread (perpendicular to the direction of travel).
+TRACK_LEFT = 30
+FINISH_X = PHOTO_W - 110
+PAST_FINISH_PUSH_X = {0: 55, 1: 35, 2: 16}
+RANK_LANE_GAP_Y = 30
+LANE_GAP_Y = 22
 
-# How far past the finish line (as a fraction of the loop) the top-3 markers are pushed on the
-# final frame, so 1st/2nd/3rd read clearly as *past* the line and in the right order, rather
-# than clustered right at it. RANK_LANE_GAP staggers them perpendicular to the direction of
-# travel too (independent of each horse's normal racing lane), so the three form a clean
-# diagonal line instead of scattering across whatever lanes they happened to be running in.
-PAST_FINISH_T = {0: 0.05, 1: 0.032, 2: 0.016}
-RANK_LANE_GAP = 16
+# A horse more than this fraction of the track behind the leader just isn't in frame this shot --
+# "not every horse need be in the image if they are VERY far back."
+CAMERA_CUTOFF = 0.28
 
-DIRT = (150, 105, 65, 255)
-RAIL = (230, 225, 210, 255)
-INFIELD = (60, 120, 65, 255)
-FINISH_LIGHT = (255, 255, 255, 255)
-FINISH_DARK = (30, 30, 30, 255)
+HORSE_DISPLAY_HEIGHT = 46
+
 TEXT_COLOR = (255, 255, 245, 255)
 CROWN = (255, 210, 60, 255)
 RANK_BADGE_COLORS = {0: (255, 210, 60, 255), 1: (200, 200, 210, 255), 2: (200, 140, 70, 255)}
@@ -65,51 +69,6 @@ def _centered_text(draw: ImageDraw.ImageDraw, cx, cy, text, font, fill):
     draw.text((cx - w / 2 - bbox[0], cy - h / 2 - bbox[1]), text, font=font, fill=fill)
 
 
-def _stadium_point(t: float, offset: float = 0.0) -> tuple[float, float]:
-    """Point on the stadium perimeter at fraction t in [0, 1), traversed clockwise starting at
-    the left end of the top straight. `offset` shifts the point perpendicular to the direction
-    of travel (positive = outward), used to spread horses into concentric lanes around the loop.
-    """
-    L, R = STRAIGHT_LEN, TURN_RADIUS
-    cap_len = math.pi * R
-    perim = 2 * L + 2 * cap_len
-    s = (t % 1.0) * perim
-
-    if s < L:
-        return R + s, -offset
-    s -= L
-    if s < cap_len:
-        theta = -math.pi / 2 + (s / cap_len) * math.pi
-        cx, cy, r = L + R, R, R + offset
-        return cx + r * math.cos(theta), cy + r * math.sin(theta)
-    s -= cap_len
-    if s < L:
-        return L + R - s, 2 * R + offset
-    s -= L
-    theta = math.pi / 2 + (s / cap_len) * math.pi
-    cx, cy, r = R, R, R + offset
-    return cx + r * math.cos(theta), cy + r * math.sin(theta)
-
-
-def _draw_oval(draw: ImageDraw.ImageDraw, ox: float, oy: float):
-    """Draws the dirt track, grass infield, rail, and finish line at origin (ox, oy)."""
-    outer = [(ox + x, oy + y) for x, y in (_stadium_point(t / 200, offset=RING_HALF_WIDTH) for t in range(201))]
-    inner = [(ox + x, oy + y) for x, y in (_stadium_point(t / 200, offset=-RING_HALF_WIDTH) for t in range(201))]
-    draw.polygon(outer, fill=DIRT)
-    draw.polygon(inner, fill=INFIELD)
-    draw.line(outer + [outer[0]], fill=RAIL, width=2)
-    draw.line(inner + [inner[0]], fill=RAIL, width=2)
-
-    fx, fy = _stadium_point(FINISH_T)
-    square = 8
-    for row in range(-3, 4):
-        for col in range(2):
-            shade = FINISH_LIGHT if (row + col) % 2 == 0 else FINISH_DARK
-            x0 = ox + fx + col * square
-            y0 = oy + fy + row * square
-            draw.rectangle([x0, y0, x0 + square, y0 + square], fill=shade)
-
-
 def _draw_legend(draw: ImageDraw.ImageDraw, names: list[str], colors: list, odds_labels: list[str]):
     swatch = 12
     row_h = 34
@@ -122,71 +81,171 @@ def _draw_legend(draw: ImageDraw.ImageDraw, names: list[str], colors: list, odds
         )
 
 
-def _draw_horse_marker(draw: ImageDraw.ImageDraw, x: float, y: float, color, label: str, rank: int | None):
-    r = 12
+def _load_scaled(path: str) -> Image.Image:
+    """Loads a source pixel-art asset and upscales it by PHOTO_SCALE with NEAREST -- an integer
+    scale factor, so this stays perfectly crisp rather than blurring the flat-color pixel art the
+    way a photographic resize (LANCZOS) would."""
+    img = Image.open(path).convert("RGBA")
+    return img.resize((img.width * PHOTO_SCALE, img.height * PHOTO_SCALE), Image.NEAREST)
+
+
+def _content_crop(img: Image.Image) -> Image.Image:
+    """Crops to just the non-transparent content -- tree/stands/kelbreeder/finish are all full
+    160x120 canvases with their actual art in one small corner, so this is what lets them be
+    repositioned as standalone sprites instead of full-canvas overlays."""
+    bbox = img.getbbox()
+    return img.crop(bbox) if bbox else img
+
+
+_racebg_img = _load_scaled(f"{BG_DIR}/racebg.png")
+
+# tree/kelbreeder/stands sum to ~154 of the source canvas's 160px width -- they were clearly
+# authored to span the whole horizon edge-to-edge. Each frame shuffles their left-to-right order
+# and jitters the (small) leftover slack between them, so consecutive photos don't look identical,
+# while laying them out strictly left-to-right guarantees they never overlap.
+_SCENERY_NAMES = ["tree", "kelbreeder", "stands"]
+_scenery_sprites = {name: _content_crop(_load_scaled(f"{BG_DIR}/{name}.png")) for name in _SCENERY_NAMES}
+
+_finish_sprite = _content_crop(_load_scaled(f"{BG_DIR}/finish.png"))
+
+_horse_sprite_cache: dict[str, Image.Image | None] = {}
+
+
+def _coat_asset_filename(coat: str) -> str:
+    """assets/horses/*.png filenames are the coat name lowercased/underscored, except two
+    irregular ones: the file is "palamino.png" (a typo in the art, not in horserace.COAT_COLORS'
+    "Palomino"), and the one-off SPECIAL_COAT_RED_SPOTTED foal uses the hand-drawn pizza_face.png
+    rather than a coat-named file."""
+    overrides = {"Palomino": "palamino.png", horserace.SPECIAL_COAT_RED_SPOTTED: "pizza_face.png"}
+    return overrides.get(coat, coat.lower().replace(" ", "_") + ".png")
+
+
+def _horse_sprite(coat: str) -> Image.Image | None:
+    """None (rather than raising) for a coat with no matching file, so a typo'd or future coat
+    name degrades to the plain color-blob fallback in _paste_horse instead of breaking the race."""
+    if coat not in _horse_sprite_cache:
+        path = os.path.join(HORSE_DIR, _coat_asset_filename(coat))
+        if os.path.exists(path):
+            img = Image.open(path).convert("RGBA")
+            scale = HORSE_DISPLAY_HEIGHT / img.height
+            new_size = (max(1, round(img.width * scale)), HORSE_DISPLAY_HEIGHT)
+            _horse_sprite_cache[coat] = img.resize(new_size, Image.NEAREST)
+        else:
+            _horse_sprite_cache[coat] = None
+    return _horse_sprite_cache[coat]
+
+
+def _place_scenery(photo: Image.Image):
+    order = list(_SCENERY_NAMES)
+    random.shuffle(order)
+    sprites = [_scenery_sprites[name] for name in order]
+    slack = max(PHOTO_W - sum(s.width for s in sprites), 0)
+    weights = [random.random() for _ in range(len(sprites) + 1)]
+    wsum = sum(weights) or 1.0
+    gaps = [w / wsum * slack for w in weights]
+    x = gaps[0]
+    for sprite, gap in zip(sprites, gaps[1:]):
+        photo.alpha_composite(sprite, (round(x), HORIZON_Y - sprite.height))
+        x += sprite.width + gap
+
+
+def _base_photo() -> Image.Image:
+    """One race photo's backdrop: the bg layer plus that frame's own randomized scenery
+    placement -- called fresh per rendered frame so consecutive photos don't look identical."""
+    photo = _racebg_img.copy()
+    _place_scenery(photo)
+    return photo
+
+
+def _paste_finish_line(photo: Image.Image):
+    x = round(FINISH_X - _finish_sprite.width / 2)
+    photo.alpha_composite(_finish_sprite, (x, GRASS_TOP))
+
+
+def _paste_horse(photo: Image.Image, draw: ImageDraw.ImageDraw, x: float, y: float, coat: str, color, label: str, rank: int | None):
+    sprite = _horse_sprite(coat)
+    half_h = HORSE_DISPLAY_HEIGHT / 2
+    if sprite is not None:
+        photo.alpha_composite(sprite, (round(x - sprite.width / 2), round(y - sprite.height / 2)))
+    else:
+        draw.ellipse([x - half_h, y - half_h, x + half_h, y + half_h], fill=color, outline=(20, 20, 20, 255), width=2)
+
+    badge_r = 9
+    bx, by = x, y - half_h - badge_r - 2
     if rank == 0:
         draw.polygon(
-            [(x - r * 0.7, y - r - 2), (x - r * 0.35, y - r - 12), (x, y - r - 4),
-             (x + r * 0.35, y - r - 12), (x + r * 0.7, y - r - 2)],
+            [(bx - badge_r * 0.7, by - badge_r - 2), (bx - badge_r * 0.35, by - badge_r - 10),
+             (bx, by - badge_r - 3), (bx + badge_r * 0.35, by - badge_r - 10),
+             (bx + badge_r * 0.7, by - badge_r - 2)],
             fill=CROWN, outline=(30, 30, 30, 255),
         )
-        _centered_text(draw, x, y - r - 20, "1st", _rank_font, TEXT_COLOR)
+        _centered_text(draw, bx, by - badge_r - 16, "1st", _rank_font, TEXT_COLOR)
     elif rank is not None:
-        badge = RANK_BADGE_COLORS[rank]
-        _centered_text(draw, x + r + 12, y, {1: "2nd", 2: "3rd"}[rank], _rank_font, badge)
-    draw.ellipse([x - r, y - r, x + r, y + r], fill=color, outline=(20, 20, 20, 255), width=2)
-    bbox = draw.textbbox((0, 0), label, font=_marker_font)
-    w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    draw.text((x - w / 2 - bbox[0], y - h / 2 - bbox[1]), label, font=_marker_font, fill=(255, 255, 255, 255))
+        _centered_text(draw, bx + badge_r + 16, by, {1: "2nd", 2: "3rd"}[rank], _rank_font, RANK_BADGE_COLORS[rank])
+
+    draw.ellipse([bx - badge_r, by - badge_r, bx + badge_r, by + badge_r], fill=color, outline=(20, 20, 20, 255), width=2)
+    _centered_text(draw, bx, by, label, _marker_font, (255, 255, 255, 255))
 
 
 def render_track(
     names: list[str],
     colors: list[tuple[int, int, int, int]],
+    coats: list[str],
     odds_labels: list[str],
     positions: list[float] | None = None,
     final_max: float | None = None,
     finish_order: list[int] | None = None,
 ) -> io.BytesIO:
-    """Draws an oval track with every horse's number/color/name/odds in a legend on the left
-    (not tied to lane position -- an oval doesn't have straight parallel lanes to line text up
-    against) and a numbered, colored marker per horse placed by its progress around the loop.
+    """Draws a legend (name/color/odds per horse, unchanged from the old oval renderer) plus one
+    "photo" of the race: a randomized scenery backdrop with each horse's own coat sprite placed
+    along a straight left-to-right track by progress, numbered/colored to match the legend.
 
-    `positions` is per-horse cumulative distance (None = everyone still at the gate).
-    `final_max` normalizes the scale across every frame of a race so markers only ever move
-    forward as legs are drawn; without it, positions are normalized to their own max.
-    `finish_order` (only passed for the final frame) is every racing horse's position-list
-    index, ranked 1st-first; the top 3 are pushed just past the finish line, staggered in that
-    order, with a place badge, rather than plotted at their raw (near-identical) distances.
+    `positions` is per-horse cumulative distance (None = everyone still at the gate). `final_max`
+    normalizes the scale across every frame of a race so markers only move forward. `finish_order`
+    (only passed for the final frame) ranks every racing position 1st-first; the top 3 are pushed
+    past the finish line, staggered in order. The finish line itself only appears on this final
+    frame and on whichever earlier frame already has the leader at frac 1.0 (the last leg, before
+    the ranked push) -- "one before, one after" the same way the old renderer showed it. A horse
+    more than CAMERA_CUTOFF behind the leader is left out of the shot entirely.
     """
     n = len(names)
     img = Image.new("RGBA", (IMG_W, IMG_H), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
+    _draw_legend(ImageDraw.Draw(img), names, colors, odds_labels)
 
-    ox, oy = LEGEND_W, TRACK_MARGIN
-    _draw_oval(draw, ox, oy)
-    _draw_legend(draw, names, colors, odds_labels)
+    photo = _base_photo()
 
     if positions is None:
         positions = [0.0] * n
     scale = final_max if final_max else (max(positions) or 1.0)
+    fracs = [min(p / scale, 1.0) if scale else 0.0 for p in positions]
+    leader_frac = max(fracs) if fracs else 0.0
+
+    if finish_order is not None or leader_frac >= 0.999:
+        _paste_finish_line(photo)
+
+    draw = ImageDraw.Draw(photo)
     rank_of_position = {pos: rank for rank, pos in enumerate(finish_order[:3])} if finish_order else {}
 
+    to_draw = []
     for i in range(n):
         rank = rank_of_position.get(i)
         if rank is not None:
-            # Placed in a dedicated staircase by rank alone -- not this horse's usual lane
-            # offset, which would scatter 1st/2nd/3rd across unrelated lanes and obscure the
-            # order the whole point of this is to show.
-            t = (FINISH_T + PAST_FINISH_T[rank]) % 1.0
-            offset = (1 - rank) * RANK_LANE_GAP
+            x = FINISH_X + PAST_FINISH_PUSH_X[rank]
+            y = GRASS_CENTER_Y + (1 - rank) * RANK_LANE_GAP_Y
         else:
-            frac = min(positions[i] / scale, 1.0) if scale else 0.0
-            t = (START_T + frac * ARC_FRACTION) % 1.0
-            offset = (i - (n - 1) / 2) * LANE_GAP
-        x, y = _stadium_point(t, offset=offset)
-        _draw_horse_marker(draw, ox + x, oy + y, colors[i], str(i + 1), rank)
+            if fracs[i] < leader_frac - CAMERA_CUTOFF:
+                continue
+            x = TRACK_LEFT + fracs[i] * (FINISH_X - TRACK_LEFT)
+            y = GRASS_CENTER_Y + (i - (n - 1) / 2) * LANE_GAP_Y
+        to_draw.append((i, x, y, rank))
 
+    # Farther-back lanes (lower on screen = higher y = closer to camera) must be painted last so
+    # they occlude horses standing behind them -- sorting by progress instead left horses looking
+    # like they floated in front of/behind the wrong lane-mates.
+    for i, x, y, rank in sorted(to_draw, key=lambda t: t[2]):
+        _paste_horse(photo, draw, x, y, coats[i], colors[i], str(i + 1), rank)
+
+    img.alpha_composite(photo, (LEGEND_W, 0))
     buf = io.BytesIO()
     img.convert("RGB").save(buf, format="PNG")
     buf.seek(0)
