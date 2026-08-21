@@ -1,3 +1,4 @@
+import random
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 
@@ -36,10 +37,10 @@ def init_db():
         )
         """
     )
-    # users predates last_mine_start/last_mine_claim/last_tip -- add them for installs
+    # users predates last_mine_start/last_mine_claim/last_tip/last_rub -- add them for installs
     # where CREATE TABLE IF NOT EXISTS above was a no-op against an older schema.
     columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
-    for column in ("last_mine_start", "last_mine_claim", "last_tip"):
+    for column in ("last_mine_start", "last_mine_claim", "last_tip", "last_rub"):
         if column not in columns:
             conn.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
     # Energy: a delve-gating resource (spent 1 per delve, refilled to bot.ENERGY_MAX by !rest) --
@@ -47,6 +48,20 @@ def init_db():
     # backfills existing rows to full on upgrade, same as any other ALTER ADD COLUMN here.
     if "energy" not in columns:
         conn.execute(f"ALTER TABLE users ADD COLUMN energy INTEGER NOT NULL DEFAULT {ENERGY_MAX}")
+    # Luck: a purely cosmetic stat (nothing else in the game reads it) that only !rub touches --
+    # permanently bumps the rubber's luck and permanently docks the target's (see apply_rub); no
+    # restore-on-rest, stolen luck stays stolen. Every player gets a random starting value rather
+    # than a shared baseline, which a single SQL DEFAULT can't express -- ADD COLUMN backfills
+    # every existing row to the placeholder 50 first, then this block individually randomizes
+    # each of them in Python (the same RNG call _ensure_user uses for brand-new rows below, just
+    # run once here for pre-existing ones).
+    if "luck" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN luck INTEGER NOT NULL DEFAULT 50")
+        for g_id, u_id in conn.execute("SELECT guild_id, user_id FROM users WHERE luck = 50").fetchall():
+            conn.execute(
+                "UPDATE users SET luck = ? WHERE guild_id = ? AND user_id = ?",
+                (random.randint(1, 100), g_id, u_id),
+            )
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS champions (
@@ -358,9 +373,11 @@ def migrate_legacy_users_into_guilds(guild_ids: list[int]):
 
 
 def _ensure_user(conn, guild_id: int, user_id: int):
+    # OR IGNORE makes this a no-op for a returning player, so the random luck roll below only
+    # ever happens once per (guild_id, user_id) -- the very first time this row is created.
     conn.execute(
-        "INSERT OR IGNORE INTO users (guild_id, user_id, balance) VALUES (?, ?, ?)",
-        (guild_id, user_id, STARTING_BALANCE),
+        "INSERT OR IGNORE INTO users (guild_id, user_id, balance, luck) VALUES (?, ?, ?, ?)",
+        (guild_id, user_id, STARTING_BALANCE, random.randint(1, 100)),
     )
 
 
@@ -469,6 +486,38 @@ def get_pizza_leaderboard(guild_id: int, limit: int = 10) -> list[tuple[int, int
         rows = conn.execute(
             "SELECT user_id, pizzas_bought FROM users WHERE guild_id = ? AND pizzas_bought > 0 "
             "ORDER BY pizzas_bought DESC LIMIT ?",
+            (guild_id, limit),
+        ).fetchall()
+        return rows
+    finally:
+        conn.close()
+
+
+def get_random_active_user(guild_id: int) -> int | None:
+    """A random user_id who has actually logged a bet in this guild (bet_log) -- not just anyone
+    who's ever touched their balance. get_balance/_ensure_user lazily create a `users` row for
+    literally anyone who runs !balance once, so that table alone isn't proof someone's actually
+    played. None if nobody in this guild has logged a bet yet."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT DISTINCT user_id FROM bet_log WHERE guild_id = ? ORDER BY RANDOM() LIMIT 1",
+            (guild_id,),
+        ).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def get_luck_leaderboard(guild_id: int, limit: int = 10) -> list[tuple[int, int]]:
+    """Returns up to `limit` (user_id, luck) rows for this guild, luckiest first. Unlike
+    get_pizza_leaderboard, no "> 0" floor -- every row has some luck value from the moment it's
+    created (see _ensure_user), so filtering it the same way would just mean "everyone", not
+    "everyone who's actually done something"."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT user_id, luck FROM users WHERE guild_id = ? ORDER BY luck DESC LIMIT ?",
             (guild_id, limit),
         ).fetchall()
         return rows
@@ -1290,6 +1339,66 @@ def claim_rest(guild_id: int, user_id: int, gold_amount: int) -> tuple[str, floa
         )
         conn.commit()
         return "claimed", new_balance
+    finally:
+        conn.close()
+
+
+def get_luck(guild_id: int, user_id: int) -> int:
+    """See the "luck" column comment in init_db() for what touches this. Purely cosmetic;
+    nothing reads this to affect any actual game odds."""
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.commit()
+        row = conn.execute(
+            "SELECT luck FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()
+        return row[0]
+    finally:
+        conn.close()
+
+
+def apply_rub(
+    guild_id: int, author_id: int, target_id: int, author_gain: int, target_penalty: int
+) -> tuple[str, tuple[int, int] | float]:
+    """!rub's once-per-day effect: the author's luck permanently increases by `author_gain`,
+    the target's luck permanently drops by `target_penalty` -- stolen luck stays stolen, no
+    restore-on-rest. Gated once per calendar day per author, same scheme as tip/claim_rest. If
+    author_id == target_id (rubbing yourself into your own bad luck, if the random draw lands
+    that way), both updates just apply to the same row.
+
+    Returns (status, value):
+      - ("cooldown", seconds_remaining) -- author already rubbed today
+      - ("ok", (author_luck, target_luck)) -- both players' luck, post-update
+    """
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, author_id)
+        _ensure_user(conn, guild_id, target_id)
+        conn.commit()
+        today = date.today().isoformat()
+        (last_rub,) = conn.execute(
+            "SELECT last_rub FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, author_id)
+        ).fetchone()
+        if last_rub == today:
+            return "cooldown", _seconds_until_next_day()
+
+        conn.execute(
+            "UPDATE users SET luck = luck + ?, last_rub = ? WHERE guild_id = ? AND user_id = ?",
+            (author_gain, today, guild_id, author_id),
+        )
+        conn.execute(
+            "UPDATE users SET luck = luck - ? WHERE guild_id = ? AND user_id = ?",
+            (target_penalty, guild_id, target_id),
+        )
+        conn.commit()
+        author_luck = conn.execute(
+            "SELECT luck FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, author_id)
+        ).fetchone()[0]
+        target_luck = conn.execute(
+            "SELECT luck FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, target_id)
+        ).fetchone()[0]
+        return "ok", (author_luck, target_luck)
     finally:
         conn.close()
 

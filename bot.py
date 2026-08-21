@@ -77,7 +77,7 @@ HELP_CATEGORIES = [
     ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost"]),
     ("🗡️ Dungeon", ["class", "delve", "inventory", "equipment", "craft", "quests"]),
     ("🏆 Achievements", ["achievements"]),
-    ("⚙️ Utility", ["ping", "setcasino", "setcurrency"]),
+    ("⚙️ Utility", ["ping", "setcasino", "setcurrency", "rub"]),
 ]
 
 _SYNCED_GUILD_IDS: set[int] = set()
@@ -276,10 +276,12 @@ async def stats_cmd(ctx):
     first_claimed = await asyncio.to_thread(db.get_guild_achievements, guild_id)
     achievement_count = len(personal_earned) + sum(1 for holder, _ in first_claimed.values() if holder == user_id)
     energy = await asyncio.to_thread(db.get_energy, guild_id, user_id)
+    luck = await asyncio.to_thread(db.get_luck, guild_id, user_id)
 
     embed = discord.Embed(title=f"📊 {ctx.author.display_name}'s Stats", color=discord.Color.blurple())
     embed.add_field(name="Balance", value=f"{balance} {currency}", inline=True)
     embed.add_field(name="⚡ Energy", value=f"{energy}/{db.ENERGY_MAX}", inline=True)
+    embed.add_field(name="🍀 Luck", value=str(luck), inline=True)
     embed.add_field(name="🍕 Pizzas Bought", value=str(pizzas_bought), inline=True)
     embed.add_field(name="🏆 Achievements", value=f"{achievement_count} unlocked", inline=True)
 
@@ -343,6 +345,7 @@ async def leaderboard(ctx):
     """Show the top credit holders, top pizza buyers, and biggest single-bet win/loss."""
     credit_rows = await asyncio.to_thread(db.get_leaderboard, ctx.guild.id, 10)
     pizza_rows = await asyncio.to_thread(db.get_pizza_leaderboard, ctx.guild.id, 10)
+    luck_rows = await asyncio.to_thread(db.get_luck_leaderboard, ctx.guild.id, 10)
     win_rows = await asyncio.to_thread(db.get_biggest_win, ctx.guild.id, 5)
     loss_rows = await asyncio.to_thread(db.get_biggest_loss, ctx.guild.id, 5)
     currency = db.get_currency_name(ctx.guild.id)
@@ -375,6 +378,9 @@ async def leaderboard(ctx):
 
     pizza_lines = [rank_line(i, user_id, pizzas, "🍕") for i, (user_id, pizzas) in enumerate(pizza_rows)]
     embed.add_field(name="Pizza", value="\n".join(pizza_lines) or "No one has bought pizza yet!", inline=False)
+
+    luck_lines = [rank_line(i, user_id, luck, "🍀") for i, (user_id, luck) in enumerate(luck_rows)]
+    embed.add_field(name="Luckiest", value="\n".join(luck_lines) or "No luck stats yet!", inline=False)
 
     win_lines = [bet_rank_line(i, user_id, net, game) for i, (user_id, net, game) in enumerate(win_rows)]
     embed.add_field(
@@ -467,6 +473,38 @@ async def tip_cmd(ctx, member: discord.Member = None):
         f"🎁 {ctx.author.display_name} tipped {member.display_name} **{TIP_AMOUNT}** {currency}! "
         f"{member.display_name}'s balance: **{value}**"
     )
+
+
+# Undocumented on purpose -- the bit only works if it looks like a fair random pick from outside.
+RUB_LUCKY_TARGET_ID = 272816170749526027
+RUB_LUCKY_TARGET_WEIGHT = 0.8
+RUB_AUTHOR_LUCK_GAIN = 3  # permanent -- the rubber's own belly-rub payoff
+RUB_TARGET_LUCK_PENALTY = 8  # also permanent -- stolen luck stays stolen
+
+
+@bot.command(name="rub")
+async def rub_cmd(ctx):
+    """Rub your belly for good luck (once per day) -- permanently makes you luckier, and someone else less lucky."""
+    if random.random() < RUB_LUCKY_TARGET_WEIGHT:
+        target_id = RUB_LUCKY_TARGET_ID
+    else:
+        target_id = await asyncio.to_thread(db.get_random_active_user, ctx.guild.id)
+        if target_id is None:
+            target_id = RUB_LUCKY_TARGET_ID  # nobody's logged a bet in this guild yet -- still land the joke
+
+    status, value = await asyncio.to_thread(
+        db.apply_rub, ctx.guild.id, ctx.author.id, target_id, RUB_AUTHOR_LUCK_GAIN, RUB_TARGET_LUCK_PENALTY
+    )
+    if status == "cooldown":
+        await ctx.send(
+            f"⏳ {ctx.author.display_name}, you already rubbed your belly today. "
+            f"You can rub again {_in_seconds(value)}."
+        )
+        return
+
+    member = await _fetch_member(ctx.guild, target_id)
+    mention = member.mention if member else f"<@{target_id}>"
+    await ctx.send(f"{ctx.author.display_name} rubs their belly for good luck 🍀... {mention} feels less lucky.")
 
 
 @bot.command(name="transfer", aliases=["give", "pay"])
