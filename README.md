@@ -46,6 +46,7 @@ A built-in web UI (password-gated, served on the same process as the bot) lets y
 | `!tip @user` | | Tip another user credits generated fresh, once a day |
 | `!transfer @user amount` | `!give`, `!pay` | Send credits to another player |
 | `!rub` | | Rub your belly for luck (once per day) — you get luckier, someone else gets less lucky |
+| `!roy` | | Posts a gif of Roy |
 | `!blackjack bet` | `!bj` | Open/join a blackjack table |
 | `!slots` | `!slot` | Open the slot machine — pick paylines/multiplier, then spin |
 | `!roulette` | `!rl` | Open a roulette round |

@@ -71,6 +71,8 @@ PIZZA_GIFS = [
     "https://media.giphy.com/media/3d1vYpj10Fcgo/giphy.gif",
 ]
 
+ROY_GIF = "https://media.giphy.com/media/ywGp4PMJdeLyuRq7vJ/giphy.gif"
+
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
@@ -81,7 +83,7 @@ HELP_CATEGORIES = [
     ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost"]),
     ("🗡️ Dungeon", ["class", "delve", "inventory", "equipment", "craft", "quests"]),
     ("🏆 Achievements", ["achievements"]),
-    ("⚙️ Utility", ["ping", "setcasino", "setcurrency", "rub"]),
+    ("⚙️ Utility", ["ping", "setcasino", "setcurrency", "rub", "roy"]),
 ]
 
 _SYNCED_GUILD_IDS: set[int] = set()
@@ -511,6 +513,14 @@ async def rub_cmd(ctx):
     member = await _fetch_member(ctx.guild, target_id)
     mention = member.mention if member else f"<@{target_id}>"
     await ctx.send(f"{ctx.author.display_name} rubs their belly for good luck 🍀... {mention} feels less lucky.")
+
+
+@bot.command(name="roy")
+async def roy_cmd(ctx):
+    """Posts a gif of Roy: !roy"""
+    embed = discord.Embed(color=discord.Color.gold())
+    embed.set_image(url=ROY_GIF)
+    await ctx.send(embed=embed)
 
 
 @bot.command(name="transfer", aliases=["give", "pay"])
