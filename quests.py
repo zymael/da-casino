@@ -251,10 +251,20 @@ QUESTS_BY_ID = _load_quests()
 # achievements.ACHIEVEMENTS -- except a malformed visible_trigger would crash mid-game the moment
 # a room actually evaluates it (not just silently no-op), so this one really does need a load-time
 # check rather than just leaning on the admin panel's form to prevent typos.
+#
+# Same story for a "quest_item"-kind shop entry's item_id -- npcs.py validates every other shop
+# kind itself (dungeon.py is safely importable from there) but can't check this one without
+# importing this module back, so it's checked here too, right alongside visible_trigger.
 for _npc in npcs.NPCS.values():
     _npc_trigger = _npc.get("visible_trigger")
     if _npc_trigger is not None:
         _validate_trigger(_npc_trigger, f"npcs.json: npc {_npc['id']!r} visible_trigger")
+    for _i, _shop_entry in enumerate(_npc.get("shop") or []):
+        if _shop_entry["kind"] == "quest_item" and _shop_entry["item_id"] not in QUEST_ITEMS:
+            raise ValueError(
+                f"npcs.json: npc {_npc['id']!r} shop entry {_i} item_id {_shop_entry['item_id']!r} "
+                f"not in QUEST_ITEMS"
+            )
 
 
 async def npcs_present_in_room(guild_id: int, user_id: int, room_id: str) -> list[str]:

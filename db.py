@@ -2033,6 +2033,35 @@ def consume_inventory_item(guild_id: int, user_id: int, item_id: str, qty: int =
         conn.close()
 
 
+def spend_currency(guild_id: int, user_id: int, cost: int) -> tuple[str, int]:
+    """Atomically checks and deducts `cost` from this user's balance -- the currency-only half of
+    craft_item's check-then-consume shape, for callers (shop.buy) that have no materials to check
+    alongside it. Returns (status, balance): "ok" (deducted, new balance) or "broke" (untouched,
+    current balance)."""
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        balance = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
+        if balance < cost:
+            conn.rollback()
+            return "broke", balance
+        conn.execute(
+            "UPDATE users SET balance = balance - ? WHERE guild_id = ? AND user_id = ?",
+            (cost, guild_id, user_id),
+        )
+        conn.commit()
+        new_balance = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
+        return "ok", new_balance
+    finally:
+        conn.close()
+
+
 def craft_item(guild_id: int, user_id: int, materials: dict[str, int], currency_cost: int) -> tuple[str, int]:
     """Atomically checks and consumes every required material qty plus currency_cost for a
     crafting recipe -- either all of it succeeds or none of it does. Returns (status, balance):

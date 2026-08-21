@@ -138,6 +138,8 @@ class RoomView(discord.ui.View):
 
         for npc_id in present_npcs:
             self._add(npc_view.TalkToNpcButton(npc_id, room["background_path"], self._rebuild, row=0))
+            if npcs.NPCS[npc_id].get("shop"):
+                self._add(npc_view.ShopButton(npc_id, row=0))
             for state in npc_states[npc_id]:
                 if state["can_turn_in"]:
                     self._add(npc_view.TurnInButton(

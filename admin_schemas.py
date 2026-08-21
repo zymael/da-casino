@@ -43,6 +43,22 @@ Field types the generic form-builder knows how to render:
     an upload for this field lands, saved as <subdir>/<entry id>.<ext>. Leaving the file input
     blank on an edit keeps whatever image was already set -- uploading is optional, not a
     re-required field every save. See admin_server.py's _save_uploaded_image.
+  - "cascaded_id" -- a <select> of item ids whose valid options depend on a sibling field's
+    current value (recipes' output_id on output_kind, npcs.json shop rows' item_id on kind) --
+    the *only* place across this schema an id gets typed free-text against "whatever registry the
+    real loader happens to check it against" is the shop_items row-builder below, since every
+    other id field is either a fixed single-registry "materials"/"tier_list"-style select or one
+    of these. Needs "cascade" (which entry in admin_server._cascade_options() supplies the live
+    id->label choices, one dict per possible sibling value) and "cascade_from" (the sibling
+    field's name). The paired enum field needs "cascades_to" set to that same cascade name so its
+    <select> gets a data-cascade attribute the page script's wireCascadingSelects hooks onto to
+    repopulate this field's options live when the sibling changes -- see
+    admin_server._render_cascaded_select and its CASCADE_OPTIONS script data.
+  - "shop_items" -- npcs.json's optional "shop": a repeatable list of {kind, item_id, price}. kind
+    is a fixed equipment/material/consumable/quest_item <select> (npcs.SHOP_KINDS); item_id is a
+    cascaded_id-shaped select scoped to that row (not a top-level field, so it can't use the
+    "cascaded_id" field type above -- admin_server._render_shop_row builds it directly the same
+    way, just wired to the row's own kind select instead of a sibling top-level field).
   - "trigger" -- a single quests.TRIGGER_SCHEMAS condition ({type, ...params}), used for a
     quest's top-level "start_trigger". Every type's params are flattened into one row (same idea
     as "effects") -- quests._validate_trigger (run at save time via the real loader) is what
@@ -250,10 +266,13 @@ CONTENT_TYPES = {
             {
                 "name": "output_kind", "type": "enum", "required": True, "choices": list(dungeon.RECIPE_OUTPUT_KINDS),
                 "group": "Output", "hint": "which registry output_id below is looked up in",
+                "cascades_to": "recipe_output",
             },
             {
-                "name": "output_id", "type": "str", "required": True, "group": "Output",
-                "hint": "the id of the equipment or consumable this recipe produces, per output_kind above",
+                "name": "output_id", "type": "cascaded_id", "required": True, "group": "Output",
+                "cascade": "recipe_output", "cascade_from": "output_kind",
+                "hint": "the equipment or consumable this recipe produces -- options populate once "
+                        "output_kind (above) is chosen",
             },
             {"name": "materials", "type": "materials", "required": True},
             {
@@ -397,6 +416,12 @@ CONTENT_TYPES = {
                 "hint": "a portrait composited onto whatever banner they're shown against -- optional; "
                         "without one, the NPC is just implied to be part of the banner photo itself",
             },
+            {
+                "name": "shop", "type": "shop_items", "required": False,
+                "hint": "optional -- any items listed here show a Shop button for this NPC. "
+                        "item_id is looked up in the registry named by kind (equipment/material/"
+                        "consumable/quest_item).",
+            },
         ],
     },
     "quests": {
@@ -426,3 +451,30 @@ CONTENT_TYPES = {
 
 EFFECT_TYPES = list(dungeon.EFFECT_PARAM_SCHEMAS.keys())
 EFFECT_PARAM_NAMES = sorted({p for required, optional, _ in dungeon.EFFECT_PARAM_SCHEMAS.values() for p in required | optional})
+# type -> sorted list of every param name that type actually uses -- every "effects" row shows all
+# of EFFECT_PARAM_NAMES (value/reduction/multiplier) so one row-builder works for every type (see
+# _render_effect_row), but only ever 0 or 1 of them actually applies to a given type -- this is
+# what the page script hides the rest against once a row's type is picked (same idea as
+# TRIGGER_PARAMS_BY_TYPE below, just for effects).
+EFFECT_PARAMS_BY_TYPE = {
+    effect_type: sorted(required | optional)
+    for effect_type, (required, optional, _fraction) in dungeon.EFFECT_PARAM_SCHEMAS.items()
+}
+# One-line, plain-English explanation of what a type's one relevant param actually means in combat
+# (dungeon_view.EFFECT_HANDLERS is what interprets these) -- every type here uses at most one
+# param, so a single hint per type is enough context. Shown under the row's type picker and
+# swapped live as the type changes, same spot TRIGGER_PARAM_HINTS's per-param hints occupy for a
+# trigger row, just keyed by type instead of param since here the param *name* alone (multiplier?
+# reduction? value?) doesn't say what it does.
+EFFECT_TYPE_HINTS = {
+    "damage_multiplier": "value: your attack's damage this hit is multiplied by this (e.g. 1.5 = +50% damage)",
+    "heal_fraction": "value: fraction of your max HP restored (0-1, e.g. 0.3 = 30%)",
+    "guard": "reduction: the monster's next hit is multiplied by this (0-1, e.g. 0.5 = -50% damage taken)",
+    "lifesteal_fraction": "value: fraction of the damage you deal that's restored as HP (0-1)",
+    "def_shred": "value: flat amount the monster's DEF is lowered by, for the rest of this fight",
+    "extra_attack": "multiplier: optional damage multiplier for the bonus attack (blank = 1.0, a full extra hit)",
+    "atk_buff": "value: flat ATK bonus for the rest of this fight",
+    "def_buff": "value: flat DEF bonus for the rest of this fight",
+}
+
+SHOP_KINDS = list(npcs.SHOP_KINDS.keys())

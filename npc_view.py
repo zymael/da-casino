@@ -1,17 +1,22 @@
 """Generic NPC interaction buttons -- shared by every room (room_view.RoomView adds these for
 whichever NPCs quests.npcs_present_in_room reports for that room, no per-room NPC code at all).
-Two classes cover every NPC: TalkToNpcButton (always shows whatever's currently relevant -- their
-static greeting, or every active quest's current prompt with them) and TurnInButton (one per quest
+Three classes cover every NPC: TalkToNpcButton (always shows whatever's currently relevant -- their
+static greeting, or every active quest's current prompt with them), TurnInButton (one per quest
 that quests.talk_to_npc reports can_turn_in -- an NPC can have more than one eligible quest active
 at once, so a room adds zero or more of these, each scoped to its own quest_id rather than the NPC
-as a whole; see quests.talk_to_npc's docstring for why that matters).
+as a whole; see quests.talk_to_npc's docstring for why that matters), and ShopButton (added only
+for an NPC with a non-empty npcs.json "shop" list -- opens shop_view's ephemeral purchase popup,
+same pattern as hub_ui.InventoryButton/EquipmentButton, rather than anything built into the room's
+own view; see CLAUDE.md's "Rooms/NPCs" section for why a room never builds bespoke picker UI
+itself).
 
-Both take a `rebuild` callable -- `async def rebuild(interaction, buf, filename) -> None` --
-that redraws the room and applies the freshly-rendered dialogue image; room_view.RoomView passes
-its own `_rebuild` in. A present NPC's reveal sprite (e.g. the Greasy Princess, once
-mondor_goblin_chieftain is complete) shows on the room's *resting* banner automatically via
-npc_render.render_room_banner's sprite-list compositing -- no NPC-specific code anywhere in this
-path, room_view.py just asks each present NPC's npcs.json entry for a sprite_path.
+TalkToNpcButton/TurnInButton take a `rebuild` callable -- `async def rebuild(interaction, buf,
+filename) -> None` -- that redraws the room and applies the freshly-rendered dialogue image;
+room_view.RoomView passes its own `_rebuild` in. A present NPC's reveal sprite (e.g. the Greasy
+Princess, once mondor_goblin_chieftain is complete) shows on the room's *resting* banner
+automatically via npc_render.render_room_banner's sprite-list compositing -- no NPC-specific code
+anywhere in this path, room_view.py just asks each present NPC's npcs.json entry for a
+sprite_path.
 """
 
 import asyncio
@@ -22,6 +27,7 @@ import achievements
 import npc_render
 import npcs
 import quests
+import shop_view
 
 
 class TalkToNpcButton(discord.ui.Button):
@@ -49,6 +55,23 @@ class TalkToNpcButton(discord.ui.Button):
         text = "\n\n".join(state["prompt"] for state in states) if states else npc["greet_message"]
         buf = await asyncio.to_thread(npc_render.render_npc_dialogue, self.banner_path, text, npc.get("sprite_path"))
         await self.rebuild(interaction, buf, f"{self.npc_id}_dialogue.png")
+
+
+class ShopButton(discord.ui.Button):
+    """Shown for any NPC with a non-empty npcs.json "shop" list -- opens shop_view's ephemeral
+    purchase popup rather than redrawing the room banner (unlike TalkToNpcButton/TurnInButton,
+    this doesn't take a `rebuild` -- buying happens entirely inside the popup, which re-renders
+    itself in place; see shop_view.ShopSelect.callback)."""
+
+    def __init__(self, npc_id: str, *, row: int):
+        npc = npcs.NPCS[npc_id]
+        super().__init__(label=f"🛒 Shop ({npc['name']})", style=discord.ButtonStyle.secondary, row=row)
+        self.npc_id = npc_id
+
+    async def callback(self, interaction: discord.Interaction):
+        guild_id, user_id = interaction.guild.id, interaction.user.id
+        embed, view = await shop_view.build_shop_display(guild_id, user_id, self.npc_id)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 class TurnInButton(discord.ui.Button):
