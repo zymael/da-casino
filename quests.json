@@ -2,25 +2,37 @@
   {
     "id": "kel_romance",
     "npc": "kel",
-    "start_trigger": {"type": "achievement", "kind": "love_in_bloom"},
+    "start_trigger": {
+      "type": "achievement",
+      "kind": "love_in_bloom"
+    },
     "stages": [
       {
-        "prompt": "Kel scuffs his boot in the dirt. \"...I used to whittle, you know. Haven't picked it back up in years. Lost the last thing I ever carved, out past the training grounds somewhere. Silly to miss a piece of wood this much.\"",
-        "trigger": {"type": "turn_in_item", "item_id": "wooden_horse_carving"},
-        "on_complete_message": "...You're giving this to me? It's beautiful.\" \"Thank you. Really.\"",
-        "reward": 0
+        "prompt": "*Kel scuffs his boot in the dirt.* \"...I used to whittle, you know. Haven't picked it back up in years. Lost the last thing I ever carved. Silly to miss a piece of wood this much.\"",
+        "trigger": {
+          "type": "turn_in_item",
+          "item_id": "wooden_horse_carving"
+        },
+        "on_complete_message": "*Kel Blushes* ...You're giving this to me? It's beautiful. Thank you. Really.\""
       }
     ]
   },
   {
     "id": "mondor_goblin_chieftain",
     "npc": "mondor",
-    "start_trigger": {"type": "achievement", "kind": "dared_by_mondor"},
+    "start_trigger": {
+      "type": "achievement",
+      "kind": "dared_by_mondor"
+    },
     "complete_message": "You have returned the \"Princess\" to her rightful place at Mondor's side.",
     "stages": [
       {
         "prompt": "THE GOBLIN CHIEFTAIN HAS KIDNAPPED THE PRINCESS THAT IS NOT THREE RATS IN A TRENCHCOAT. SAVE HER BRAVE ADVENTURER AND YOU WILL BE REWARDED HANDSOMELY.",
-        "trigger": {"type": "turn_in_item", "item_id": "three_rats_in_a_trenchcoat", "drop_monster": "goblin_chief"},
+        "trigger": {
+          "type": "turn_in_item",
+          "item_id": "three_rats_in_a_trenchcoat",
+          "drop_monster": "goblin_chief"
+        },
         "on_complete_message": "YOU HAVE DONE WELL ADVENTURER. PLEASE TAKE THIS SLIPPERY PENCIL AND MY THANKS. OW SHE IS BITING ME JESUS CHRIST.",
         "reward_item": "greasy_pencil"
       }

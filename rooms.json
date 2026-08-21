@@ -1,73 +1,201 @@
 [
   {
     "id": "town_square",
-    "name": "🏘️ Town Square",
-    "description": "Where to?",
-    "background_path": "assets/town_banner.png",
+    "name": "\ud83c\udfd8\ufe0f Town Square",
+    "description": "The central square of the great city of PANTHEON.  You can help but bristle at the thought of the exciting adventures you're going to have here!  Or maybe it's just what you ate last night.",
+    "background_path": "assets/rooms/town_square.jpg",
     "exits": [
-      {"room_id": "casino", "label": "🎰 Casino"},
-      {"room_id": "ranch", "label": "🐴 Ranch"},
-      {"room_id": "dungeon", "label": "🗡️ Dungeon"}
+      {
+        "room_id": "casino",
+        "label": "\ud83c\udfb0 Casino"
+      },
+      {
+        "room_id": "ranch",
+        "label": "\ud83d\udc34 Ranch"
+      },
+      {
+        "room_id": "dungeon",
+        "label": "\ud83d\udde1\ufe0f Dungeon"
+      },
+      {
+        "room_id": "elven_night_market",
+        "label": "\ud83e\udddd Elven Night Market"
+      }
     ],
     "commands": []
   },
   {
     "id": "casino",
-    "name": "🎰 Casino Hub",
-    "description": "Every game and shortcut in one place — the `!` commands still work too.",
+    "name": "\ud83c\udfb0 Casino Hub",
+    "description": "Every game and shortcut in one place \u2014 the `!` commands still work too.",
     "background_path": "assets/casino_banner.png",
     "specialization": "casino",
     "exits": [
-      {"room_id": "town_square", "label": "🏘️ Town Square"}
+      {
+        "room_id": "town_square",
+        "label": "\ud83c\udfd8\ufe0f Town Square"
+      }
     ],
     "commands": [
-      {"key": "balance", "kind": "none", "label": "💰 Balance"},
-      {"key": "rest", "kind": "none", "label": "😴 Rest"},
-      {"key": "mine", "kind": "none", "label": "⛏️ Mine"},
-      {"key": "pizza", "kind": "none", "label": "🍕 Pizza"},
-      {"key": "leaderboard", "kind": "none", "label": "🏆 Leaderboard"},
-      {"key": "stats", "kind": "none", "label": "📊 Stats"},
-      {"key": "achievements", "kind": "none", "label": "🏅 Achievements"}
+      {
+        "key": "balance",
+        "kind": "none",
+        "label": "\ud83d\udcb0 Balance"
+      },
+      {
+        "key": "rest",
+        "kind": "none",
+        "label": "\ud83d\ude34 Rest"
+      },
+      {
+        "key": "mine",
+        "kind": "none",
+        "label": "\u26cf\ufe0f Mine"
+      },
+      {
+        "key": "pizza",
+        "kind": "none",
+        "label": "\ud83c\udf55 Pizza"
+      },
+      {
+        "key": "leaderboard",
+        "kind": "none",
+        "label": "\ud83c\udfc6 Leaderboard"
+      },
+      {
+        "key": "stats",
+        "kind": "none",
+        "label": "\ud83d\udcca Stats"
+      },
+      {
+        "key": "achievements",
+        "kind": "none",
+        "label": "\ud83c\udfc5 Achievements"
+      }
     ]
   },
   {
     "id": "ranch",
-    "name": "🐴 Ranch",
+    "name": "\ud83d\udc34 Ranch",
     "background_path": "assets/ranch_banner.png",
     "specialization": "ranch",
     "exits": [
-      {"room_id": "town_square", "label": "🏘️ Town Square"}
+      {
+        "room_id": "town_square",
+        "label": "\ud83c\udfd8\ufe0f Town Square"
+      }
     ],
     "commands": [
-      {"key": "train", "kind": "none", "label": "🏋️ Train"},
       {
-        "key": "boost", "kind": "amount", "label": "⚡ Boost SPD",
-        "modal_title": "Boost Horse", "input_label": "Horse number", "const_args": ["speed"]
+        "key": "train",
+        "kind": "none",
+        "label": "\ud83c\udfcb\ufe0f Train"
       },
       {
-        "key": "boost", "kind": "amount", "label": "🛡️ Boost END",
-        "modal_title": "Boost Horse", "input_label": "Horse number", "const_args": ["endurance"]
+        "key": "boost",
+        "kind": "none",
+        "label": "\u26a1 Boost SPD",
+        "const_args": [
+          "speed"
+        ]
       },
       {
-        "key": "boost", "kind": "amount", "label": "✨ Boost SPI",
-        "modal_title": "Boost Horse", "input_label": "Horse number", "const_args": ["spirit"]
+        "key": "boost",
+        "kind": "none",
+        "label": "\ud83d\udee1\ufe0f Boost END",
+        "const_args": [
+          "endurance"
+        ]
       },
-      {"key": "facility", "kind": "none", "label": "🏗️ Upgrade Facility", "const_args": ["buy"]}
+      {
+        "key": "boost",
+        "kind": "none",
+        "label": "\u2728 Boost SPI",
+        "const_args": [
+          "spirit"
+        ]
+      },
+      {
+        "key": "facility",
+        "kind": "none",
+        "label": "\ud83c\udfd7\ufe0f Upgrade Facility",
+        "const_args": [
+          "buy"
+        ]
+      },
+      {
+        "key": "horseequip",
+        "kind": "none",
+        "label": "\ud83d\udc52 Dress Up"
+      }
     ]
   },
   {
     "id": "dungeon",
-    "name": "🗡️ The Dungeon",
+    "name": "\ud83d\udde1\ufe0f The Dungeon",
     "description": "Pick a class, then delve for loot and XP. The `!class`/`!delve` commands still work too.",
     "background_path": "assets/dungeon_banner.png",
-    "specialization": "dungeon",
     "exits": [
-      {"room_id": "town_square", "label": "🏘️ Town Square"}
+      {
+        "room_id": "town_square",
+        "label": "\ud83c\udfd8\ufe0f Town Square"
+      }
     ],
     "commands": [
-      {"key": "class", "kind": "none", "label": "🗡️ Class"},
-      {"key": "delve", "kind": "none", "label": "⚔️ Delve", "closes_hub": true},
-      {"key": "craft", "kind": "none", "label": "🛠️ Craft"}
+      {
+        "key": "class",
+        "kind": "none",
+        "label": "\ud83d\udde1\ufe0f Class"
+      },
+      {
+        "key": "delve",
+        "kind": "none",
+        "label": "\u2694\ufe0f Delve",
+        "closes_hub": true
+      },
+      {
+        "key": "craft",
+        "kind": "none",
+        "label": "\ud83d\udee0\ufe0f Craft"
+      },
+      {
+        "key": "delve",
+        "kind": "none",
+        "label": "\ud83e\udea9 Goblin Disco",
+        "const_args": [
+          "goblin_disco"
+        ]
+      }
     ]
+  },
+  {
+    "id": "elven_night_market",
+    "name": "\ud83e\udddd Elven Night Market",
+    "description": "A bustling, if not shady, night market.  It's open in the day too, of course.",
+    "background_path": "assets/rooms/elven_night_market.jpg",
+    "exits": [
+      {
+        "room_id": "goo_store",
+        "label": "\ud83e\udee0 The Goo's Second Hand Pet Store"
+      },
+      {
+        "room_id": "town_square",
+        "label": "\ud83c\udfd8\ufe0f Town Square"
+      }
+    ],
+    "commands": []
+  },
+  {
+    "id": "goo_store",
+    "name": "\ud83e\udee0 The Goo's Second Hand Pet Store",
+    "description": "Everything in the place has a strange, sticky pink residue on it.   Still, despite the cacophony of various animal noises, the store is filled with happy looking pets that would be even happier to find a home.",
+    "background_path": "assets/rooms/goo_store.png",
+    "exits": [
+      {
+        "room_id": "elven_night_market",
+        "label": "\ud83e\udddd Elven Night Market"
+      }
+    ],
+    "commands": []
   }
 ]

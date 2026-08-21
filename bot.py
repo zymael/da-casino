@@ -16,7 +16,8 @@ import crafting_view
 import db
 from blackjack_view import active_tables as active_blackjack_tables, start_blackjack_table
 import dungeon
-from dungeon_view import ClassPickerView, active_delves, build_delve_picker_display, start_delve
+from dungeon_view import ClassPickerView, active_delves, build_delve_picker_display, build_mode_choice_display
+import horse_clothes_view
 from holdem_view import (
     BIG_BLIND as HOLDEM_BIG_BLIND,
     active_tables as active_holdem_tables,
@@ -82,7 +83,7 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 HELP_CATEGORIES = [
     ("💰 Economy", ["balance", "stats", "rest", "mine", "tip", "transfer", "pizza", "leaderboard"]),
     ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
-    ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost"]),
+    ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost", "horseequip"]),
     ("🗡️ Dungeon", ["class", "delve", "inventory", "equipment", "craft", "quests"]),
     ("🏆 Achievements", ["achievements"]),
     ("⚙️ Utility", ["ping", "setcasino", "setcurrency", "rub", "roy"]),
@@ -405,11 +406,11 @@ async def leaderboard(ctx):
 
 @bot.command(name="rest")
 async def rest_cmd(ctx):
-    """Rest for the day: claim your daily credits and refill your energy (once per day)."""
+    """Claim your credits and refill your energy (once every 12 hours)."""
     status, value = await asyncio.to_thread(db.claim_rest, ctx.guild.id, ctx.author.id, DAILY_AMOUNT)
     if status == "cooldown":
         await ctx.send(
-            f"⏳ {ctx.author.display_name}, you've already rested today. "
+            f"⏳ {ctx.author.display_name}, you've rested recently. "
             f"You can rest again {_in_seconds(value)}."
         )
         return
@@ -494,7 +495,7 @@ RUB_TARGET_LUCK_PENALTY = 8  # also permanent -- stolen luck stays stolen
 
 @bot.command(name="rub")
 async def rub_cmd(ctx):
-    """Rub your belly for good luck (once per day) -- permanently makes you luckier, and someone else less lucky."""
+    """Rub your belly for good luck (once every 12 hours) -- permanently makes you luckier, and someone else less lucky."""
     if random.random() < RUB_LUCKY_TARGET_WEIGHT:
         target_id = RUB_LUCKY_TARGET_ID
     else:
@@ -507,7 +508,7 @@ async def rub_cmd(ctx):
     )
     if status == "cooldown":
         await ctx.send(
-            f"⏳ {ctx.author.display_name}, you already rubbed your belly today. "
+            f"⏳ {ctx.author.display_name}, you've already rubbed your belly recently. "
             f"You can rub again {_in_seconds(value)}."
         )
         return
@@ -657,7 +658,8 @@ async def horserace_cmd(ctx):
 
     roster, eligible, probabilities = await asyncio.to_thread(horserace.current_probabilities, ctx.guild.id)
     race_field = horserace.select_race_field(eligible)
-    view = HorseRaceView(ctx.author, ctx.channel.id, ctx.guild.id, roster, race_field, probabilities)
+    equipped_clothes = await asyncio.to_thread(db.get_guild_horse_clothes, ctx.guild.id)
+    view = HorseRaceView(ctx.author, ctx.channel.id, ctx.guild.id, roster, race_field, probabilities, equipped_clothes)
     active_races[ctx.channel.id] = view
     embed, file = view.build_display()
     message = await ctx.send(embed=embed, file=file, view=view)
@@ -774,8 +776,11 @@ async def class_cmd(ctx):
 
 
 @bot.command(name="delve")
-async def delve_cmd(ctx):
-    """Delve the dungeon for a class-biased, push-your-luck payout -- costs 1 ⚡ energy: !delve"""
+async def delve_cmd(ctx, delve_id: str = None):
+    """Delve the dungeon for a class-biased, push-your-luck payout -- costs 1 ⚡ energy: !delve, or
+    !delve <delve_id> to jump straight into one specific dungeon -- what a room's own Delve button
+    pins via const_args (rooms.json) when that room hosts just one dungeon, skipping the picker.
+    Either way, once the delve is resolved you choose to go solo or start a free-to-join party."""
     if await _reject_if_at_poker_table(ctx):
         return
     character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
@@ -786,20 +791,25 @@ async def delve_cmd(ctx):
         await ctx.send("You're already mid-delve — finish that one first!")
         return
 
-    if len(dungeon.DELVES) > 1:
-        # More than one dungeon defined -- let the player pick before spending energy, so backing
-        # out or a stale interaction never costs a charge. The picker's own confirm button does
-        # the energy check and starts the delve.
+    if delve_id is not None:
+        delve = dungeon.DELVES.get(delve_id)
+        if delve is None:
+            await ctx.send(f"No such delve `{delve_id}`.")
+            return
+    elif len(dungeon.DELVES) > 1:
+        # No specific delve pinned and more than one dungeon defined -- let the player pick which
+        # dungeon first; its own confirm button leads into the same Solo/Party choice below.
         embed, view = await build_delve_picker_display(ctx.guild.id, ctx.author.id, character)
         await ctx.send(embed=embed, view=view)
         return
+    else:
+        delve = next(iter(dungeon.DELVES.values()))
 
-    has_energy = await asyncio.to_thread(db.spend_energy, ctx.guild.id, ctx.author.id, 1)
-    if not has_energy:
-        await ctx.send(f"You're out of energy, {ctx.author.display_name} — run `!rest` to refill it.")
-        return
-
-    await start_delve(ctx, character, next(iter(dungeon.DELVES.values())))
+    # Energy is never spent just to see this choice -- only Solo Delve or a party leader's Start
+    # Delve (both inside DelveModeChoiceView/PartyLobbyView) actually spends the charge, so
+    # backing out never costs one.
+    embed, view = await build_mode_choice_display(ctx.guild.id, ctx.author.id, character, delve)
+    await ctx.send(embed=embed, view=view)
 
 
 @bot.command(name="inventory")
@@ -895,7 +905,7 @@ async def buyfoal_cmd(ctx, *, name: str = None):
     currency = db.get_currency_name(ctx.guild.id)
     await ctx.send(
         f"🐣 {ctx.author.display_name} bought a {coat} {sex} foal named **{name}** for **{horserace.FOAL_PRICE}** "
-        f"{currency}! Balance: **{balance}**. Train it with `!train {horse_index + 1}` once a day — it needs to "
+        f"{currency}! Balance: **{balance}**. Train it with `!train {horse_index + 1}` every 12 hours — it needs to "
         f"reach age {horserace.MIN_RACING_AGE} before it can race."
     )
     await achievements.try_award_many(ctx.send, ctx.guild.id, ctx.author.id, ctx.author.display_name, ["first_horse"])
@@ -947,7 +957,7 @@ async def _train_horse(ctx, horse_index: int):
         await ctx.send("You don't own that horse — check `!horses` to see who does.")
         return
     if status == "cooldown":
-        await ctx.send("That horse has already been trained today — try again tomorrow.")
+        await ctx.send(f"That horse was trained recently — you can train it again {_in_seconds(payload)}.")
         return
 
     new_speed, new_endurance, new_spirit, new_age = payload
@@ -969,14 +979,14 @@ async def _train_horse(ctx, horse_index: int):
 
 @bot.command(name="train")
 async def train_cmd(ctx, number: int = None):
-    """Train a horse you own once per day, raising its stats and age: !train <number>, or plain
-    !train to pick from a dropdown of your horses instead of needing to already know its number."""
+    """Train a horse you own once every 12 hours, raising its stats and age: !train <number>, or
+    plain !train to pick from a dropdown of your horses instead of needing to already know its number."""
     if number is None:
         owned = await asyncio.to_thread(db.get_ranch_horses, ctx.guild.id, ctx.author.id)
         if not owned:
             await ctx.send("You don't own any horses yet — try `!buyhorse` or `!buyfoal`.")
             return
-        view = ranch_view.build_train_horse_picker(owned, _train_horse)
+        view = ranch_view.build_horse_picker(owned, _train_horse, placeholder="Choose a horse to train...")
         await ctx.send("Pick a horse to train:", view=view)
         return
     if number < 1:
@@ -1032,19 +1042,10 @@ async def facility_cmd(ctx, action: str = None):
     )
 
 
-@bot.command(name="boost")
-async def boost_cmd(ctx, number: int = None, stat: str = None):
-    """Buy a training-boost item for a horse you own, queued for its next training: !boost <number> <speed|endurance|spirit>"""
+async def _boost_horse(ctx, horse_index: int, stat: str):
+    """The actual boost-buying logic for one specific horse -- shared by boost_cmd's numbered
+    invocation and the horse-picker Select's callback, same shape as _train_horse above."""
     currency = db.get_currency_name(ctx.guild.id)
-    if number is None or number < 1 or stat is None or stat.lower() not in horserace.ITEM_STATS:
-        await ctx.send(
-            f"Usage: `!boost <number> <speed|endurance|spirit>` — costs {horserace.ITEM_COST} {currency}, "
-            f"see `!ranch` for your horses' numbers."
-        )
-        return
-
-    horse_index = number - 1
-    stat = stat.lower()
     status, balance = await asyncio.to_thread(
         db.buy_horse_item, ctx.guild.id, ctx.author.id, horse_index, stat, horserace.ITEM_COST
     )
@@ -1059,9 +1060,70 @@ async def boost_cmd(ctx, number: int = None, stat: str = None):
         return
 
     await ctx.send(
-        f"🧪 {ctx.author.display_name} queued a **{stat}** boost on horse #{number} — "
+        f"🧪 {ctx.author.display_name} queued a **{stat}** boost on horse #{horse_index + 1} — "
         f"it'll apply on its next `!train`. Balance: **{balance}** {currency}."
     )
+
+
+@bot.command(name="boost")
+async def boost_cmd(ctx, stat: str = None, number: int = None):
+    """Buy a training-boost item for a horse you own, queued for its next training: !boost
+    <speed|endurance|spirit> <number>, or omit the number to pick from a dropdown of your horses
+    instead of needing to already know its number."""
+    if stat is None or stat.lower() not in horserace.ITEM_STATS:
+        currency = db.get_currency_name(ctx.guild.id)
+        await ctx.send(
+            f"Usage: `!boost <speed|endurance|spirit> <number>` — costs {horserace.ITEM_COST} {currency}, "
+            f"see `!ranch` for your horses' numbers."
+        )
+        return
+    stat = stat.lower()
+
+    if number is None:
+        owned = await asyncio.to_thread(db.get_ranch_horses, ctx.guild.id, ctx.author.id)
+        if not owned:
+            await ctx.send("You don't own any horses yet — try `!buyhorse` or `!buyfoal`.")
+            return
+        view = ranch_view.build_horse_picker(
+            owned, lambda c, i: _boost_horse(c, i, stat), placeholder=f"Choose a horse to boost {stat}..."
+        )
+        await ctx.send(f"Pick a horse to boost **{stat}**:", view=view)
+        return
+    if number < 1:
+        await ctx.send(f"Usage: `!boost {stat} <number>` — see `!ranch` for your horses' numbers.")
+        return
+    await _boost_horse(ctx, number - 1, stat)
+
+
+async def _show_horse_clothes(ctx, horse_index: int):
+    """The actual !horseequip logic for one specific horse -- shared by horseequip_cmd's numbered
+    invocation and the horse-picker Select's callback (ranch_view.build_horse_picker), same shape
+    as _train_horse above."""
+    horses = await asyncio.to_thread(db.get_guild_horses, ctx.guild.id)
+    horse = horses.get(horse_index)
+    if horse is None or horse["owner_id"] != ctx.author.id:
+        await ctx.send("You don't own that horse — check `!horses` to see who does.")
+        return
+    embed, view = await horse_clothes_view.build_horse_equip_display(ctx.guild.id, ctx.author.id, horse_index)
+    await ctx.send(embed=embed, view=view)
+
+
+@bot.command(name="horseequip")
+async def horseequip_cmd(ctx, number: int = None):
+    """Dress a horse you own up in owned cosmetic clothing -- purely visual, no stat effect:
+    !horseequip <number>, or plain !horseequip to pick from a dropdown of your horses instead."""
+    if number is None:
+        owned = await asyncio.to_thread(db.get_ranch_horses, ctx.guild.id, ctx.author.id)
+        if not owned:
+            await ctx.send("You don't own any horses yet — try `!buyhorse` or `!buyfoal`.")
+            return
+        view = ranch_view.build_horse_picker(owned, _show_horse_clothes, placeholder="Choose a horse to dress up...")
+        await ctx.send("Pick a horse to dress up:", view=view)
+        return
+    if number < 1:
+        await ctx.send("Usage: `!horseequip <number>` — see `!horses` for numbers.")
+        return
+    await _show_horse_clothes(ctx, number - 1)
 
 
 @bot.command(name="holdem", aliases=["poker"])
@@ -1263,6 +1325,7 @@ room_commands.COMMANDS.update({
     "train": train_cmd.callback,
     "boost": boost_cmd.callback,
     "facility": facility_cmd.callback,
+    "horseequip": horseequip_cmd.callback,
 })
 # Catches a typo'd rooms.json command key loudly at startup instead of a KeyError the moment some
 # player clicks the broken button -- see rooms.py's own docstring for why this can't run any

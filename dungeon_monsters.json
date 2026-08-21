@@ -9,8 +9,80 @@
     "shape": "triangle",
     "color": "#4a7c3c",
     "flavor": "A scrawny goblin snarls and raises a rusty knife.",
-    "loot_min": 30,
-    "loot_max": 60,
+    "loot_min": 15,
+    "loot_max": 39,
+    "drops": [
+      {
+        "kind": "equipment",
+        "item_id": "rusty_dagger",
+        "chance": 0.03
+      },
+      {
+        "kind": "equipment",
+        "item_id": "wooden_club",
+        "chance": 0.03
+      },
+      {
+        "kind": "equipment",
+        "item_id": "gladius",
+        "chance": 0.03
+      },
+      {
+        "kind": "equipment",
+        "item_id": "spear",
+        "chance": 0.03
+      },
+      {
+        "kind": "equipment",
+        "item_id": "leather_vest",
+        "chance": 0.03
+      },
+      {
+        "kind": "equipment",
+        "item_id": "shield",
+        "chance": 0.03
+      },
+      {
+        "kind": "equipment",
+        "item_id": "lucky_coin",
+        "chance": 0.03
+      },
+      {
+        "kind": "equipment",
+        "item_id": "copper_ring",
+        "chance": 0.03
+      },
+      {
+        "kind": "material",
+        "item_id": "stick",
+        "chance": 0.05
+      },
+      {
+        "kind": "material",
+        "item_id": "pan",
+        "chance": 0.05
+      },
+      {
+        "kind": "material",
+        "item_id": "razor",
+        "chance": 0.05
+      },
+      {
+        "kind": "material",
+        "item_id": "pointy_rock",
+        "chance": 0.05
+      },
+      {
+        "kind": "material",
+        "item_id": "nail",
+        "chance": 0.05
+      },
+      {
+        "kind": "material",
+        "item_id": "charcoal",
+        "chance": 0.05
+      }
+    ],
     "sprite_path": "assets/dungeon/monsters/goblin_grunt.png"
   },
   {
@@ -23,8 +95,105 @@
     "shape": "triangle",
     "color": "#6b8e3a",
     "flavor": "A goblin picks through a pile of bones, then hisses at you.",
-    "loot_min": 30,
-    "loot_max": 60,
+    "loot_min": 15,
+    "loot_max": 30,
+    "drops": [
+      {
+        "kind": "equipment",
+        "item_id": "bonk_stick",
+        "chance": 0.025
+      },
+      {
+        "kind": "equipment",
+        "item_id": "magic_wand",
+        "chance": 0.025
+      },
+      {
+        "kind": "equipment",
+        "item_id": "pugilist_gloves",
+        "chance": 0.025
+      },
+      {
+        "kind": "equipment",
+        "item_id": "shark_punch",
+        "chance": 0.025
+      },
+      {
+        "kind": "equipment",
+        "item_id": "sling",
+        "chance": 0.025
+      },
+      {
+        "kind": "equipment",
+        "item_id": "padded_jerkin",
+        "chance": 0.025
+      },
+      {
+        "kind": "equipment",
+        "item_id": "fancy_cowl",
+        "chance": 0.025
+      },
+      {
+        "kind": "equipment",
+        "item_id": "bulging_tights",
+        "chance": 0.025
+      },
+      {
+        "kind": "equipment",
+        "item_id": "shiny_pin",
+        "chance": 0.025
+      },
+      {
+        "kind": "equipment",
+        "item_id": "magic_amulet",
+        "chance": 0.025
+      },
+      {
+        "kind": "equipment",
+        "item_id": "fancy_hat",
+        "chance": 0.025
+      },
+      {
+        "kind": "material",
+        "item_id": "comb",
+        "chance": 0.04
+      },
+      {
+        "kind": "material",
+        "item_id": "dirty_cloth",
+        "chance": 0.04
+      },
+      {
+        "kind": "material",
+        "item_id": "hair",
+        "chance": 0.04
+      },
+      {
+        "kind": "material",
+        "item_id": "used_thong",
+        "chance": 0.04
+      },
+      {
+        "kind": "material",
+        "item_id": "droppings",
+        "chance": 0.04
+      },
+      {
+        "kind": "material",
+        "item_id": "shiny_rock",
+        "chance": 0.04
+      },
+      {
+        "kind": "material",
+        "item_id": "oversized_hat",
+        "chance": 0.04
+      },
+      {
+        "kind": "material",
+        "item_id": "rat_tooth",
+        "chance": 0.04
+      }
+    ],
     "sprite_path": "assets/dungeon/monsters/goblin_scavenger.png"
   },
   {
@@ -37,8 +206,25 @@
     "shape": "pentagon",
     "color": "#3c6e4a",
     "flavor": "A wiry goblin circles you, twin blades flashing.",
-    "loot_min": 60,
-    "loot_max": 120,
+    "loot_min": 30,
+    "loot_max": 60,
+    "drops": [
+      {
+        "kind": "equipment",
+        "item_id": "steel_hatchet",
+        "chance": 0.08
+      },
+      {
+        "kind": "equipment",
+        "item_id": "reinforced_buckler",
+        "chance": 0.08
+      },
+      {
+        "kind": "equipment",
+        "item_id": "swift_boots",
+        "chance": 0.08
+      }
+    ],
     "sprite_path": "assets/dungeon/monsters/goblin_skirmisher.png"
   },
   {
@@ -51,8 +237,25 @@
     "shape": "pentagon",
     "color": "#2f6b57",
     "flavor": "An arrow whistles past your ear -- this one keeps its distance.",
-    "loot_min": 60,
-    "loot_max": 120,
+    "loot_min": 30,
+    "loot_max": 60,
+    "drops": [
+      {
+        "kind": "equipment",
+        "item_id": "iron_sword",
+        "chance": 0.08
+      },
+      {
+        "kind": "equipment",
+        "item_id": "chainmail",
+        "chance": 0.08
+      },
+      {
+        "kind": "equipment",
+        "item_id": "jade_pendant",
+        "chance": 0.08
+      }
+    ],
     "sprite_path": "assets/dungeon/monsters/goblin_archer.png"
   },
   {
@@ -67,7 +270,24 @@
     "flavor": "The goblin chief hefts a jagged cleaver, crowned in stolen gold.",
     "loot_min": 120,
     "loot_max": 250,
-    "sprite_path": "assets/dungeon/monsters/goblin_chief.png"
+    "sprite_path": "assets/dungeon/monsters/goblin_chief.png",
+    "drops": [
+      {
+        "kind": "equipment",
+        "item_id": "goblin_chiefs_cleaver",
+        "chance": 0.08
+      },
+      {
+        "kind": "equipment",
+        "item_id": "plate_of_the_vanguard",
+        "chance": 0.08
+      },
+      {
+        "kind": "equipment",
+        "item_id": "signet_of_kings",
+        "chance": 0.08
+      }
+    ]
   },
   {
     "id": "goblin_warlord",
@@ -81,6 +301,68 @@
     "flavor": "Scarred and armored in scavenged plate, the warlord roars a challenge.",
     "loot_min": 120,
     "loot_max": 250,
-    "sprite_path": "assets/dungeon/monsters/goblin_warlord.png"
+    "sprite_path": "assets/dungeon/monsters/goblin_warlord.png",
+    "drops": [
+      {
+        "kind": "equipment",
+        "item_id": "warlords_blade",
+        "chance": 0.08
+      },
+      {
+        "kind": "equipment",
+        "item_id": "dragonhide_cloak",
+        "chance": 0.08
+      },
+      {
+        "kind": "equipment",
+        "item_id": "amulet_of_vigor",
+        "chance": 0.08
+      }
+    ]
+  },
+  {
+    "id": "enchanted_comb",
+    "name": "Enchanted Comb",
+    "tier": 2,
+    "hp": 20,
+    "atk": 6,
+    "def": 2,
+    "shape": "rectangle",
+    "color": "#a153ca",
+    "flavor": "A shiney comb only for the goodest gnomes",
+    "loot_min": 30,
+    "loot_max": 65,
+    "drops": [
+      {
+        "kind": "material",
+        "item_id": "comb",
+        "chance": 0.3
+      }
+    ]
+  },
+  {
+    "id": "gnome_doorman",
+    "name": "Gnomish Doorman",
+    "tier": 3,
+    "hp": 25,
+    "atk": 5,
+    "def": 3,
+    "shape": "hexagon",
+    "color": "#b30000",
+    "flavor": "bablalblab",
+    "loot_min": 50,
+    "loot_max": 90,
+    "drops": [
+      {
+        "kind": "material",
+        "item_id": "oversized_hat",
+        "chance": 0.1
+      },
+      {
+        "kind": "equipment",
+        "item_id": "padded_jerkin",
+        "chance": 0.01
+      }
+    ]
   }
 ]

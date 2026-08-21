@@ -4,6 +4,7 @@ import random
 
 from PIL import Image, ImageDraw, ImageFont
 
+import horse_clothes
 import horserace
 
 # The track is rendered as a series of side-view "photos" rather than an overhead oval: a fixed
@@ -108,7 +109,8 @@ _scenery_sprites = {name: _content_crop(_load_scaled(f"{BG_DIR}/{name}.png")) fo
 
 _finish_sprite = _content_crop(_load_scaled(f"{BG_DIR}/finish.png"))
 
-_horse_sprite_cache: dict[str, Image.Image | None] = {}
+_horse_sprite_cache: dict[tuple[str, tuple[str, ...]], Image.Image | None] = {}
+_clothes_image_cache: dict[str, Image.Image | None] = {}
 
 
 def _coat_asset_filename(coat: str) -> str:
@@ -120,19 +122,38 @@ def _coat_asset_filename(coat: str) -> str:
     return overrides.get(coat, coat.lower().replace(" ", "_") + ".png")
 
 
-def _horse_sprite(coat: str) -> Image.Image | None:
+def _clothes_image(item_id: str) -> Image.Image | None:
+    """None (rather than raising) for a missing/bad image_path, so a content-editor mistake
+    degrades to "cosmetic just doesn't show" instead of breaking every race image."""
+    if item_id not in _clothes_image_cache:
+        item = horse_clothes.HORSE_CLOTHES.get(item_id)
+        path = item["image_path"] if item else None
+        _clothes_image_cache[item_id] = Image.open(path).convert("RGBA") if path and os.path.exists(path) else None
+    return _clothes_image_cache[item_id]
+
+
+def _horse_sprite(coat: str, clothes_ids: tuple[str, ...] = ()) -> Image.Image | None:
     """None (rather than raising) for a coat with no matching file, so a typo'd or future coat
-    name degrades to the plain color-blob fallback in _paste_horse instead of breaking the race."""
-    if coat not in _horse_sprite_cache:
+    name degrades to the plain color-blob fallback in _paste_horse instead of breaking the race.
+    clothes_ids (equipped cosmetics, if any) are composited onto the coat's native-resolution
+    image before the shared upscale below -- assets/horses/horse_clothes/*.png is pre-authored on
+    the exact same canvas size as assets/horses/*.png specifically so this needs no per-item
+    positioning, just alpha_composite at (0, 0)."""
+    cache_key = (coat, clothes_ids)
+    if cache_key not in _horse_sprite_cache:
         path = os.path.join(HORSE_DIR, _coat_asset_filename(coat))
         if os.path.exists(path):
             img = Image.open(path).convert("RGBA")
+            for item_id in clothes_ids:
+                clothes_img = _clothes_image(item_id)
+                if clothes_img is not None and clothes_img.size == img.size:
+                    img.alpha_composite(clothes_img)
             scale = HORSE_DISPLAY_HEIGHT / img.height
             new_size = (max(1, round(img.width * scale)), HORSE_DISPLAY_HEIGHT)
-            _horse_sprite_cache[coat] = img.resize(new_size, Image.NEAREST)
+            _horse_sprite_cache[cache_key] = img.resize(new_size, Image.NEAREST)
         else:
-            _horse_sprite_cache[coat] = None
-    return _horse_sprite_cache[coat]
+            _horse_sprite_cache[cache_key] = None
+    return _horse_sprite_cache[cache_key]
 
 
 def _place_scenery(photo: Image.Image):
@@ -162,8 +183,11 @@ def _paste_finish_line(photo: Image.Image):
     photo.alpha_composite(_finish_sprite, (x, GRASS_TOP))
 
 
-def _paste_horse(photo: Image.Image, draw: ImageDraw.ImageDraw, x: float, y: float, coat: str, color, label: str, rank: int | None):
-    sprite = _horse_sprite(coat)
+def _paste_horse(
+    photo: Image.Image, draw: ImageDraw.ImageDraw, x: float, y: float, coat: str, clothes_ids: tuple[str, ...],
+    color, label: str, rank: int | None,
+):
+    sprite = _horse_sprite(coat, clothes_ids)
     half_h = HORSE_DISPLAY_HEIGHT / 2
     if sprite is not None:
         photo.alpha_composite(sprite, (round(x - sprite.width / 2), round(y - sprite.height / 2)))
@@ -195,10 +219,12 @@ def render_track(
     positions: list[float] | None = None,
     final_max: float | None = None,
     finish_order: list[int] | None = None,
+    clothes: list[tuple[str, ...]] | None = None,
 ) -> io.BytesIO:
     """Draws a legend (name/color/odds per horse, unchanged from the old oval renderer) plus one
-    "photo" of the race: a randomized scenery backdrop with each horse's own coat sprite placed
-    along a straight left-to-right track by progress, numbered/colored to match the legend.
+    "photo" of the race: a randomized scenery backdrop with each horse's own coat sprite (plus any
+    equipped cosmetics from `clothes`, parallel to `coats`; None/omitted means nobody's dressed up)
+    placed along a straight left-to-right track by progress, numbered/colored to match the legend.
 
     `positions` is per-horse cumulative distance (None = everyone still at the gate). `final_max`
     normalizes the scale across every frame of a race so markers only move forward. `finish_order`
@@ -209,6 +235,7 @@ def render_track(
     more than CAMERA_CUTOFF behind the leader is left out of the shot entirely.
     """
     n = len(names)
+    clothes = clothes if clothes is not None else [()] * n
     img = Image.new("RGBA", (IMG_W, IMG_H), (0, 0, 0, 0))
     _draw_legend(ImageDraw.Draw(img), names, colors, odds_labels)
 
@@ -243,7 +270,7 @@ def render_track(
     # they occlude horses standing behind them -- sorting by progress instead left horses looking
     # like they floated in front of/behind the wrong lane-mates.
     for i, x, y, rank in sorted(to_draw, key=lambda t: t[2]):
-        _paste_horse(photo, draw, x, y, coats[i], colors[i], str(i + 1), rank)
+        _paste_horse(photo, draw, x, y, coats[i], clothes[i], colors[i], str(i + 1), rank)
 
     img.alpha_composite(photo, (LEGEND_W, 0))
     buf = io.BytesIO()

@@ -1,0 +1,37 @@
+[
+  {
+    "id": "brown_saddle",
+    "name": "Brown Saddle",
+    "slot": "saddle",
+    "image_path": "assets/horses/horse_clothes/brown_saddle.png",
+    "flavor": "Broken-in leather, smells like Kel for some reason."
+  },
+  {
+    "id": "blue_saddle",
+    "name": "Blue Saddle",
+    "slot": "saddle",
+    "image_path": "assets/horses/horse_clothes/blue_saddle.png",
+    "flavor": "For when your horse just blue itself"
+  },
+  {
+    "id": "red_saddle",
+    "name": "Red Saddle",
+    "slot": "saddle",
+    "image_path": "assets/horses/horse_clothes/red_saddle.png",
+    "flavor": "DA RED ONEZ GO FASTA"
+  },
+  {
+    "id": "pink_saddle",
+    "name": "Pink Saddle",
+    "slot": "saddle",
+    "image_path": "assets/horses/horse_clothes/pink_saddle.png",
+    "flavor": "For only the gayest of horses."
+  },
+  {
+    "id": "bowler_derby",
+    "name": "Bowler Derby",
+    "slot": "hat",
+    "image_path": "assets/horses/horse_clothes/bowler_derby.png",
+    "flavor": "A fancy hat for a fancy horse."
+  }
+]

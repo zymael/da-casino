@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 import achievements
 import db
 import dungeon
+import horse_clothes
 import quests
 import room_commands
 import rooms
@@ -128,6 +129,7 @@ legend { color: #9a9aa4; padding: 0 6px; }
 .field-group-heading { color: #9a9aa4; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; margin: 10px 0 -4px; }
 .field-group-heading:first-child { margin-top: 0; }
 .row-group { border: 1px solid #35353f; border-radius: 6px; padding: 10px; margin-bottom: 8px; display: flex; gap: 10px; flex-wrap: wrap; }
+.room-row { flex-direction: column; align-items: stretch; }
 button { background: #3a3a44; color: #e8e8ec; border: 1px solid #52525e; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
 button:hover { background: #45454f; }
 .error { background: #4a1f1f; border: 1px solid #a04040; color: #f0b0b0; padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; }
@@ -180,8 +182,8 @@ _ROOM_COMMAND_KINDS = ["none", "amount"]
 #      changes. Unlike (1)/(3), the *initial* render already has the right options (the row-
 #      builder knows the current kind server-side -- see _render_cascaded_select), so this only
 #      needs to run on change, not immediately at wire time.
-#   3. Every repeatable list (effects, materials, tier_list, quest_stages, room_commands,
-#      shop_items) no longer pads the form with a fixed number of blank rows -- a "+ Add" button
+#   3. Every repeatable list (effects, materials, monster_drops, delve_rooms, quest_stages,
+#      room_commands, shop_items) no longer pads the form with a fixed number of blank rows -- a "+ Add" button
 #      clones a <template> instead, and each row gets its own "Remove" button. Server-side parsing
 #      (see each "+ Add"-using field's own _parse_field case) reads whatever *_<N>_* indices are
 #      actually present in the submission, so removed/added rows never need renumbering.
@@ -214,6 +216,14 @@ def _cascade_options() -> dict:
             "material": _choices(dungeon.MATERIALS),
             "consumable": _choices(dungeon.CONSUMABLES),
             "quest_item": _choices(quests.QUEST_ITEMS),
+            "horse_clothes": _choices(horse_clothes.HORSE_CLOTHES),
+        },
+        "monster_drop": {
+            # quest_only equipment (e.g. Mondor's Greasy Pencil) is excluded -- those are only
+            # ever granted through a quest turn-in, never a monster's own drop table (enforced
+            # again at save time by dungeon._validate_monster_drops, in case of a hand JSON edit).
+            "equipment": _choices({k: v for k, v in dungeon.EQUIPMENT.items() if not v.get("quest_only")}),
+            "material": _choices(dungeon.MATERIALS),
         },
     }
 
@@ -326,28 +336,52 @@ function wireCascadingSelects(root) {
     });
 }
 
+// Wires every [data-repeat-add] button under `root` that isn't already wired -- called once at
+// page load (root=document) and again on every freshly-cloned row (root=that row), since a clone
+// can itself introduce a new "+ Add" button one level down (a delve room's own "+ Add monster"
+// button, nested inside the "+ Add room" template -- the only nested repeatable in this schema,
+// see admin_server._render_delve_room_row) that only exists from this point on and needs its own
+// click handler wired. ROWIDX substitution covers name/id/data-repeat-add -- id/data-repeat-add
+// matter once a repeatable can nest, so a newly-added room's own "+ Add monster" button ends up
+// pointing at that room's own freshly-renamed container/template, not a colliding shared one. A
+// nested <template>'s own content is inert to querySelectorAll run from an ancestor's clone (a
+// standard DOM quirk -- template content lives in a separate document, not the light tree), so
+// its own ROWIDX placeholders are left untouched until that inner template is itself cloned
+// later -- the same "ROWIDX" token works at any nesting depth without collision.
+function wireRepeatAdd(root) {
+    root.querySelectorAll('[data-repeat-add]').forEach(function (button) {
+        if (button.dataset.repeatWired) return;
+        button.dataset.repeatWired = '1';
+        var container = document.getElementById(button.dataset.repeatAdd);
+        var template = document.getElementById(button.dataset.repeatAdd + '-template');
+        var nextIndex = container.children.length;
+        button.addEventListener('click', function () {
+            var clone = template.content.cloneNode(true);
+            clone.querySelectorAll('[name]').forEach(function (el) {
+                el.name = el.name.replace(/ROWIDX/g, String(nextIndex));
+            });
+            clone.querySelectorAll('[id]').forEach(function (el) {
+                el.id = el.id.replace(/ROWIDX/g, String(nextIndex));
+            });
+            clone.querySelectorAll('[data-repeat-add]').forEach(function (el) {
+                el.dataset.repeatAdd = el.dataset.repeatAdd.replace(/ROWIDX/g, String(nextIndex));
+            });
+            container.appendChild(clone);
+            wireTriggerSelects(container.lastElementChild);
+            wireEffectSelects(container.lastElementChild);
+            wireCommandKindSelects(container.lastElementChild);
+            wireCascadingSelects(container.lastElementChild);
+            wireRepeatAdd(container.lastElementChild);
+            nextIndex++;
+        });
+    });
+}
+
 wireTriggerSelects(document);
 wireEffectSelects(document);
 wireCommandKindSelects(document);
 wireCascadingSelects(document);
-
-document.querySelectorAll('[data-repeat-add]').forEach(function (button) {
-    var container = document.getElementById(button.dataset.repeatAdd);
-    var template = document.getElementById(button.dataset.repeatAdd + '-template');
-    var nextIndex = container.children.length;
-    button.addEventListener('click', function () {
-        var clone = template.content.cloneNode(true);
-        clone.querySelectorAll('[name]').forEach(function (el) {
-            el.name = el.name.replace(/ROWIDX/g, String(nextIndex));
-        });
-        container.appendChild(clone);
-        wireTriggerSelects(container.lastElementChild);
-        wireEffectSelects(container.lastElementChild);
-        wireCommandKindSelects(container.lastElementChild);
-        wireCascadingSelects(container.lastElementChild);
-        nextIndex++;
-    });
-});
+wireRepeatAdd(document);
 
 document.addEventListener('click', function (event) {
     if (event.target.matches('[data-remove-row]')) {
@@ -479,7 +513,7 @@ def _parse_trigger(prefix: str, form: dict) -> dict | None:
 
 
 def _render_repeatable(container_id: str, rows_html: list[str], template_row_html: str, add_label: str) -> str:
-    """Shared shell for every add/remove-able repeatable field (effects, materials, tier_list,
+    """Shared shell for every add/remove-able repeatable field (effects, materials, monster_drops,
     quest_stages): the existing rows, a hidden <template> row the page script clones on "+ Add",
     and the add button itself. Each individual row (built by a per-type row-builder like
     _render_effect_row) supplies its own "Remove" button -- see the page script's
@@ -532,14 +566,65 @@ def _render_material_row(prefix: str, material_id: str | None, qty) -> str:
     )
 
 
-def _render_tier_row(name: str, tier: int | None) -> str:
-    """One row of a "tier_list" (delves' room_tiers -- an ordered list, so unlike the other
-    repeatable types there's no id/type half, just the one number). See _parse_field's
-    "tier_list" case for the matching parse side."""
+def _render_drop_row(prefix: str, drop: dict) -> str:
+    """One row of a monster's "monster_drops" list -- see _parse_field's "monster_drops" case for
+    the matching parse side. item_id is a _render_cascaded_select scoped to this row's own "kind"
+    (not a top-level sibling field, same reasoning as _render_shop_row)."""
+    kind = drop.get("kind")
+    kind_options = "".join(
+        f'<option value="{k}"{" selected" if k == kind else ""}>{k}</option>'
+        for k in [""] + list(dungeon.DROP_KINDS)
+    )
+    item_select = _render_cascaded_select(f"{prefix}_item_id", "monster_drop", kind, drop.get("item_id"))
     return (
-        f'<div class="row-group"><label>tier<input type="number" min="1" name="{name}" '
-        f'value="{tier if tier is not None else ""}"></label>'
+        f'<div class="row-group">'
+        f'<label>kind<select name="{prefix}_kind" class="cascade-select" data-cascade="monster_drop">{kind_options}</select></label>'
+        f'<label>item_id{item_select}</label>'
+        f'<label>chance (0-1)<input type="number" min="0" max="1" step="any" name="{prefix}_chance" '
+        f'value="{drop.get("chance", "")}"></label>'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
+    )
+
+
+def _monster_option_choices() -> list[tuple[str, str]]:
+    """monster_id -> "Tier N — Name", sorted by tier then name -- the label shown in every
+    monster <select> the delve room editor renders, so a large roster stays scannable by
+    difficulty instead of just alphabetically."""
+    return [
+        (mid, f"Tier {m['tier']} — {m['name']}")
+        for mid, m in sorted(dungeon.MONSTERS.items(), key=lambda kv: (kv[1]["tier"], kv[1]["name"]))
+    ]
+
+
+def _render_room_monster_row(name: str, monster_id: str | None) -> str:
+    """One monster <select> row within a delve room's own nested repeatable list -- see
+    _render_delve_room_row below and _parse_field's "delve_rooms" case for the matching parse
+    side. Unlike every other row-builder here this one has just the one field, so `name` is the
+    input's actual name, not a "prefix_suffix" pair."""
+    options = "".join(
+        f'<option value="{mid}"{" selected" if mid == monster_id else ""}>{html.escape(label)}</option>'
+        for mid, label in [("", "—")] + _monster_option_choices()
+    )
+    return (
+        f'<div class="row-group"><label>monster<select name="{name}">{options}</select></label>'
+        f'<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
+    )
+
+
+def _render_delve_room_row(prefix: str, monster_ids: list[str]) -> str:
+    """One room of a "delve_rooms" list -- a nested add/remove-able list of monster <select> rows
+    (whichever are picked can show up in this room), rather than a checkbox per dungeon.MONSTERS
+    id -- that stopped scaling once the roster grew past a screenful. This is the only nested
+    repeatable in the schema (a repeatable list inside a repeatable list); see _dynamic_script's
+    wireRepeatAdd for how "+ Add" wiring and ROWIDX substitution stay correct at any nesting
+    depth. See _parse_field's "delve_rooms" case for the matching parse side."""
+    monsters_container = f"{prefix}_monsters"
+    rows_html = [_render_room_monster_row(f"{monsters_container}_{j}", mid) for j, mid in enumerate(monster_ids)]
+    template_html = _render_room_monster_row(f"{monsters_container}_ROWIDX", None)
+    repeatable = _render_repeatable(monsters_container, rows_html, template_html, "+ Add monster")
+    return (
+        f'<div class="row-group room-row">{repeatable}'
+        f'<button type="button" class="remove-row" data-remove-row>✕ Remove room</button></div>'
     )
 
 
@@ -610,8 +695,10 @@ def _render_room_exit_row(prefix: str, room_id: str | None, label: str | None) -
         f'<option value="{r}"{" selected" if r == room_id else ""}>{r}</option>' for r in [""] + room_ids
     )
     return (
-        f'<div class="row-group"><label>room_id<select name="{prefix}_room_id">{options}</select></label>'
-        f'<label>label<input type="text" name="{prefix}_label" value="{html.escape(label or "")}"></label>'
+        f'<div class="row-group">'
+        f'<label>room_id<select name="{prefix}_room_id" class="room-exit-room-select">{options}</select></label>'
+        f'<label>label<input type="text" name="{prefix}_label" class="exit-label-input" '
+        f'value="{html.escape(label or "")}"></label>'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
     )
 
@@ -668,7 +755,8 @@ def _render_field(field: dict, value, entry: dict | None = None) -> str:
         # An optional enum gets a blank leading option (a real <select> otherwise always defaults
         # to its first choice, which would silently pick one for a value that was actually never
         # set) -- a required one doesn't, since it never needs to represent "no value".
-        choices = field["choices"] if field.get("required", True) else [""] + list(field["choices"])
+        raw_choices = field["choices"]() if callable(field["choices"]) else field["choices"]
+        choices = raw_choices if field.get("required", True) else [""] + list(raw_choices)
         options = "".join(
             f'<option value="{html.escape(c)}"{" selected" if c == (value or "") else ""}>'
             f'{html.escape(c) if c else "—"}</option>'
@@ -721,10 +809,17 @@ def _render_field(field: dict, value, entry: dict | None = None) -> str:
         repeatable = _render_repeatable(f"{name}-rows", rows_html, template_html, "+ Add material")
         return f'<fieldset><legend>{label}</legend>{repeatable}</fieldset>'
 
-    if ftype == "tier_list":
-        tiers = list(value or [])
-        rows_html = [_render_tier_row(f"tier_{i}", t) for i, t in enumerate(tiers)]
-        template_html = _render_tier_row("tier_ROWIDX", None)
+    if ftype == "monster_drops":
+        drops = list(value or [])
+        rows_html = [_render_drop_row(f"drop_{i}", d) for i, d in enumerate(drops)]
+        template_html = _render_drop_row("drop_ROWIDX", {})
+        repeatable = _render_repeatable(f"{name}-rows", rows_html, template_html, "+ Add drop")
+        return f'<fieldset><legend>{label}</legend>{repeatable}</fieldset>'
+
+    if ftype == "delve_rooms":
+        rooms = list(value or [])
+        rows_html = [_render_delve_room_row(f"room_{i}", r) for i, r in enumerate(rooms)]
+        template_html = _render_delve_room_row("room_ROWIDX", [])
         repeatable = _render_repeatable(f"{name}-rows", rows_html, template_html, "+ Add room")
         return f'<fieldset><legend>{label}</legend>{repeatable}</fieldset>'
 
@@ -878,14 +973,36 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
                 materials[m_id] = int(qty)
         return (name, materials)
 
-    if ftype == "tier_list":
-        indices = sorted(int(m.group(1)) for k in form if (m := re.fullmatch(r"tier_(\d+)", k)))
-        tiers = []
+    if ftype == "monster_drops":
+        indices = sorted(int(m.group(1)) for k in form if (m := re.fullmatch(r"drop_(\d+)_kind", k)))
+        drops = []
         for i in indices:
-            raw = form.get(f"tier_{i}", "").strip()
-            if raw:
-                tiers.append(int(raw))
-        return (name, tiers)
+            prefix = f"drop_{i}"
+            kind = form.get(f"{prefix}_kind", "").strip()
+            item_id = form.get(f"{prefix}_item_id", "").strip()
+            chance = form.get(f"{prefix}_chance", "").strip()
+            if kind and item_id and chance:
+                drops.append({"kind": kind, "item_id": item_id, "chance": float(chance)})
+        return (name, drops)
+
+    if ftype == "delve_rooms":
+        # Two levels of indices here -- room index i, monster-row index j within that room's own
+        # nested repeatable ("room_<i>_monsters_<j>", see _render_delve_room_row) -- discovered
+        # together from whichever keys actually made it into the submission, same "don't assume
+        # contiguous-from-0" reasoning as every other repeatable type, just one level deeper. A
+        # blank ("—") monster row is skipped, and a room left with no monster rows at all (every
+        # row blank, or the room itself never got any) is dropped entirely.
+        room_monsters: dict[int, list[tuple[int, str]]] = {}
+        for k, v in form.items():
+            m = re.fullmatch(r"room_(\d+)_monsters_(\d+)", k)
+            if not m or not v.strip():
+                continue
+            room_monsters.setdefault(int(m.group(1)), []).append((int(m.group(2)), v.strip()))
+        room_list = [
+            [monster_id for _, monster_id in sorted(room_monsters[i])]
+            for i in sorted(room_monsters)
+        ]
+        return (name, room_list)
 
     if ftype == "shop_items":
         indices = sorted(int(m.group(1)) for k in form if (m := re.fullmatch(r"shop_(\d+)_kind", k)))
@@ -1220,21 +1337,34 @@ def _delete_blockers(content_type: str, item_id: str) -> list[str]:
     the *one* file being changed (deleting a material doesn't re-load dungeon_recipes.json), so a
     plain re-validate-this-file-only save wouldn't catch damage done elsewhere.
 
-    Two kinds of cross-reference exist in this content set:
+    Three kinds of cross-reference exist in this content set:
       - Recipes reference materials (by key) and equipment/consumables (by output_id).
-      - Delves reference monster *tiers*, not individual monsters -- so deleting one monster is
-        only unsafe if it's the last one at its tier that some delve's room_tiers still needs.
+      - Monsters reference equipment/materials in their own `drops` list.
+      - Delves reference individual monster ids directly in each room -- so deleting a monster is
+        only unsafe if it's the *only* monster checked in some room (removing it from a room that
+        still has others left is fine, and is exactly what re-editing that delve would do).
     """
     if content_type == "materials":
-        return [r["name"] for r in dungeon.RECIPES.values() if item_id in r["materials"]]
+        recipe_blockers = [r["name"] for r in dungeon.RECIPES.values() if item_id in r["materials"]]
+        monster_blockers = [
+            m["name"] for m in dungeon.MONSTERS.values()
+            if any(d["kind"] == "material" and d["item_id"] == item_id for d in m.get("drops", []))
+        ]
+        return recipe_blockers + monster_blockers
     if content_type in ("equipment", "consumables"):
-        return [r["name"] for r in dungeon.RECIPES.values() if r["output_id"] == item_id]
+        recipe_blockers = [r["name"] for r in dungeon.RECIPES.values() if r["output_id"] == item_id]
+        monster_blockers = []
+        if content_type == "equipment":
+            monster_blockers = [
+                m["name"] for m in dungeon.MONSTERS.values()
+                if any(d["kind"] == "equipment" and d["item_id"] == item_id for d in m.get("drops", []))
+            ]
+        return recipe_blockers + monster_blockers
     if content_type == "monsters":
-        tier = dungeon.MONSTERS[item_id]["tier"]
-        other_monsters_at_tier = [m for m in dungeon.MONSTERS.values() if m["tier"] == tier and m["id"] != item_id]
-        if other_monsters_at_tier:
-            return []  # another monster still covers this tier -- safe
-        return [d["name"] for d in dungeon.DELVES.values() if tier in d["room_tiers"]]
+        return [
+            d["name"] for d in dungeon.DELVES.values()
+            if any(room == [item_id] for room in d["rooms"])
+        ]
     return []
 
 

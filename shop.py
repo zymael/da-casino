@@ -10,6 +10,7 @@ import asyncio
 
 import db
 import dungeon
+import horse_clothes
 import npcs
 import quests
 
@@ -18,6 +19,7 @@ REGISTRIES = {
     "material": dungeon.MATERIALS,
     "consumable": dungeon.CONSUMABLES,
     "quest_item": quests.QUEST_ITEMS,
+    "horse_clothes": horse_clothes.HORSE_CLOTHES,
 }
 
 

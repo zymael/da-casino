@@ -4,6 +4,7 @@ import discord
 
 import achievements
 import db
+import horse_clothes
 import horserace
 import horserace_render
 from holdem_view import busy_players as holdem_busy_players
@@ -87,6 +88,7 @@ class HorseRaceView(discord.ui.View):
         roster: dict[int, dict],
         race_field: list[int],
         probabilities: dict[str, dict[int, float]],
+        equipped_clothes: dict[int, dict[str, str]],
     ):
         super().__init__(timeout=ROUND_SECONDS)
         self.starter = starter
@@ -95,6 +97,7 @@ class HorseRaceView(discord.ui.View):
         self.roster = roster
         self.race_field = race_field
         self.probabilities = probabilities
+        self.equipped_clothes = equipped_clothes
         self.bet_kind = "win"
         self.bets: list[dict] = []
         self.message: discord.Message | None = None
@@ -124,6 +127,16 @@ class HorseRaceView(discord.ui.View):
 
     def _coats(self) -> list[str]:
         return [self.roster[i]["coat"] for i in self.race_field]
+
+    def _clothes(self) -> list[tuple[str, ...]]:
+        return [
+            tuple(
+                self.equipped_clothes.get(i, {})[slot]
+                for slot in horse_clothes.CLOTHES_SLOTS
+                if slot in self.equipped_clothes.get(i, {})
+            )
+            for i in self.race_field
+        ]
 
     def _odds_labels(self) -> list[str]:
         return [horserace.describe_odds(i, self.probabilities["win"]) for i in self.race_field]
@@ -156,7 +169,9 @@ class HorseRaceView(discord.ui.View):
             embed.add_field(name="Current Bets", value="No bets yet — be the first!", inline=False)
         embed.set_footer(text=footer or f"Started by {self.starter.display_name}")
 
-        buf = horserace_render.render_track(self._names(), self._colors(), self._coats(), self._odds_labels())
+        buf = horserace_render.render_track(
+            self._names(), self._colors(), self._coats(), self._odds_labels(), clothes=self._clothes()
+        )
         file = discord.File(buf, filename="track.png")
         embed.set_image(url="attachment://track.png")
         return embed, file
@@ -248,13 +263,16 @@ class HorseRaceView(discord.ui.View):
         final_max = max(frames[-1])
 
         names, colors, coats, odds_labels = self._names(), self._colors(), self._coats(), self._odds_labels()
+        clothes = self._clothes()
         if self.message is not None:
             for leg_index, positions in enumerate(frames):
                 embed = discord.Embed(
                     title="🐎 They're off!" if leg_index == 0 else f"🐎 Leg {leg_index + 1} of {len(frames)}",
                     color=discord.Color.dark_green(),
                 )
-                buf = horserace_render.render_track(names, colors, coats, odds_labels, positions, final_max=final_max)
+                buf = horserace_render.render_track(
+                    names, colors, coats, odds_labels, positions, final_max=final_max, clothes=clothes
+                )
                 file = discord.File(buf, filename="track.png")
                 embed.set_image(url="attachment://track.png")
                 try:
@@ -323,7 +341,7 @@ class HorseRaceView(discord.ui.View):
                 )
 
         buf = horserace_render.render_track(
-            names, colors, coats, odds_labels, frames[-1], final_max=final_max, finish_order=order
+            names, colors, coats, odds_labels, frames[-1], final_max=final_max, finish_order=order, clothes=clothes
         )
         file = discord.File(buf, filename="track.png")
         result_embed.set_image(url="attachment://track.png")

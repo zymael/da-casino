@@ -314,8 +314,8 @@ async def roll_item_drop(guild_id: int, user_id: int, room_index: int, monster_i
     returns it -- but only an item their *current* stage on some in-progress quest is actually
     waiting on, so players not on that quest never see unrelated flavor items. A stage whose
     trigger sets "drop_monster" only offers its item after killing that specific dungeon.MONSTERS
-    id; room_index is accepted for symmetry with dungeon.roll_equipment_drop's call site (no quest
-    item is tier-gated, only monster-gated)."""
+    id; room_index is accepted for symmetry with dungeon.roll_drops's call site (no quest item is
+    room-gated, only monster-gated)."""
     candidates = []
     for quest in QUESTS_BY_ID.values():
         stage_index = await _get_stage(guild_id, user_id, quest["id"])

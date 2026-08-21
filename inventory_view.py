@@ -14,6 +14,7 @@ import discord
 
 import db
 import dungeon
+import horse_clothes
 import quests
 
 MAX_SELECT_OPTIONS = 25  # Discord's hard limit on a single Select's options
@@ -58,27 +59,39 @@ def _consumable_line(item_id: str, qty: int) -> str:
     return f"🧪 **{item['name']}**{qty_suffix}\n> {item['flavor']}"
 
 
-def _inventory_sections(held: dict[str, int]) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
+def _horse_clothes_line(item_id: str, qty: int) -> str:
+    item = horse_clothes.HORSE_CLOTHES[item_id]
+    qty_suffix = f" x{qty}" if qty > 1 else ""
+    return f"👒 **{item['name']}**{qty_suffix} · *{item['slot']}*\n> {item['flavor']}"
+
+
+def _inventory_sections(
+    held: dict[str, int]
+) -> tuple[dict[str, int], dict[str, int], dict[str, int], dict[str, int]]:
     """The generic `inventory` table holds several kinds of item (quest items, crafting
-    materials, consumables) told apart only by which content registry recognizes the id --
-    there's no type column. Splits `held` into (quest_items, materials, consumables); an id
-    recognized by none of them is a genuine content bug (e.g. two JSON files picking the same id,
-    or a kind this function hasn't been taught about yet) and is reported loudly rather than
-    silently dropped, since that's exactly the class of bug this split exists to catch."""
+    materials, consumables, horse clothes) told apart only by which content registry recognizes
+    the id -- there's no type column. Splits `held` into (quest_items, materials, consumables,
+    horse_clothes); an id recognized by none of them is a genuine content bug (e.g. two JSON
+    files picking the same id, or a kind this function hasn't been taught about yet) and is
+    reported loudly rather than silently dropped, since that's exactly the class of bug this
+    split exists to catch."""
     quest_item_ids = {item_id: qty for item_id, qty in held.items() if item_id in quests.QUEST_ITEMS}
     material_ids = {item_id: qty for item_id, qty in held.items() if item_id in dungeon.MATERIALS}
     consumable_ids = {item_id: qty for item_id, qty in held.items() if item_id in dungeon.CONSUMABLES}
-    unrecognized = held.keys() - quest_item_ids.keys() - material_ids.keys() - consumable_ids.keys()
+    horse_clothes_ids = {item_id: qty for item_id, qty in held.items() if item_id in horse_clothes.HORSE_CLOTHES}
+    unrecognized = (
+        held.keys() - quest_item_ids.keys() - material_ids.keys() - consumable_ids.keys() - horse_clothes_ids.keys()
+    )
     if unrecognized:
         raise ValueError(f"inventory has unrecognized item id(s): {sorted(unrecognized)}")
-    return quest_item_ids, material_ids, consumable_ids
+    return quest_item_ids, material_ids, consumable_ids, horse_clothes_ids
 
 
 async def build_inventory_embed(guild_id: int, user_id: int) -> discord.Embed:
     held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
     equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
     stored = await asyncio.to_thread(db.get_equipment_inventory, guild_id, user_id)
-    quest_items, materials, consumables = _inventory_sections(held)
+    quest_items, materials, consumables, horse_clothes_held = _inventory_sections(held)
 
     embed = discord.Embed(title="🎒 Inventory", color=discord.Color.blurple())
 
@@ -99,6 +112,12 @@ async def build_inventory_embed(guild_id: int, user_id: int) -> discord.Embed:
         embed.add_field(name="Consumables", value="\n\n".join(lines), inline=False)
     else:
         embed.add_field(name="Consumables", value="None yet.", inline=False)
+
+    if horse_clothes_held:
+        lines = [_horse_clothes_line(item_id, qty) for item_id, qty in horse_clothes_held.items()]
+        embed.add_field(name="Horse Clothes", value="\n\n".join(lines), inline=False)
+    else:
+        embed.add_field(name="Horse Clothes", value="None yet.", inline=False)
 
     embed.add_field(name="Equipped", value=_equipped_lines(equipped), inline=False)
 

@@ -3,10 +3,19 @@
     "id": "goblin_disco",
     "name": "Goblin Discoth\u00e8que",
     "flavor": "A wild goblin party that you were not invited to. ",
-    "room_tiers": [
-      1,
-      2,
-      3
+    "rooms": [
+      [
+        "goblin_grunt",
+        "goblin_scavenger"
+      ],
+      [
+        "goblin_skirmisher",
+        "goblin_archer"
+      ],
+      [
+        "goblin_chief",
+        "goblin_warlord"
+      ]
     ],
     "background_path": "assets/dungeon/backgrounds/goblin_disco.png"
   }

@@ -17,7 +17,7 @@ Any field entry can also carry:
     their own labeled <fieldset>, which is grouping enough on its own.
   - "hint" -- a one-line explanation shown as small print under that field's input, for a box
     whose meaning isn't obvious from its name alone (e.g. "rarity" is flavor-only and never read
-    by game logic; "tier" gates which delve rooms/loot rolls a monster is eligible for). Trigger
+    by game logic; a monster's "tier" only scales its XP reward now). Trigger
     params get their own per-param hints instead (TRIGGER_PARAM_HINTS), since the same flattened
     param row is reused across every trigger type.
 
@@ -26,7 +26,11 @@ Field types the generic form-builder knows how to render:
   - "text"   -- a multi-line textarea (flavor text and the like)
   - "int"    -- a number input
   - "color"  -- a text input rendered as an HTML5 color picker
-  - "enum"   -- a <select> with a fixed "choices" list
+  - "enum"   -- a <select> sourced from a "choices" list. Pass a plain list for choices that are
+    truly fixed (e.g. equipment slots); pass a zero-arg callable instead when the choices come from
+    a hot-reloadable registry (e.g. room ids), so the list is read fresh at render time rather than
+    frozen at admin_schemas.py's own import time -- a plain list of a mutable registry's keys goes
+    stale the moment content is added after import, same class of bug as the room dropdown once had.
   - "stat_bonuses" -- equipment's fixed {hp, atk, def} sub-dict (each an optional number input;
     only non-zero ones are written, since that's what "no bonus in that stat" means in practice)
   - "effects"   -- a repeatable list of {type, ...params}. Every effect type across
@@ -36,8 +40,17 @@ Field types the generic form-builder knows how to render:
     which params a given type needs.
   - "materials" -- a repeatable list of {material_id, qty}, material_id a <select> sourced live
     from dungeon.MATERIALS.
-  - "tier_list" -- delves' room_tiers: a repeatable list of plain positive-int inputs, one per
-    room, in order. Simpler than "materials" -- no id half, just an ordered list of numbers.
+  - "monster_drops" -- a monster's own explicit loot table: a repeatable list of {kind, item_id,
+    chance}. kind is a fixed equipment/material <select>; item_id is a cascaded_id-shaped select
+    scoped to that row (same "not a top-level field" reasoning as "shop_items" below, wired to the
+    row's own kind select) sourced from dungeon.EQUIPMENT (quest_only items excluded -- those are
+    only ever granted through a quest turn-in) or dungeon.MATERIALS; chance is a single 0-1 number
+    input, rolled independently per row at kill time (dungeon.roll_drops).
+  - "delve_rooms" -- a delve's rooms: a repeatable list of rooms, in order, room count implied by
+    the list length. Each room is itself a repeatable list of monster <select> rows (each option
+    labeled "Tier N — Name" so a large roster stays scannable) -- the only nested repeatable in
+    this schema, a repeatable list inside a repeatable list. See admin_server._render_delve_room_row
+    and _dynamic_script's wireRepeatAdd for how "+ Add" wiring stays correct at that extra depth.
   - "image" -- a file upload with a live preview (monsters' sprite_path, delves'
     background_path). Needs a "subdir" key (e.g. "dungeon/monsters") saying where under assets/
     an upload for this field lands, saved as <subdir>/<entry id>.<ext>. Leaving the file input
@@ -47,8 +60,7 @@ Field types the generic form-builder knows how to render:
     current value (recipes' output_id on output_kind, npcs.json shop rows' item_id on kind) --
     the *only* place across this schema an id gets typed free-text against "whatever registry the
     real loader happens to check it against" is the shop_items row-builder below, since every
-    other id field is either a fixed single-registry "materials"/"tier_list"-style select or one
-    of these. Needs "cascade" (which entry in admin_server._cascade_options() supplies the live
+    other id field is either a fixed single-registry "materials"-style select or one of these. Needs "cascade" (which entry in admin_server._cascade_options() supplies the live
     id->label choices, one dict per possible sibling value) and "cascade_from" (the sibling
     field's name). The paired enum field needs "cascades_to" set to that same cascade name so its
     <select> gets a data-cascade attribute the page script's wireCascadingSelects hooks onto to
@@ -82,11 +94,11 @@ An "enum" field with "required": False gets a blank leading option (selectable, 
 when no value is set) -- required ones don't, since a real select never needs to represent "no
 value" and always defaults to its first real choice.
 
-"effects", "materials", "tier_list", and "quest_stages" all render as an add/remove-able list (a
-"+ Add row" button clones a <template>, each row gets its own "Remove" button) rather than padding
-the form with a fixed number of blank rows -- see admin_server.py's _render_repeatable and its
-per-type row-builder helpers (_render_effect_row, _render_material_row, _render_tier_row,
-_render_stage_row).
+"effects", "materials", "monster_drops", "delve_rooms", and "quest_stages" all render as an
+add/remove-able list (a "+ Add row" button clones a <template>, each row gets its own "Remove"
+button) rather than padding the form with a fixed number of blank rows -- see admin_server.py's
+_render_repeatable and its per-type row-builder helpers (_render_effect_row, _render_material_row,
+_render_drop_row, _render_delve_room_row, _render_stage_row).
 
 Every content type reuses its actual owning-module loader (`loader`) as the save-time validator --
 see admin_server.py's save handler, which dispatches on each entry's `module` key (`dungeon` for
@@ -97,6 +109,7 @@ from this editor.
 
 import achievements
 import dungeon
+import horse_clothes
 import npcs
 import quests
 import room_commands
@@ -134,9 +147,10 @@ TRIGGER_PARAM_HINTS = {
 
 DUNGEON_CONTENT = "Dungeon Content"
 STORY_CONTENT = "Story"
+RANCH_CONTENT = "Ranch"
 # Sidebar/dashboard order: categories in this order, content types within a category in
 # CONTENT_TYPES' own definition order (below).
-CATEGORIES = [DUNGEON_CONTENT, STORY_CONTENT]
+CATEGORIES = [DUNGEON_CONTENT, STORY_CONTENT, RANCH_CONTENT]
 
 CONTENT_TYPES = {
     "monsters": {
@@ -153,8 +167,9 @@ CONTENT_TYPES = {
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
             {
                 "name": "tier", "type": "int", "required": True, "min": 1, "group": "Stats",
-                "hint": "dungeon difficulty tier -- gates which delve rooms this monster can appear in "
-                        "and which loot tier it drops from",
+                "hint": "difficulty rating used only to scale XP-per-kill (XP_PER_TIER) and as an "
+                        "optional filter on the kill_monster quest trigger -- no longer gates which "
+                        "delve rooms this monster can appear in or what it drops (see Drops below)",
             },
             {"name": "hp", "type": "int", "required": True, "min": 0, "group": "Stats"},
             {"name": "atk", "type": "int", "required": True, "min": 0, "group": "Stats"},
@@ -171,6 +186,12 @@ CONTENT_TYPES = {
                 "hint": "currency dropped on a kill is randint(loot_min, loot_max)",
             },
             {"name": "loot_max", "type": "int", "required": True, "min": 0, "group": "Loot"},
+            {
+                "name": "drops", "type": "monster_drops", "required": False,
+                "hint": "this monster's own explicit loot table -- each row is one equipment or "
+                        "material item plus its own drop chance (0-1), rolled independently, so a "
+                        "single kill can land any number of them",
+            },
             {"name": "sprite_path", "type": "image", "required": False, "subdir": "dungeon/monsters"},
         ],
     },
@@ -182,22 +203,14 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "EQUIPMENT",
         "loader": dungeon._load_equipment,
-        "list_columns": ["id", "name", "slot", "tier", "rarity"],
+        "list_columns": ["id", "name", "slot", "rarity"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
             {"name": "slot", "type": "enum", "required": True, "choices": list(dungeon.EQUIPMENT_SLOTS), "group": "Identity"},
             {
-                "name": "tier", "type": "int", "required": True, "min": 1, "group": "Drop Info",
-                "hint": "dungeon difficulty tier this can drop at",
-            },
-            {
                 "name": "rarity", "type": "str", "required": True, "group": "Drop Info",
                 "hint": "flavor label only (e.g. \"common\", \"legendary\") -- not read by any game logic",
-            },
-            {
-                "name": "drop_weight", "type": "int", "required": True, "min": 1, "group": "Drop Info",
-                "hint": "relative weight in the drop roll among same-tier equipment -- higher drops more often",
             },
             {"name": "stat_bonuses", "type": "stat_bonuses", "required": True},
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
@@ -211,21 +224,13 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "MATERIALS",
         "loader": dungeon._load_materials,
-        "list_columns": ["id", "name", "tier", "rarity", "drop_weight"],
+        "list_columns": ["id", "name", "rarity"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
             {
-                "name": "tier", "type": "int", "required": True, "min": 1, "group": "Drop Info",
-                "hint": "dungeon difficulty tier this can drop at",
-            },
-            {
                 "name": "rarity", "type": "str", "required": True, "group": "Drop Info",
                 "hint": "flavor label only (e.g. \"common\", \"rare\") -- not read by any game logic",
-            },
-            {
-                "name": "drop_weight", "type": "int", "required": True, "min": 1, "group": "Drop Info",
-                "hint": "relative weight in the drop roll among same-tier materials -- higher drops more often",
             },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
         ],
@@ -318,12 +323,17 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "DELVES",
         "loader": dungeon._load_delves,
-        "list_columns": ["id", "name", "room_tiers"],
+        "list_columns": ["id", "name", "rooms"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
-            {"name": "room_tiers", "type": "tier_list", "required": True},
+            {
+                "name": "rooms", "type": "delve_rooms", "required": True,
+                "hint": "one row per room, in order -- check off whichever monsters can show up "
+                        "there; the room's monster is picked uniformly at random from the checked "
+                        "set each time it's entered",
+            },
             {"name": "background_path", "type": "image", "required": False, "subdir": "dungeon/backgrounds"},
         ],
     },
@@ -394,7 +404,7 @@ CONTENT_TYPES = {
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
             {
                 "name": "room", "type": "enum", "required": True, "group": "Identity",
-                "choices": sorted(rooms.ROOMS.keys()),
+                "choices": lambda: sorted(rooms.ROOMS.keys()),
                 "hint": "which room's view adds this NPC's talk button",
             },
             {
@@ -445,6 +455,28 @@ CONTENT_TYPES = {
                 "hint": "shown once every stage below is complete (blank = a generic default message)",
             },
             {"name": "stages", "type": "quest_stages", "required": True},
+        ],
+    },
+    "horse_clothes": {
+        "label": "Horse Clothes",
+        "category": RANCH_CONTENT,
+        "icon": "👒",
+        "json_path": "horse_clothes.json",
+        "module": horse_clothes,
+        "registry_attr": "HORSE_CLOTHES",
+        "loader": horse_clothes._load_horse_clothes,
+        "list_columns": ["id", "name", "slot"],
+        "fields": [
+            {"name": "id", "type": "str", "required": True, "group": "Identity"},
+            {"name": "name", "type": "str", "required": True, "group": "Identity"},
+            {"name": "slot", "type": "enum", "required": True, "choices": list(horse_clothes.CLOTHES_SLOTS), "group": "Identity"},
+            {
+                "name": "image_path", "type": "image", "required": True, "subdir": "horses/horse_clothes",
+                "hint": "composited directly onto the horse's coat sprite in race photos -- draw it "
+                        "on a transparent 50x37 canvas aligned to assets/horses/*.png so it lines up "
+                        "with no extra positioning",
+            },
+            {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
         ],
     },
 }

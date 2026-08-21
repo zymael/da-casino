@@ -13,7 +13,7 @@ import db
 import npcs
 import shop
 
-_KIND_EMOJI = {"equipment": "⚔️", "material": "⛏️", "consumable": "🧪", "quest_item": "🎒"}
+_KIND_EMOJI = {"equipment": "⚔️", "material": "⛏️", "consumable": "🧪", "quest_item": "🎒", "horse_clothes": "👒"}
 MAX_SELECT_OPTIONS = 25
 
 

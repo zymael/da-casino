@@ -10,6 +10,7 @@ monsters can be added without touching this file -- see MONSTERS below.
 """
 
 import json
+import math
 import os
 import random
 
@@ -81,11 +82,33 @@ def compute_stats(main_class: str, subclass: str) -> dict:
 # new monsters -- no code change should ever be required just to add content. Validated loudly
 # (raises on any malformed entry) so a bad edit breaks bot startup immediately rather than
 # surfacing as a confusing runtime error mid-delve.
+#
+# `drops` is an optional list of {kind, item_id, chance} -- each monster's own explicit loot
+# table, replacing the old tier-wide weighted roll (see roll_drops below). Loaded after
+# EQUIPMENT/MATERIALS since a monster's drops get cross-validated against whichever registry its
+# `kind` points into.
 
 _MONSTERS_PATH = os.path.join(os.path.dirname(__file__), "dungeon_monsters.json")
 _REQUIRED_MONSTER_FIELDS = {
     "id", "name", "tier", "hp", "atk", "def", "shape", "color", "flavor", "loot_min", "loot_max",
 }
+DROP_KINDS = ("equipment", "material")
+
+
+def _validate_monster_drops(drops, context: str):
+    for drop in drops:
+        kind = drop.get("kind")
+        if kind not in DROP_KINDS:
+            raise ValueError(f"{context} has a drop with unknown kind {kind!r}")
+        item_id = drop.get("item_id")
+        registry = EQUIPMENT if kind == "equipment" else MATERIALS
+        if item_id not in registry:
+            raise ValueError(f"{context} has a drop referencing unknown {kind} {item_id!r}")
+        if kind == "equipment" and registry[item_id].get("quest_only"):
+            raise ValueError(f"{context} has a drop referencing quest_only equipment {item_id!r}")
+        chance = drop.get("chance")
+        if not isinstance(chance, (int, float)) or not (0 < chance <= 1):
+            raise ValueError(f"{context} has a drop for {item_id!r} with chance not in (0, 1]")
 
 
 def _load_monsters(path: str = _MONSTERS_PATH) -> dict[str, dict]:
@@ -104,28 +127,40 @@ def _load_monsters(path: str = _MONSTERS_PATH) -> dict[str, dict]:
                 raise ValueError(f"dungeon_monsters.json: monster {entry_id!r} has negative {field}")
         if entry["loot_min"] > entry["loot_max"]:
             raise ValueError(f"dungeon_monsters.json: monster {entry_id!r} has loot_min > loot_max")
+        _validate_monster_drops(entry.get("drops", []), f"dungeon_monsters.json: monster {entry_id!r}")
         monsters[entry_id] = entry
     return monsters
 
 
-MONSTERS = _load_monsters()
-
-
-def monster_for_tier(tier: int) -> dict:
-    candidates = [m for m in MONSTERS.values() if m["tier"] == tier]
-    if not candidates:
-        raise ValueError(f"No monsters defined for tier {tier} in dungeon_monsters.json")
-    return random.choice(candidates)
+def roll_drops(monster: dict, chance_mult: float = 1.0) -> list[dict]:
+    """Rolls this monster's own `drops` list (see _validate_monster_drops) -- each entry's chance
+    is an independent roll, so a single kill can land any number of its configured drops (zero,
+    one, or several), unlike the old shared tier table where equipment and material were exactly
+    one roll each. Returns the full item dict for each hit, tagged with its `kind` so the caller
+    knows which registry (and which downstream handling -- equip-or-store vs. inventory-add) it
+    came from. `chance_mult` scales every configured chance uniformly -- used to halve drop odds
+    for a party delve's non-leader members, 1.0 (unchanged) for everyone else."""
+    hits = []
+    for drop in monster.get("drops", []):
+        if random.random() > drop["chance"] * chance_mult:
+            continue
+        registry = EQUIPMENT if drop["kind"] == "equipment" else MATERIALS
+        item = dict(registry[drop["item_id"]])
+        item["_drop_kind"] = drop["kind"]
+        hits.append(item)
+    return hits
 
 
 # --- Delve content ---------------------------------------------------------------------------
-# A delve is a named dungeon layout: an ordered sequence of room tiers (room count is just
-# len(room_tiers), no separate field). Loaded after MONSTERS since a delve's room_tiers gets
-# cross-validated against it -- a tier with no monster defined would otherwise only surface as a
-# crash mid-delve (monster_for_tier's own ValueError), not at startup where a bad edit belongs.
+# A delve is a named dungeon layout: an ordered sequence of rooms (room count is just
+# len(rooms), no separate field), each an explicit list of monster ids that can show up there --
+# arbitrarily chosen by whoever authors the delve, not gated by a shared tier. Loaded after
+# MONSTERS since a delve's rooms get cross-validated against it -- an unknown monster id would
+# otherwise only surface as a crash mid-delve (a KeyError), not at startup where a bad edit
+# belongs.
 
 _DELVES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_delves.json")
-_REQUIRED_DELVE_FIELDS = {"id", "name", "flavor", "room_tiers"}
+_REQUIRED_DELVE_FIELDS = {"id", "name", "flavor", "rooms"}
 
 
 def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
@@ -139,22 +174,23 @@ def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_delves.json: delve {entry_id!r} missing field(s): {sorted(missing)}")
         if entry_id in delves:
             raise ValueError(f"dungeon_delves.json: duplicate delve id {entry_id!r}")
-        room_tiers = entry["room_tiers"]
-        if not room_tiers:
-            raise ValueError(f"dungeon_delves.json: delve {entry_id!r} has empty room_tiers")
-        for tier in room_tiers:
-            if tier < 1:
-                raise ValueError(f"dungeon_delves.json: delve {entry_id!r} has a non-positive tier in room_tiers")
-            if not any(m["tier"] == tier for m in MONSTERS.values()):
-                raise ValueError(
-                    f"dungeon_delves.json: delve {entry_id!r} references tier {tier}, "
-                    f"which has no monsters defined in dungeon_monsters.json"
-                )
+        rooms = entry["rooms"]
+        if not rooms:
+            raise ValueError(f"dungeon_delves.json: delve {entry_id!r} has empty rooms")
+        for room in rooms:
+            if not room:
+                raise ValueError(f"dungeon_delves.json: delve {entry_id!r} has a room with no monsters")
+            for monster_id in room:
+                if monster_id not in MONSTERS:
+                    raise ValueError(
+                        f"dungeon_delves.json: delve {entry_id!r} references unknown monster {monster_id!r}"
+                    )
         delves[entry_id] = entry
     return delves
 
 
-DELVES = _load_delves()
+def monster_for_room(room: list[str]) -> dict:
+    return MONSTERS[random.choice(room)]
 
 
 # --- Leveling ------------------------------------------------------------------------------
@@ -291,16 +327,14 @@ def unlocked_skills(main_class: str, subclass: str, level: int) -> list[dict]:
 
 # --- Equipment -----------------------------------------------------------------------------
 # Same registry pattern as MONSTERS above -- content lives in dungeon_equipment.json so new gear
-# is a JSON edit, not a code change. Found as dungeon loot (roll_equipment_drop), never bought.
+# is a JSON edit, not a code change. Found as dungeon loot (a monster's own `drops` list -- see
+# roll_drops above), never bought. Loaded before MONSTERS since a monster's drops get
+# cross-validated against this registry.
 
 _EQUIPMENT_PATH = os.path.join(os.path.dirname(__file__), "dungeon_equipment.json")
-_REQUIRED_EQUIPMENT_FIELDS = {
-    "id", "name", "slot", "tier", "rarity", "drop_weight", "stat_bonuses", "flavor",
-}
+_REQUIRED_EQUIPMENT_FIELDS = {"id", "name", "slot", "rarity", "stat_bonuses", "flavor"}
 EQUIPMENT_SLOTS = ("weapon", "armor", "trinket")
 _STAT_BONUS_KEYS = {"hp", "atk", "def"}
-
-EQUIPMENT_DROP_CHANCE = 0.25  # per room win, independent of whether currency loot also lands
 
 
 def _load_equipment(path: str = _EQUIPMENT_PATH) -> dict[str, dict]:
@@ -316,8 +350,6 @@ def _load_equipment(path: str = _EQUIPMENT_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_equipment.json: duplicate item id {entry_id!r}")
         if entry["slot"] not in EQUIPMENT_SLOTS:
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has unknown slot {entry['slot']!r}")
-        if entry["tier"] < 1 or entry["drop_weight"] <= 0:
-            raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has invalid tier/drop_weight")
         bonuses = entry["stat_bonuses"]
         if not bonuses:
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has empty stat_bonuses")
@@ -334,17 +366,14 @@ EQUIPMENT = _load_equipment()
 
 
 # --- Materials -------------------------------------------------------------------------------
-# Crafting inputs -- same registry pattern as MONSTERS/EQUIPMENT/SKILLS, but deliberately their
-# own drop table (roll_material_drop below) rather than reusing roll_equipment_drop, since a
-# monster kill can drop equipment and a material independently. Materials have no combat stats;
-# they're only meaningful once dungeon_recipes.json exists to turn them into something. Held in
-# the same generic `inventory` table as quest items (db.add_inventory_item etc) rather than a
-# dedicated table.
+# Crafting inputs -- same registry pattern as MONSTERS/EQUIPMENT/SKILLS. Materials have no combat
+# stats; they're only meaningful once dungeon_recipes.json exists to turn them into something.
+# Held in the same generic `inventory` table as quest items (db.add_inventory_item etc) rather
+# than a dedicated table. Loaded before MONSTERS for the same drops cross-validation reason as
+# EQUIPMENT above.
 
 _MATERIALS_PATH = os.path.join(os.path.dirname(__file__), "dungeon_materials.json")
-_REQUIRED_MATERIAL_FIELDS = {"id", "name", "tier", "rarity", "drop_weight", "flavor"}
-
-MATERIAL_DROP_CHANCE = 0.35  # independent roll from EQUIPMENT_DROP_CHANCE and from currency loot
+_REQUIRED_MATERIAL_FIELDS = {"id", "name", "rarity", "flavor"}
 
 
 def _load_materials(path: str = _MATERIALS_PATH) -> dict[str, dict]:
@@ -358,26 +387,16 @@ def _load_materials(path: str = _MATERIALS_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_materials.json: material {entry_id!r} missing field(s): {sorted(missing)}")
         if entry_id in materials:
             raise ValueError(f"dungeon_materials.json: duplicate material id {entry_id!r}")
-        if entry["tier"] < 1 or entry["drop_weight"] <= 0:
-            raise ValueError(f"dungeon_materials.json: material {entry_id!r} has invalid tier/drop_weight")
         materials[entry_id] = entry
     return materials
 
 
 MATERIALS = _load_materials()
 
-
-def roll_material_drop(tier: int) -> dict | None:
-    """None most of the time (MATERIAL_DROP_CHANCE). When it hits, picks one material from this
-    tier, weighted by drop_weight -- same shape as roll_equipment_drop, but a separate roll so a
-    single kill can drop both a material and a piece of gear."""
-    if random.random() > MATERIAL_DROP_CHANCE:
-        return None
-    candidates = [m for m in MATERIALS.values() if m["tier"] == tier]
-    if not candidates:
-        return None
-    weights = [m["drop_weight"] for m in candidates]
-    return random.choices(candidates, weights=weights, k=1)[0]
+# Loaded here, after EQUIPMENT/MATERIALS: a monster's drops list is cross-validated against
+# them, and a delve's rooms are in turn cross-validated against MONSTERS.
+MONSTERS = _load_monsters()
+DELVES = _load_delves()
 
 
 # --- Consumables -------------------------------------------------------------------------------
@@ -487,20 +506,6 @@ def is_upgrade(current_item_id: str | None, new_item: dict) -> bool:
     return current_item is None or item_power(new_item) > item_power(current_item)
 
 
-def roll_equipment_drop(tier: int) -> dict | None:
-    """None most of the time (EQUIPMENT_DROP_CHANCE). When it hits, picks one item from this
-    tier, weighted by drop_weight so rarer/stronger items are less likely. quest_only items
-    (granted exclusively through a quest turn-in, e.g. Mondor's Greasy Pencil) are never
-    candidates here."""
-    if random.random() > EQUIPMENT_DROP_CHANCE:
-        return None
-    candidates = [item for item in EQUIPMENT.values() if item["tier"] == tier and not item.get("quest_only")]
-    if not candidates:
-        return None
-    weights = [item["drop_weight"] for item in candidates]
-    return random.choices(candidates, weights=weights, k=1)[0]
-
-
 def compute_effective_stats(character: dict, equipped: dict[str, str]) -> dict:
     """A character's stored hp/atk/def (which already include all permanent level growth) plus
     whatever's currently equipped in each slot. `equipped` is {slot: item_id}, e.g. from
@@ -533,3 +538,11 @@ def roll_damage(atk: int, defense: int, multiplier: float = 1.0) -> int:
 
 def roll_loot(monster: dict, loot_mult: float = 1.0) -> int:
     return round(random.randint(monster["loot_min"], monster["loot_max"]) * loot_mult)
+
+
+def party_hp_multiplier(living_count: int) -> float:
+    """A party delve's monster HP scale, vs. living_count party members -- sqrt rather than
+    linear so a full party doesn't face a monster with 4x HP just because there are 4 attackers
+    (roughly 1.0/1.41/1.73/2.0 for party sizes 1-4). Recomputed fresh at every new monster off
+    however many members are still standing at that moment, not the party's original size."""
+    return math.sqrt(max(1, living_count))

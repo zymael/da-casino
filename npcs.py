@@ -20,7 +20,8 @@ would be circular), so quests.py cross-validates every NPC's visible_trigger rig
 both registries; see the bottom of quests.py.
 
 An NPC's optional "shop" is a non-empty list of {kind, item_id, price} -- any item any registry
-recognizes (dungeon.EQUIPMENT/MATERIALS/CONSUMABLES, or a quests.QUEST_ITEMS one) can be sold, told
+recognizes (dungeon.EQUIPMENT/MATERIALS/CONSUMABLES, horse_clothes.HORSE_CLOTHES, or a
+quests.QUEST_ITEMS one) can be sold, told
 apart by "kind" rather than inferred from item_id the way inventory_view.py has to for a held
 item, since a shop entry needs to be unambiguous before the item is ever owned. Presence of a
 non-empty list is what makes npc_view.ShopButton show a store icon for this NPC -- there's no
@@ -35,6 +36,7 @@ import os
 
 import achievements
 import dungeon
+import horse_clothes
 
 _NPCS_PATH = os.path.join(os.path.dirname(__file__), "npcs.json")
 _REQUIRED_NPC_FIELDS = {"id", "name", "room", "greet_message"}
@@ -46,6 +48,7 @@ SHOP_KINDS = {
     "material": dungeon.MATERIALS,
     "consumable": dungeon.CONSUMABLES,
     "quest_item": None,
+    "horse_clothes": horse_clothes.HORSE_CLOTHES,
 }
 
 

@@ -5,6 +5,11 @@ from datetime import date, datetime, timedelta, timezone
 DB_PATH = "casino.db"
 STARTING_BALANCE = 100
 ENERGY_MAX = 3  # currently spent only by !delve (1 per delve); refilled to this by !rest
+# Shared cooldown for !rest, !rub, and !train -- a rolling window since each one's own last use,
+# not a calendar-day reset (see _seconds_until_refresh). One knob for all three since they're
+# meant to stay in lockstep; give a function its own constant instead if one of them ever needs to
+# diverge from the others.
+REFRESH_HOURS = 12
 
 
 def init_db():
@@ -259,6 +264,22 @@ def init_db():
     # no boost queued, which is also what a freshly-created row gets by default.
     if "pending_boost_stat" not in columns:
         conn.execute("ALTER TABLE horses ADD COLUMN pending_boost_stat TEXT")
+    # A horse's equipped cosmetics, one row per filled slot (saddle/hat) -- keyed by horse_index
+    # rather than owner, since the horse (not the owner) is what's dressed up, and ownership can
+    # change hands via buy_legend_horse while a cosmetic stays on. Unlike character_equipment,
+    # equipping here never consumes anything from `inventory` -- horse clothes are a reusable
+    # wardrobe an owner can put on any of their horses, not a single wearable instance.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS horse_clothes_equipped (
+            guild_id INTEGER NOT NULL,
+            horse_index INTEGER NOT NULL,
+            slot TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            PRIMARY KEY (guild_id, horse_index, slot)
+        )
+        """
+    )
     # Per-owner, per-guild permanent training facility tier (0 = none). Absence of a row means
     # tier 0, same "no row yet = default state" idea as everything else lazily created on first
     # purchase (e.g. champion_base_nick).
@@ -1267,6 +1288,64 @@ def get_ranch_horses(guild_id: int, user_id: int) -> list[dict]:
         conn.close()
 
 
+def get_guild_horse_clothes(guild_id: int) -> dict[int, dict[str, str]]:
+    """Returns {horse_index: {slot: item_id}} for every horse in this guild with at least one
+    cosmetic equipped -- a horse absent from the dict (or a slot absent from its sub-dict) has
+    nothing equipped there, same "absence = default state" idea as get_equipped_items."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT horse_index, slot, item_id FROM horse_clothes_equipped WHERE guild_id = ?", (guild_id,)
+        ).fetchall()
+        by_horse: dict[int, dict[str, str]] = {}
+        for horse_index, slot, item_id in rows:
+            by_horse.setdefault(horse_index, {})[slot] = item_id
+        return by_horse
+    finally:
+        conn.close()
+
+
+def equip_horse_clothes(guild_id: int, user_id: int, horse_index: int, slot: str, item_id: str) -> str:
+    """Equips item_id in `slot` on horse_index, replacing whatever cosmetic was there -- if
+    user_id owns that horse. Returns "ok" or "not_owner"."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT owner_id FROM horses WHERE guild_id = ? AND horse_index = ?", (guild_id, horse_index),
+        ).fetchone()
+        if row is None or row[0] != user_id:
+            return "not_owner"
+        conn.execute(
+            "INSERT INTO horse_clothes_equipped (guild_id, horse_index, slot, item_id) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(guild_id, horse_index, slot) DO UPDATE SET item_id = excluded.item_id",
+            (guild_id, horse_index, slot, item_id),
+        )
+        conn.commit()
+        return "ok"
+    finally:
+        conn.close()
+
+
+def unequip_horse_clothes(guild_id: int, user_id: int, horse_index: int, slot: str) -> str:
+    """Empties `slot` on horse_index -- if user_id owns that horse. Returns "ok" or "not_owner"
+    (a no-op "ok" if the slot was already empty)."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT owner_id FROM horses WHERE guild_id = ? AND horse_index = ?", (guild_id, horse_index),
+        ).fetchone()
+        if row is None or row[0] != user_id:
+            return "not_owner"
+        conn.execute(
+            "DELETE FROM horse_clothes_equipped WHERE guild_id = ? AND horse_index = ? AND slot = ?",
+            (guild_id, horse_index, slot),
+        )
+        conn.commit()
+        return "ok"
+    finally:
+        conn.close()
+
+
 def buy_foal(
     guild_id: int, horse_index: int, user_id: int, name: str, price: int,
     speed: float, endurance: float, spirit: float, sex: str, coat: str,
@@ -1380,9 +1459,9 @@ def train_horse(
     guild_id: int, horse_index: int, user_id: int, speed_gain: float, endurance_gain: float,
     spirit_gain: float, stat_cap: float,
 ) -> tuple[str, tuple | None]:
-    """Trains a horse if user_id owns it and it hasn't been trained yet today. Returns
-    (status, payload): "ok" with (new_speed, new_endurance, new_spirit, new_age), "not_owner",
-    or "cooldown" (already trained today)."""
+    """Trains a horse if user_id owns it and REFRESH_HOURS have passed since it was last trained.
+    Returns (status, payload): "ok" with (new_speed, new_endurance, new_spirit, new_age),
+    "not_owner", or ("cooldown", seconds_remaining)."""
     conn = _connect()
     try:
         row = conn.execute(
@@ -1393,9 +1472,10 @@ def train_horse(
         if row is None or row[0] != user_id:
             return "not_owner", None
         _owner_id, speed, endurance, spirit, age, last_trained = row
-        today = date.today().isoformat()
-        if last_trained == today:
-            return "cooldown", None
+        remaining = _seconds_until_refresh(last_trained)
+        if remaining is not None:
+            return "cooldown", remaining
+        now = datetime.now().isoformat()
         new_speed = min(stat_cap, speed + speed_gain)
         new_endurance = min(stat_cap, endurance + endurance_gain)
         new_spirit = min(stat_cap, spirit + spirit_gain)
@@ -1406,7 +1486,7 @@ def train_horse(
         conn.execute(
             "UPDATE horses SET speed = ?, endurance = ?, spirit = ?, age = ?, last_trained = ?, "
             "pending_boost_stat = NULL WHERE guild_id = ? AND horse_index = ?",
-            (new_speed, new_endurance, new_spirit, new_age, today, guild_id, horse_index),
+            (new_speed, new_endurance, new_spirit, new_age, now, guild_id, horse_index),
         )
         conn.commit()
         return "ok", (new_speed, new_endurance, new_spirit, new_age)
@@ -1421,29 +1501,45 @@ def _seconds_until_next_day() -> float:
     return max(0.0, (next_reset - datetime.now()).total_seconds())
 
 
+def _seconds_until_refresh(last_timestamp: str | None) -> float | None:
+    """REFRESH_HOURS-gated cooldown check for !rest/!rub/!train -- a rolling window since
+    `last_timestamp` (a datetime.now().isoformat() string) rather than a calendar-day reset like
+    _seconds_until_next_day above. Returns None once the window has passed (or it's never been
+    used at all), otherwise the seconds still remaining. datetime.fromisoformat also accepts a
+    bare date.today().isoformat() string, so rows written before this cooldown existed (when it
+    was calendar-day-only) still parse fine, as that day's midnight."""
+    if last_timestamp is None:
+        return None
+    elapsed = (datetime.now() - datetime.fromisoformat(last_timestamp)).total_seconds()
+    remaining = REFRESH_HOURS * 3600 - elapsed
+    return remaining if remaining > 0 else None
+
+
 def claim_rest(guild_id: int, user_id: int, gold_amount: int) -> tuple[str, float | int]:
-    """Grants `gold_amount` credits and refills energy to ENERGY_MAX, once per calendar day
-    (still gated by last_daily -- renamed from claim_daily now that resting does double duty,
-    the column itself wasn't worth an ALTER just for the name).
+    """Grants `gold_amount` credits and refills energy to ENERGY_MAX, once every REFRESH_HOURS
+    (still gated by last_daily -- renamed from claim_daily now that resting does double duty, the
+    column itself wasn't worth an ALTER just for the name; it stores a full timestamp now rather
+    than a bare date, despite the name).
 
     Returns (status, value):
-      - ("cooldown", seconds_remaining) — already claimed today
+      - ("cooldown", seconds_remaining) — still within REFRESH_HOURS of the last rest
       - ("claimed", new_balance) — credits granted and energy refilled
     """
     conn = _connect()
     try:
         _ensure_user(conn, guild_id, user_id)
         conn.commit()
-        today = date.today().isoformat()
         last_daily, balance = conn.execute(
             "SELECT last_daily, balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
         ).fetchone()
-        if last_daily == today:
-            return "cooldown", _seconds_until_next_day()
+        remaining = _seconds_until_refresh(last_daily)
+        if remaining is not None:
+            return "cooldown", remaining
         new_balance = balance + gold_amount
+        now = datetime.now().isoformat()
         conn.execute(
             "UPDATE users SET balance = ?, last_daily = ?, energy = ? WHERE guild_id = ? AND user_id = ?",
-            (new_balance, today, ENERGY_MAX, guild_id, user_id),
+            (new_balance, now, ENERGY_MAX, guild_id, user_id),
         )
         conn.commit()
         return "claimed", new_balance
@@ -1469,14 +1565,13 @@ def get_luck(guild_id: int, user_id: int) -> int:
 def apply_rub(
     guild_id: int, author_id: int, target_id: int, author_gain: int, target_penalty: int
 ) -> tuple[str, tuple[int, int] | float]:
-    """!rub's once-per-day effect: the author's luck permanently increases by `author_gain`,
-    the target's luck permanently drops by `target_penalty` -- stolen luck stays stolen, no
-    restore-on-rest. Gated once per calendar day per author, same scheme as tip/claim_rest. If
-    author_id == target_id (rubbing yourself into your own bad luck, if the random draw lands
-    that way), both updates just apply to the same row.
+    """!rub's REFRESH_HOURS-gated effect: the author's luck permanently increases by
+    `author_gain`, the target's luck permanently drops by `target_penalty` -- stolen luck stays
+    stolen, no restore-on-rest. If author_id == target_id (rubbing yourself into your own bad
+    luck, if the random draw lands that way), both updates just apply to the same row.
 
     Returns (status, value):
-      - ("cooldown", seconds_remaining) -- author already rubbed today
+      - ("cooldown", seconds_remaining) -- still within REFRESH_HOURS of the author's last rub
       - ("ok", (author_luck, target_luck)) -- both players' luck, post-update
     """
     conn = _connect()
@@ -1484,16 +1579,17 @@ def apply_rub(
         _ensure_user(conn, guild_id, author_id)
         _ensure_user(conn, guild_id, target_id)
         conn.commit()
-        today = date.today().isoformat()
         (last_rub,) = conn.execute(
             "SELECT last_rub FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, author_id)
         ).fetchone()
-        if last_rub == today:
-            return "cooldown", _seconds_until_next_day()
+        remaining = _seconds_until_refresh(last_rub)
+        if remaining is not None:
+            return "cooldown", remaining
 
+        now = datetime.now().isoformat()
         conn.execute(
             "UPDATE users SET luck = luck + ?, last_rub = ? WHERE guild_id = ? AND user_id = ?",
-            (author_gain, today, guild_id, author_id),
+            (author_gain, now, guild_id, author_id),
         )
         conn.execute(
             "UPDATE users SET luck = luck - ? WHERE guild_id = ? AND user_id = ?",

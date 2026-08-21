@@ -11,7 +11,34 @@
     "name": "Kel",
     "room": "ranch",
     "greet_message": "Yes, I am Kel. Your assistant and a proud breeder of horses. You may look to me whenever you need help tending to the ranch, or whenever you need a horse bred.",
-    "greet_achievement": "love_in_bloom"
+    "greet_achievement": "love_in_bloom",
+    "shop": [
+      {
+        "kind": "horse_clothes",
+        "item_id": "brown_saddle",
+        "price": 250
+      },
+      {
+        "kind": "horse_clothes",
+        "item_id": "blue_saddle",
+        "price": 250
+      },
+      {
+        "kind": "horse_clothes",
+        "item_id": "red_saddle",
+        "price": 250
+      },
+      {
+        "kind": "horse_clothes",
+        "item_id": "pink_saddle",
+        "price": 250
+      },
+      {
+        "kind": "horse_clothes",
+        "item_id": "bowler_derby",
+        "price": 400
+      }
+    ]
   },
   {
     "id": "roy",
@@ -30,5 +57,39 @@
       "quest_id": "mondor_goblin_chieftain"
     },
     "sprite_path": "assets/greasy_princess.png"
+  },
+  {
+    "id": "the_goo",
+    "name": "The Goo",
+    "room": "goo_store",
+    "greet_message": "*The Goo quivers and gesticulates silently towards their goods.*",
+    "sprite_path": "assets/npcs/the_goo.png",
+    "shop": [
+      {
+        "kind": "horse_clothes",
+        "item_id": "blue_saddle",
+        "price": 500
+      },
+      {
+        "kind": "horse_clothes",
+        "item_id": "brown_saddle",
+        "price": 500
+      },
+      {
+        "kind": "horse_clothes",
+        "item_id": "pink_saddle",
+        "price": 500
+      },
+      {
+        "kind": "horse_clothes",
+        "item_id": "red_saddle",
+        "price": 500
+      },
+      {
+        "kind": "horse_clothes",
+        "item_id": "bowler_derby",
+        "price": 1000
+      }
+    ]
   }
 ]

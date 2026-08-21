@@ -1,4 +1,5 @@
 import asyncio
+import random
 
 import discord
 
@@ -21,9 +22,12 @@ def _moon_combat_multiplier(effect: str | None, favors: str) -> float:
     on_our_side = (effect == "player") == (favors == "player")
     return 1 + DUNGEON_MOON_SHIFT if on_our_side else 1 - DUNGEON_MOON_SHIFT
 
-# user_id -> DelveSession, so a player can only have one active delve at a time (across any
-# channel, matching how busy_players itself is unscoped by channel/guild).
-active_delves: dict[int, "DelveSession"] = {}
+# user_id -> whatever delve-related thing currently has that player reserved, so a player can
+# only be in one at a time (across any channel, matching how busy_players itself is unscoped by
+# channel/guild). A party delve's PartyLobby/PartyDelveSession registers ALL its member ids here,
+# each pointing at the same shared object -- see _cleanup, which releases every id an entry has
+# at once regardless of which of the three types it is.
+active_delves: dict[int, "DelveSession | PartyLobby | PartyDelveSession"] = {}
 
 CLASS_OPTIONS = [
     ("fighter", "Fighter (Ace)", "Tank — high HP/DEF. Skill varies by subclass."),
@@ -57,15 +61,15 @@ class DelveSession:
         # dungeon.py) and is always sorted first, so unlocked_skills is never empty.
         self.unlocked_skills = dungeon.unlocked_skills(self.main_class, self.subclass, self.level)
 
-        # Which delve this session is running -- room_tiers[room_index] is this delve's tier for
-        # the current room (rooms are a session-level concept; tiers are dungeon.py's), and its
-        # length is this delve's room count. See dungeon.DELVES.
+        # Which delve this session is running -- rooms[room_index] is this delve's explicit list
+        # of monster ids eligible for the current room, and its length is this delve's room
+        # count. See dungeon.DELVES.
         self.delve = delve
-        self.room_tiers = delve["room_tiers"]
+        self.rooms = delve["rooms"]
 
         self.hp = self.max_hp
         self.room_index = 0
-        self.monster = dungeon.monster_for_tier(self.room_tiers[0])
+        self.monster = dungeon.monster_for_room(self.rooms[0])
         self.monster_hp = self.monster["hp"]
         self.monster_def_debuff = 0  # from def_shred-type skills; resets each new monster
         self.ability_used = False
@@ -78,6 +82,115 @@ class DelveSession:
         # here (unlike blackjack's play_round) to guarantee ordering.
         self.current_view: discord.ui.View | None = None
 
+    def all_user_ids(self) -> list[int]:
+        return [self.user_id]
+
+
+# --- Party delves -------------------------------------------------------------------------------
+# A party lets other players join a delve before it starts, at no energy cost to them -- only the
+# leader (whoever ran !delve) spends the charge, and only once they actually confirm Start Delve.
+# Combat then resolves in full rounds: every living member acts once (in join order) before the
+# monster gets its single counter-attack, rather than solo's "monster hits back after every
+# action." See PARTY_LOBBY_TIMEOUT/PARTY_ACTION_TIMEOUT below and PartyLobby/PartyDelveSession.
+
+PARTY_SIZE_CAP = 4  # keeps the roster/turn-order embed readable; matches party_hp_multiplier's natural 1-4 range
+PARTY_LOBBY_TIMEOUT = 300  # 5 minutes to gather a party -- longer than DelvePickerView's 120s since it needs multiple humans, not just one player picking a dropdown
+PARTY_ACTION_TIMEOUT = 150  # 2.5 minutes -- solo's 20-minute DELVE_ACTION_TIMEOUT only ever blocks the one player waiting on themselves; a party turn blocks everyone else too, so it has to be much tighter
+
+
+class PartyMember:
+    """One party delve participant -- the same per-user combat fields DelveSession carries for a
+    solo player (hp/max_hp/atk/def_/loot_total/...), just pulled onto their own object, since a
+    party's monster_hp/monster_def_debuff is shared across members rather than living on each one
+    individually (see PartyDelveSession, which owns that shared state instead)."""
+
+    def __init__(self, guild_id: int, user_id: int, player_name: str, character: dict, equipped: dict[str, str], is_leader: bool):
+        self.guild_id = guild_id
+        self.user_id = user_id
+        self.player_name = player_name  # snapshot of interaction.user.display_name at join time
+        self.main_class = character["main_class"]
+        self.subclass = character["subclass"]
+        self.level = character["level"]
+        self.equipped = equipped
+        effective = dungeon.compute_effective_stats(character, equipped)
+        self.max_hp = effective["hp"]
+        self.atk = effective["atk"]
+        self.def_ = effective["def"]
+        self.hp = self.max_hp
+        self.loot_mult = dungeon.SUBCLASSES[self.subclass]["loot_mult"]
+        self.build_name = dungeon.display_name(self.main_class, self.subclass)
+        self.unlocked_skills = dungeon.unlocked_skills(self.main_class, self.subclass, self.level)
+        self.is_leader = is_leader
+        self.ability_used = False
+        self.knocked_out = False
+        self.loot_total = 0
+
+    @property
+    def label(self) -> str:
+        return f"{self.player_name} ({self.build_name})"
+
+
+class PartyLobby:
+    """Pre-combat party-forming state, shown after the leader picks "Start Party" from
+    DelveModeChoiceView. Deliberately a separate class from PartyDelveSession (rather than a
+    started flag on one combined class) so combat-only fields (monster, turn_queue, ...) never
+    exist in a half-initialized state during the join phase."""
+
+    def __init__(self, guild_id: int, leader_id: int, leader_name: str, leader_character: dict, delve: dict):
+        self.guild_id = guild_id
+        self.leader_id = leader_id
+        self.leader_character = leader_character
+        self.delve = delve
+        self.member_ids: list[int] = [leader_id]  # join order, leader always first
+        self.member_names: dict[int, str] = {leader_id: leader_name}
+        self.message: discord.Message | None = None
+        self.current_view: discord.ui.View | None = None
+
+    def all_user_ids(self) -> list[int]:
+        return list(self.member_ids)
+
+
+class PartyDelveSession:
+    """Combat state for a party delve, built the moment the leader clicks Start Delve. members[0]
+    is always the leader; turn order otherwise follows join order."""
+
+    def __init__(self, guild_id: int, delve: dict, members: list[PartyMember]):
+        self.guild_id = guild_id
+        self.delve = delve
+        self.rooms = delve["rooms"]
+        self.room_index = 0
+        self.members = members
+        self.members_by_id = {m.user_id: m for m in members}
+        self.monster_def_debuff = 0
+        self.monster: dict | None = None
+        self.monster_hp = 0
+        self.monster_max_hp = 0
+        self.turn_queue: list[int] = []
+        self._roll_new_monster()
+
+        self.message: discord.Message | None = None
+        self.current_view: discord.ui.View | None = None
+
+    def living_members(self) -> list[PartyMember]:
+        return [m for m in self.members if not m.knocked_out]
+
+    def all_user_ids(self) -> list[int]:
+        return [m.user_id for m in self.members]
+
+    def _roll_new_monster(self):
+        """Rolls a fresh monster for the current room and rebuilds the round's turn queue --
+        called on session init and on Push Deeper. Monster HP is scaled by however many members
+        are alive RIGHT NOW (party_hp_multiplier), not the party's original size, so a roster
+        thinned by earlier knockouts faces a fight scaled to its current strength."""
+        self.monster = dungeon.monster_for_room(self.rooms[self.room_index])
+        mult = dungeon.party_hp_multiplier(len(self.living_members()))
+        self.monster_max_hp = round(self.monster["hp"] * mult)
+        self.monster_hp = self.monster_max_hp
+        self.monster_def_debuff = 0
+        for m in self.members:
+            m.ability_used = False
+        self.turn_queue = [m.user_id for m in self.living_members()]
+
 
 def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.Embed, discord.File]:
     embed = discord.Embed(title=f"🗡️ {session.monster['name']}", description=log_text, color=discord.Color.dark_red())
@@ -86,19 +199,27 @@ def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.Embed, 
         name=session.monster["name"], value=f"HP {max(session.monster_hp, 0)}/{session.monster['hp']}", inline=True
     )
     buf = dungeon_render.render_room(
-        session.room_index, len(session.room_tiers), session.monster, session.delve.get("background_path")
+        session.room_index, len(session.rooms), session.monster, session.delve.get("background_path")
     )
     file = discord.File(buf, filename="room.png")
     embed.set_image(url="attachment://room.png")
     return embed, file
 
 
+def _cleanup(entity) -> None:
+    """Shared end-of-session release for every active_delves entry type (solo DelveSession,
+    PartyLobby, or PartyDelveSession) -- pops every one of its member user_ids from both
+    active_delves and busy_players at once, via each type's own all_user_ids()."""
+    for uid in entity.all_user_ids():
+        active_delves.pop(uid, None)
+        busy_players.discard(uid)
+
+
 async def _apply_retreat(session: DelveSession) -> discord.Embed:
     currency = db.get_currency_name(session.guild_id)
     balance = await asyncio.to_thread(db.update_balance, session.guild_id, session.user_id, session.loot_total)
     await asyncio.to_thread(db.log_bet, session.guild_id, session.user_id, "dungeon", 0, session.loot_total)
-    active_delves.pop(session.user_id, None)
-    busy_players.discard(session.user_id)
+    _cleanup(session)
     return discord.Embed(
         title="🏃 Retreated Safely",
         description=f"You make it back with **{session.loot_total}** {currency}. Balance: **{balance}** {currency}.",
@@ -109,8 +230,7 @@ async def _apply_retreat(session: DelveSession) -> discord.Embed:
 def _forfeit(session: DelveSession):
     """Ends the delve with no payout -- shared cleanup for death, abandonment (timeout), and
     anything else short of a deliberate retreat."""
-    active_delves.pop(session.user_id, None)
-    busy_players.discard(session.user_id)
+    _cleanup(session)
 
 
 DELVE_ACTION_TIMEOUT = 1200  # 20 minutes -- plenty of time to notice it's your turn and act
@@ -237,7 +357,7 @@ class RoomResultView(discord.ui.View):
     async def push_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         session = self.session
         session.room_index += 1
-        session.monster = dungeon.monster_for_tier(session.room_tiers[session.room_index])
+        session.monster = dungeon.monster_for_room(session.rooms[session.room_index])
         session.monster_hp = session.monster["hp"]
         session.monster_def_debuff = 0
         session.ability_used = False
@@ -260,64 +380,73 @@ class RoomResultView(discord.ui.View):
             pass
 
 
-async def _resolve_victory_rewards(session: DelveSession, log_lines: list[str]):
-    """Called once a monster is confirmed defeated -- awards XP (applying any level-up's stat
-    growth to the session *immediately*, not just the stored character row, so leveling up
-    mid-delve actually helps you survive deeper right then) and rolls a chance at equipment
-    (auto-equipping if it's an upgrade over what's in that slot, discarding otherwise). Mutates
-    session in place and appends result lines to log_lines."""
-    xp_gain = dungeon.xp_for_monster(session.monster["tier"])
+async def _award_kill(
+    guild_id: int, monster: dict, actor, room_index: int, log_lines: list[str],
+    *, loot_mult: float, chance_mult: float,
+):
+    """Shared kill-reward logic for a solo delve (actor=the DelveSession itself) or a party delve
+    (actor=one PartyMember): credits, XP (applying any level-up's stat growth to `actor`
+    *immediately*, not just the stored character row, so leveling up mid-delve actually helps you
+    survive deeper right then), drops (auto-equipping an upgrade, storing otherwise), quest
+    kill-progress, and a quest-item roll. `loot_mult` scales the credit roll (as it always has --
+    subclass loot bonus folded in by the caller); `chance_mult` separately scales drop chances --
+    both 1.0 for solo/a party leader, halved for a party joiner. Mutates `actor` in place and
+    appends result lines to log_lines -- does NOT log "<monster> is defeated!" itself, since a
+    party kill only says that once while every living member still gets their own reward lines;
+    callers log that line themselves before calling this (once per kill, not once per actor)."""
+    currency = db.get_currency_name(guild_id)
+    loot = dungeon.roll_loot(monster, loot_mult)
+    actor.loot_total += loot
+    log_lines.append(f"You find **{loot}** {currency}.")
+
+    xp_gain = dungeon.xp_for_monster(monster["tier"])
     level_result = await asyncio.to_thread(
-        db.add_xp, session.guild_id, session.user_id, xp_gain,
+        db.add_xp, guild_id, actor.user_id, xp_gain,
         dungeon.LEVEL_HP_GAIN, dungeon.LEVEL_ATK_GAIN, dungeon.LEVEL_DEF_GAIN,
     )
     log_lines.append(f"+{xp_gain} XP")
     if level_result["levels_gained"] > 0:
-        session.level = level_result["new_level"]
+        actor.level = level_result["new_level"]
         hp_delta = dungeon.LEVEL_HP_GAIN * level_result["levels_gained"]
         atk_delta = dungeon.LEVEL_ATK_GAIN * level_result["levels_gained"]
         def_delta = dungeon.LEVEL_DEF_GAIN * level_result["levels_gained"]
-        session.max_hp += hp_delta
-        session.hp += hp_delta
-        session.atk += atk_delta
-        session.def_ += def_delta
-        session.unlocked_skills = dungeon.unlocked_skills(session.main_class, session.subclass, session.level)
+        actor.max_hp += hp_delta
+        actor.hp += hp_delta
+        actor.atk += atk_delta
+        actor.def_ += def_delta
+        actor.unlocked_skills = dungeon.unlocked_skills(actor.main_class, actor.subclass, actor.level)
         plural = "s" if level_result["levels_gained"] > 1 else ""
-        log_lines.append(f"🎉 Level up! Now level {session.level} (+{level_result['levels_gained']} level{plural}).")
+        log_lines.append(f"🎉 Level up! Now level {actor.level} (+{level_result['levels_gained']} level{plural}).")
 
-    dropped = dungeon.roll_equipment_drop(session.room_tiers[session.room_index])
-    if dropped is not None:
+    for dropped in dungeon.roll_drops(monster, chance_mult):
+        if dropped["_drop_kind"] == "material":
+            await asyncio.to_thread(db.add_inventory_item, guild_id, actor.user_id, dropped["id"])
+            log_lines.append(f"⛏️ You scavenge some **{dropped['name']}**.")
+            continue
+
         slot = dropped["slot"]
-        current_item_id = session.equipped.get(slot)
+        current_item_id = actor.equipped.get(slot)
         current_item = dungeon.EQUIPMENT.get(current_item_id) if current_item_id else None
         if dungeon.is_upgrade(current_item_id, dropped):
-            await asyncio.to_thread(db.equip_item_smart, session.guild_id, session.user_id, slot, dropped["id"])
+            await asyncio.to_thread(db.equip_item_smart, guild_id, actor.user_id, slot, dropped["id"])
             old_bonuses = current_item["stat_bonuses"] if current_item else {}
             new_bonuses = dropped["stat_bonuses"]
-            session.max_hp += new_bonuses.get("hp", 0) - old_bonuses.get("hp", 0)
-            session.hp += new_bonuses.get("hp", 0) - old_bonuses.get("hp", 0)
-            session.atk += new_bonuses.get("atk", 0) - old_bonuses.get("atk", 0)
-            session.def_ += new_bonuses.get("def", 0) - old_bonuses.get("def", 0)
-            session.equipped[slot] = dropped["id"]
+            actor.max_hp += new_bonuses.get("hp", 0) - old_bonuses.get("hp", 0)
+            actor.hp += new_bonuses.get("hp", 0) - old_bonuses.get("hp", 0)
+            actor.atk += new_bonuses.get("atk", 0) - old_bonuses.get("atk", 0)
+            actor.def_ += new_bonuses.get("def", 0) - old_bonuses.get("def", 0)
+            actor.equipped[slot] = dropped["id"]
             if current_item:
                 log_lines.append(f"⚔️ Found **{dropped['name']}**! Replaced {current_item['name']} — equipped (stored in `!equipment`).")
             else:
                 log_lines.append(f"⚔️ Found **{dropped['name']}**! Equipped.")
         else:
-            await asyncio.to_thread(db.store_equipment_item, session.guild_id, session.user_id, dropped["id"])
+            await asyncio.to_thread(db.store_equipment_item, guild_id, actor.user_id, dropped["id"])
             log_lines.append(f"⚔️ Found **{dropped['name']}**, but your current {slot} is better — stored in `!equipment`.")
 
-    material = dungeon.roll_material_drop(session.room_tiers[session.room_index])
-    if material is not None:
-        await asyncio.to_thread(db.add_inventory_item, session.guild_id, session.user_id, material["id"])
-        log_lines.append(f"⛏️ You scavenge some **{material['name']}**.")
+    await quests.record_progress(guild_id, actor.user_id, "kill_monster", monster_id=monster["id"], tier=monster["tier"])
 
-    await quests.record_progress(
-        session.guild_id, session.user_id, "kill_monster",
-        monster_id=session.monster["id"], tier=session.monster["tier"],
-    )
-
-    quest_item = await quests.roll_item_drop(session.guild_id, session.user_id, session.room_index, session.monster["id"])
+    quest_item = await quests.roll_item_drop(guild_id, actor.user_id, room_index, monster["id"])
     if quest_item is not None:
         log_lines.append(f"{quest_item['emoji']} Found a **{quest_item['name']}**...")
 
@@ -325,9 +454,15 @@ async def _resolve_victory_rewards(session: DelveSession, log_lines: list[str]):
 # --- Effect dispatch --------------------------------------------------------------------------
 # Interprets the `effects` list on a skill (dungeon.SKILLS) or, later, a consumable
 # (dungeon.CONSUMABLES) -- one handler per primitive type in dungeon.EFFECT_PARAM_SCHEMAS, each
-# mutating `session` and/or `mods` in place. Lives here rather than in dungeon.py because these
-# handlers mutate DelveSession, a Discord-layer concept -- the same reason the ability logic this
+# mutating `actor`/`monster_state`/`mods` in place. Lives here rather than in dungeon.py because
+# these handlers mutate Discord-layer session objects -- the same reason the ability logic this
 # replaces already lived here rather than in dungeon.py.
+#
+# `actor` (hp/max_hp/atk/def_) and `monster_state` (monster/monster_hp/monster_def_debuff) are
+# split into two params rather than one "session" because a party delve's monster state is shared
+# across every member, while hp/atk/def_ belong to whichever one PartyMember is acting -- a solo
+# DelveSession satisfies both shapes itself, so solo callers just pass it twice with zero behavior
+# change; a party call passes (member, party_session).
 
 # Effect types that make this action roll monster damage (as opposed to a pure utility action
 # like Heal/Guard, which resolve entirely inside _apply_effects and skip the damage roll below).
@@ -338,41 +473,41 @@ def _default_mods() -> dict:
     return {"multiplier": 1.0, "guard_reduction": None, "lifesteal_fraction": None, "extra_attack_multipliers": []}
 
 
-def _effect_damage_multiplier(session: DelveSession, effect: dict, log_lines: list[str], mods: dict):
+def _effect_damage_multiplier(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     mods["multiplier"] *= effect["value"]
 
 
-def _effect_heal_fraction(session: DelveSession, effect: dict, log_lines: list[str], mods: dict):
-    healed = min(session.max_hp, session.hp + round(session.max_hp * effect["value"])) - session.hp
-    session.hp += healed
+def _effect_heal_fraction(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    healed = min(actor.max_hp, actor.hp + round(actor.max_hp * effect["value"])) - actor.hp
+    actor.hp += healed
     log_lines.append(f"You recover **{healed}** HP.")
 
 
-def _effect_guard(session: DelveSession, effect: dict, log_lines: list[str], mods: dict):
+def _effect_guard(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     mods["guard_reduction"] = effect["reduction"]
     log_lines.append("You raise your guard, ready to blunt the next blow.")
 
 
-def _effect_lifesteal_fraction(session: DelveSession, effect: dict, log_lines: list[str], mods: dict):
+def _effect_lifesteal_fraction(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     mods["lifesteal_fraction"] = effect["value"]  # applied against total damage dealt, once known
 
 
-def _effect_def_shred(session: DelveSession, effect: dict, log_lines: list[str], mods: dict):
-    session.monster_def_debuff += effect["value"]
-    log_lines.append(f"**{session.monster['name']}**'s defenses crumble by **{effect['value']}**.")
+def _effect_def_shred(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    monster_state.monster_def_debuff += effect["value"]
+    log_lines.append(f"**{monster_state.monster['name']}**'s defenses crumble by **{effect['value']}**.")
 
 
-def _effect_extra_attack(session: DelveSession, effect: dict, log_lines: list[str], mods: dict):
+def _effect_extra_attack(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     mods["extra_attack_multipliers"].append(effect.get("multiplier", 1.0))
 
 
-def _effect_atk_buff(session: DelveSession, effect: dict, log_lines: list[str], mods: dict):
-    session.atk += effect["value"]
+def _effect_atk_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    actor.atk += effect["value"]
     log_lines.append(f"Your ATK rises by **{effect['value']}** for the rest of the fight.")
 
 
-def _effect_def_buff(session: DelveSession, effect: dict, log_lines: list[str], mods: dict):
-    session.def_ += effect["value"]
+def _effect_def_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    actor.def_ += effect["value"]
     log_lines.append(f"Your DEF rises by **{effect['value']}** for the rest of the fight.")
 
 
@@ -388,15 +523,15 @@ EFFECT_HANDLERS = {
 }
 
 
-def _apply_effects(session: DelveSession, effects: list[dict], log_lines: list[str]) -> dict:
-    """Runs every effect in order, mutating session (HP/ATK/DEF/monster DEF debuff) and appending
-    log lines as it goes. Returns this-action modifiers the caller still needs for the damage
-    roll: multiplier, guard_reduction (None if not guarding), lifesteal_fraction (None if no
-    lifesteal), and extra_attack_multipliers (one roll_damage call per entry, on top of the
-    primary hit)."""
+def _apply_effects(actor, monster_state, effects: list[dict], log_lines: list[str]) -> dict:
+    """Runs every effect in order, mutating actor (HP/ATK/DEF), monster_state (monster DEF
+    debuff), and appending log lines as it goes. Returns this-action modifiers the caller still
+    needs for the damage roll: multiplier, guard_reduction (None if not guarding),
+    lifesteal_fraction (None if no lifesteal), and extra_attack_multipliers (one roll_damage call
+    per entry, on top of the primary hit)."""
     mods = _default_mods()
     for effect in effects:
-        EFFECT_HANDLERS[effect["type"]](session, effect, log_lines, mods)
+        EFFECT_HANDLERS[effect["type"]](actor, monster_state, effect, log_lines, mods)
     return mods
 
 
@@ -423,7 +558,7 @@ async def _resolve_combat_turn(
     # utility and skips the roll_damage call below entirely, same branch shape as the old
     # class-name ladder this replaced.
     is_damage_action = not effects or any(e["type"] in DAMAGE_EFFECT_TYPES for e in effects)
-    mods = _apply_effects(session, effects, log_lines)
+    mods = _apply_effects(session, session, effects, log_lines)
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
 
@@ -441,10 +576,11 @@ async def _resolve_combat_turn(
         log_lines.append(f"You {verb} for **{dmg}** damage.")
 
     if session.monster_hp <= 0:
-        loot = dungeon.roll_loot(session.monster, session.loot_mult * player_moon_mult)
-        session.loot_total += loot
-        log_lines.append(f"**{session.monster['name']} is defeated!** You find **{loot}** {currency}.")
-        await _resolve_victory_rewards(session, log_lines)
+        log_lines.append(f"**{session.monster['name']} is defeated!**")
+        await _award_kill(
+            session.guild_id, session.monster, session, session.room_index, log_lines,
+            loot_mult=session.loot_mult * player_moon_mult, chance_mult=1.0,
+        )
         await _present_room_result(interaction, session, log_lines)
         return True
 
@@ -506,7 +642,7 @@ async def _handle_use_item(interaction: discord.Interaction, session: DelveSessi
 
 async def _present_room_result(interaction: discord.Interaction, session: DelveSession, log_lines: list[str]):
     currency = db.get_currency_name(session.guild_id)
-    is_last_room = session.room_index >= len(session.room_tiers) - 1
+    is_last_room = session.room_index >= len(session.rooms) - 1
 
     embed = discord.Embed(title=f"🏆 Room {session.room_index + 1} Cleared!", description="\n".join(log_lines), color=discord.Color.gold())
     embed.add_field(name="Loot this delve", value=f"{session.loot_total} {currency}", inline=True)
@@ -515,8 +651,7 @@ async def _present_room_result(interaction: discord.Interaction, session: DelveS
     if is_last_room:
         balance = await asyncio.to_thread(db.update_balance, session.guild_id, session.user_id, session.loot_total)
         await asyncio.to_thread(db.log_bet, session.guild_id, session.user_id, "dungeon", 0, session.loot_total)
-        active_delves.pop(session.user_id, None)
-        busy_players.discard(session.user_id)
+        _cleanup(session)
         embed.description += f"\n\nYou've cleared the dungeon! Balance: **{balance}** {currency}."
         await interaction.response.edit_message(embed=embed, attachments=[], view=None)
         return
@@ -526,11 +661,533 @@ async def _present_room_result(interaction: discord.Interaction, session: DelveS
     await interaction.response.edit_message(embed=embed, attachments=[], view=view)
 
 
+# --- Party combat ---------------------------------------------------------------------------
+# Same monster/room model as solo, but the monster only counter-attacks once a full round (every
+# living member acting once, in join order) has passed, instead of after every single action --
+# see _advance_party_round, the one real behavioral fork from solo's _resolve_combat_turn.
+
+
+def _party_combat_embed(session: PartyDelveSession, log_text: str) -> tuple[discord.Embed, discord.File]:
+    embed = discord.Embed(title=f"🗡️ {session.monster['name']}", description=log_text, color=discord.Color.dark_red())
+    current_actor_id = session.turn_queue[0] if session.turn_queue else None
+    for m in session.members:
+        if m.knocked_out:
+            status = "💀 Knocked out"
+        elif m.user_id == current_actor_id:
+            status = f"HP {max(m.hp, 0)}/{m.max_hp} ⬅️ acting now"
+        else:
+            status = f"HP {max(m.hp, 0)}/{m.max_hp}"
+        embed.add_field(name=m.label, value=status, inline=True)
+    embed.add_field(
+        name=session.monster["name"], value=f"HP {max(session.monster_hp, 0)}/{session.monster_max_hp}", inline=True
+    )
+    buf = dungeon_render.render_room(
+        session.room_index, len(session.rooms), session.monster, session.delve.get("background_path")
+    )
+    file = discord.File(buf, filename="room.png")
+    embed.set_image(url="attachment://room.png")
+    return embed, file
+
+
+async def _usable_items_for(session: PartyDelveSession, actor: PartyMember) -> list[dict]:
+    held = await asyncio.to_thread(db.get_inventory, session.guild_id, actor.user_id)
+    return [dungeon.CONSUMABLES[item_id] for item_id, qty in held.items() if item_id in dungeon.CONSUMABLES and qty > 0]
+
+
+async def _build_party_combat_view(session: PartyDelveSession) -> "PartyCombatView":
+    actor = session.members_by_id[session.turn_queue[0]]
+    return PartyCombatView(session, actor, await _usable_items_for(session, actor))
+
+
+async def _send_party_update(
+    interaction: discord.Interaction | None, session: PartyDelveSession,
+    embed: discord.Embed, file: discord.File | None, view: discord.ui.View | None,
+):
+    """Party combat can advance from either a live interaction (a member's own action) or a
+    timeout (a stalled member's turn getting skipped, with no interaction to respond to) -- this
+    is the one place that branches on which, editing the response either way."""
+    attachments = [file] if file else []
+    if interaction is not None:
+        await interaction.response.edit_message(embed=embed, attachments=attachments, view=view)
+        return
+    if session.message is None:
+        return
+    try:
+        await session.message.edit(embed=embed, attachments=attachments, view=view)
+    except discord.HTTPException:
+        pass
+
+
+async def _advance_party_round(interaction: discord.Interaction | None, session: PartyDelveSession, log_lines: list[str]):
+    """Shared tail once a member's turn (whether an actual action or a timeout-skip) is resolved
+    and the monster is still alive: if another member is still queued this round, render their
+    turn -- no monster counter yet. Otherwise the round is over: the monster gets its one
+    counter-attack against a random living member (not specified by the user -- simplest fair
+    default), then either the party wipes (nobody left standing, no payout for anyone, same shape
+    as solo's death forfeit) or a fresh round begins."""
+    if session.turn_queue:
+        next_actor = session.members_by_id[session.turn_queue[0]]
+        embed, file = _party_combat_embed(session, "\n".join(log_lines))
+        view = PartyCombatView(session, next_actor, await _usable_items_for(session, next_actor))
+        await _send_party_update(interaction, session, embed, file, view)
+        return
+
+    moon_effect = moon.effect_for("dungeon")
+    target = random.choice(session.living_members())
+    monster_dmg = dungeon.roll_damage(
+        session.monster["atk"], target.def_, _moon_combat_multiplier(moon_effect, "monster")
+    )
+    target.hp -= monster_dmg
+    log_lines.append(f"**{session.monster['name']}** strikes **{target.label}** for **{monster_dmg}**.")
+    if target.hp <= 0:
+        target.knocked_out = True
+        log_lines.append(f"💀 **{target.label}** is knocked out!")
+
+    if not session.living_members():
+        _cleanup(session)
+        embed = discord.Embed(
+            title="💀 Your Party Has Fallen",
+            description="\n".join(log_lines) + "\n\nEveryone's down — the party stumbles out empty-handed, "
+            "losing every haul from this delve.",
+            color=discord.Color.dark_red(),
+        )
+        await _send_party_update(interaction, session, embed, None, None)
+        return
+
+    session.turn_queue = [m.user_id for m in session.living_members()]
+    next_actor = session.members_by_id[session.turn_queue[0]]
+    embed, file = _party_combat_embed(session, "\n".join(log_lines))
+    view = PartyCombatView(session, next_actor, await _usable_items_for(session, next_actor))
+    await _send_party_update(interaction, session, embed, file, view)
+
+
+async def _resolve_party_turn(
+    interaction: discord.Interaction, session: PartyDelveSession, member: PartyMember,
+    effects: list[dict], verb: str, log_lines: list[str],
+) -> bool:
+    """Party sibling of _resolve_combat_turn: applies `effects`, rolls `member`'s damage against
+    the SHARED session.monster_hp, and on a kill runs the party's independent-per-member reward
+    loop (leader at full rate, joiners halved -- see _award_kill). Unlike solo, this never rolls
+    the monster's counter-attack itself -- that only happens once the whole round is done, via
+    _advance_party_round."""
+    is_damage_action = not effects or any(e["type"] in DAMAGE_EFFECT_TYPES for e in effects)
+    mods = _apply_effects(member, session, effects, log_lines)
+    moon_effect = moon.effect_for("dungeon")
+    player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
+
+    if is_damage_action:
+        effective_monster_def = max(0, session.monster["def"] - session.monster_def_debuff)
+        dmg = dungeon.roll_damage(member.atk, effective_monster_def, mods["multiplier"] * player_moon_mult)
+        for extra_multiplier in mods["extra_attack_multipliers"]:
+            dmg += dungeon.roll_damage(member.atk, effective_monster_def, extra_multiplier * player_moon_mult)
+        if mods["lifesteal_fraction"]:
+            healed = min(member.max_hp, member.hp + round(dmg * mods["lifesteal_fraction"])) - member.hp
+            member.hp += healed
+            if healed:
+                log_lines.append(f"{member.label} drains **{healed}** HP from the strike.")
+        session.monster_hp -= dmg
+        log_lines.append(f"{member.label} {verb} for **{dmg}** damage.")
+
+    if session.monster_hp <= 0:
+        log_lines.append(f"**{session.monster['name']} is defeated!**")
+        for m in session.living_members():
+            member_log: list[str] = []
+            loot_mult = m.loot_mult * (1.0 if m.is_leader else 0.5) * player_moon_mult
+            chance_mult = 1.0 if m.is_leader else 0.5
+            await _award_kill(
+                session.guild_id, session.monster, m, session.room_index, member_log,
+                loot_mult=loot_mult, chance_mult=chance_mult,
+            )
+            log_lines.append(f"**{m.label}**")
+            log_lines.extend(f"> {line}" for line in member_log)
+        await _present_party_room_result(interaction, session, log_lines)
+        return True
+
+    session.turn_queue.remove(member.user_id)
+    await _advance_party_round(interaction, session, log_lines)
+    return True
+
+
+async def _skip_party_turn(session: PartyDelveSession, member: PartyMember):
+    """A stalled member's turn timing out -- they simply pass (no damage dealt, no penalty beyond
+    losing this turn) rather than forfeiting the whole party over one AFK player."""
+    if member.user_id not in session.turn_queue:
+        return  # already resolved by some other path
+    log_lines = [f"⌛ {member.label} takes too long and passes their turn."]
+    session.turn_queue.remove(member.user_id)
+    await _advance_party_round(None, session, log_lines)
+
+
+async def _handle_party_action(
+    interaction: discord.Interaction, session: PartyDelveSession, member: PartyMember, skill: dict | None,
+) -> bool:
+    if skill is not None and member.ability_used:
+        await interaction.response.send_message("You've already used your ability this fight.", ephemeral=True)
+        return False
+    effects = skill["effects"] if skill is not None else []
+    if skill is not None:
+        member.ability_used = True
+    verb = f"unleash **{skill['name']}**" if skill is not None else "attack"
+    return await _resolve_party_turn(interaction, session, member, effects, verb, [])
+
+
+async def _handle_party_use_item(
+    interaction: discord.Interaction, session: PartyDelveSession, member: PartyMember, item: dict,
+) -> bool:
+    consumed = await asyncio.to_thread(db.consume_inventory_item, session.guild_id, member.user_id, item["id"], 1)
+    if not consumed:
+        await interaction.response.send_message("You don't have that anymore.", ephemeral=True)
+        return False
+    verb = f"use **{item['name']}**"
+    return await _resolve_party_turn(interaction, session, member, item["effects"], verb, [])
+
+
+class PartyAttackButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Attack", style=discord.ButtonStyle.primary, row=0)
+
+    async def callback(self, interaction: discord.Interaction):
+        if await _handle_party_action(interaction, self.view.session, self.view.actor, skill=None):
+            self.view.stop()
+
+
+class PartySkillButton(discord.ui.Button):
+    def __init__(self, skill: dict, disabled: bool):
+        super().__init__(label=skill["name"], style=discord.ButtonStyle.success, disabled=disabled, row=0)
+        self.skill = skill
+
+    async def callback(self, interaction: discord.Interaction):
+        if await _handle_party_action(interaction, self.view.session, self.view.actor, skill=self.skill):
+            self.view.stop()
+
+
+class PartyUseItemButton(discord.ui.Button):
+    def __init__(self, item: dict):
+        super().__init__(label=f"🧪 {item['name']}", style=discord.ButtonStyle.secondary, row=1)
+        self.item = item
+
+    async def callback(self, interaction: discord.Interaction):
+        if await _handle_party_use_item(interaction, self.view.session, self.view.actor, self.item):
+            self.view.stop()
+
+
+class PartyUseItemSelect(discord.ui.Select):
+    def __init__(self, items: list[dict]):
+        options = [
+            discord.SelectOption(label=item["name"], value=item["id"], description=item["flavor"][:100])
+            for item in items[:MAX_SELECT_OPTIONS]
+        ]
+        super().__init__(placeholder="🧪 Use an item...", options=options, row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        item = dungeon.CONSUMABLES[self.values[0]]
+        if await _handle_party_use_item(interaction, self.view.session, self.view.actor, item):
+            self.view.stop()
+
+
+class PartyCombatView(discord.ui.View):
+    def __init__(self, session: PartyDelveSession, actor: PartyMember, usable_items: list[dict] | None = None):
+        super().__init__(timeout=PARTY_ACTION_TIMEOUT)
+        self.session = session
+        self.actor = actor
+        self.add_item(PartyAttackButton())
+        for skill in actor.unlocked_skills:
+            self.add_item(PartySkillButton(skill, disabled=actor.ability_used))
+        usable_items = usable_items or []
+        if len(usable_items) == 1:
+            self.add_item(PartyUseItemButton(usable_items[0]))
+        elif len(usable_items) > 1:
+            self.add_item(PartyUseItemSelect(usable_items))
+        session.current_view = self
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.actor.user_id:
+            await interaction.response.send_message(f"It's {self.actor.label}'s turn.", ephemeral=True)
+            return False
+        return True
+
+    async def on_timeout(self):
+        session = self.session
+        if session.current_view is not self:
+            return  # superseded -- combat already moved on through some other path
+        await _skip_party_turn(session, self.actor)
+
+
+async def _apply_party_retreat(session: PartyDelveSession) -> discord.Embed:
+    currency = db.get_currency_name(session.guild_id)
+    payouts = []
+    for m in session.members:
+        balance = await asyncio.to_thread(db.update_balance, session.guild_id, m.user_id, m.loot_total)
+        await asyncio.to_thread(db.log_bet, session.guild_id, m.user_id, "dungeon", 0, m.loot_total)
+        payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
+    _cleanup(session)
+    return discord.Embed(title="🏃 Party Retreated Safely", description="\n".join(payouts), color=discord.Color.green())
+
+
+class PartyRoomResultView(discord.ui.View):
+    """Push Deeper / Retreat is the party leader's call alone -- simplest default for a decision
+    the user didn't specify who should make, avoiding one member unilaterally forcing a choice
+    that affects everyone's accumulated stake."""
+
+    def __init__(self, session: PartyDelveSession):
+        super().__init__(timeout=PARTY_ACTION_TIMEOUT)
+        self.session = session
+        session.current_view = self
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        leader = next(m for m in self.session.members if m.is_leader)
+        if interaction.user.id != leader.user_id:
+            await interaction.response.send_message("Only the party leader can decide this.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Retreat with Loot", style=discord.ButtonStyle.success)
+    async def retreat_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = await _apply_party_retreat(self.session)
+        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+        self.stop()
+
+    @discord.ui.button(label="Push Deeper", style=discord.ButtonStyle.danger)
+    async def push_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        session = self.session
+        session.room_index += 1
+        session._roll_new_monster()
+        embed, file = _party_combat_embed(
+            session, f"The party presses deeper into the dungeon...\n\n*{session.monster['flavor']}*"
+        )
+        view = await _build_party_combat_view(session)
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+        self.stop()
+
+    async def on_timeout(self):
+        session = self.session
+        if session.current_view is not self:
+            return
+        if session.message is None:
+            _cleanup(session)
+            return
+        embed = await _apply_party_retreat(session)  # default to the safe choice if the leader doesn't respond
+        try:
+            await session.message.edit(embed=embed, attachments=[], view=None)
+        except discord.HTTPException:
+            pass
+
+
+async def _present_party_room_result(interaction: discord.Interaction, session: PartyDelveSession, log_lines: list[str]):
+    is_last_room = session.room_index >= len(session.rooms) - 1
+    currency = db.get_currency_name(session.guild_id)
+
+    embed = discord.Embed(
+        title=f"🏆 Room {session.room_index + 1} Cleared!", description="\n".join(log_lines), color=discord.Color.gold()
+    )
+    for m in session.members:
+        status = "💀 Knocked out" if m.knocked_out else f"HP {max(m.hp, 0)}/{m.max_hp}"
+        embed.add_field(name=m.label, value=f"{status} — {m.loot_total} {currency} so far", inline=True)
+
+    if is_last_room:
+        payouts = []
+        for m in session.members:
+            balance = await asyncio.to_thread(db.update_balance, session.guild_id, m.user_id, m.loot_total)
+            await asyncio.to_thread(db.log_bet, session.guild_id, m.user_id, "dungeon", 0, m.loot_total)
+            payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
+        _cleanup(session)
+        embed.description += "\n\nThe party has cleared the dungeon!\n" + "\n".join(payouts)
+        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+        return
+
+    embed.description += "\n\nThe party leader decides: retreat with the loot so far, or push deeper?"
+    view = PartyRoomResultView(session)
+    await interaction.response.edit_message(embed=embed, attachments=[], view=view)
+
+
+def _build_lobby_embed(lobby: PartyLobby) -> discord.Embed:
+    delve = lobby.delve
+    roster_lines = [
+        f"👑 {lobby.member_names[uid]}" if uid == lobby.leader_id else f"• {lobby.member_names[uid]}"
+        for uid in lobby.member_ids
+    ]
+    embed = discord.Embed(
+        title=f"👥 Party Forming — {delve['name']}",
+        description=(
+            f"*{delve['flavor']}*\n\n{len(delve['rooms'])} rooms.\n\n"
+            f"Anyone can **Join** for free (no energy cost) — only {lobby.member_names[lobby.leader_id]} "
+            f"spends energy, and only once they click Start Delve."
+        ),
+        color=discord.Color.blurple(),
+    )
+    embed.add_field(name=f"Party ({len(lobby.member_ids)}/{PARTY_SIZE_CAP})", value="\n".join(roster_lines), inline=False)
+    return embed
+
+
+class PartyLobbyView(discord.ui.View):
+    def __init__(self, lobby: PartyLobby):
+        super().__init__(timeout=PARTY_LOBBY_TIMEOUT)
+        self.lobby = lobby
+        lobby.current_view = self
+
+    async def on_timeout(self):
+        lobby = self.lobby
+        if lobby.current_view is not self:
+            return
+        _cleanup(lobby)
+        if lobby.message is None:
+            return
+        embed = discord.Embed(
+            title="👥 Party Disbanded",
+            description="Nobody started the delve in time — no energy was spent.",
+            color=discord.Color.dark_grey(),
+        )
+        try:
+            await lobby.message.edit(embed=embed, view=None)
+        except discord.HTTPException:
+            pass
+
+    @discord.ui.button(label="Join", style=discord.ButtonStyle.success)
+    async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        lobby = self.lobby
+        user_id = interaction.user.id
+        if user_id in lobby.member_ids:
+            await interaction.response.send_message("You're already in this party.", ephemeral=True)
+            return
+        if len(lobby.member_ids) >= PARTY_SIZE_CAP:
+            await interaction.response.send_message("This party is full.", ephemeral=True)
+            return
+        if user_id in active_delves or user_id in busy_players:
+            await interaction.response.send_message("Finish up whatever you're already doing first.", ephemeral=True)
+            return
+        character = await asyncio.to_thread(db.get_character, lobby.guild_id, user_id)
+        if character is None:
+            await interaction.response.send_message(
+                "You don't have a character yet — run `!class` to pick one first.", ephemeral=True
+            )
+            return
+        lobby.member_ids.append(user_id)
+        lobby.member_names[user_id] = interaction.user.display_name
+        active_delves[user_id] = lobby
+        busy_players.add(user_id)
+        await interaction.response.edit_message(embed=_build_lobby_embed(lobby), view=self)
+
+    @discord.ui.button(label="Leave", style=discord.ButtonStyle.secondary)
+    async def leave_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        lobby = self.lobby
+        user_id = interaction.user.id
+        if user_id == lobby.leader_id:
+            await interaction.response.send_message("You're leading this party — Cancel it instead.", ephemeral=True)
+            return
+        if user_id not in lobby.member_ids:
+            await interaction.response.send_message("You're not in this party.", ephemeral=True)
+            return
+        lobby.member_ids.remove(user_id)
+        del lobby.member_names[user_id]
+        active_delves.pop(user_id, None)
+        busy_players.discard(user_id)
+        await interaction.response.edit_message(embed=_build_lobby_embed(lobby), view=self)
+
+    @discord.ui.button(label="Start Delve", style=discord.ButtonStyle.primary)
+    async def start_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        lobby = self.lobby
+        if interaction.user.id != lobby.leader_id:
+            await interaction.response.send_message("Only the party leader can start the delve.", ephemeral=True)
+            return
+        has_energy = await asyncio.to_thread(db.spend_energy, lobby.guild_id, lobby.leader_id, 1)
+        if not has_energy:
+            await interaction.response.send_message("You're out of energy — run `!rest` to refill it.", ephemeral=True)
+            return
+
+        members = []
+        for uid in lobby.member_ids:
+            is_leader = uid == lobby.leader_id
+            character = lobby.leader_character if is_leader else await asyncio.to_thread(db.get_character, lobby.guild_id, uid)
+            equipped = await asyncio.to_thread(db.get_equipped_items, lobby.guild_id, uid)
+            members.append(PartyMember(lobby.guild_id, uid, lobby.member_names[uid], character, equipped, is_leader))
+
+        session = PartyDelveSession(lobby.guild_id, lobby.delve, members)
+        for uid in lobby.member_ids:
+            active_delves[uid] = session  # swap PartyLobby -> PartyDelveSession in place, ids stay registered throughout
+        embed, file = _party_combat_embed(session, f"*{session.monster['flavor']}*")
+        view = await _build_party_combat_view(session)
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+        session.message = await interaction.original_response()
+        self.stop()
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        lobby = self.lobby
+        if interaction.user.id != lobby.leader_id:
+            await interaction.response.send_message("Only the party leader can cancel.", ephemeral=True)
+            return
+        _cleanup(lobby)
+        embed = discord.Embed(title="👥 Party Cancelled", description="No energy was spent.", color=discord.Color.dark_grey())
+        await interaction.response.edit_message(embed=embed, view=None)
+        self.stop()
+
+
+class DelveModeChoiceView(discord.ui.View):
+    """Shown every time !delve resolves which delve to run (typed, pinned via a room button, or
+    picked from DelvePickerView) -- the player chooses to delve alone (unchanged existing flow) or
+    open a party others can join for free. Energy is only ever spent once a delve actually starts
+    (Solo here, or Start Delve in the lobby), never just for opening this choice."""
+
+    def __init__(self, guild_id: int, user_id: int, character: dict, delve: dict):
+        super().__init__(timeout=120)
+        self.guild_id = guild_id
+        self.user_id = user_id
+        self.character = character
+        self.delve = delve
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't your delve to start.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="⚔️ Solo Delve", style=discord.ButtonStyle.primary)
+    async def solo_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.user_id in active_delves:
+            await interaction.response.send_message("You're already tied up in a delve — finish or leave it first.", ephemeral=True)
+            return
+        has_energy = await asyncio.to_thread(db.spend_energy, self.guild_id, self.user_id, 1)
+        if not has_energy:
+            await interaction.response.send_message("You're out of energy — run `!rest` to refill it.", ephemeral=True)
+            return
+        session = await _new_delve_session(self.guild_id, self.user_id, self.character, self.delve)
+        embed, file = _combat_embed(session, f"*{session.monster['flavor']}*")
+        view = await _build_combat_view(session)
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+        session.message = await interaction.original_response()
+        self.stop()
+
+    @discord.ui.button(label="👥 Start Party", style=discord.ButtonStyle.secondary)
+    async def party_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.user_id in active_delves:
+            await interaction.response.send_message("You're already tied up in a delve — finish or leave it first.", ephemeral=True)
+            return
+        lobby = PartyLobby(self.guild_id, self.user_id, interaction.user.display_name, self.character, self.delve)
+        active_delves[self.user_id] = lobby
+        busy_players.add(self.user_id)
+        view = PartyLobbyView(lobby)
+        await interaction.response.edit_message(embed=_build_lobby_embed(lobby), view=view)
+        lobby.message = await interaction.original_response()
+        self.stop()
+
+
+async def build_mode_choice_display(
+    guild_id: int, user_id: int, character: dict, delve: dict,
+) -> tuple[discord.Embed, DelveModeChoiceView]:
+    embed = discord.Embed(
+        title=f"🗡️ {delve['name']}",
+        description=f"*{delve['flavor']}*\n\n{len(delve['rooms'])} rooms.\n\n"
+        f"Delve alone, or start a party others can join for free (no energy cost to join).",
+        color=discord.Color.blurple(),
+    )
+    return embed, DelveModeChoiceView(guild_id, user_id, character, delve)
+
+
 async def _new_delve_session(guild_id: int, user_id: int, character: dict, delve: dict) -> DelveSession:
-    """Shared by start_delve (the single-delve fast path, !delve sends a fresh message) and
-    DelveConfirmButton (the multi-delve picker, which edits its own message into the combat view
-    instead) -- the session construction and active_delves/busy_players registration are
-    identical either way, only how the resulting embed/view actually reaches the player differs."""
+    """Session construction + active_delves/busy_players registration for a solo delve -- shared
+    by DelveModeChoiceView's Solo Delve button regardless of whether it's editing the mode-choice
+    message in place or (via DelvePickerView -> DelveConfirmButton -> this same choice) a message
+    that started life as the multi-delve picker."""
     equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
     session = DelveSession(guild_id, user_id, character, equipped, delve)
     active_delves[session.user_id] = session
@@ -538,21 +1195,10 @@ async def _new_delve_session(guild_id: int, user_id: int, character: dict, delve
     return session
 
 
-async def start_delve(ctx, character: dict, delve: dict):
-    """Starts a fresh delve for a player who already has a character and just cleared today's
-    cooldown (both checked by the caller). Sends the one persistent message this whole delve
-    session will reuse via edits."""
-    session = await _new_delve_session(ctx.guild.id, ctx.author.id, character, delve)
-    embed, file = _combat_embed(session, f"*{session.monster['flavor']}*")
-    view = await _build_combat_view(session)
-    message = await ctx.send(embed=embed, file=file, view=view)
-    session.message = message
-
-
 class DelveSelect(discord.ui.Select):
     def __init__(self, picker: "DelvePickerView"):
         options = [
-            discord.SelectOption(label=d["name"], value=d_id, description=f"{len(d['room_tiers'])} rooms")
+            discord.SelectOption(label=d["name"], value=d_id, description=f"{len(d['rooms'])} rooms")
             for d_id, d in list(dungeon.DELVES.items())[:25]
         ]
         super().__init__(placeholder="Choose a delve...", options=options, row=0)
@@ -567,8 +1213,8 @@ class DelveSelect(discord.ui.Select):
 
 class DelvePickerView(discord.ui.View):
     """Shown by !delve only when there's more than one dungeon.DELVES entry to choose between --
-    a single-delve server never sees this, !delve starts straight into start_delve exactly like
-    it always has."""
+    a single-delve server never sees this. Either way, once a delve is settled on, the player
+    lands on the same DelveModeChoiceView (Solo/Party) as every other !delve entry path."""
 
     def __init__(self, guild_id: int, user_id: int, character: dict):
         super().__init__(timeout=120)
@@ -589,8 +1235,7 @@ class DelvePickerView(discord.ui.View):
         embed = discord.Embed(title="🗡️ Choose a Delve", color=discord.Color.blurple())
         if self.delve_id:
             delve = dungeon.DELVES[self.delve_id]
-            tiers = ", ".join(str(t) for t in delve["room_tiers"])
-            embed.description = f"*{delve['flavor']}*\n\n{len(delve['room_tiers'])} rooms — tiers {tiers}."
+            embed.description = f"*{delve['flavor']}*\n\n{len(delve['rooms'])} rooms."
         else:
             embed.description = "Pick which dungeon to run, then confirm."
         return embed
@@ -607,19 +1252,12 @@ class DelveConfirmButton(discord.ui.Button):
             await interaction.response.send_message("Pick a delve first.", ephemeral=True)
             return
 
-        has_energy = await asyncio.to_thread(db.spend_energy, picker.guild_id, picker.user_id, 1)
-        if not has_energy:
-            await interaction.response.send_message(
-                "You're out of energy — run `!rest` to refill it.", ephemeral=True
-            )
-            return
-
+        # No energy spent here -- picking which delve to run isn't committing to it yet. The
+        # Solo/Party choice (same one !delve shows for every other entry path) is what actually
+        # spends energy, once the player picks Solo or a party's leader clicks Start Delve.
         delve = dungeon.DELVES[picker.delve_id]
-        session = await _new_delve_session(picker.guild_id, picker.user_id, picker.character, delve)
-        embed, file = _combat_embed(session, f"*{session.monster['flavor']}*")
-        view = await _build_combat_view(session)
-        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
-        session.message = await interaction.original_response()
+        embed, view = await build_mode_choice_display(picker.guild_id, picker.user_id, picker.character, delve)
+        await interaction.response.edit_message(embed=embed, view=view)
         picker.stop()
 
 

@@ -2,113 +2,85 @@
     {
         "id": "stick",
         "name": "Stick",
-        "tier": 1,
         "rarity": "common",
-        "drop_weight": 8,
         "flavor": "Sturdy enough. Barely."
     },
     {
         "id": "comb",
         "name": "Comb",
-        "tier": 1,
         "rarity": "common",
-        "drop_weight": 8,
         "flavor": "A few teeth missing, but so is everyone's."
     },
     {
         "id": "nail",
         "name": "Nail",
-        "tier": 1,
         "rarity": "common",
-        "drop_weight": 8,
         "flavor": "Bent, rusty, and somehow still pointy."
     },
     {
         "id": "dirty_cloth",
         "name": "Dirty Cloth",
-        "tier": 1,
         "rarity": "common",
-        "drop_weight": 8,
         "flavor": "You don't want to know what the stains are."
     },
     {
         "id": "hair",
         "name": "Hair",
-        "tier": 1,
         "rarity": "common",
-        "drop_weight": 8,
         "flavor": "Whose is a question best left unasked."
     },
     {
         "id": "used_thong",
         "name": "Used Thong",
-        "tier": 1,
         "rarity": "common",
-        "drop_weight": 8,
         "flavor": "It's seen things. It won't say what."
     },
     {
         "id": "droppings",
         "name": "Droppings",
-        "tier": 1,
         "rarity": "common",
-        "drop_weight": 8,
         "flavor": "Fresh-ish. That's the best you can say about it."
     },
     {
         "id": "charcoal",
         "name": "Charcoal",
-        "tier": 1,
         "rarity": "common",
-        "drop_weight": 8,
         "flavor": "Still warm from something you'd rather not ask about."
     },
     {
         "id": "pan",
         "name": "Pan",
-        "tier": 1,
         "rarity": "common",
-        "drop_weight": 8,
         "flavor": "Dented in a way that suggests a good story."
     },
     {
         "id": "razor",
         "name": "Razor",
-        "tier": 1,
         "rarity": "common",
-        "drop_weight": 8,
         "flavor": "Dull, but still capable of ruining your day."
     },
     {
         "id": "shiny_rock",
         "name": "Shiny Rock",
-        "tier": 1,
         "rarity": "common",
-        "drop_weight": 8,
         "flavor": "Probably not magic. Probably."
     },
     {
         "id": "pointy_rock",
         "name": "Pointy Rock",
-        "tier": 1,
         "rarity": "common",
-        "drop_weight": 8,
         "flavor": "Nature's cheapest weapon."
     },
     {
         "id": "oversized_hat",
         "name": "Oversized Hat",
-        "tier": 1,
         "rarity": "common",
-        "drop_weight": 8,
         "flavor": "Falls over your eyes at the worst possible moment."
     },
     {
         "id": "rat_tooth",
         "name": "Rat Tooth",
-        "tier": 1,
         "rarity": "common",
-        "drop_weight": 8,
         "flavor": "Sharper than it has any right to be."
     }
 ]
