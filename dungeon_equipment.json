@@ -507,5 +507,27 @@
       }
     ],
     "flavor": "Cloth, elastic, and questionable aim."
+  },
+  {
+    "id": "test_Sword",
+    "name": "Zymi Test Sword",
+    "slot": "weapon",
+    "rarity": "Epic",
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 6
+      },
+      {
+        "type": "lifesteal_fraction",
+        "trigger": "on_hit",
+        "chance": 1.0,
+        "value": 0.25
+      }
+    ],
+    "special": false,
+    "intended_level": 1,
+    "flavor": "A vampiric test sword"
   }
 ]
