@@ -1004,24 +1004,29 @@ def _apply_effects(actor, monster_state, effects: list[dict], log_lines: list[st
 
 def _resolve_monster_attack(
     attacker: "MonsterInstance", target, moon_effect: str | None, log_lines: list[str],
-) -> tuple[int, dict | None]:
-    """One monster's turn against `target` (anything with `.def_`/`.hp` -- a DelveSession or
-    PartyMember) -- either its plain attack or one of its own skills (dungeon.pick_monster_action,
+) -> tuple[int, dict | None, bool]:
+    """One monster's turn against `target` (anything with `.def_`/`.spdef`/`.hp` -- a DelveSession
+    or PartyMember) -- either its plain attack or one of its own skills (dungeon.pick_monster_action,
     weighted by the monster's own attack_chance vs. each skill's own chance). A skill's effects
     (restricted at load time to dungeon.MONSTER_SKILL_EFFECT_TYPES) only ever touch this action's
     own damage roll or the attacking monster's own hp, never the target directly, so `actor` and
     `monster_state` are both just `attacker` here -- mirroring how solo player actions already
     pass the same object twice when there's nothing else for "monster_state" to mean (see
-    _resolve_combat_turn). Returns (damage, skill-or-None) -- callers apply the damage to
-    `target.hp` themselves (solo and party handle the aftermath -- death vs. knockout --
-    differently) and use the skill to log their own "unleashes X" vs. "strikes" line."""
+    _resolve_combat_turn). `target` first gets a dodge_chance roll (dungeon.dodge_chance, against
+    its own DEF or SpDef matching the attack) -- a dodge negates the WHOLE action (no effects
+    applied at all, not even the monster's own lifesteal), rolled before _apply_effects runs so a
+    dodged hit truly does nothing. Returns (damage, skill-or-None, dodged) -- callers apply the
+    damage to `target.hp` themselves (solo and party handle the aftermath -- death vs. knockout --
+    differently) and use skill/dodged to log their own "unleashes X" / "dodges" / "strikes" line."""
     skill = dungeon.pick_monster_action(attacker.monster)
+    special = bool(skill.get("special")) if skill else False
+    target_def = target.spdef if special else target.def_
+    if random.random() < dungeon.dodge_chance(target_def):
+        return 0, skill, True
     effects = skill["effects"] if skill else []
     mods = _apply_effects(attacker, attacker, effects, log_lines)
     monster_moon_mult = _moon_combat_multiplier(moon_effect, "monster")
-    special = bool(skill.get("special")) if skill else False
     attacker_atk = attacker.monster["spatk"] if special else attacker.monster["atk"]
-    target_def = target.spdef if special else target.def_
     dmg = dungeon.roll_damage(attacker_atk, target_def, mods["multiplier"] * monster_moon_mult)
     for extra_multiplier in mods["extra_attack_multipliers"]:
         dmg += dungeon.roll_damage(attacker_atk, target_def, extra_multiplier * monster_moon_mult)
@@ -1030,7 +1035,7 @@ def _resolve_monster_attack(
         attacker.hp += healed
         if healed:
             log_lines.append(f"**{attacker.monster['name']}** drains **{healed}** HP from the strike.")
-    return dmg, skill
+    return dmg, skill, False
 
 
 async def _build_combat_view(session: DelveSession) -> "CombatView":
@@ -1062,27 +1067,35 @@ async def _resolve_combat_turn(
     # class-name ladder this replaced.
     is_damage_action = not effects or any(e["type"] in DAMAGE_EFFECT_TYPES for e in effects)
     target = session.current_target()
-    mods = _apply_effects(session, target, effects, log_lines)
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
 
-    if is_damage_action:
-        attacker_atk = session.spatk if special else session.atk
-        # def_shred only ever debuffs the physical DEF -- there's no spdef-shred effect type yet,
-        # so a Special roll's defense isn't reduced by it. A known, minor asymmetry, not a bug.
-        effective_monster_def = (
-            target.monster["spdef"] if special else max(0, target.monster["def"] - target.def_debuff)
-        )
-        dmg = dungeon.roll_damage(attacker_atk, effective_monster_def, mods["multiplier"] * player_moon_mult)
-        for extra_multiplier in mods["extra_attack_multipliers"]:
-            dmg += dungeon.roll_damage(attacker_atk, effective_monster_def, extra_multiplier * player_moon_mult)
-        if mods["lifesteal_fraction"]:
-            healed = min(session.max_hp, session.hp + round(dmg * mods["lifesteal_fraction"])) - session.hp
-            session.hp += healed
-            if healed:
-                log_lines.append(f"You drain **{healed}** HP from the strike.")
-        target.hp -= dmg
-        log_lines.append(f"You {verb} for **{dmg}** damage.")
+    # def_shred only ever debuffs the physical DEF -- there's no spdef-shred effect type yet, so a
+    # Special roll's defense isn't reduced by it. A known, minor asymmetry, not a bug.
+    effective_monster_def = (
+        target.monster["spdef"] if special else max(0, target.monster["def"] - target.def_debuff)
+    )
+    # Dodge is rolled once for the whole action, before any effect applies -- a dodge negates
+    # everything this action would have done (no damage, no debuff, no self-heal/buff/lifesteal),
+    # not just the damage number, matching "completely dodge" literally. Never rolled for a
+    # non-damage action (Heal, Guard, ...) -- there's nothing on the monster's side to dodge.
+    dodged = is_damage_action and random.random() < dungeon.dodge_chance(effective_monster_def)
+    if dodged:
+        log_lines.append(f"**{target.monster['name']}** dodges your {verb}!")
+    else:
+        mods = _apply_effects(session, target, effects, log_lines)
+        if is_damage_action:
+            attacker_atk = session.spatk if special else session.atk
+            dmg = dungeon.roll_damage(attacker_atk, effective_monster_def, mods["multiplier"] * player_moon_mult)
+            for extra_multiplier in mods["extra_attack_multipliers"]:
+                dmg += dungeon.roll_damage(attacker_atk, effective_monster_def, extra_multiplier * player_moon_mult)
+            if mods["lifesteal_fraction"]:
+                healed = min(session.max_hp, session.hp + round(dmg * mods["lifesteal_fraction"])) - session.hp
+                session.hp += healed
+                if healed:
+                    log_lines.append(f"You drain **{healed}** HP from the strike.")
+            target.hp -= dmg
+            log_lines.append(f"You {verb} for **{dmg}** damage.")
 
     if target.hp <= 0:
         log_lines.append(f"**{target.monster['name']} is defeated!**")
@@ -1098,9 +1111,11 @@ async def _resolve_combat_turn(
     # this same turn (already excluded from living_monsters()), but never the one that was just
     # defeated by this action's own damage roll above.
     for attacker in session.living_monsters():
-        monster_dmg, monster_skill = _resolve_monster_attack(attacker, session, moon_effect, log_lines)
+        monster_dmg, monster_skill, dodged = _resolve_monster_attack(attacker, session, moon_effect, log_lines)
         verb = f"unleashes **{monster_skill['name']}**" if monster_skill else "strikes back"
-        if mods["guard_reduction"] is not None:
+        if dodged:
+            log_lines.append(f"You dodge **{attacker.monster['name']}**'s attack!")
+        elif mods["guard_reduction"] is not None:
             monster_dmg = max(1, round(monster_dmg * mods["guard_reduction"]))
             log_lines.append(f"Your guard softens the blow — **{attacker.monster['name']}** {verb} for **{monster_dmg}**.")
         else:
@@ -1261,10 +1276,13 @@ async def _advance_party_round(interaction: discord.Interaction | None, session:
         if not living:
             break
         target = random.choice(living)
-        monster_dmg, monster_skill = _resolve_monster_attack(attacker, target, moon_effect, log_lines)
-        verb = f"unleashes **{monster_skill['name']}** on" if monster_skill else "strikes"
+        monster_dmg, monster_skill, dodged = _resolve_monster_attack(attacker, target, moon_effect, log_lines)
         target.hp -= monster_dmg
-        log_lines.append(f"**{attacker.monster['name']}** {verb} **{target.label}** for **{monster_dmg}**.")
+        if dodged:
+            log_lines.append(f"**{target.label}** dodges **{attacker.monster['name']}**'s attack!")
+        else:
+            verb = f"unleashes **{monster_skill['name']}** on" if monster_skill else "strikes"
+            log_lines.append(f"**{attacker.monster['name']}** {verb} **{target.label}** for **{monster_dmg}**.")
         if target.hp <= 0:
             target.knocked_out = True
             log_lines.append(f"💀 **{target.label}** is knocked out!")
@@ -1301,25 +1319,29 @@ async def _resolve_party_turn(
     instead of ATK/DEF for the damage roll, same as _resolve_combat_turn."""
     is_damage_action = not effects or any(e["type"] in DAMAGE_EFFECT_TYPES for e in effects)
     target = session.target_for(member)
-    mods = _apply_effects(member, target, effects, log_lines)
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
 
-    if is_damage_action:
-        attacker_atk = member.spatk if special else member.atk
-        effective_monster_def = (
-            target.monster["spdef"] if special else max(0, target.monster["def"] - target.def_debuff)
-        )
-        dmg = dungeon.roll_damage(attacker_atk, effective_monster_def, mods["multiplier"] * player_moon_mult)
-        for extra_multiplier in mods["extra_attack_multipliers"]:
-            dmg += dungeon.roll_damage(attacker_atk, effective_monster_def, extra_multiplier * player_moon_mult)
-        if mods["lifesteal_fraction"]:
-            healed = min(member.max_hp, member.hp + round(dmg * mods["lifesteal_fraction"])) - member.hp
-            member.hp += healed
-            if healed:
-                log_lines.append(f"{member.label} drains **{healed}** HP from the strike.")
-        target.hp -= dmg
-        log_lines.append(f"{member.label} {verb} for **{dmg}** damage.")
+    effective_monster_def = (
+        target.monster["spdef"] if special else max(0, target.monster["def"] - target.def_debuff)
+    )
+    dodged = is_damage_action and random.random() < dungeon.dodge_chance(effective_monster_def)
+    if dodged:
+        log_lines.append(f"**{target.monster['name']}** dodges {member.label}'s {verb}!")
+    else:
+        mods = _apply_effects(member, target, effects, log_lines)
+        if is_damage_action:
+            attacker_atk = member.spatk if special else member.atk
+            dmg = dungeon.roll_damage(attacker_atk, effective_monster_def, mods["multiplier"] * player_moon_mult)
+            for extra_multiplier in mods["extra_attack_multipliers"]:
+                dmg += dungeon.roll_damage(attacker_atk, effective_monster_def, extra_multiplier * player_moon_mult)
+            if mods["lifesteal_fraction"]:
+                healed = min(member.max_hp, member.hp + round(dmg * mods["lifesteal_fraction"])) - member.hp
+                member.hp += healed
+                if healed:
+                    log_lines.append(f"{member.label} drains **{healed}** HP from the strike.")
+            target.hp -= dmg
+            log_lines.append(f"{member.label} {verb} for **{dmg}** damage.")
 
     if target.hp <= 0:
         log_lines.append(f"**{target.monster['name']} is defeated!**")

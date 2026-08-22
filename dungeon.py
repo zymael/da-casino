@@ -897,6 +897,25 @@ def roll_damage(atk: int, defense: int, multiplier: float = 1.0) -> int:
     return max(1, round(raw))
 
 
+# Dodge (a Physical attack whiffing entirely) and Resist (the same for Special) aren't their own
+# stats -- both are a diminishing-returns function of a stat that already exists everywhere DEF/
+# SpDef do (every class, every monster, every equipped item), so there's nothing new to add to
+# CLASSES/SUBCLASSES/_STAT_BONUS_KEYS/the DB schema to get this working for players AND monsters
+# at once. DODGE_K=100 is deliberately gentle -- a fresh mage's DEF=2 dodges ~2%, a fresh
+# fighter's DEF=6 dodges ~6%, and even the toughest current monster (z_goolok, DEF=34) only
+# reaches ~25%. DODGE_CAP is a hard safety net independent of K -- no amount of DEF/SpDef
+# stacking (leveling, gear, buffs) can ever push a target above a 50% chance to fully avoid an
+# attack.
+DODGE_K = 100
+DODGE_CAP = 0.5
+
+
+def dodge_chance(defense: int) -> float:
+    """Chance to completely avoid an attack, given the defender's own DEF (for a Physical attack)
+    or SpDef (Special) -- same formula either way, just fed a different stat by the caller."""
+    return min(DODGE_CAP, defense / (defense + DODGE_K))
+
+
 def roll_loot(monster: dict, loot_mult: float = 1.0) -> int:
     return round(random.randint(monster["loot_min"], monster["loot_max"]) * loot_mult)
 
