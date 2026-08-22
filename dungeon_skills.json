@@ -6,7 +6,8 @@
         "unlock_level": 1,
         "name": "Reckless Guard",
         "flavor": "Grits teeth and takes the hit on purpose.",
-        "effects": [{"type": "guard", "reduction": 0.5}]
+        "effects": [{"type": "guard", "reduction": 0.5}],
+        "chip_cost": 10
     },
     {
         "id": "duelist_guard",
@@ -15,7 +16,8 @@
         "unlock_level": 1,
         "name": "Riposte Guard",
         "flavor": "A guard stance built for a counter, not just a block.",
-        "effects": [{"type": "guard", "reduction": 0.5}]
+        "effects": [{"type": "guard", "reduction": 0.5}],
+        "chip_cost": 10
     },
     {
         "id": "guardian_guard",
@@ -24,7 +26,8 @@
         "unlock_level": 1,
         "name": "Bulwark",
         "flavor": "Plants their feet and dares the monster to try again.",
-        "effects": [{"type": "guard", "reduction": 0.5}]
+        "effects": [{"type": "guard", "reduction": 0.5}],
+        "chip_cost": 10
     },
     {
         "id": "mercenary_guard",
@@ -33,7 +36,8 @@
         "unlock_level": 1,
         "name": "Paid-For Guard",
         "flavor": "Protecting the client -- themself -- is the whole job.",
-        "effects": [{"type": "guard", "reduction": 0.5}]
+        "effects": [{"type": "guard", "reduction": 0.5}],
+        "chip_cost": 10
     },
     {
         "id": "bonesetter_heal",
@@ -42,7 +46,8 @@
         "unlock_level": 1,
         "name": "Field Dressing",
         "flavor": "Blunt, effective first aid. Might leave a scar.",
-        "effects": [{"type": "heal_fraction", "value": 0.4}]
+        "effects": [{"type": "heal_fraction", "value": 0.4}],
+        "chip_cost": 10
     },
     {
         "id": "plague_doctor_heal",
@@ -51,7 +56,8 @@
         "unlock_level": 1,
         "name": "Toxic Remedy",
         "flavor": "Whatever's in this vial, it works. Don't ask what it is.",
-        "effects": [{"type": "heal_fraction", "value": 0.4}]
+        "effects": [{"type": "heal_fraction", "value": 0.4}],
+        "chip_cost": 10
     },
     {
         "id": "priest_heal",
@@ -60,7 +66,8 @@
         "unlock_level": 1,
         "name": "Prayer of Mending",
         "flavor": "A quiet word and the wounds start closing.",
-        "effects": [{"type": "heal_fraction", "value": 0.4}]
+        "effects": [{"type": "heal_fraction", "value": 0.4}],
+        "chip_cost": 10
     },
     {
         "id": "charlatan_heal",
@@ -69,7 +76,8 @@
         "unlock_level": 1,
         "name": "Quack Cure",
         "flavor": "Snake oil, sincerely applied. It somehow helps.",
-        "effects": [{"type": "heal_fraction", "value": 0.4}]
+        "effects": [{"type": "heal_fraction", "value": 0.4}],
+        "chip_cost": 10
     },
     {
         "id": "war_mage_fireball",
@@ -78,7 +86,8 @@
         "unlock_level": 1,
         "name": "War Blast",
         "flavor": "Battle magic with none of the finesse and all of the boom.",
-        "effects": [{"type": "damage_multiplier", "value": 1.8}]
+        "effects": [{"type": "damage_multiplier", "value": 1.8}],
+        "chip_cost": 10
     },
     {
         "id": "nightweaver_fireball",
@@ -87,7 +96,8 @@
         "unlock_level": 1,
         "name": "Shadow Bolt",
         "flavor": "A bolt of dark flame that swallows the light around it.",
-        "effects": [{"type": "damage_multiplier", "value": 1.8}]
+        "effects": [{"type": "damage_multiplier", "value": 1.8}],
+        "chip_cost": 10
     },
     {
         "id": "enchanter_fireball",
@@ -96,7 +106,8 @@
         "unlock_level": 1,
         "name": "Arcane Flame",
         "flavor": "A carefully woven spell, warm at the edges.",
-        "effects": [{"type": "damage_multiplier", "value": 1.8}]
+        "effects": [{"type": "damage_multiplier", "value": 1.8}],
+        "chip_cost": 10
     },
     {
         "id": "artificer_fireball",
@@ -105,7 +116,8 @@
         "unlock_level": 1,
         "name": "Overcharged Bolt",
         "flavor": "A gadget never rated for this much mana.",
-        "effects": [{"type": "damage_multiplier", "value": 1.8}]
+        "effects": [{"type": "damage_multiplier", "value": 1.8}],
+        "chip_cost": 10
     },
     {
         "id": "bar_fighter_sneak_attack",
@@ -114,7 +126,8 @@
         "unlock_level": 1,
         "name": "Haymaker",
         "flavor": "Not sneaky. Just fast, and thrown while nobody's looking.",
-        "effects": [{"type": "damage_multiplier", "value": 1.5}]
+        "effects": [{"type": "damage_multiplier", "value": 1.5}],
+        "chip_cost": 10
     },
     {
         "id": "assassin_sneak_attack",
@@ -123,7 +136,8 @@
         "unlock_level": 1,
         "name": "Gut Strike",
         "flavor": "A blade finds the gap in the armor.",
-        "effects": [{"type": "damage_multiplier", "value": 1.5}]
+        "effects": [{"type": "damage_multiplier", "value": 1.5}],
+        "chip_cost": 10
     },
     {
         "id": "con_artist_sneak_attack",
@@ -132,7 +146,8 @@
         "unlock_level": 1,
         "name": "Cheap Shot",
         "flavor": "\"Wait, is that--\" It was not. It was a fist.",
-        "effects": [{"type": "damage_multiplier", "value": 1.5}]
+        "effects": [{"type": "damage_multiplier", "value": 1.5}],
+        "chip_cost": 10
     },
     {
         "id": "treasure_hunter_sneak_attack",
@@ -141,7 +156,8 @@
         "unlock_level": 1,
         "name": "Grab and Go",
         "flavor": "Strike first, loot the corpse, ask questions never.",
-        "effects": [{"type": "damage_multiplier", "value": 1.5}]
+        "effects": [{"type": "damage_multiplier", "value": 1.5}],
+        "chip_cost": 10
     },
     {
         "id": "barbarian_berserkers_fury",
@@ -150,7 +166,8 @@
         "unlock_level": 4,
         "name": "Berserker's Fury",
         "flavor": "The angrier they get, the harder they hit.",
-        "effects": [{"type": "atk_buff", "value": 3}]
+        "effects": [{"type": "atk_buff", "value": 3}],
+        "chip_cost": 15
     },
     {
         "id": "barbarian_skullcrusher_swing",
@@ -159,7 +176,8 @@
         "unlock_level": 8,
         "name": "Skullcrusher Swing",
         "flavor": "One big overhead swing, then another for good measure.",
-        "effects": [{"type": "damage_multiplier", "value": 1.6}, {"type": "extra_attack"}]
+        "effects": [{"type": "damage_multiplier", "value": 1.6}, {"type": "extra_attack"}],
+        "chip_cost": 20
     },
     {
         "id": "duelist_riposte_strike",
@@ -168,7 +186,8 @@
         "unlock_level": 4,
         "name": "Riposte Strike",
         "flavor": "Deflects the opening, then cuts through the follow-up.",
-        "effects": [{"type": "damage_multiplier", "value": 1.4}, {"type": "def_shred", "value": 1}]
+        "effects": [{"type": "damage_multiplier", "value": 1.4}, {"type": "def_shred", "value": 1}],
+        "chip_cost": 15
     },
     {
         "id": "duelist_perfect_parry",
@@ -177,7 +196,8 @@
         "unlock_level": 8,
         "name": "Perfect Parry",
         "flavor": "Turns the monster's own momentum against it.",
-        "effects": [{"type": "guard", "reduction": 0.75}, {"type": "atk_buff", "value": 2}]
+        "effects": [{"type": "guard", "reduction": 0.75}, {"type": "atk_buff", "value": 2}],
+        "chip_cost": 20
     },
     {
         "id": "guardian_fortify",
@@ -186,7 +206,8 @@
         "unlock_level": 4,
         "name": "Fortify",
         "flavor": "Sets their shoulders and simply refuses to move.",
-        "effects": [{"type": "def_buff", "value": 2}]
+        "effects": [{"type": "def_buff", "value": 2}],
+        "chip_cost": 15
     },
     {
         "id": "guardian_last_stand",
@@ -195,7 +216,8 @@
         "unlock_level": 8,
         "name": "Last Stand",
         "flavor": "Draws on sheer stubbornness to stay standing.",
-        "effects": [{"type": "guard", "reduction": 0.75}, {"type": "heal_fraction", "value": 0.15}]
+        "effects": [{"type": "guard", "reduction": 0.75}, {"type": "heal_fraction", "value": 0.15}],
+        "chip_cost": 20
     },
     {
         "id": "mercenary_efficient_strike",
@@ -204,7 +226,8 @@
         "unlock_level": 4,
         "name": "Efficient Strike",
         "flavor": "No wasted motion -- this job pays by the kill, not the hour.",
-        "effects": [{"type": "damage_multiplier", "value": 1.3}, {"type": "lifesteal_fraction", "value": 0.1}]
+        "effects": [{"type": "damage_multiplier", "value": 1.3}, {"type": "lifesteal_fraction", "value": 0.1}],
+        "chip_cost": 15
     },
     {
         "id": "mercenary_contract_killer",
@@ -213,7 +236,8 @@
         "unlock_level": 8,
         "name": "Contract Killer",
         "flavor": "Closes the job in two hits, not one.",
-        "effects": [{"type": "damage_multiplier", "value": 1.5}, {"type": "extra_attack"}]
+        "effects": [{"type": "damage_multiplier", "value": 1.5}, {"type": "extra_attack"}],
+        "chip_cost": 20
     },
     {
         "id": "bonesetter_reset_the_bone",
@@ -222,7 +246,8 @@
         "unlock_level": 4,
         "name": "Reset the Bone",
         "flavor": "Hurts a lot less once it's set right.",
-        "effects": [{"type": "heal_fraction", "value": 0.3}, {"type": "def_buff", "value": 1}]
+        "effects": [{"type": "heal_fraction", "value": 0.3}, {"type": "def_buff", "value": 1}],
+        "chip_cost": 15
     },
     {
         "id": "bonesetter_hammer_and_splint",
@@ -231,7 +256,8 @@
         "unlock_level": 8,
         "name": "Hammer and Splint",
         "flavor": "One tool breaks bones, the other fixes them. Multitasking.",
-        "effects": [{"type": "damage_multiplier", "value": 1.3}, {"type": "heal_fraction", "value": 0.15}]
+        "effects": [{"type": "damage_multiplier", "value": 1.3}, {"type": "heal_fraction", "value": 0.15}],
+        "chip_cost": 20
     },
     {
         "id": "plague_doctor_noxious_cloud",
@@ -240,7 +266,8 @@
         "unlock_level": 4,
         "name": "Noxious Cloud",
         "flavor": "The mask isn't just for show.",
-        "effects": [{"type": "def_shred", "value": 2}]
+        "effects": [{"type": "def_shred", "value": 2}],
+        "chip_cost": 15
     },
     {
         "id": "plague_doctor_miasma_strike",
@@ -249,7 +276,8 @@
         "unlock_level": 8,
         "name": "Miasma Strike",
         "flavor": "A cane strike that leaves more than a bruise.",
-        "effects": [{"type": "damage_multiplier", "value": 1.4}, {"type": "def_shred", "value": 1}]
+        "effects": [{"type": "damage_multiplier", "value": 1.4}, {"type": "def_shred", "value": 1}],
+        "chip_cost": 20
     },
     {
         "id": "priest_greater_mending",
@@ -258,7 +286,8 @@
         "unlock_level": 4,
         "name": "Greater Mending",
         "flavor": "A longer prayer, and a deeper healing.",
-        "effects": [{"type": "heal_fraction", "value": 0.55}]
+        "effects": [{"type": "heal_fraction", "value": 0.55}],
+        "chip_cost": 15
     },
     {
         "id": "priest_divine_ward",
@@ -267,7 +296,8 @@
         "unlock_level": 8,
         "name": "Divine Ward",
         "flavor": "A shield of faith, and the strength to hold it.",
-        "effects": [{"type": "guard", "reduction": 0.6}, {"type": "heal_fraction", "value": 0.2}]
+        "effects": [{"type": "guard", "reduction": 0.6}, {"type": "heal_fraction", "value": 0.2}],
+        "chip_cost": 20
     },
     {
         "id": "charlatan_placebo_rush",
@@ -276,7 +306,8 @@
         "unlock_level": 4,
         "name": "Placebo Rush",
         "flavor": "Fake medicine, real confidence. Somehow it works.",
-        "effects": [{"type": "atk_buff", "value": 2}]
+        "effects": [{"type": "atk_buff", "value": 2}],
+        "chip_cost": 15
     },
     {
         "id": "charlatan_miracle_tonic",
@@ -285,7 +316,8 @@
         "unlock_level": 8,
         "name": "Miracle Tonic",
         "flavor": "Guaranteed to work, or double your money back.",
-        "effects": [{"type": "heal_fraction", "value": 0.35}, {"type": "lifesteal_fraction", "value": 0.1}]
+        "effects": [{"type": "heal_fraction", "value": 0.35}, {"type": "lifesteal_fraction", "value": 0.1}],
+        "chip_cost": 20
     },
     {
         "id": "war_mage_arcane_smash",
@@ -294,7 +326,8 @@
         "unlock_level": 4,
         "name": "Arcane Smash",
         "flavor": "Magic as a blunt instrument, twice in a row.",
-        "effects": [{"type": "damage_multiplier", "value": 1.5}, {"type": "extra_attack"}]
+        "effects": [{"type": "damage_multiplier", "value": 1.5}, {"type": "extra_attack"}],
+        "chip_cost": 15
     },
     {
         "id": "war_mage_meteor",
@@ -303,7 +336,8 @@
         "unlock_level": 8,
         "name": "Meteor",
         "flavor": "Subtlety was never the point.",
-        "effects": [{"type": "damage_multiplier", "value": 2.2}]
+        "effects": [{"type": "damage_multiplier", "value": 2.2}],
+        "chip_cost": 20
     },
     {
         "id": "nightweaver_drain_bolt",
@@ -312,7 +346,8 @@
         "unlock_level": 4,
         "name": "Drain Bolt",
         "flavor": "Siphons life through the dark before it even lands.",
-        "effects": [{"type": "damage_multiplier", "value": 1.4}, {"type": "lifesteal_fraction", "value": 0.25}]
+        "effects": [{"type": "damage_multiplier", "value": 1.4}, {"type": "lifesteal_fraction", "value": 0.25}],
+        "chip_cost": 15
     },
     {
         "id": "nightweaver_umbral_collapse",
@@ -321,7 +356,8 @@
         "unlock_level": 8,
         "name": "Umbral Collapse",
         "flavor": "The shadows fold inward, taking the armor with them.",
-        "effects": [{"type": "damage_multiplier", "value": 1.6}, {"type": "def_shred", "value": 2}]
+        "effects": [{"type": "damage_multiplier", "value": 1.6}, {"type": "def_shred", "value": 2}],
+        "chip_cost": 20
     },
     {
         "id": "enchanter_warding_sigil",
@@ -330,7 +366,8 @@
         "unlock_level": 4,
         "name": "Warding Sigil",
         "flavor": "A quiet rune, drawn in the air, that just sort of helps.",
-        "effects": [{"type": "def_buff", "value": 2}]
+        "effects": [{"type": "def_buff", "value": 2}],
+        "chip_cost": 15
     },
     {
         "id": "enchanter_radiant_burst",
@@ -339,7 +376,8 @@
         "unlock_level": 8,
         "name": "Radiant Burst",
         "flavor": "Warm light, sharp edges.",
-        "effects": [{"type": "damage_multiplier", "value": 1.6}, {"type": "heal_fraction", "value": 0.15}]
+        "effects": [{"type": "damage_multiplier", "value": 1.6}, {"type": "heal_fraction", "value": 0.15}],
+        "chip_cost": 20
     },
     {
         "id": "artificer_overclock",
@@ -348,7 +386,8 @@
         "unlock_level": 4,
         "name": "Overclock",
         "flavor": "The warranty definitely does not cover this.",
-        "effects": [{"type": "atk_buff", "value": 3}]
+        "effects": [{"type": "atk_buff", "value": 3}],
+        "chip_cost": 15
     },
     {
         "id": "artificer_payload_detonation",
@@ -357,7 +396,8 @@
         "unlock_level": 8,
         "name": "Payload Detonation",
         "flavor": "Two charges. Definitely intentional.",
-        "effects": [{"type": "damage_multiplier", "value": 1.7}, {"type": "extra_attack"}]
+        "effects": [{"type": "damage_multiplier", "value": 1.7}, {"type": "extra_attack"}],
+        "chip_cost": 20
     },
     {
         "id": "bar_fighter_bottle_it",
@@ -366,7 +406,8 @@
         "unlock_level": 4,
         "name": "Bottle It",
         "flavor": "Break it over their head, then throw the pieces too.",
-        "effects": [{"type": "damage_multiplier", "value": 1.3}, {"type": "extra_attack"}]
+        "effects": [{"type": "damage_multiplier", "value": 1.3}, {"type": "extra_attack"}],
+        "chip_cost": 15
     },
     {
         "id": "bar_fighter_table_flip",
@@ -375,7 +416,8 @@
         "unlock_level": 8,
         "name": "Table Flip",
         "flavor": "Escalation is a valid tactic.",
-        "effects": [{"type": "damage_multiplier", "value": 1.6}, {"type": "atk_buff", "value": 1}]
+        "effects": [{"type": "damage_multiplier", "value": 1.6}, {"type": "atk_buff", "value": 1}],
+        "chip_cost": 20
     },
     {
         "id": "assassin_vital_strike",
@@ -384,7 +426,8 @@
         "unlock_level": 4,
         "name": "Vital Strike",
         "flavor": "Knows exactly where it hurts, and takes a little back.",
-        "effects": [{"type": "damage_multiplier", "value": 1.5}, {"type": "lifesteal_fraction", "value": 0.15}]
+        "effects": [{"type": "damage_multiplier", "value": 1.5}, {"type": "lifesteal_fraction", "value": 0.15}],
+        "chip_cost": 15
     },
     {
         "id": "assassin_death_mark",
@@ -393,7 +436,8 @@
         "unlock_level": 8,
         "name": "Death Mark",
         "flavor": "Marks the kill before the fight even started.",
-        "effects": [{"type": "damage_multiplier", "value": 1.9}, {"type": "def_shred", "value": 2}]
+        "effects": [{"type": "damage_multiplier", "value": 1.9}, {"type": "def_shred", "value": 2}],
+        "chip_cost": 20
     },
     {
         "id": "con_artist_sleight_of_hand",
@@ -402,7 +446,8 @@
         "unlock_level": 4,
         "name": "Sleight of Hand",
         "flavor": "A distraction, then a second hit nobody saw coming.",
-        "effects": [{"type": "extra_attack"}]
+        "effects": [{"type": "extra_attack"}],
+        "chip_cost": 15
     },
     {
         "id": "con_artist_master_manipulator",
@@ -411,7 +456,8 @@
         "unlock_level": 8,
         "name": "Master Manipulator",
         "flavor": "Talks their way into an opening, and out of the damage.",
-        "effects": [{"type": "damage_multiplier", "value": 1.4}, {"type": "heal_fraction", "value": 0.2}]
+        "effects": [{"type": "damage_multiplier", "value": 1.4}, {"type": "heal_fraction", "value": 0.2}],
+        "chip_cost": 20
     },
     {
         "id": "treasure_hunter_opportunist",
@@ -420,7 +466,8 @@
         "unlock_level": 4,
         "name": "Opportunist",
         "flavor": "Every fight is a smash-and-grab if you're fast enough.",
-        "effects": [{"type": "damage_multiplier", "value": 1.3}, {"type": "lifesteal_fraction", "value": 0.1}]
+        "effects": [{"type": "damage_multiplier", "value": 1.3}, {"type": "lifesteal_fraction", "value": 0.1}],
+        "chip_cost": 15
     },
     {
         "id": "treasure_hunter_smash_and_grab",
@@ -429,6 +476,7 @@
         "unlock_level": 8,
         "name": "Smash and Grab",
         "flavor": "Hit it twice, take the loot, be gone.",
-        "effects": [{"type": "damage_multiplier", "value": 1.6}, {"type": "extra_attack"}]
+        "effects": [{"type": "damage_multiplier", "value": 1.6}, {"type": "extra_attack"}],
+        "chip_cost": 20
     }
 ]

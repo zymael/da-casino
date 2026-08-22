@@ -17,9 +17,8 @@ Any field entry can also carry:
     their own labeled <fieldset>, which is grouping enough on its own.
   - "hint" -- a one-line explanation shown as small print under that field's input, for a box
     whose meaning isn't obvious from its name alone (e.g. "rarity" is flavor-only and never read
-    by game logic; a monster's "tier" only scales its XP reward now). Trigger
-    params get their own per-param hints instead (TRIGGER_PARAM_HINTS), since the same flattened
-    param row is reused across every trigger type.
+    by game logic). Trigger params get their own per-param hints instead (TRIGGER_PARAM_HINTS),
+    since the same flattened param row is reused across every trigger type.
 
 Field types the generic form-builder knows how to render:
   - "str"    -- a single-line text input
@@ -153,7 +152,7 @@ TRIGGER_PARAM_NAMES = sorted({p for required, optional in quests.TRIGGER_SCHEMAS
 TRIGGER_PARAM_KINDS = {
     "item_id": "quest_item", "drop_monster": "monster", "monster_id": "monster",
     "recipe_id": "recipe", "kind": "achievement", "quest_id": "quest",
-    "count": "int", "tier": "int", "value": "int", "key": "str",
+    "count": "int", "value": "int", "key": "str",
     "main_class": "main_class", "subclass": "subclass",
 }
 # One-line explanations shown under each trigger param box -- the params themselves (tier vs
@@ -163,8 +162,7 @@ TRIGGER_PARAM_KINDS = {
 TRIGGER_PARAM_HINTS = {
     "item_id": "the quest item that must be turned in to advance this stage",
     "drop_monster": "only this monster can drop the item (blank = any monster can)",
-    "monster_id": "must kill this specific monster (blank = any monster counts -- or use tier instead)",
-    "tier": "any monster at this dungeon tier counts (blank = any monster -- or use monster_id instead)",
+    "monster_id": "must kill this specific monster (blank = any monster counts)",
     "count": "how many kills or crafts are needed",
     "recipe_id": "must craft this specific recipe (blank = any recipe counts)",
     "kind": "the achievement that must already be earned",
@@ -193,19 +191,19 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "MONSTERS",
         "loader": dungeon._load_monsters,
-        "list_columns": ["id", "name", "tier", "hp", "atk", "def"],
+        "list_columns": ["id", "name", "intended_level", "hp", "atk", "def"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
-            {
-                "name": "tier", "type": "int", "required": True, "min": 1, "group": "Stats",
-                "hint": "difficulty rating used only to scale XP-per-kill (XP_PER_TIER) and as an "
-                        "optional filter on the kill_monster quest trigger -- no longer gates which "
-                        "delve rooms this monster can appear in or what it drops (see Drops below)",
-            },
             {"name": "hp", "type": "int", "required": True, "min": 0, "group": "Stats"},
             {"name": "atk", "type": "int", "required": True, "min": 0, "group": "Stats"},
             {"name": "def", "type": "int", "required": True, "min": 0, "group": "Stats"},
+            {
+                "name": "intended_level", "type": "int", "required": False, "min": 1, "group": "Stats",
+                "hint": "optional -- the player level this monster is meant to be a fair fight for. "
+                        "Use \"Generate stats for level\" above to pre-fill hp/atk/def from a level, or "
+                        "just label a monster you've already hand-tuned.",
+            },
             {
                 "name": "shape", "type": "str", "required": True, "group": "Appearance",
                 "hint": "procedural token shape: circle, triangle, pentagon, or hexagon (anything else "
@@ -223,6 +221,21 @@ CONTENT_TYPES = {
                 "hint": "this monster's own explicit loot table -- each row is one equipment or "
                         "material item plus its own drop chance (0-1), rolled independently, so a "
                         "single kill can land any number of them",
+            },
+            {
+                "name": "attack_chance", "type": "int", "required": False, "min": 0, "group": "Skills",
+                "hint": "optional -- this monster's plain-attack WEIGHT against its own skills' "
+                        "chances below (default 1, same units as those, not a 0-1 probability). Set "
+                        "to 0 to make a monster that only ever uses its skills, never a plain attack, "
+                        "once it has any.",
+            },
+            {
+                "name": "skills", "type": "monster_skills", "required": False,
+                "hint": "optional abilities this monster can use instead of a plain attack -- each "
+                        "time it acts, one option (its plain attack, weighted by attack_chance above, "
+                        "or one of these skills, weighted by its own chance) is picked at random. No "
+                        "mana/cooldown -- a monster can reuse the same skill as often as it randomly "
+                        "comes up.",
             },
             {"name": "sprite_path", "type": "image", "required": False, "subdir": "dungeon/monsters"},
         ],
@@ -245,6 +258,12 @@ CONTENT_TYPES = {
                 "hint": "flavor label only (e.g. \"common\", \"legendary\") -- not read by any game logic",
             },
             {"name": "stat_bonuses", "type": "stat_bonuses", "required": True},
+            {
+                "name": "intended_level", "type": "int", "required": False, "min": 1, "group": "Drop Info",
+                "hint": "optional -- the player level this item is meant for. Use \"Generate stats for "
+                        "level\" above to pre-fill stat_bonuses from a level, or just label an item "
+                        "you've already hand-tuned.",
+            },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
         ],
     },
@@ -345,6 +364,11 @@ CONTENT_TYPES = {
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
             {"name": "effects", "type": "effects", "required": True},
+            {
+                "name": "chip_cost", "type": "int", "required": True, "min": 1, "group": "Class",
+                "hint": "Chips spent to cast this skill -- must not exceed the build's max Chips "
+                        "(dungeon.CLASSES/SUBCLASSES) or it would be permanently unusable",
+            },
         ],
     },
     "delves": {
@@ -528,6 +552,11 @@ CONTENT_TYPES = {
 
 EFFECT_TYPES = list(dungeon.EFFECT_PARAM_SCHEMAS.keys())
 EFFECT_PARAM_NAMES = sorted({p for required, optional, _ in dungeon.EFFECT_PARAM_SCHEMAS.values() for p in required | optional})
+# The subset of EFFECT_TYPES a monster's own skill can use -- see
+# dungeon.MONSTER_SKILL_EFFECT_TYPES for why the rest (guard/def_shred/atk_buff/def_buff/
+# heal_fraction) aren't available to a monster yet. Keeps EFFECT_TYPES' own ordering rather than
+# whatever order the underlying set iterates in.
+MONSTER_SKILL_EFFECT_TYPES = [t for t in EFFECT_TYPES if t in dungeon.MONSTER_SKILL_EFFECT_TYPES]
 # type -> sorted list of every param name that type actually uses -- every "effects" row shows all
 # of EFFECT_PARAM_NAMES (value/reduction/multiplier) so one row-builder works for every type (see
 # _render_effect_row), but only ever 0 or 1 of them actually applies to a given type -- this is

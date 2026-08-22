@@ -2,8 +2,12 @@
 between game logic here and Discord UI in dungeon_view.py.
 
 Characters are a permanent one-time choice: a main class (face rank) x a subclass (suit) = 16
-builds. Combat is deliberately lightweight -- HP/ATK/DEF only, no persistent status effects, one
-skill usable once per fight, unlocked automatically as the character levels. Each of the 16
+builds. Combat is deliberately lightweight -- HP/ATK/DEF plus a per-fight Chips pool (the casino's
+on-theme name for what a JRPG would call mana), no persistent status effects. Skills cost Chips
+(dungeon_skills.json's chip_cost) rather than being limited to one use per fight -- Chips refill to
+max at the start of every fight and are never spent outside combat, so the pool is tracked only on
+the in-memory fight session (DelveSession/PartyMember), never persisted to the DB. Skills unlock
+automatically as the character levels. Each of the 16
 builds has its own skill line (dungeon_skills.json, see SKILLS below) rather than sharing one
 ability per class. Monster content lives in dungeon_monsters.json (not here) specifically so new
 monsters can be added without touching this file -- see MONSTERS below.
@@ -14,35 +18,44 @@ import math
 import os
 import random
 
-# Base HP/ATK/DEF per class, before subclass modifiers. Kept to three stats total rather than a
-# full JRPG sheet. Archetypes: Fighter tanks (high HP/DEF, modest ATK), Mage nukes (high ATK,
-# fragile), Rogue is balanced/quick, Healer leans on HP + its Heal ability to outlast fights.
-# Healer's ATK was originally 4, which combined with tougher monsters' DEF made roll_damage floor
-# at 1 almost every hit -- an unwinnable slog regardless of how tanky Healer otherwise is. Bumped
-# to 6 so Healer can still meaningfully damage things; simulated combat confirms this fixed it
-# without needing to touch any other class. Each class's signature skill(s) now live in SKILLS
-# below, keyed by (main_class, subclass) rather than on this dict.
+# Base HP/ATK/DEF/Chips per class, before subclass modifiers. Kept to four stats total rather than
+# a full JRPG sheet. Archetypes: Fighter tanks (high HP/DEF, modest ATK, low Chips -- it leans on
+# raw stats, not repeat skill casts), Mage nukes (high ATK, fragile, highest Chips pool so its
+# nuker kit can fire more than once a fight), Rogue is balanced/quick with the second-highest Chips
+# pool, Healer leans on HP + its Heal ability (modest Chips -- enough for a couple of heals) to
+# outlast fights. Healer's ATK was originally 4, which combined with tougher monsters' DEF made
+# roll_damage floor at 1 almost every hit -- an unwinnable slog regardless of how tanky Healer
+# otherwise is. Bumped to 6 so Healer can still meaningfully damage things; simulated combat
+# confirms this fixed it without needing to touch any other class. Each class's signature skill(s)
+# now live in SKILLS below, keyed by (main_class, subclass) rather than on this dict.
+#
+# Chips pools (here and in SUBCLASSES below) are set so that even the worst-case build (fighter +
+# clubs, whose -5 Chips modifier is the largest penalty) can still afford its own most expensive
+# skill (an unlock_level=8 skill, costing 20 Chips per _load_skills' tier formula) at least once a
+# fight -- see _load_skills' chip_cost validation, which enforces this for every build/skill pair
+# rather than leaving it to be noticed live.
 CLASSES = {
-    "fighter": {"rank": "A", "hp": 32, "atk": 6, "def": 6},
-    "healer": {"rank": "K", "hp": 26, "atk": 6, "def": 5},
-    "mage": {"rank": "Q", "hp": 16, "atk": 10, "def": 2},
-    "rogue": {"rank": "J", "hp": 22, "atk": 7, "def": 3},
+    "fighter": {"rank": "A", "hp": 32, "atk": 6, "def": 6, "chips": 25},
+    "healer": {"rank": "K", "hp": 26, "atk": 6, "def": 5, "chips": 30},
+    "mage": {"rank": "Q", "hp": 16, "atk": 10, "def": 2, "chips": 45},
+    "rogue": {"rank": "J", "hp": 22, "atk": 7, "def": 3, "chips": 40},
 }
 RANK_TO_CLASS = {info["rank"]: name for name, info in CLASSES.items()}
 
 # Subclass (suit) modifiers layered on top of the class base -- the same attitude framework used
-# for the 16 display names: clubs (brawler) adds raw power, spades (lethal) trades defense for
-# offense, hearts (loyal) adds survivability, diamonds (greedy) trades a little combat edge for
-# meaningfully better loot.
+# for the 16 display names: clubs (brawler) adds raw power but leans on brute force over finesse
+# (lowest Chips), spades (lethal) trades defense for offense, hearts (loyal) adds survivability and
+# the most Chips (a support-leaning suit that most wants extra casts), diamonds (greedy) trades a
+# little combat edge for meaningfully better loot and stays Chips-neutral.
 SUBCLASSES = {
-    "clubs": {"hp": 4, "atk": 2, "def": 0, "loot_mult": 1.0},
-    "spades": {"hp": 0, "atk": 3, "def": -1, "loot_mult": 1.0},
-    "hearts": {"hp": 4, "atk": 0, "def": 2, "loot_mult": 1.0},
+    "clubs": {"hp": 4, "atk": 2, "def": 0, "loot_mult": 1.0, "chips": -5},
+    "spades": {"hp": 0, "atk": 3, "def": -1, "loot_mult": 1.0, "chips": 5},
+    "hearts": {"hp": 4, "atk": 0, "def": 2, "loot_mult": 1.0, "chips": 10},
     # A -1 DEF here originally, on top of an already-below-average build, made a couple of
     # specific class+diamonds combos nearly unwinnable in simulation. A small +1 ATK (a
     # mercenary/treasure hunter still fights competently, just prioritizes the score) fixed that
     # without diamonds needing to be a pure stat no-op alongside its loot bonus.
-    "diamonds": {"hp": 0, "atk": 1, "def": 0, "loot_mult": 1.25},
+    "diamonds": {"hp": 0, "atk": 1, "def": 0, "loot_mult": 1.25, "chips": 0},
 }
 SUIT_SYMBOLS = {"clubs": "♣", "spades": "♠", "hearts": "♥", "diamonds": "♦"}
 
@@ -73,6 +86,7 @@ def compute_stats(main_class: str, subclass: str) -> dict:
         "hp": base["hp"] + mod["hp"],
         "atk": base["atk"] + mod["atk"],
         "def": base["def"] + mod["def"],
+        "chips": base["chips"] + mod["chips"],
         "loot_mult": mod["loot_mult"],
     }
 
@@ -90,7 +104,7 @@ def compute_stats(main_class: str, subclass: str) -> dict:
 
 _MONSTERS_PATH = os.path.join(os.path.dirname(__file__), "dungeon_monsters.json")
 _REQUIRED_MONSTER_FIELDS = {
-    "id", "name", "tier", "hp", "atk", "def", "shape", "color", "flavor", "loot_min", "loot_max",
+    "id", "name", "hp", "atk", "def", "shape", "color", "flavor", "loot_min", "loot_max",
 }
 DROP_KINDS = ("equipment", "material")
 
@@ -122,11 +136,20 @@ def _load_monsters(path: str = _MONSTERS_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_monsters.json: monster {entry_id!r} missing field(s): {sorted(missing)}")
         if entry_id in monsters:
             raise ValueError(f"dungeon_monsters.json: duplicate monster id {entry_id!r}")
-        for field in ("hp", "atk", "def", "tier", "loot_min", "loot_max"):
+        for field in ("hp", "atk", "def", "loot_min", "loot_max"):
             if entry[field] < 0:
                 raise ValueError(f"dungeon_monsters.json: monster {entry_id!r} has negative {field}")
         if entry["loot_min"] > entry["loot_max"]:
             raise ValueError(f"dungeon_monsters.json: monster {entry_id!r} has loot_min > loot_max")
+        if "intended_level" in entry and (not isinstance(entry["intended_level"], int) or entry["intended_level"] < 1):
+            raise ValueError(f"dungeon_monsters.json: monster {entry_id!r} intended_level must be a positive int")
+        if "attack_chance" in entry and (
+            not isinstance(entry["attack_chance"], (int, float)) or entry["attack_chance"] < 0
+        ):
+            raise ValueError(f"dungeon_monsters.json: monster {entry_id!r} attack_chance must be a number >= 0")
+        if entry.get("skills"):
+            for skill in entry["skills"]:
+                _validate_monster_skill(skill, f"dungeon_monsters.json: monster {entry_id!r}")
         _validate_monster_drops(entry.get("drops", []), f"dungeon_monsters.json: monster {entry_id!r}")
         monsters[entry_id] = entry
     return monsters
@@ -160,14 +183,18 @@ def roll_drops(monster: dict, chance_mult: float = 1.0) -> list[dict]:
 # room id a session begins at, since room order is no longer implicit.
 #
 # Two room types:
-#   "combat": {"id", "type": "combat", "monsters": [...], "background_path"?, "next"?, "prompt"?}
-#     monsters is the explicit set of ids that can show up there (one picked at random each visit,
-#     see monster_for_room); next is another room's id, or absent -- absent means clearing this
-#     room's monster wins the delve (same semantics as today's "last room", just explicit now
-#     instead of positional). prompt (optional, unlike a choice room's required one) introduces the
-#     room itself -- shown once, right when the room is entered, ahead of the monster's own flavor
-#     text (see dungeon_view._combat_intro_text) -- purely flavor, never read by combat logic
-#     itself.
+#   "combat": {"id", "type": "combat", "monster_groups": [[...], ...], "background_path"?, "next"?, "prompt"?}
+#     monster_groups is a list of possible monster groups for this room -- one group (a list of
+#     monster ids, all of which spawn together) is picked at random each visit, see
+#     monsters_for_room. RECONSTRUCTION NOTE: this list-of-groups shape (vs. a single flat list of
+#     monster-id alternatives) is inferred from the live dungeon_monsters.json/dungeon_view.py
+#     call site after an accidental truncation of this file -- the original wording/comment here
+#     was not recovered, only the JSON shape and the one call site. next is another room's id, or
+#     absent -- absent means clearing this room's monsters wins the delve (same semantics as
+#     today's "last room", just explicit now instead of positional). prompt (optional, unlike a
+#     choice room's required one) introduces the room itself -- shown once, right when the room is
+#     entered, ahead of the monsters' own flavor text (see dungeon_view._combat_intro_text) --
+#     purely flavor, never read by combat logic itself.
 #   "choice": {"id", "type": "choice", "prompt": str, "actions": [...], "background_path"?}
 #     a non-combat room: flavor text plus a menu of player-chosen actions (see _validate_action),
 #     each carrying its own optional gate/cost/skill-check and its own next-room outcome -- this is
@@ -209,7 +236,7 @@ def roll_drops(monster: dict, chance_mult: float = 1.0) -> list[dict]:
 ROOM_TYPES = ("combat", "choice")
 CHECK_STATS = ("atk", "def", "hp")  # which of a character's own stats a skill check can roll against
 ACTION_COST_ITEM_KINDS = ("material", "consumable", "quest_item")
-_REQUIRED_ROOM_FIELDS_BY_TYPE = {"combat": {"monsters"}, "choice": {"prompt", "actions"}}
+_REQUIRED_ROOM_FIELDS_BY_TYPE = {"combat": {"monster_groups"}, "choice": {"prompt", "actions"}}
 _OPTIONAL_ROOM_FIELDS_BY_TYPE = {"combat": {"background_path", "next", "prompt"}, "choice": {"background_path"}}
 
 _DELVES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_delves.json")
@@ -350,15 +377,18 @@ def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
         for room in rooms:
             room_id = room["id"]
             if room["type"] == "combat":
-                monsters = room["monsters"]
-                if not monsters:
-                    raise ValueError(f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} has no monsters")
-                for monster_id in monsters:
-                    if monster_id not in MONSTERS:
-                        raise ValueError(
-                            f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} "
-                            f"references unknown monster {monster_id!r}"
-                        )
+                monster_groups = room["monster_groups"]
+                if not monster_groups:
+                    raise ValueError(f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} has no monster_groups")
+                for group in monster_groups:
+                    if not group:
+                        raise ValueError(f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} has an empty monster group")
+                    for monster_id in group:
+                        if monster_id not in MONSTERS:
+                            raise ValueError(
+                                f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} "
+                                f"references unknown monster {monster_id!r}"
+                            )
                 next_room = room.get("next")
                 if next_room is not None:
                     if next_room not in room_ids:
@@ -432,23 +462,32 @@ def rooms_by_id(delve: dict) -> dict[str, dict]:
     return {room["id"]: room for room in delve["rooms"]}
 
 
-def monster_for_room(room: dict) -> dict:
-    return MONSTERS[random.choice(room["monsters"])]
+def monsters_for_room(room: dict) -> list[dict]:
+    """Picks one of this room's monster_groups at random and resolves it to full monster dicts --
+    the whole group spawns together. RECONSTRUCTION NOTE: rebuilt after an accidental truncation
+    of this file, inferred from dungeon_view.py's call site and dungeon_monsters.json's shape."""
+    group = random.choice(room["monster_groups"])
+    return [MONSTERS[monster_id] for monster_id in group]
 
 
 # --- Leveling ------------------------------------------------------------------------------
-# XP is awarded per monster kill, scaled by room tier (deeper = more XP, same "push deeper pays
-# off more" logic already driving loot). Leveling grants automatic flat stat growth -- no player
-# choice -- applied by mutating the character's stored stats in place (db.add_xp), the same way
-# horse training already grows a horse's stats via db.train_horse. Subclass-specific skills
-# unlocked by level are a deferred follow-up; `level` is tracked now specifically so that pass
-# won't need a data-model change.
-XP_PER_TIER = {1: 10, 2: 20, 3: 40}
+# XP is awarded per monster kill, scaled by monster difficulty (deeper/tougher = more XP, same
+# "push deeper pays off more" logic already driving loot). Leveling grants automatic flat stat
+# growth -- no player choice -- applied by mutating the character's stored stats in place
+# (db.add_xp), the same way horse training already grows a horse's stats via db.train_horse.
+# Subclass-specific skills unlocked by level are a deferred follow-up; `level` is tracked now
+# specifically so that pass won't need a data-model change.
 LEVEL_HP_GAIN, LEVEL_ATK_GAIN, LEVEL_DEF_GAIN = 2, 1, 1
 
 
-def xp_for_monster(tier: int) -> int:
-    return XP_PER_TIER[tier]
+def xp_for_monster(monster: dict) -> int:
+    """RECONSTRUCTION NOTE: this file was accidentally truncated and this function's real body
+    (which took a room/monster "tier" 1-3 mapped to 10/20/40 XP) was not recovered. monsters no
+    longer carry a tier field at all (see _REQUIRED_MONSTER_FIELDS) -- real content now uses an
+    optional intended_level (observed range 1-30 in dungeon_monsters.json) instead, so this is a
+    straight-line placeholder (10 XP per intended_level, defaulting to 1) preserving the old
+    tier-1 rate as a floor. Needs a real balance pass against actual leveling curve/xp_to_next_level."""
+    return 10 * monster.get("intended_level", 1)
 
 
 def xp_to_next_level(level: int) -> int:
@@ -469,7 +508,7 @@ def xp_to_next_level(level: int) -> int:
 # is what actually interprets these during combat; this module only validates their shape.
 
 _SKILLS_PATH = os.path.join(os.path.dirname(__file__), "dungeon_skills.json")
-_REQUIRED_SKILL_FIELDS = {"id", "main_class", "subclass", "unlock_level", "name", "flavor", "effects"}
+_REQUIRED_SKILL_FIELDS = {"id", "main_class", "subclass", "unlock_level", "name", "flavor", "effects", "chip_cost"}
 
 # type -> (required param names, optional param names, fraction param names). Fraction params
 # must be in (0, 1] (they scale a max-HP heal, a damage reduction, etc); every other numeric
@@ -514,6 +553,47 @@ def _validate_effects(effects, context: str):
                 raise ValueError(f"{context} effect {effect_type!r} param {param!r} must be > 0")
 
 
+# The subset of EFFECT_PARAM_SCHEMAS a monster's own skill can use -- deliberately smaller than
+# what a player skill can do. guard/def_shred/atk_buff/def_buff all need persistent state this
+# codebase doesn't have yet on the receiving side (a player-facing DEF debuff, a monster-facing
+# buff/guard flag that survives past the action that set it -- MonsterInstance's own def_debuff
+# only exists because a *player* skill can apply it, dungeon_view.py's _effect_def_shred).
+# heal_fraction is excluded too, for a narrower reason: its handler hardcodes "You recover **N**
+# HP" (written for the player's own skill log), which would misread coming from a monster --
+# needs an actor-aware rewrite before a monster can use it, a real follow-up, not a quick add. The
+# three here (damage_multiplier, extra_attack, lifesteal_fraction) are the ones whose handlers are
+# both self-contained (only ever touch mods/the acting monster's own hp) AND produce no log text
+# of their own -- dungeon_view.py's monster-attack resolution writes the "unleashes X" / "drains Y
+# HP" lines itself, so there's no baked-in "You"-phrased text to leak into a monster's turn.
+MONSTER_SKILL_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "lifesteal_fraction"}
+
+
+def _validate_monster_skill(skill: dict, context: str) -> None:
+    """One entry in a monster's own optional "skills" list -- {name, chance, effects}. `chance` is
+    a relative WEIGHT, not a strict probability -- see pick_monster_action, which weighs it against
+    the monster's own attack_chance and every other skill's chance via random.choices (so weights
+    never need to be balanced to sum to anything in particular, and a weight of exactly 0 is a
+    legal "this skill is currently disabled" rather than an error). `effects` reuses the same
+    {type, ...params} vocabulary skills/consumables already validate via _validate_effects,
+    restricted to MONSTER_SKILL_EFFECT_TYPES."""
+    name = skill.get("name")
+    if not name:
+        raise ValueError(f"{context} has a skill with no name")
+    chance = skill.get("chance")
+    if not isinstance(chance, (int, float)) or chance < 0:
+        raise ValueError(f"{context} skill {name!r} chance must be a number >= 0")
+    effects = skill.get("effects")
+    if not effects:
+        raise ValueError(f"{context} skill {name!r} has no effects")
+    bad_types = {e.get("type") for e in effects} - MONSTER_SKILL_EFFECT_TYPES
+    if bad_types:
+        raise ValueError(
+            f"{context} skill {name!r} has effect type(s) monsters can't use: {sorted(bad_types)} "
+            f"(monsters are limited to {sorted(MONSTER_SKILL_EFFECT_TYPES)})"
+        )
+    _validate_effects(effects, f"{context} skill {name!r}")
+
+
 def _load_skills(path: str = _SKILLS_PATH) -> dict[str, dict]:
     with open(path) as f:
         raw = json.load(f)
@@ -531,6 +611,15 @@ def _load_skills(path: str = _SKILLS_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_skills.json: skill {entry_id!r} has unknown subclass {entry['subclass']!r}")
         if entry["unlock_level"] < 1:
             raise ValueError(f"dungeon_skills.json: skill {entry_id!r} has invalid unlock_level")
+        chip_cost = entry["chip_cost"]
+        if not isinstance(chip_cost, int) or chip_cost < 1:
+            raise ValueError(f"dungeon_skills.json: skill {entry_id!r} chip_cost must be a positive int")
+        build_chips = compute_stats(entry["main_class"], entry["subclass"])["chips"]
+        if chip_cost > build_chips:
+            raise ValueError(
+                f"dungeon_skills.json: skill {entry_id!r} costs {chip_cost} chips but "
+                f"{entry['main_class']}/{entry['subclass']} only has {build_chips} max chips -- would be unusable"
+            )
         _validate_effects(entry["effects"], f"dungeon_skills.json: skill {entry_id!r}")
         skills[entry_id] = entry
     return skills
@@ -805,3 +894,235 @@ def roll_check(stat_value: int, dc: int) -> tuple[bool, int]:
     the actual rolled value) -- the roll is exposed so callers can show it in combat-log text."""
     rolled = round(stat_value * random.uniform(DAMAGE_VARIANCE_LOW, DAMAGE_VARIANCE_HIGH))
     return rolled >= dc, rolled
+
+
+DEFAULT_MONSTER_ATTACK_CHANCE = 1.0
+
+
+def pick_monster_action(monster: dict) -> dict | None:
+    """A monster's turn: weighted-random between its plain attack (weight = its own
+    attack_chance, defaulting to DEFAULT_MONSTER_ATTACK_CHANCE) and each entry in its optional
+    "skills" list (weight = that skill's own chance). Returns None for a plain attack, or the
+    chosen skill dict. No mana/cooldown -- a monster can reuse the same skill as often as it
+    randomly comes up (see admin_schemas.py's "skills" field hint on the monsters content type)."""
+    skills = monster.get("skills", [])
+    if not skills:
+        return None
+    weights = [monster.get("attack_chance", DEFAULT_MONSTER_ATTACK_CHANCE)] + [s["chance"] for s in skills]
+    if sum(weights) <= 0:
+        return None
+    return random.choices([None, *skills], weights=weights, k=1)[0]
+
+
+# --- Monster/equipment stat generation & level estimation ------------------------------------
+# RECONSTRUCTION NOTE: this whole section (MONSTER_ARCHETYPES, generate_monster_stats,
+# generate_item_stat_bonuses, estimate_monster_level, estimate_item_level, estimate_group_level)
+# was rebuilt from scratch after this file was accidentally truncated -- the original formulas
+# were not recovered, only their call sites/contracts (admin_server.py's "Generate stats for
+# level" tooling and the delve room editor's level-range display). Confirmed with the author:
+# tank/balanced/glass_cannon is the right archetype set but the exact weightings weren't
+# remembered, and the item stat-bonus formula was always just "generated to be balanced" rather
+# than tied to any specific original numbers -- so both are a fresh reasonable pass, not a
+# recovery of prior tuning. Both estimate_* functions are the algebraic inverse of their
+# matching generate_* function, so a freshly generated entry round-trips back to the same level.
+
+MONSTER_ARCHETYPES = {
+    "tank": {"hp": 0.55, "atk": 0.20, "def": 0.25},
+    "balanced": {"hp": 0.45, "atk": 0.30, "def": 0.25},
+    "glass_cannon": {"hp": 0.30, "atk": 0.55, "def": 0.15},
+}
+
+
+def _monster_power_budget(level: int) -> float:
+    """hp + 2*atk + 2*def, the single "power" scalar generate_monster_stats/estimate_monster_level
+    both key off -- weighted 2x on atk/def since one point of either moves roll_damage's output by
+    roughly twice what one point of HP is worth (ATK and DEF trade off the same subtraction; HP is
+    just what's left standing after it)."""
+    return 35 + 8 * level
+
+
+def generate_monster_stats(level: int, archetype: dict | None = None) -> dict:
+    """hp/atk/def for a monster meant to feel "right" at `level`, split by `archetype`'s weights
+    (defaults to balanced -- see MONSTER_ARCHETYPES). Doesn't touch intended_level itself; callers
+    (admin_server.py's _apply_generate_level) set that alongside this."""
+    archetype = archetype or MONSTER_ARCHETYPES["balanced"]
+    budget = _monster_power_budget(level)
+    return {
+        "hp": max(1, round(budget * archetype["hp"])),
+        "atk": max(1, round(budget * archetype["atk"] / 2)),
+        "def": max(1, round(budget * archetype["def"] / 2)),
+    }
+
+
+def estimate_monster_level(monster: dict) -> float:
+    """Inverse of generate_monster_stats/_monster_power_budget -- a monster's hp/atk/def read back
+    as "the level this would have been generated for", regardless of archetype (the split cancels
+    out since power_budget sums all three back into one scalar). Used as intended_level's fallback
+    wherever a monster predates that field, or has it unset."""
+    budget = monster["hp"] + 2 * monster["atk"] + 2 * monster["def"]
+    return max(1.0, (budget - 35) / 8)
+
+
+def estimate_group_level(monsters: list[dict]) -> float:
+    """A combat room's overall difficulty across however many monsters spawn together in one
+    group -- sums each monster's own power budget rather than averaging their levels (a group of
+    three shouldn't read as "easy" just because each one is individually low-level) before
+    converting back to a level-equivalent number. Returns 0 for an empty group -- callers (the
+    delve flowchart editor's room summary) filter that out of a displayed range rather than
+    treating it as a real level 0."""
+    if not monsters:
+        return 0.0
+    total_budget = sum(m["hp"] + 2 * m["atk"] + 2 * m["def"] for m in monsters)
+    return max(1.0, (total_budget - 35) / 8)
+
+
+_EQUIPMENT_SLOT_WEIGHTS = {
+    "weapon": {"hp": 0.0, "atk": 0.8, "def": 0.2},
+    "armor": {"hp": 0.5, "atk": 0.0, "def": 0.5},
+    "trinket": {"hp": 0.34, "atk": 0.33, "def": 0.33},
+}
+
+
+def _item_power_budget(level: int) -> float:
+    """Same hp + 2*atk + 2*def power scalar as _monster_power_budget, scaled way down -- a piece
+    of gear is one small increment on top of a whole character's own stats, not a whole
+    combatant's total."""
+    return 1.5 * level
+
+
+def generate_item_stat_bonuses(level: int, slot: str) -> dict:
+    """stat_bonuses for a piece of gear meant to feel "right" at `level` in `slot` -- weapon leans
+    almost entirely ATK, armor splits HP/DEF, trinket is even across all three (see
+    _EQUIPMENT_SLOT_WEIGHTS). A weight of exactly 0 omits that stat from the result entirely
+    rather than writing a 0 bonus, matching how real equipment entries only list the stats they
+    actually touch."""
+    weights = _EQUIPMENT_SLOT_WEIGHTS.get(slot, _EQUIPMENT_SLOT_WEIGHTS["trinket"])
+    budget = _item_power_budget(level)
+    bonuses = {}
+    if weights["hp"]:
+        bonuses["hp"] = max(1, round(budget * weights["hp"]))
+    if weights["atk"]:
+        bonuses["atk"] = max(1, round(budget * weights["atk"] / 2))
+    if weights["def"]:
+        bonuses["def"] = max(1, round(budget * weights["def"] / 2))
+    return bonuses
+
+
+def estimate_item_level(item: dict) -> float:
+    """Inverse of generate_item_stat_bonuses/_item_power_budget."""
+    bonuses = item["stat_bonuses"]
+    budget = bonuses.get("hp", 0) + 2 * bonuses.get("atk", 0) + 2 * bonuses.get("def", 0)
+    return max(1.0, budget / 1.5)
+
+
+# --- Delve drafts ----------------------------------------------------------------------------
+# RECONSTRUCTION NOTE: rebuilt from scratch after this file was accidentally truncated, from
+# admin_server.py's call sites/docstrings (delve_autosave_view, delve_publish_view, edit_view,
+# list_view) -- those describe the contract in detail (a draft is a full delve-entry dict, keyed
+# by id, autosaved with no validation gate; Publish is the only place a broken delve is ever
+# rejected outright) even though the original implementation here wasn't recovered. The actual
+# draft data (dungeon_delve_drafts.json) was never touched and is untouched by this rebuild.
+
+_DELVE_DRAFTS_PATH = os.path.join(os.path.dirname(__file__), "dungeon_delve_drafts.json")
+
+
+def load_delve_drafts() -> dict[str, dict]:
+    if not os.path.exists(_DELVE_DRAFTS_PATH):
+        return {}
+    with open(_DELVE_DRAFTS_PATH) as f:
+        return json.load(f)
+
+
+def _write_delve_drafts(drafts: dict[str, dict]) -> None:
+    with open(_DELVE_DRAFTS_PATH, "w") as f:
+        json.dump(drafts, f, indent=2)
+
+
+def save_delve_draft(entry: dict) -> None:
+    drafts = load_delve_drafts()
+    drafts[entry["id"]] = entry
+    _write_delve_drafts(drafts)
+
+
+def delete_delve_draft(item_id: str) -> None:
+    """No-op if item_id isn't actually a draft -- callers (admin_server.py's delve_autosave_view/
+    delve_publish_view) call this speculatively during id-rename/publish cleanup without checking
+    existence first."""
+    drafts = load_delve_drafts()
+    if item_id in drafts:
+        del drafts[item_id]
+        _write_delve_drafts(drafts)
+
+
+def check_delve_problems(entry: dict, other_ids: set[str]) -> list[dict]:
+    """Non-raising sibling of _load_delves' per-entry validation -- same rules, but collects every
+    problem found (instead of raising on the first) as {"room_id", "action_index", "message"}
+    dicts so the flowchart editor can highlight every broken room/action at once rather than
+    forcing one-fix-at-a-time. room_id/action_index are None for a delve-level problem (e.g. a
+    duplicate id against `other_ids` -- the currently-published delves this entry isn't itself).
+    Used for a draft that's allowed to be in an arbitrarily broken mid-edit state, so unlike
+    _load_delves this never raises -- an empty return means "would pass Publish"."""
+    problems: list[dict] = []
+
+    def add(message: str, room_id: str | None = None, action_index: int | None = None):
+        problems.append({"room_id": room_id, "action_index": action_index, "message": message})
+
+    entry_id = entry.get("id", "")
+    if entry_id and entry_id in other_ids:
+        add(f"id {entry_id!r} is already used by another delve")
+    missing = _REQUIRED_DELVE_FIELDS - entry.keys()
+    if missing:
+        add(f"missing field(s): {sorted(missing)}")
+
+    rooms = entry.get("rooms") or []
+    if not rooms:
+        add("has no rooms")
+        return problems
+
+    room_ids: set[str] = set()
+    for room in rooms:
+        room_id = room.get("id")
+        if not room_id:
+            add("a room has no id")
+            continue
+        if room_id in room_ids:
+            add(f"duplicate room id {room_id!r}", room_id=room_id)
+        room_ids.add(room_id)
+        room_type = room.get("type")
+        if room_type not in ROOM_TYPES:
+            add(f"unknown room type {room_type!r}", room_id=room_id)
+            continue
+        required = _REQUIRED_ROOM_FIELDS_BY_TYPE[room_type]
+        missing_room = required - room.keys()
+        if missing_room:
+            add(f"missing field(s): {sorted(missing_room)}", room_id=room_id)
+        if room_type == "combat":
+            for group in room.get("monster_groups") or []:
+                for monster_id in group:
+                    if monster_id not in MONSTERS:
+                        add(f"references unknown monster {monster_id!r}", room_id=room_id)
+        else:
+            if not room.get("prompt"):
+                add("choice room has no prompt", room_id=room_id)
+            actions = room.get("actions") or []
+            if not actions:
+                add("choice room has no actions", room_id=room_id)
+            for i, action in enumerate(actions):
+                try:
+                    _validate_action(action, "action")
+                except ValueError as e:
+                    add(str(e), room_id=room_id, action_index=i)
+
+    start_room = entry.get("start_room")
+    if start_room and start_room not in room_ids:
+        add(f"start_room {start_room!r} is not a room here")
+
+    for room in rooms:
+        room_id = room.get("id")
+        if not room_id or room.get("type") != "combat":
+            continue
+        next_room = room.get("next")
+        if next_room is not None and next_room not in room_ids:
+            add(f"next {next_room!r} is not a room here", room_id=room_id)
+
+    return problems
