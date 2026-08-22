@@ -565,11 +565,6 @@ CONTENT_TYPES = {
 
 EFFECT_TYPES = list(dungeon.EFFECT_PARAM_SCHEMAS.keys())
 EFFECT_PARAM_NAMES = sorted({p for required, optional, _ in dungeon.EFFECT_PARAM_SCHEMAS.values() for p in required | optional})
-# The subset of EFFECT_TYPES a monster's own skill can use -- see
-# dungeon.MONSTER_SKILL_EFFECT_TYPES for why the rest (guard/def_shred/atk_buff/def_buff/
-# heal_fraction) aren't available to a monster yet. Keeps EFFECT_TYPES' own ordering rather than
-# whatever order the underlying set iterates in.
-MONSTER_SKILL_EFFECT_TYPES = [t for t in EFFECT_TYPES if t in dungeon.MONSTER_SKILL_EFFECT_TYPES]
 # type -> sorted list of every param name that type actually uses -- every "effects" row shows all
 # of EFFECT_PARAM_NAMES (value/reduction/multiplier) so one row-builder works for every type (see
 # _render_effect_row), but only ever 0 or 1 of them actually applies to a given type -- this is
@@ -596,6 +591,13 @@ EFFECT_TYPE_HINTS = {
     "def_buff": "value: flat DEF bonus for the rest of this fight",
     "spatk_buff": "value: flat SpAtk bonus for the rest of this fight",
     "spdef_buff": "value: flat SpDef bonus for the rest of this fight",
+    "atk_debuff": "value: flat amount the target's ATK is lowered by, for the rest of this fight",
+    "spatk_debuff": "value: flat amount the target's SpAtk is lowered by, for the rest of this fight",
+    "spdef_debuff": "value: flat amount the target's SpDef is lowered by, for the rest of this fight",
+    "dodge_buff": "value: bonus chance (0-1) to fully avoid a Physical hit; duration: how many rounds it lasts",
+    "resist_buff": "value: bonus chance (0-1) to fully avoid a Special hit; duration: how many rounds it lasts",
+    "dot": "value: flat damage taken each round; duration: how many rounds it lasts",
+    "hot": "value: fraction of max HP restored each round (0-1); duration: how many rounds it lasts",
 }
 
 SHOP_KINDS = list(npcs.SHOP_KINDS.keys())

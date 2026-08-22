@@ -37,7 +37,7 @@ import room_commands
 import rooms
 from admin_schemas import (
     CATEGORIES, CONTENT_TYPES, EFFECT_PARAM_NAMES, EFFECT_PARAMS_BY_TYPE, EFFECT_TYPE_HINTS,
-    EFFECT_TYPES, MONSTER_SKILL_EFFECT_TYPES, SHOP_KINDS, TRIGGER_PARAM_HINTS, TRIGGER_PARAM_KINDS,
+    EFFECT_TYPES, SHOP_KINDS, TRIGGER_PARAM_HINTS, TRIGGER_PARAM_KINDS,
     TRIGGER_PARAM_NAMES, TRIGGER_TYPES,
 )
 
@@ -1416,10 +1416,11 @@ def _render_effect_row(prefix: str, effect: dict, allowed_types: list[str] = EFF
     reused by monster skills' own nested effects) for the matching parse side, and
     _render_stage_row for why `prefix` is sometimes a "ROWIDX" placeholder.
 
-    `allowed_types` narrows which types the dropdown even offers -- a top-level skill/consumable
-    "effects" field uses every EFFECT_TYPES entry (the default), while a monster's own skill is
-    restricted to MONSTER_SKILL_EFFECT_TYPES (see admin_schemas.py for why). The page script's
-    wireEffectSelects hide/show logic (keyed by EFFECT_PARAMS_BY_TYPE) needs no changes either way
+    `allowed_types` narrows which types the dropdown even offers -- unused today (a monster's own
+    skill has full parity with a player skill/consumable's effect vocabulary, so every caller uses
+    the default full EFFECT_TYPES list), kept as a param since a future content type might still
+    want a narrower dropdown. The page script's wireEffectSelects hide/show logic (keyed by
+    EFFECT_PARAMS_BY_TYPE) needs no changes either way
     -- it only ever reacts to whichever type ends up selected, never enumerates the dropdown's own
     option list itself.
 
@@ -1454,16 +1455,15 @@ def _render_monster_skill_row(prefix: str, skill: dict) -> str:
     deeper than the monster's top-level "drops"/"groups"-shaped fields -- same nesting-depth-
     agnostic wireRepeatAdd/ROWIDX machinery every other nested repeatable in this admin panel
     already relies on (rooms -> room -> groups -> group -> monster is the deepest existing
-    precedent). Effects here are restricted to MONSTER_SKILL_EFFECT_TYPES (see
-    dungeon.MONSTER_SKILL_EFFECT_TYPES for why) via _render_effect_row's allowed_types param --
-    the same row-builder a player skill/consumable's own top-level "effects" field uses, just with
-    a narrower type dropdown."""
+    precedent). Effects here have full parity with a player skill/consumable's own effect
+    vocabulary (dungeon.py's module comment above _validate_monster_skill), so this reuses
+    _render_effect_row with its default (unrestricted) allowed_types."""
     effects_container = f"{prefix}_effects"
     effects = list(skill.get("effects") or [])
     effect_rows_html = [
-        _render_effect_row(f"{effects_container}_{i}", e, MONSTER_SKILL_EFFECT_TYPES) for i, e in enumerate(effects)
+        _render_effect_row(f"{effects_container}_{i}", e) for i, e in enumerate(effects)
     ]
-    effect_template_html = _render_effect_row(f"{effects_container}_ROWIDX", {}, MONSTER_SKILL_EFFECT_TYPES)
+    effect_template_html = _render_effect_row(f"{effects_container}_ROWIDX", {})
     effects_repeatable = _render_repeatable(effects_container, effect_rows_html, effect_template_html, "+ Add effect")
     return (
         f'<fieldset class="row-group"><legend>Skill</legend>'

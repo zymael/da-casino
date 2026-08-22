@@ -53,7 +53,22 @@ class MonsterInstance:
         self.monster = monster
         self.hp = monster["hp"]
         self.max_hp = monster["hp"]
-        self.def_debuff = 0  # from def_shred-type skills; scoped to this instance, not the group
+        # Real per-instance mutable combat stats, snapshotted from `monster` -- unlike hp/max_hp
+        # (always instance-specific), atk/def/spatk/spdef used to be read straight off the shared
+        # `monster` content dict everywhere, which can't be mutated (the same dict may be reused
+        # across encounters). Giving a monster its own copy is what lets a monster's own skill use
+        # atk_buff/def_buff/etc (previously impossible -- there was nothing to mutate), and lets a
+        # player's def_shred/atk_debuff/etc land on a specific instance, not the shared content.
+        self.atk = monster["atk"]
+        self.def_ = monster["def"]
+        self.spatk = monster["spatk"]
+        self.spdef = monster["spdef"]
+        self.atk_debuff = self.def_debuff = self.spatk_debuff = self.spdef_debuff = 0
+        # Temporary (N-round) effects -- dodge_buff/resist_buff/dot/hot -- each a
+        # {"type", "value", "remaining"} dict, ticked by _tick_timed_effects. Unlike the debuffs
+        # above (permanent for the fight), these expire and are refreshed-not-stacked (see
+        # _apply_timed_effect).
+        self.timed_effects: list[dict] = []
         self.slot = slot
 
 
@@ -75,6 +90,11 @@ class DelveSession:
         self.def_ = effective["def"]
         self.spatk = effective["spatk"]
         self.spdef = effective["spdef"]
+        # Symmetric to MonsterInstance's own debuff/timed_effects fields -- a player never had a
+        # debuff before (only a monster's def_debuff existed), needed now that a monster's own
+        # skill can weaken the player, same full parity as the buff side already had.
+        self.atk_debuff = self.def_debuff = self.spatk_debuff = self.spdef_debuff = 0
+        self.timed_effects: list[dict] = []
         self.loot_mult = dungeon.SUBCLASSES[self.subclass]["loot_mult"]
         self.display_name = dungeon.display_name(self.main_class, self.subclass)
         # Level-1 skill is guaranteed to exist for every build (validated at import time in
@@ -172,6 +192,8 @@ class PartyMember:
         self.def_ = effective["def"]
         self.spatk = effective["spatk"]
         self.spdef = effective["spdef"]
+        self.atk_debuff = self.def_debuff = self.spatk_debuff = self.spdef_debuff = 0
+        self.timed_effects: list[dict] = []
         # Same "start wherever the last delve left off" rule as DelveSession -- see its own hp
         # comment for why.
         self.hp = min(character["current_hp"], self.max_hp)
@@ -912,12 +934,15 @@ async def _award_kill(
 # these handlers mutate Discord-layer session objects -- the same reason the ability logic this
 # replaces already lived here rather than in dungeon.py.
 #
-# `actor` (hp/max_hp/atk/def_) and `monster_state` (a single MonsterInstance -- the current target,
-# never the whole group) are split into two params rather than one "session" because a party
-# delve's monster state is shared across every member, while hp/atk/def_ belong to whichever one
-# PartyMember is acting. Every caller (solo and party) passes whichever MonsterInstance is the
-# acting player's own current target -- an effect like def_shred always debuffs only the monster
-# actually being fought, never the rest of the group.
+# `actor` (hp/max_hp/atk/def_) and `monster_state` (the current target -- a MonsterInstance when a
+# player is acting, or the acting monster's own current target -- a DelveSession/PartyMember --
+# when a monster is acting, see _resolve_monster_attack) are split into two params rather than one
+# "session" because a party delve's monster state is shared across every member, while hp/atk/
+# def_ belong to whichever one PartyMember is acting. Every caller passes whichever entity this
+# action's opponent-targeted effects (def_shred, the *_debuff family) should land on -- self-
+# targeted effects (heal/guard/buffs/the timed dodge/resist/dot/hot ones) only ever touch `actor`
+# and never read `monster_state` at all, so they behave identically regardless of who the opponent
+# is.
 
 # Effect types that make this action roll monster damage (as opposed to a pure utility action
 # like Heal/Guard, which resolve entirely inside _apply_effects and skip the damage roll below).
@@ -928,6 +953,40 @@ def _default_mods() -> dict:
     return {"multiplier": 1.0, "guard_reduction": None, "lifesteal_fraction": None, "extra_attack_multipliers": []}
 
 
+def _actor_label(entity) -> str:
+    """Subject-position label for a self-referring log line -- 'You' for the player's own
+    session/member, or the monster's bolded name for a MonsterInstance. Grammatically this only
+    ever precedes a base-form verb ('You attack') or a monster's own third-person one ('**Goblin**
+    attacks') -- see _verb for picking the right form."""
+    return "You" if not isinstance(entity, MonsterInstance) else f"**{entity.monster['name']}**"
+
+
+def _possessive_label(entity) -> str:
+    """Possessive-position label -- 'Your' / "**Goblin**'s" -- for log lines like "Your ATK rises"
+    where the grammatical subject is the stat, not the entity itself, so no verb conjugation is
+    needed regardless of which label this resolves to."""
+    return "Your" if not isinstance(entity, MonsterInstance) else f"**{entity.monster['name']}**'s"
+
+
+def _verb(entity, base: str) -> str:
+    """Base form ('recover') for 'You', third-person -s form ('recovers') for a monster -- the
+    one piece of English _actor_label alone can't paper over."""
+    return base if not isinstance(entity, MonsterInstance) else base + "s"
+
+
+def _apply_timed_effect(actor, effect_type: str, value, duration: int, log_lines: list[str], message: str) -> None:
+    """Shared by the four timed-effect handlers (dodge_buff/resist_buff/dot/hot): refreshes an
+    existing entry of this type on `actor.timed_effects` in place rather than stacking a second
+    one, or appends a fresh entry if there wasn't one."""
+    existing = next((e for e in actor.timed_effects if e["type"] == effect_type), None)
+    if existing is not None:
+        existing["value"] = value
+        existing["remaining"] = duration
+    else:
+        actor.timed_effects.append({"type": effect_type, "value": value, "remaining": duration})
+    log_lines.append(message)
+
+
 def _effect_damage_multiplier(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     mods["multiplier"] *= effect["value"]
 
@@ -935,12 +994,13 @@ def _effect_damage_multiplier(actor, monster_state, effect: dict, log_lines: lis
 def _effect_heal_fraction(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     healed = min(actor.max_hp, actor.hp + round(actor.max_hp * effect["value"])) - actor.hp
     actor.hp += healed
-    log_lines.append(f"You recover **{healed}** HP.")
+    log_lines.append(f"{_actor_label(actor)} {_verb(actor, 'recover')} **{healed}** HP.")
 
 
 def _effect_guard(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     mods["guard_reduction"] = effect["reduction"]
-    log_lines.append("You raise your guard, ready to blunt the next blow.")
+    pronoun = "its" if isinstance(actor, MonsterInstance) else "your"
+    log_lines.append(f"{_actor_label(actor)} {_verb(actor, 'raise')} {pronoun} guard, ready to blunt the next blow.")
 
 
 def _effect_lifesteal_fraction(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
@@ -949,7 +1009,7 @@ def _effect_lifesteal_fraction(actor, monster_state, effect: dict, log_lines: li
 
 def _effect_def_shred(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     monster_state.def_debuff += effect["value"]
-    log_lines.append(f"**{monster_state.monster['name']}**'s defenses crumble by **{effect['value']}**.")
+    log_lines.append(f"{_possessive_label(monster_state)} defenses crumble by **{effect['value']}**.")
 
 
 def _effect_extra_attack(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
@@ -958,22 +1018,65 @@ def _effect_extra_attack(actor, monster_state, effect: dict, log_lines: list[str
 
 def _effect_atk_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     actor.atk += effect["value"]
-    log_lines.append(f"Your ATK rises by **{effect['value']}** for the rest of the fight.")
+    log_lines.append(f"{_possessive_label(actor)} ATK rises by **{effect['value']}** for the rest of the fight.")
 
 
 def _effect_def_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     actor.def_ += effect["value"]
-    log_lines.append(f"Your DEF rises by **{effect['value']}** for the rest of the fight.")
+    log_lines.append(f"{_possessive_label(actor)} DEF rises by **{effect['value']}** for the rest of the fight.")
 
 
 def _effect_spatk_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     actor.spatk += effect["value"]
-    log_lines.append(f"Your SpAtk rises by **{effect['value']}** for the rest of the fight.")
+    log_lines.append(f"{_possessive_label(actor)} SpAtk rises by **{effect['value']}** for the rest of the fight.")
 
 
 def _effect_spdef_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     actor.spdef += effect["value"]
-    log_lines.append(f"Your SpDef rises by **{effect['value']}** for the rest of the fight.")
+    log_lines.append(f"{_possessive_label(actor)} SpDef rises by **{effect['value']}** for the rest of the fight.")
+
+
+def _effect_atk_debuff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    monster_state.atk_debuff += effect["value"]
+    log_lines.append(f"{_possessive_label(monster_state)} ATK falls by **{effect['value']}** for the rest of the fight.")
+
+
+def _effect_spatk_debuff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    monster_state.spatk_debuff += effect["value"]
+    log_lines.append(f"{_possessive_label(monster_state)} SpAtk falls by **{effect['value']}** for the rest of the fight.")
+
+
+def _effect_spdef_debuff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    monster_state.spdef_debuff += effect["value"]
+    log_lines.append(f"{_possessive_label(monster_state)} SpDef falls by **{effect['value']}** for the rest of the fight.")
+
+
+def _effect_dodge_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    _apply_timed_effect(
+        actor, "dodge_buff", effect["value"], effect["duration"], log_lines,
+        f"{_possessive_label(actor)} chance to dodge rises for **{effect['duration']}** more round(s).",
+    )
+
+
+def _effect_resist_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    _apply_timed_effect(
+        actor, "resist_buff", effect["value"], effect["duration"], log_lines,
+        f"{_possessive_label(actor)} chance to resist rises for **{effect['duration']}** more round(s).",
+    )
+
+
+def _effect_dot(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    _apply_timed_effect(
+        actor, "dot", effect["value"], effect["duration"], log_lines,
+        f"{_possessive_label(actor)} wounds will fester for **{effect['duration']}** more round(s).",
+    )
+
+
+def _effect_hot(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    _apply_timed_effect(
+        actor, "hot", effect["value"], effect["duration"], log_lines,
+        f"{_possessive_label(actor)} wounds will mend for **{effect['duration']}** more round(s).",
+    )
 
 
 EFFECT_HANDLERS = {
@@ -987,46 +1090,88 @@ EFFECT_HANDLERS = {
     "def_buff": _effect_def_buff,
     "spatk_buff": _effect_spatk_buff,
     "spdef_buff": _effect_spdef_buff,
+    "atk_debuff": _effect_atk_debuff,
+    "spatk_debuff": _effect_spatk_debuff,
+    "spdef_debuff": _effect_spdef_debuff,
+    "dodge_buff": _effect_dodge_buff,
+    "resist_buff": _effect_resist_buff,
+    "dot": _effect_dot,
+    "hot": _effect_hot,
 }
 
 
 def _apply_effects(actor, monster_state, effects: list[dict], log_lines: list[str]) -> dict:
-    """Runs every effect in order, mutating actor (HP/ATK/DEF), monster_state (monster DEF
-    debuff), and appending log lines as it goes. Returns this-action modifiers the caller still
-    needs for the damage roll: multiplier, guard_reduction (None if not guarding),
-    lifesteal_fraction (None if no lifesteal), and extra_attack_multipliers (one roll_damage call
-    per entry, on top of the primary hit)."""
+    """Runs every effect in order, mutating actor (HP/ATK/DEF/timed_effects) and/or monster_state
+    (the opponent's DEF/ATK/SpAtk/SpDef debuffs -- see the module comment above DAMAGE_EFFECT_TYPES
+    for which handlers touch which param), and appending log lines as it goes. Returns this-action
+    modifiers the caller still needs for the damage roll: multiplier, guard_reduction (None if not
+    guarding), lifesteal_fraction (None if no lifesteal), and extra_attack_multipliers (one
+    roll_damage call per entry, on top of the primary hit)."""
     mods = _default_mods()
     for effect in effects:
         EFFECT_HANDLERS[effect["type"]](actor, monster_state, effect, log_lines, mods)
     return mods
 
 
+def _defended_dodge_chance(defender, defense: int, special: bool) -> float:
+    """dungeon.dodge_chance's base roll (against `defense`, already debuff-adjusted by the caller)
+    plus any active dodge_buff (Physical) / resist_buff (Special) bonus from the defender's own
+    timed_effects -- still capped at dungeon.DODGE_CAP, the same hard ceiling that already bounds
+    DEF/SpDef stacking alone (see dungeon.py's comment on DODGE_CAP)."""
+    buff_type = "resist_buff" if special else "dodge_buff"
+    bonus = next((e["value"] for e in defender.timed_effects if e["type"] == buff_type), 0)
+    return min(dungeon.DODGE_CAP, dungeon.dodge_chance(defense) + bonus)
+
+
+def _tick_timed_effects(entities: list, log_lines: list[str]) -> None:
+    """One round's worth of DoT/HoT ticks + duration countdown, for every entity still in the
+    fight (players and monsters alike -- both now carry timed_effects). A freshly-applied effect
+    doesn't tick the round it's applied (that round's "hit" was the skill's own visible effect, if
+    any) -- this is only ever called once per round, after that round's actions/counter-attacks
+    are already resolved, so the first tick naturally lands the following round. Doesn't handle
+    death/knockout itself from a DoT tick -- callers already check hp<=0 right after this runs."""
+    for entity in entities:
+        for eff in entity.timed_effects:
+            if eff["type"] == "dot":
+                dmg = eff["value"]
+                entity.hp -= dmg
+                log_lines.append(f"{_actor_label(entity)} {_verb(entity, 'take')} **{dmg}** damage from lingering harm.")
+            elif eff["type"] == "hot":
+                healed = min(entity.max_hp, entity.hp + round(entity.max_hp * eff["value"])) - entity.hp
+                entity.hp += healed
+                if healed:
+                    log_lines.append(f"{_actor_label(entity)} {_verb(entity, 'recover')} **{healed}** HP over time.")
+        for eff in entity.timed_effects:
+            eff["remaining"] -= 1
+        entity.timed_effects = [e for e in entity.timed_effects if e["remaining"] > 0]
+
+
 def _resolve_monster_attack(
     attacker: "MonsterInstance", target, moon_effect: str | None, log_lines: list[str],
 ) -> tuple[int, dict | None, bool]:
-    """One monster's turn against `target` (anything with `.def_`/`.spdef`/`.hp` -- a DelveSession
-    or PartyMember) -- either its plain attack or one of its own skills (dungeon.pick_monster_action,
-    weighted by the monster's own attack_chance vs. each skill's own chance). A skill's effects
-    (restricted at load time to dungeon.MONSTER_SKILL_EFFECT_TYPES) only ever touch this action's
-    own damage roll or the attacking monster's own hp, never the target directly, so `actor` and
-    `monster_state` are both just `attacker` here -- mirroring how solo player actions already
-    pass the same object twice when there's nothing else for "monster_state" to mean (see
-    _resolve_combat_turn). `target` first gets a dodge_chance roll (dungeon.dodge_chance, against
-    its own DEF or SpDef matching the attack) -- a dodge negates the WHOLE action (no effects
-    applied at all, not even the monster's own lifesteal), rolled before _apply_effects runs so a
-    dodged hit truly does nothing. Returns (damage, skill-or-None, dodged) -- callers apply the
-    damage to `target.hp` themselves (solo and party handle the aftermath -- death vs. knockout --
-    differently) and use skill/dodged to log their own "unleashes X" / "dodges" / "strikes" line."""
+    """One monster's turn against `target` (anything with `.def_`/`.spdef`/`.hp`/`.timed_effects`
+    -- a DelveSession or PartyMember) -- either its plain attack or one of its own skills
+    (dungeon.pick_monster_action, weighted by the monster's own attack_chance vs. each skill's own
+    chance). `monster_state` is `target` here (not `attacker`) -- a monster skill's effects have
+    full parity with a player's own (dungeon.py's module comment above _validate_monster_skill), so
+    an opponent-targeted effect (def_shred, the *_debuff family) correctly lands on the player
+    being fought, while self-targeted ones (heal/guard/buffs/the timed dodge/resist/dot/hot ones)
+    only ever read `actor`, which is still `attacker` either way. `target` first gets a dodge-chance
+    roll (base DEF/SpDef minus its own debuff, plus any active dodge_buff/resist_buff -- see
+    _defended_dodge_chance) -- a dodge negates the WHOLE action (no effects applied at all, not
+    even the monster's own lifesteal), rolled before _apply_effects runs so a dodged hit truly does
+    nothing. Returns (damage, skill-or-None, dodged) -- callers apply the damage to `target.hp`
+    themselves (solo and party handle the aftermath -- death vs. knockout -- differently) and use
+    skill/dodged to log their own "unleashes X" / "dodges" / "strikes" line."""
     skill = dungeon.pick_monster_action(attacker.monster)
     special = bool(skill.get("special")) if skill else False
-    target_def = target.spdef if special else target.def_
-    if random.random() < dungeon.dodge_chance(target_def):
+    target_def = max(0, (target.spdef - target.spdef_debuff) if special else (target.def_ - target.def_debuff))
+    if random.random() < _defended_dodge_chance(target, target_def, special):
         return 0, skill, True
     effects = skill["effects"] if skill else []
-    mods = _apply_effects(attacker, attacker, effects, log_lines)
+    mods = _apply_effects(attacker, target, effects, log_lines)
     monster_moon_mult = _moon_combat_multiplier(moon_effect, "monster")
-    attacker_atk = attacker.monster["spatk"] if special else attacker.monster["atk"]
+    attacker_atk = (attacker.spatk - attacker.spatk_debuff) if special else (attacker.atk - attacker.atk_debuff)
     dmg = dungeon.roll_damage(attacker_atk, target_def, mods["multiplier"] * monster_moon_mult)
     for extra_multiplier in mods["extra_attack_multipliers"]:
         dmg += dungeon.roll_damage(attacker_atk, target_def, extra_multiplier * monster_moon_mult)
@@ -1070,22 +1215,22 @@ async def _resolve_combat_turn(
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
 
-    # def_shred only ever debuffs the physical DEF -- there's no spdef-shred effect type yet, so a
-    # Special roll's defense isn't reduced by it. A known, minor asymmetry, not a bug.
-    effective_monster_def = (
-        target.monster["spdef"] if special else max(0, target.monster["def"] - target.def_debuff)
-    )
+    effective_monster_def = max(0, (target.spdef - target.spdef_debuff) if special else (target.def_ - target.def_debuff))
     # Dodge is rolled once for the whole action, before any effect applies -- a dodge negates
     # everything this action would have done (no damage, no debuff, no self-heal/buff/lifesteal),
     # not just the damage number, matching "completely dodge" literally. Never rolled for a
     # non-damage action (Heal, Guard, ...) -- there's nothing on the monster's side to dodge.
-    dodged = is_damage_action and random.random() < dungeon.dodge_chance(effective_monster_def)
+    dodged = is_damage_action and random.random() < _defended_dodge_chance(target, effective_monster_def, special)
+    # mods defaults here (rather than only being assigned in the `else` below) so the monster
+    # counter-attack loop's own `mods["guard_reduction"]` read further down always has something
+    # to read, even when the player's own action was itself dodged and _apply_effects never ran.
+    mods = _default_mods()
     if dodged:
         log_lines.append(f"**{target.monster['name']}** dodges your {verb}!")
     else:
         mods = _apply_effects(session, target, effects, log_lines)
         if is_damage_action:
-            attacker_atk = session.spatk if special else session.atk
+            attacker_atk = (session.spatk - session.spatk_debuff) if special else (session.atk - session.atk_debuff)
             dmg = dungeon.roll_damage(attacker_atk, effective_monster_def, mods["multiplier"] * player_moon_mult)
             for extra_multiplier in mods["extra_attack_multipliers"]:
                 dmg += dungeon.roll_damage(attacker_atk, effective_monster_def, extra_multiplier * player_moon_mult)
@@ -1121,6 +1266,8 @@ async def _resolve_combat_turn(
         else:
             log_lines.append(f"**{attacker.monster['name']}** {verb} for **{monster_dmg}**.")
         session.hp -= monster_dmg
+
+    _tick_timed_effects([session] + session.living_monsters(), log_lines)
 
     if session.hp <= 0:
         await _forfeit(session)
@@ -1287,6 +1434,16 @@ async def _advance_party_round(interaction: discord.Interaction | None, session:
             target.knocked_out = True
             log_lines.append(f"💀 **{target.label}** is knocked out!")
 
+    _tick_timed_effects(session.living_members() + session.living_monsters(), log_lines)
+    # A DoT tick (unlike the per-hit knockout check above, which only ever looks at the one member
+    # who just got attacked) can drop ANY living member's hp to 0 -- living_members() filters on
+    # the knocked_out flag, not hp directly, so anyone the tick just finished off needs it set here
+    # or they'd stay "living" indefinitely at negative HP.
+    for m in session.living_members():
+        if m.hp <= 0:
+            m.knocked_out = True
+            log_lines.append(f"💀 **{m.label}** is knocked out!")
+
     if not session.living_members():
         for m in session.members:
             await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
@@ -1322,16 +1479,14 @@ async def _resolve_party_turn(
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
 
-    effective_monster_def = (
-        target.monster["spdef"] if special else max(0, target.monster["def"] - target.def_debuff)
-    )
-    dodged = is_damage_action and random.random() < dungeon.dodge_chance(effective_monster_def)
+    effective_monster_def = max(0, (target.spdef - target.spdef_debuff) if special else (target.def_ - target.def_debuff))
+    dodged = is_damage_action and random.random() < _defended_dodge_chance(target, effective_monster_def, special)
     if dodged:
         log_lines.append(f"**{target.monster['name']}** dodges {member.label}'s {verb}!")
     else:
         mods = _apply_effects(member, target, effects, log_lines)
         if is_damage_action:
-            attacker_atk = member.spatk if special else member.atk
+            attacker_atk = (member.spatk - member.spatk_debuff) if special else (member.atk - member.atk_debuff)
             dmg = dungeon.roll_damage(attacker_atk, effective_monster_def, mods["multiplier"] * player_moon_mult)
             for extra_multiplier in mods["extra_attack_multipliers"]:
                 dmg += dungeon.roll_damage(attacker_atk, effective_monster_def, extra_multiplier * player_moon_mult)

@@ -542,6 +542,18 @@ EFFECT_PARAM_SCHEMAS = {
     "def_buff": ({"value"}, set(), set()),
     "spatk_buff": ({"value"}, set(), set()),
     "spdef_buff": ({"value"}, set(), set()),
+    # Debuffs mirroring def_shred (permanent for the fight, no duration) -- there's no separate
+    # "def_debuff" type since def_shred already fills that role.
+    "atk_debuff": ({"value"}, set(), set()),
+    "spatk_debuff": ({"value"}, set(), set()),
+    "spdef_debuff": ({"value"}, set(), set()),
+    # Genuinely temporary effects (N rounds, ticked by dungeon_view._tick_timed_effects) rather
+    # than permanent-for-fight -- "duration" is validated as a positive int by _validate_effects
+    # below (turns can't be fractional, unlike every other numeric param here).
+    "dodge_buff": ({"value", "duration"}, set(), {"value"}),
+    "resist_buff": ({"value", "duration"}, set(), {"value"}),
+    "dot": ({"value", "duration"}, set(), set()),
+    "hot": ({"value", "duration"}, set(), {"value"}),
 }
 
 
@@ -565,25 +577,21 @@ def _validate_effects(effects, context: str):
             raise ValueError(f"{context} effect {effect_type!r} has unknown param(s): {sorted(unknown)}")
         for param in params:
             value = effect[param]
-            if param in fraction_params and not (0 < value <= 1):
+            if param == "duration":
+                if not isinstance(value, int) or value <= 0:
+                    raise ValueError(f"{context} effect {effect_type!r} param 'duration' must be a positive int")
+            elif param in fraction_params and not (0 < value <= 1):
                 raise ValueError(f"{context} effect {effect_type!r} param {param!r} must be in (0, 1]")
             elif param not in fraction_params and value <= 0:
                 raise ValueError(f"{context} effect {effect_type!r} param {param!r} must be > 0")
 
 
-# The subset of EFFECT_PARAM_SCHEMAS a monster's own skill can use -- deliberately smaller than
-# what a player skill can do. guard/def_shred/atk_buff/def_buff all need persistent state this
-# codebase doesn't have yet on the receiving side (a player-facing DEF debuff, a monster-facing
-# buff/guard flag that survives past the action that set it -- MonsterInstance's own def_debuff
-# only exists because a *player* skill can apply it, dungeon_view.py's _effect_def_shred).
-# heal_fraction is excluded too, for a narrower reason: its handler hardcodes "You recover **N**
-# HP" (written for the player's own skill log), which would misread coming from a monster --
-# needs an actor-aware rewrite before a monster can use it, a real follow-up, not a quick add. The
-# three here (damage_multiplier, extra_attack, lifesteal_fraction) are the ones whose handlers are
-# both self-contained (only ever touch mods/the acting monster's own hp) AND produce no log text
-# of their own -- dungeon_view.py's monster-attack resolution writes the "unleashes X" / "drains Y
-# HP" lines itself, so there's no baked-in "You"-phrased text to leak into a monster's turn.
-MONSTER_SKILL_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "lifesteal_fraction"}
+# A monster's own skill can use the exact same effect vocabulary a player skill can -- full
+# parity, nothing monster-specific to restrict. This used to be a narrower subset (monsters had no
+# mutable combat stats to buff/debuff, and several handlers hardcoded "You"-phrased log text that
+# would misread coming from a monster); MonsterInstance now carries real per-instance atk/def_/
+# spatk/spdef/debuff fields and timed_effects (dungeon_view.py), and every handler's log line goes
+# through an actor-aware helper, so there's nothing left that only works for a player actor.
 
 
 def _validate_monster_skill(skill: dict, context: str) -> None:
@@ -592,8 +600,8 @@ def _validate_monster_skill(skill: dict, context: str) -> None:
     the monster's own attack_chance and every other skill's chance via random.choices (so weights
     never need to be balanced to sum to anything in particular, and a weight of exactly 0 is a
     legal "this skill is currently disabled" rather than an error). `effects` reuses the same
-    {type, ...params} vocabulary skills/consumables already validate via _validate_effects,
-    restricted to MONSTER_SKILL_EFFECT_TYPES."""
+    {type, ...params} vocabulary skills/consumables already validate via _validate_effects -- full
+    parity with a player skill's own effect vocabulary, see the comment above this function."""
     name = skill.get("name")
     if not name:
         raise ValueError(f"{context} has a skill with no name")
@@ -603,12 +611,6 @@ def _validate_monster_skill(skill: dict, context: str) -> None:
     effects = skill.get("effects")
     if not effects:
         raise ValueError(f"{context} skill {name!r} has no effects")
-    bad_types = {e.get("type") for e in effects} - MONSTER_SKILL_EFFECT_TYPES
-    if bad_types:
-        raise ValueError(
-            f"{context} skill {name!r} has effect type(s) monsters can't use: {sorted(bad_types)} "
-            f"(monsters are limited to {sorted(MONSTER_SKILL_EFFECT_TYPES)})"
-        )
     if "special" in skill and not isinstance(skill["special"], bool):
         raise ValueError(f"{context} skill {name!r} special must be a bool")
     _validate_effects(effects, f"{context} skill {name!r}")
