@@ -542,6 +542,10 @@ EFFECT_PARAM_SCHEMAS = {
     "def_buff": ({"value"}, set(), set()),
     "spatk_buff": ({"value"}, set(), set()),
     "spdef_buff": ({"value"}, set(), set()),
+    # Raises max HP (and current HP by the same amount, a fortify rather than just extra
+    # headroom) -- mirrors the other *_buff entries, no equivalent "hp_debuff" (nothing currently
+    # authors a max-HP-lowering effect, unlike ATK/DEF/SpAtk/SpDef which already had def_shred).
+    "hp_buff": ({"value"}, set(), set()),
     # Debuffs mirroring def_shred (permanent for the fight, no duration) -- there's no separate
     # "def_debuff" type since def_shred already fills that role.
     "atk_debuff": ({"value"}, set(), set()),
@@ -686,11 +690,88 @@ def unlocked_skills(main_class: str, subclass: str, level: int) -> list[dict]:
 # is a JSON edit, not a code change. Found as dungeon loot (a monster's own `drops` list -- see
 # roll_drops above), never bought. Loaded before MONSTERS since a monster's drops get
 # cross-validated against this registry.
+#
+# An item's `effects` reuses the exact same {type, ...params} vocabulary skills/consumables
+# already validate via _validate_effects, plus a `trigger` on every entry saying when it fires:
+#   "constant": always active while equipped (what a flat stat_bonuses dict used to be) --
+#     restricted to CONSTANT_EQUIPMENT_EFFECT_TYPES (the *_buff family), the only types with
+#     "always on, no action" semantics. Folded into a character's effective stats by
+#     constant_stat_bonuses below, a pure data fold -- never runs through dungeon_view's
+#     EFFECT_HANDLERS (those log "Your ATK rises..." lines meant for an in-fight cast, which have
+#     nowhere sensible to go for a passive that's just always been on).
+#   "on_use": a combat action the wearer can trigger once per fight (dungeon_view.py's
+#     _handle_cast_item) -- mechanically identical to using a consumable, just not consumed and
+#     gated by a per-fight-used flag instead of an inventory quantity. Unrestricted type-wise.
+#   "on_hit": an independent chance (this entry's own `chance`, required, in (0, 1]) to fire when
+#     the wearer lands any damage-dealing hit (dungeon_view.py's _roll_on_hit_procs). Restricted to
+#     ON_HIT_EQUIPMENT_EFFECT_TYPES -- damage_multiplier/guard/extra_attack are excluded because
+#     their handlers don't apply anything themselves, they only populate a `mods` dict a *calling*
+#     combat function reads back at one fixed point in its own body (guard's reduction against
+#     that same action's monster counter-attack a few lines later; extra_attack's multiplier list
+#     drained by a loop right after _apply_effects returns; damage_multiplier has nothing left to
+#     multiply once the triggering hit's damage is already rolled) -- that window has already
+#     closed by the time an on-hit proc could fire. lifesteal_fraction stays allowed despite having
+#     the same "just sets a mods flag" shape, because _roll_on_hit_procs special-cases it to apply
+#     directly against the triggering hit's own already-known damage number.
+# An item's top-level optional `special` (bool, default False) picks SpAtk/SpDef instead of
+# ATK/DEF for an on_use damage roll -- mirrors a skill/consumable's own optional `special` field
+# exactly; only meaningful if the item has a damage-shaped on_use effect.
 
 _EQUIPMENT_PATH = os.path.join(os.path.dirname(__file__), "dungeon_equipment.json")
-_REQUIRED_EQUIPMENT_FIELDS = {"id", "name", "slot", "rarity", "stat_bonuses", "flavor"}
+_REQUIRED_EQUIPMENT_FIELDS = {"id", "name", "slot", "rarity", "effects", "flavor"}
 EQUIPMENT_SLOTS = ("weapon", "armor", "trinket")
-_STAT_BONUS_KEYS = {"hp", "atk", "def", "spatk", "spdef"}
+EQUIPMENT_EFFECT_TRIGGERS = ("constant", "on_use", "on_hit")
+CONSTANT_EQUIPMENT_EFFECT_TYPES = {"atk_buff", "def_buff", "spatk_buff", "spdef_buff", "hp_buff"}
+ON_HIT_EQUIPMENT_EFFECT_TYPES = set(EFFECT_PARAM_SCHEMAS) - {"damage_multiplier", "guard", "extra_attack"}
+# type -> which stat constant_stat_bonuses folds it into -- the inverse of generate_item_constant_effects'
+# own mapping below.
+_CONSTANT_EFFECT_STAT = {"atk_buff": "atk", "def_buff": "def", "spatk_buff": "spatk", "spdef_buff": "spdef", "hp_buff": "hp"}
+
+
+def _validate_equipment_effects(effects, context: str) -> None:
+    """Equipment's own effects-list validation -- checks the two fields no skill/consumable effect
+    has (`trigger`, `chance`) and the trigger-dependent type restriction, then delegates the
+    shared per-type param checks (value ranges, required/optional params, ...) to _validate_effects
+    via a stripped copy of each effect (trigger/chance removed) -- reusing it unmodified on the raw
+    dicts would reject every equipment effect as carrying unknown params."""
+    if not effects:
+        raise ValueError(f"{context} has empty effects")
+    for i, effect in enumerate(effects):
+        effect_context = f"{context} effect {i}"
+        trigger = effect.get("trigger")
+        if trigger not in EQUIPMENT_EFFECT_TRIGGERS:
+            raise ValueError(f"{effect_context} has unknown trigger {trigger!r}")
+        effect_type = effect.get("type")
+        if trigger == "on_hit":
+            if effect_type not in ON_HIT_EQUIPMENT_EFFECT_TYPES:
+                raise ValueError(f"{effect_context} type {effect_type!r} can't be used with trigger 'on_hit'")
+            chance = effect.get("chance")
+            if not isinstance(chance, (int, float)) or not (0 < chance <= 1):
+                raise ValueError(f"{effect_context} (trigger 'on_hit') needs a chance in (0, 1]")
+        else:
+            if "chance" in effect:
+                raise ValueError(f"{effect_context} (trigger {trigger!r}) must not set chance")
+            if trigger == "constant" and effect_type not in CONSTANT_EQUIPMENT_EFFECT_TYPES:
+                raise ValueError(f"{effect_context} type {effect_type!r} can't be used with trigger 'constant'")
+    _validate_effects(
+        [{k: v for k, v in e.items() if k not in ("trigger", "chance")} for e in effects], context
+    )
+
+
+def constant_stat_bonuses(item: dict) -> dict[str, int]:
+    """An item's `trigger == "constant"` effects collapsed into the old flat {hp, atk, def, spatk,
+    spdef} shape -- the one place this mapping lives, reused by item_power, compute_effective_stats,
+    and dungeon_view._award_kill's live mid-fight gear-swap delta. Sums if the same stat is buffed
+    by more than one constant entry. `item.get("effects", [])` rather than `item["effects"]` since
+    this is also called against an in-progress admin-panel entry that may not have the key yet."""
+    bonuses: dict[str, int] = {}
+    for effect in item.get("effects", []):
+        if effect.get("trigger") != "constant":
+            continue
+        stat = _CONSTANT_EFFECT_STAT.get(effect["type"])
+        if stat:
+            bonuses[stat] = bonuses.get(stat, 0) + effect["value"]
+    return bonuses
 
 
 def _load_equipment(path: str = _EQUIPMENT_PATH) -> dict[str, dict]:
@@ -706,14 +787,9 @@ def _load_equipment(path: str = _EQUIPMENT_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_equipment.json: duplicate item id {entry_id!r}")
         if entry["slot"] not in EQUIPMENT_SLOTS:
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has unknown slot {entry['slot']!r}")
-        bonuses = entry["stat_bonuses"]
-        if not bonuses:
-            raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has empty stat_bonuses")
-        bad_keys = set(bonuses) - _STAT_BONUS_KEYS
-        if bad_keys:
-            raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has unknown stat_bonuses key(s): {bad_keys}")
-        if any(v < 0 for v in bonuses.values()):
-            raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has a negative stat bonus")
+        if "special" in entry and not isinstance(entry["special"], bool):
+            raise ValueError(f"dungeon_equipment.json: item {entry_id!r} special must be a bool")
+        _validate_equipment_effects(entry["effects"], f"dungeon_equipment.json: item {entry_id!r}")
         equipment[entry_id] = entry
     return equipment
 
@@ -853,9 +929,11 @@ def find_recipe_by_materials(materials: dict[str, int]) -> dict | None:
 
 
 def item_power(item: dict) -> int:
-    """Total stat value of an item -- the yardstick used to decide whether a newly found piece
-    of gear replaces what's currently equipped in that slot."""
-    return sum(item["stat_bonuses"].values())
+    """Total constant stat value of an item -- the yardstick used to decide whether a newly found
+    piece of gear replaces what's currently equipped in that slot. Only constant effects count
+    toward this -- on_use/on_hit are situational, not baseline power, and there's no well-defined
+    way to compare a proc's value against a flat stat."""
+    return sum(constant_stat_bonuses(item).values())
 
 
 def is_upgrade(current_item_id: str | None, new_item: dict) -> bool:
@@ -876,7 +954,7 @@ def compute_effective_stats(character: dict, equipped: dict[str, str]) -> dict:
         item = EQUIPMENT.get(item_id)
         if item is None:
             continue  # defensive: an item removed from the JSON after being equipped
-        bonuses = item["stat_bonuses"]
+        bonuses = constant_stat_bonuses(item)
         hp += bonuses.get("hp", 0)
         atk += bonuses.get("atk", 0)
         def_ += bonuses.get("def", 0)
@@ -902,7 +980,7 @@ def roll_damage(atk: int, defense: int, multiplier: float = 1.0) -> int:
 # Dodge (a Physical attack whiffing entirely) and Resist (the same for Special) aren't their own
 # stats -- both are a diminishing-returns function of a stat that already exists everywhere DEF/
 # SpDef do (every class, every monster, every equipped item), so there's nothing new to add to
-# CLASSES/SUBCLASSES/_STAT_BONUS_KEYS/the DB schema to get this working for players AND monsters
+# CLASSES/SUBCLASSES/CONSTANT_EQUIPMENT_EFFECT_TYPES/the DB schema to get this working for players AND monsters
 # at once. DODGE_K=100 is deliberately gentle -- a fresh mage's DEF=2 dodges ~2%, a fresh
 # fighter's DEF=6 dodges ~6%, and even the toughest current monster (z_goolok, DEF=34) only
 # reaches ~25%. DODGE_CAP is a hard safety net independent of K -- no amount of DEF/SpDef
@@ -962,7 +1040,7 @@ def pick_monster_action(monster: dict) -> dict | None:
 
 # --- Monster/equipment stat generation & level estimation ------------------------------------
 # RECONSTRUCTION NOTE: this whole section (MONSTER_ARCHETYPES, generate_monster_stats,
-# generate_item_stat_bonuses, estimate_monster_level, estimate_item_level, estimate_group_level)
+# generate_item_constant_effects, estimate_monster_level, estimate_item_level, estimate_group_level)
 # was rebuilt from scratch after this file was accidentally truncated -- the original formulas
 # were not recovered, only their call sites/contracts (admin_server.py's "Generate stats for
 # level" tooling and the delve room editor's level-range display). Confirmed with the author:
@@ -1055,37 +1133,39 @@ def _item_power_budget(level: int) -> float:
     own stats, not a whole combatant's total. Unlike the monster case, spatk/spdef fold into this
     SAME budget rather than getting an independent one -- necessary, not just simpler: no
     equipment gets backfilled with spatk/spdef (existing gear just omits the keys, worth 0 here),
-    so item_power()/is_upgrade() (which sum whatever's in stat_bonuses) stay correct for old gear,
-    and a fresh item at a given level isn't handed extra "free" power an old item of the same
-    level never had a chance to also carry."""
+    so item_power()/is_upgrade() (which sum whatever's in constant_stat_bonuses) stay correct for
+    old gear, and a fresh item at a given level isn't handed extra "free" power an old item of the
+    same level never had a chance to also carry."""
     return 1.5 * level
 
 
-def generate_item_stat_bonuses(level: int, slot: str) -> dict:
-    """stat_bonuses for a piece of gear meant to feel "right" at `level` in `slot` -- weapon leans
-    almost entirely ATK, armor splits HP/DEF/SpDef, trinket is even across all five (see
-    _EQUIPMENT_SLOT_WEIGHTS). A weight of exactly 0 omits that stat from the result entirely
-    rather than writing a 0 bonus, matching how real equipment entries only list the stats they
-    actually touch."""
+# type -> stat this budget-weight key feeds into an effect for -- the inverse of dungeon.py's own
+# _CONSTANT_EFFECT_STAT mapping near constant_stat_bonuses.
+_STAT_TO_CONSTANT_EFFECT_TYPE = {"hp": "hp_buff", "atk": "atk_buff", "def": "def_buff", "spatk": "spatk_buff", "spdef": "spdef_buff"}
+
+
+def generate_item_constant_effects(level: int, slot: str) -> list[dict]:
+    """Constant-trigger effects for a piece of gear meant to feel "right" at `level` in `slot` --
+    weapon leans almost entirely ATK, armor splits HP/DEF/SpDef, trinket is even across all five
+    (see _EQUIPMENT_SLOT_WEIGHTS). A weight of exactly 0 omits that stat entirely rather than
+    writing a 0-value effect, matching how real equipment entries only list the stats they
+    actually touch. Renamed from the pre-effects-system generate_item_stat_bonuses now that the
+    return shape is an effects list, not a flat stat_bonuses dict -- stays scoped to constant-only,
+    on_use/on_hit effects are always hand-authored, never auto-rolled."""
     weights = _EQUIPMENT_SLOT_WEIGHTS.get(slot, _EQUIPMENT_SLOT_WEIGHTS["trinket"])
     budget = _item_power_budget(level)
-    bonuses = {}
-    if weights["hp"]:
-        bonuses["hp"] = max(1, round(budget * weights["hp"]))
-    if weights["atk"]:
-        bonuses["atk"] = max(1, round(budget * weights["atk"] / 2))
-    if weights["def"]:
-        bonuses["def"] = max(1, round(budget * weights["def"] / 2))
-    if weights["spatk"]:
-        bonuses["spatk"] = max(1, round(budget * weights["spatk"] / 2))
-    if weights["spdef"]:
-        bonuses["spdef"] = max(1, round(budget * weights["spdef"] / 2))
-    return bonuses
+    divisors = {"hp": 1, "atk": 2, "def": 2, "spatk": 2, "spdef": 2}
+    effects = []
+    for stat, weight in weights.items():
+        if weight:
+            value = max(1, round(budget * weight / divisors[stat]))
+            effects.append({"type": _STAT_TO_CONSTANT_EFFECT_TYPE[stat], "trigger": "constant", "value": value})
+    return effects
 
 
 def estimate_item_level(item: dict) -> float:
-    """Inverse of generate_item_stat_bonuses/_item_power_budget."""
-    bonuses = item["stat_bonuses"]
+    """Inverse of generate_item_constant_effects/_item_power_budget."""
+    bonuses = constant_stat_bonuses(item)
     budget = (
         bonuses.get("hp", 0) + 2 * bonuses.get("atk", 0) + 2 * bonuses.get("def", 0)
         + 2 * bonuses.get("spatk", 0) + 2 * bonuses.get("spdef", 0)

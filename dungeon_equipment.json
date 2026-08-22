@@ -4,9 +4,13 @@
     "name": "Rusty Dagger",
     "slot": "weapon",
     "rarity": "common",
-    "stat_bonuses": {
-      "atk": 1
-    },
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 1
+      }
+    ],
     "flavor": "Better than fists."
   },
   {
@@ -14,9 +18,13 @@
     "name": "Wooden Club",
     "slot": "weapon",
     "rarity": "common",
-    "stat_bonuses": {
-      "atk": 2
-    },
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 2
+      }
+    ],
     "flavor": "Blunt, heavy, effective."
   },
   {
@@ -24,10 +32,18 @@
     "name": "Leather Vest",
     "slot": "armor",
     "rarity": "common",
-    "stat_bonuses": {
-      "hp": 1,
-      "def": 1
-    },
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 1
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 1
+      }
+    ],
     "flavor": "Cracked but wearable."
   },
   {
@@ -35,9 +51,13 @@
     "name": "Padded Jerkin",
     "slot": "armor",
     "rarity": "common",
-    "stat_bonuses": {
-      "hp": 2
-    },
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 2
+      }
+    ],
     "flavor": "Stuffed with straw and old rags."
   },
   {
@@ -45,9 +65,13 @@
     "name": "Lucky Coin",
     "slot": "trinket",
     "rarity": "common",
-    "stat_bonuses": {
-      "hp": 1
-    },
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 1
+      }
+    ],
     "flavor": "Worn smooth by someone else's luck."
   },
   {
@@ -55,9 +79,13 @@
     "name": "Copper Ring",
     "slot": "trinket",
     "rarity": "common",
-    "stat_bonuses": {
-      "atk": 1
-    },
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 1
+      }
+    ],
     "flavor": "A dull ring with a duller gem."
   },
   {
@@ -65,9 +93,13 @@
     "name": "Iron Sword",
     "slot": "weapon",
     "rarity": "rare",
-    "stat_bonuses": {
-      "atk": 3
-    },
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 3
+      }
+    ],
     "flavor": "Properly forged, properly balanced."
   },
   {
@@ -75,10 +107,18 @@
     "name": "Steel Hatchet",
     "slot": "weapon",
     "rarity": "rare",
-    "stat_bonuses": {
-      "atk": 2,
-      "def": 1
-    },
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 2
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 1
+      }
+    ],
     "flavor": "Good for chopping wood or goblins."
   },
   {
@@ -86,10 +126,18 @@
     "name": "Chainmail",
     "slot": "armor",
     "rarity": "rare",
-    "stat_bonuses": {
-      "hp": 2,
-      "def": 2
-    },
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 2
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 2
+      }
+    ],
     "flavor": "Heavy, but it'll stop a blade."
   },
   {
@@ -97,9 +145,13 @@
     "name": "Reinforced Buckler",
     "slot": "armor",
     "rarity": "rare",
-    "stat_bonuses": {
-      "def": 3
-    },
+    "effects": [
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 3
+      }
+    ],
     "flavor": "Small shield, big attitude."
   },
   {
@@ -107,10 +159,18 @@
     "name": "Jade Pendant",
     "slot": "trinket",
     "rarity": "rare",
-    "stat_bonuses": {
-      "atk": 1,
-      "def": 1
-    },
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 1
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 1
+      }
+    ],
     "flavor": "Cool to the touch, always."
   },
   {
@@ -118,10 +178,18 @@
     "name": "Swift Boots",
     "slot": "trinket",
     "rarity": "rare",
-    "stat_bonuses": {
-      "hp": 2,
-      "atk": 1
-    },
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 2
+      },
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 1
+      }
+    ],
     "flavor": "You feel lighter on your feet already."
   },
   {
@@ -129,9 +197,13 @@
     "name": "Goblin Chief's Cleaver",
     "slot": "weapon",
     "rarity": "epic",
-    "stat_bonuses": {
-      "atk": 5
-    },
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 5
+      }
+    ],
     "flavor": "Still stained. Still sharp."
   },
   {
@@ -139,10 +211,18 @@
     "name": "Warlord's Blade",
     "slot": "weapon",
     "rarity": "epic",
-    "stat_bonuses": {
-      "atk": 4,
-      "def": 1
-    },
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 4
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 1
+      }
+    ],
     "flavor": "Scavenged plate steel, expertly re-forged."
   },
   {
@@ -150,10 +230,18 @@
     "name": "Plate of the Vanguard",
     "slot": "armor",
     "rarity": "epic",
-    "stat_bonuses": {
-      "hp": 3,
-      "def": 4
-    },
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 3
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 4
+      }
+    ],
     "flavor": "Dented, but it kept someone alive."
   },
   {
@@ -161,9 +249,13 @@
     "name": "Dragonhide Cloak",
     "slot": "armor",
     "rarity": "epic",
-    "stat_bonuses": {
-      "hp": 5
-    },
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 5
+      }
+    ],
     "flavor": "Probably not actually dragon."
   },
   {
@@ -171,11 +263,23 @@
     "name": "Signet of Kings",
     "slot": "trinket",
     "rarity": "epic",
-    "stat_bonuses": {
-      "hp": 1,
-      "atk": 2,
-      "def": 2
-    },
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 1
+      },
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 2
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 2
+      }
+    ],
     "flavor": "Someone important once wore this."
   },
   {
@@ -183,10 +287,18 @@
     "name": "Amulet of Vigor",
     "slot": "trinket",
     "rarity": "epic",
-    "stat_bonuses": {
-      "hp": 4,
-      "atk": 1
-    },
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 4
+      },
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 1
+      }
+    ],
     "flavor": "Warm to the touch. Faintly humming."
   },
   {
@@ -194,9 +306,13 @@
     "name": "Greasy Pencil",
     "slot": "weapon",
     "rarity": "rare",
-    "stat_bonuses": {
-      "atk": 3
-    },
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 3
+      }
+    ],
     "flavor": "You can barely hold on to this thing.",
     "quest_only": true
   },
@@ -205,9 +321,13 @@
     "name": "Bonk Stick",
     "slot": "weapon",
     "rarity": "common",
-    "stat_bonuses": {
-      "atk": 2
-    },
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 2
+      }
+    ],
     "flavor": "Bonk."
   },
   {
@@ -215,9 +335,13 @@
     "name": "Shiny Pin",
     "slot": "trinket",
     "rarity": "common",
-    "stat_bonuses": {
-      "atk": 1
-    },
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 1
+      }
+    ],
     "flavor": "Catches the light. Catches attention."
   },
   {
@@ -225,10 +349,18 @@
     "name": "Fancy Cowl",
     "slot": "armor",
     "rarity": "common",
-    "stat_bonuses": {
-      "hp": 1,
-      "def": 1
-    },
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 1
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 1
+      }
+    ],
     "flavor": "A shawl, technically. Don't argue with it."
   },
   {
@@ -236,9 +368,13 @@
     "name": "Bulging Tights",
     "slot": "armor",
     "rarity": "common",
-    "stat_bonuses": {
-      "def": 2
-    },
+    "effects": [
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 2
+      }
+    ],
     "flavor": "Leaves little to the imagination. Somehow still protective."
   },
   {
@@ -246,9 +382,13 @@
     "name": "Shield",
     "slot": "armor",
     "rarity": "common",
-    "stat_bonuses": {
-      "def": 2
-    },
+    "effects": [
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 2
+      }
+    ],
     "flavor": "A stick and a pan. Genius, really."
   },
   {
@@ -256,9 +396,13 @@
     "name": "Gladius",
     "slot": "weapon",
     "rarity": "common",
-    "stat_bonuses": {
-      "atk": 3
-    },
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 3
+      }
+    ],
     "flavor": "A stick with delusions of grandeur."
   },
   {
@@ -266,9 +410,13 @@
     "name": "Magic Wand",
     "slot": "weapon",
     "rarity": "common",
-    "stat_bonuses": {
-      "atk": 2
-    },
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 2
+      }
+    ],
     "flavor": "It's not magic. It's a rock on a stick."
   },
   {
@@ -276,9 +424,13 @@
     "name": "Spear",
     "slot": "weapon",
     "rarity": "common",
-    "stat_bonuses": {
-      "atk": 3
-    },
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 3
+      }
+    ],
     "flavor": "Reach matters."
   },
   {
@@ -286,9 +438,13 @@
     "name": "Magic Amulet",
     "slot": "trinket",
     "rarity": "common",
-    "stat_bonuses": {
-      "hp": 2
-    },
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 2
+      }
+    ],
     "flavor": "Hair and a rock. It's the thought that counts."
   },
   {
@@ -296,9 +452,13 @@
     "name": "Pugilist Gloves",
     "slot": "weapon",
     "rarity": "common",
-    "stat_bonuses": {
-      "atk": 2
-    },
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 2
+      }
+    ],
     "flavor": "The hat part doesn't do much. Don't think about it."
   },
   {
@@ -306,9 +466,13 @@
     "name": "Shark Punch",
     "slot": "weapon",
     "rarity": "common",
-    "stat_bonuses": {
-      "atk": 3
-    },
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 3
+      }
+    ],
     "flavor": "The tooth does most of the work."
   },
   {
@@ -316,10 +480,18 @@
     "name": "Fancy Hat",
     "slot": "trinket",
     "rarity": "common",
-    "stat_bonuses": {
-      "hp": 1,
-      "atk": 1
-    },
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 1
+      },
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 1
+      }
+    ],
     "flavor": "Trimmed down to something almost respectable."
   },
   {
@@ -327,9 +499,13 @@
     "name": "Sling",
     "slot": "weapon",
     "rarity": "common",
-    "stat_bonuses": {
-      "atk": 2
-    },
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 2
+      }
+    ],
     "flavor": "Cloth, elastic, and questionable aim."
   }
 ]

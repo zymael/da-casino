@@ -37,7 +37,7 @@ import room_commands
 import rooms
 from admin_schemas import (
     CATEGORIES, CONTENT_TYPES, EFFECT_PARAM_NAMES, EFFECT_PARAMS_BY_TYPE, EFFECT_TYPE_HINTS,
-    EFFECT_TYPES, SHOP_KINDS, TRIGGER_PARAM_HINTS, TRIGGER_PARAM_KINDS,
+    EFFECT_TYPES, EQUIPMENT_EFFECT_TRIGGERS, SHOP_KINDS, TRIGGER_PARAM_HINTS, TRIGGER_PARAM_KINDS,
     TRIGGER_PARAM_NAMES, TRIGGER_TYPES,
 )
 
@@ -402,6 +402,31 @@ function wireCommandKindSelects(root) {
     });
 }
 
+// Same idea again, for an equipment effect row: chance only matters when trigger is "on_hit" (a
+// constant/on_use effect never rolls a chance) -- see dungeon.py's module comment above
+// _validate_equipment_effects for what each trigger means. Distinct from
+// updateTriggerVisibility/wireTriggerSelects above, which is a different "trigger" concept
+// entirely (a choice-room action's requires condition type).
+function updateEquipmentTriggerVisibility(select) {
+    var container = select.closest('.row-group');
+    if (!container) return;
+    var isOnHit = select.value === 'on_hit';
+    container.querySelectorAll('[data-trigger-only]').forEach(function (label) {
+        label.style.display = isOnHit ? '' : 'none';
+        if (!isOnHit) {
+            var input = label.querySelector('input');
+            if (input) input.value = '';
+        }
+    });
+}
+
+function wireEquipmentTriggerSelects(root) {
+    root.querySelectorAll('select.equipment-trigger-select').forEach(function (select) {
+        updateEquipmentTriggerVisibility(select);
+        select.addEventListener('change', function () { updateEquipmentTriggerVisibility(select); });
+    });
+}
+
 // A cascaded_id select's options depend on a sibling kind/output_kind select's value -- see
 // admin_schemas.py's "cascaded_id" field type docs. The sibling carries data-cascade="<name>"
 // (a key into CASCADE_OPTIONS); the target select carries data-cascade-target="<name>" and is
@@ -470,6 +495,7 @@ function wireRepeatAdd(root) {
             wireTriggerSelects(container.lastElementChild);
             wireEffectSelects(container.lastElementChild);
             wireCommandKindSelects(container.lastElementChild);
+            wireEquipmentTriggerSelects(container.lastElementChild);
             wireCascadingSelects(container.lastElementChild);
             wireImagePreviews(container.lastElementChild);
             wireRoomTypeSelects(container.lastElementChild);
@@ -489,6 +515,7 @@ function wireRepeatAdd(root) {
 wireTriggerSelects(document);
 wireEffectSelects(document);
 wireCommandKindSelects(document);
+wireEquipmentTriggerSelects(document);
 wireRoomTypeSelects(document);
 wireCascadingSelects(document);
 wireRepeatAdd(document);
@@ -1411,7 +1438,9 @@ def _render_repeatable(container_id: str, rows_html: list[str], template_row_htm
     )
 
 
-def _render_effect_row(prefix: str, effect: dict, allowed_types: list[str] = EFFECT_TYPES) -> str:
+def _render_effect_row(
+    prefix: str, effect: dict, allowed_types: list[str] = EFFECT_TYPES, include_trigger: bool = False,
+) -> str:
     """One row of an "effects" list. See _parse_field's "effects" case (and _parse_effects_list,
     reused by monster skills' own nested effects) for the matching parse side, and
     _render_stage_row for why `prefix` is sometimes a "ROWIDX" placeholder.
@@ -1424,13 +1453,24 @@ def _render_effect_row(prefix: str, effect: dict, allowed_types: list[str] = EFF
     -- it only ever reacts to whichever type ends up selected, never enumerates the dropdown's own
     option list itself.
 
-    Every row shows all of EFFECT_PARAM_NAMES (value/reduction/multiplier), each wrapped in a
-    label carrying data-param="<name>" -- the page script's wireEffectSelects hides whichever ones
-    EFFECT_PARAMS_BY_TYPE says don't apply to the row's currently-selected type (and clears them),
-    same "flatten every param, hide what doesn't apply" shape _render_trigger_inputs uses. The
-    effect-hint <small> is swapped to EFFECT_TYPE_HINTS' explanation of the one param that's still
-    showing, since "value"/"reduction"/"multiplier" alone don't say what they mean for a given
-    type."""
+    Every row shows all of EFFECT_PARAM_NAMES (value/reduction/multiplier/duration), each wrapped
+    in a label carrying data-param="<name>" -- the page script's wireEffectSelects hides whichever
+    ones EFFECT_PARAMS_BY_TYPE says don't apply to the row's currently-selected type (and clears
+    them), same "flatten every param, hide what doesn't apply" shape _render_trigger_inputs uses.
+    The effect-hint <small> is swapped to EFFECT_TYPE_HINTS' explanation of the one param that's
+    still showing, since "value"/"reduction"/"multiplier" alone don't say what they mean for a
+    given type.
+
+    `include_trigger` (equipment's own "effects" field only) additionally renders a `trigger`
+    select (constant/on_use/on_hit) and a `chance` number input wrapped `data-trigger-only="on_hit"`
+    -- shown only once trigger is set to on_hit, via the page script's wireEquipmentTriggerSelects,
+    modeled on the existing wireCommandKindSelects/data-amount-only pattern (a room command's
+    modal_title/input_label only mattering when kind=="amount"), the real precedent for "field B
+    only relevant when sibling select A has value X" in this admin panel. dungeon's own
+    trigger/type restriction (which types even make sense with which trigger) is NOT enforced here
+    client-side -- same "let the dropdown show everything, catch a bad combination loudly at Save"
+    choice this panel already makes for e.g. a delve room's free-typed next-room reference; the
+    real check is dungeon._validate_equipment_effects, run at save time via the real loader."""
     type_options = "".join(
         f'<option value="{t}"{" selected" if t == effect.get("type") else ""}>{t}</option>'
         for t in [""] + allowed_types
@@ -1439,9 +1479,23 @@ def _render_effect_row(prefix: str, effect: dict, allowed_types: list[str] = EFF
         f'<label data-param="{p}">{p}<input type="number" step="any" name="{prefix}_{p}" value="{effect.get(p, "")}"></label>'
         for p in EFFECT_PARAM_NAMES
     )
+    trigger_html = ""
+    if include_trigger:
+        trigger_options = "".join(
+            f'<option value="{t}"{" selected" if t == effect.get("trigger") else ""}>{t}</option>'
+            for t in [""] + EQUIPMENT_EFFECT_TRIGGERS
+        )
+        trigger_html = (
+            f'<label>trigger<select name="{prefix}_trigger" class="equipment-trigger-select">'
+            f'{trigger_options}</select></label>'
+            f'<label data-trigger-only="on_hit">chance (0-1)'
+            f'<input type="number" step="any" min="0" max="1" name="{prefix}_chance" value="{effect.get("chance", "")}">'
+            f'</label>'
+        )
     return (
         f'<div class="row-group">'
         f'<label>type<select name="{prefix}_type" class="effect-type-select">{type_options}</select></label>'
+        f'{trigger_html}'
         f'<small class="field-hint effect-hint"></small>'
         f'{param_inputs}<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
     )
@@ -2128,13 +2182,14 @@ def _render_field(field: dict, value, entry: dict | None = None, problems: list[
         repeatable = _render_repeatable(f"{name}-rows", rows_html, template_html, "+ Add command")
         return f'<fieldset><legend>{label}</legend>{repeatable}</fieldset>'
 
-    if ftype == "stat_bonuses":
-        value = value or {}
-        inputs = "".join(
-            f'<label>{stat}<input type="number" name="stat_{stat}" value="{value.get(stat, 0)}"></label>'
-            for stat in ("hp", "atk", "def", "spatk", "spdef")
-        )
-        return f'<fieldset><legend>{label}</legend><div class="row-group">{inputs}</div></fieldset>'
+    if ftype == "equipment_effects":
+        effects = list(value or [])
+        rows_html = [
+            _render_effect_row(f"equipment_effect_{i}", e, include_trigger=True) for i, e in enumerate(effects)
+        ]
+        template_html = _render_effect_row("equipment_effect_ROWIDX", {}, include_trigger=True)
+        repeatable = _render_repeatable(f"{name}-rows", rows_html, template_html, "+ Add effect")
+        return f'<fieldset><legend>{label}</legend>{repeatable}</fieldset>'
 
     if ftype == "effects":
         effects = list(value or [])
@@ -2253,6 +2308,40 @@ def _parse_effects_list(container_prefix: str, form: dict) -> list[dict]:
     return effects
 
 
+def _parse_equipment_effects(form: dict) -> list[dict]:
+    """Parses equipment's own "equipment_effects" repeatable -- same index-discovery approach as
+    _parse_effects_list, plus the two extra fields only an equipment effect row carries: trigger
+    (always present -- every row renders the select) and chance (only meaningful for an on_hit
+    row; the input itself is always present in the submission even when the page script has
+    hidden it for a non-on_hit row, since data-trigger-only is JS-only display state, so this only
+    keeps chance when trigger=="on_hit" rather than trusting whether the field was visible). No
+    validation beyond shaping the dict correctly -- the real trigger/type-restriction/chance-range
+    checks happen at save time via dungeon._validate_equipment_effects (the real loader)."""
+    container_prefix = "equipment_effect"
+    pattern = re.compile(rf"{re.escape(container_prefix)}_(\d+)_type")
+    indices = sorted(int(m.group(1)) for k in form if (m := pattern.fullmatch(k)))
+    effects = []
+    for i in indices:
+        prefix = f"{container_prefix}_{i}"
+        effect_type = form.get(f"{prefix}_type", "").strip()
+        if not effect_type:
+            continue
+        effect = {"type": effect_type}
+        trigger = form.get(f"{prefix}_trigger", "").strip()
+        if trigger:
+            effect["trigger"] = trigger
+        if trigger == "on_hit":
+            raw_chance = form.get(f"{prefix}_chance", "").strip()
+            if raw_chance:
+                effect["chance"] = float(raw_chance)
+        for p in EFFECT_PARAM_NAMES:
+            raw = form.get(f"{prefix}_{p}", "").strip()
+            if raw:
+                effect[p] = float(raw) if "." in raw else int(raw)
+        effects.append(effect)
+    return effects
+
+
 def _parse_field(field: dict, form: dict) -> tuple | None:
     """Returns (name, value) to set on the entry, or None to omit the key entirely (an optional
     field left blank)."""
@@ -2303,13 +2392,8 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
         v = form.get(name, "").strip()
         return (name, v) if v else None
 
-    if ftype == "stat_bonuses":
-        bonuses = {}
-        for stat in ("hp", "atk", "def", "spatk", "spdef"):
-            raw = form.get(f"stat_{stat}", "").strip()
-            if raw and int(raw) != 0:
-                bonuses[stat] = int(raw)
-        return (name, bonuses)
+    if ftype == "equipment_effects":
+        return (name, _parse_equipment_effects(form))
 
     if ftype == "effects":
         return (name, _parse_effects_list("effect", form))
@@ -2947,9 +3031,12 @@ async def list_view(request: web.Request) -> web.Response:
 def _apply_generate_level(content_type: str, entry: dict, query) -> dict:
     """If the monster/equipment edit page's "Generate stats for level" sub-form was just
     submitted (?generate_level=N, for monsters also ?archetype=tank/balanced/glass_cannon, and
-    for equipment also ?slot=...), returns a NEW dict with hp/atk/def (monsters) or stat_bonuses
-    (equipment) plus intended_level overridden by dungeon.generate_monster_stats/
-    generate_item_stat_bonuses. Never mutates `entry` in place -- it may be the LIVE registry
+    for equipment also ?slot=...), returns a NEW dict with hp/atk/def (monsters) or a regenerated
+    set of constant effects (equipment) plus intended_level overridden by
+    dungeon.generate_monster_stats/generate_item_constant_effects. Equipment's own on_use/on_hit
+    effects (if any were hand-authored) are preserved as-is -- only the constant ones get replaced
+    -- so re-rolling an item's passive stats for a new level can't silently wipe out its "ring of
+    fireball"-style effects. Never mutates `entry` in place -- it may be the LIVE registry
     entry itself when editing something that already exists -- and never saves anything; the
     admin still has to click the normal Save button. A no-op (returns `entry` unchanged) for any
     other content type or a missing/invalid generate_level, including on an ordinary POST/Save
@@ -2973,7 +3060,8 @@ def _apply_generate_level(content_type: str, entry: dict, query) -> dict:
     else:
         slot = query.get("slot") or entry.get("slot") or "weapon"
         entry["slot"] = slot
-        entry["stat_bonuses"] = dungeon.generate_item_stat_bonuses(level, slot)
+        non_constant = [e for e in entry.get("effects", []) if e.get("trigger") != "constant"]
+        entry["effects"] = dungeon.generate_item_constant_effects(level, slot) + non_constant
     return entry
 
 
@@ -3082,7 +3170,7 @@ async def edit_view(request: web.Request) -> web.Response:
         estimate = None
         if content_type == "monsters" and all(k in entry for k in ("hp", "atk", "def")):
             estimate = dungeon.estimate_monster_level(entry)
-        elif content_type == "equipment" and entry.get("stat_bonuses"):
+        elif content_type == "equipment" and dungeon.constant_stat_bonuses(entry):
             estimate = dungeon.estimate_item_level(entry)
         estimate_html = (
             f'<p class="field-hint">≈ balanced for level <strong>{estimate:.1f}</strong> (based on current stats)</p>'

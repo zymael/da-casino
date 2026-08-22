@@ -33,13 +33,21 @@ Field types the generic form-builder knows how to render:
     a hot-reloadable registry (e.g. room ids), so the list is read fresh at render time rather than
     frozen at admin_schemas.py's own import time -- a plain list of a mutable registry's keys goes
     stale the moment content is added after import, same class of bug as the room dropdown once had.
-  - "stat_bonuses" -- equipment's fixed {hp, atk, def} sub-dict (each an optional number input;
-    only non-zero ones are written, since that's what "no bonus in that stat" means in practice)
   - "effects"   -- a repeatable list of {type, ...params}. Every effect type across
-    dungeon.EFFECT_PARAM_SCHEMAS only ever uses one of 3 param names (value/reduction/multiplier),
-    so each row shows all 3 as optional inputs rather than needing per-type dynamic fields --
-    dungeon._validate_effects (run at save time via the real loader) is what actually enforces
-    which params a given type needs.
+    dungeon.EFFECT_PARAM_SCHEMAS only ever uses one of a handful of param names
+    (value/reduction/multiplier/duration), so each row shows all of them as optional inputs rather
+    than needing per-type dynamic fields -- dungeon._validate_effects (run at save time via the
+    real loader) is what actually enforces which params a given type needs.
+  - "equipment_effects" -- equipment's own effects list, one level richer than plain "effects":
+    each row also carries a `trigger` (constant/on_use/on_hit) and, only when trigger is on_hit, a
+    `chance` (0-1) -- see admin_server.py's _render_effect_row(include_trigger=True) and
+    dungeon.py's module comment above _validate_equipment_effects for what each trigger means and
+    which effect types each one allows. A `constant` effect is what a flat stat_bonuses dict used
+    to be (dungeon.constant_stat_bonuses folds these back into {hp,atk,def,spatk,spdef} everywhere
+    that used to read stat_bonuses directly); trigger/type-restriction validation happens at save
+    time via dungeon._validate_equipment_effects, same "let the type dropdown show everything,
+    catch a bad combination loudly at Save" choice this admin panel already makes for free-typed
+    room/action references elsewhere.
   - "materials" -- a repeatable list of {material_id, qty}, material_id a <select> sourced live
     from dungeon.MATERIALS.
   - "monster_drops" -- a monster's own explicit loot table: a repeatable list of {kind, item_id,
@@ -265,12 +273,18 @@ CONTENT_TYPES = {
                 "name": "rarity", "type": "str", "required": True, "group": "Drop Info",
                 "hint": "flavor label only (e.g. \"common\", \"legendary\") -- not read by any game logic",
             },
-            {"name": "stat_bonuses", "type": "stat_bonuses", "required": True},
+            {"name": "effects", "type": "equipment_effects", "required": True},
+            {
+                "name": "special", "type": "bool", "required": False, "default": False, "group": "Drop Info",
+                "hint": "Physical (unchecked) rolls an On Use damage effect against ATK/DEF; Special "
+                        "(checked) uses SpAtk/SpDef instead. Only matters if this item has a damage-shaped "
+                        "On Use effect.",
+            },
             {
                 "name": "intended_level", "type": "int", "required": False, "min": 1, "group": "Drop Info",
                 "hint": "optional -- the player level this item is meant for. Use \"Generate stats for "
-                        "level\" above to pre-fill stat_bonuses from a level, or just label an item "
-                        "you've already hand-tuned.",
+                        "level\" above to pre-fill its constant effects from a level, or just label an "
+                        "item you've already hand-tuned.",
             },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
         ],
@@ -591,6 +605,7 @@ EFFECT_TYPE_HINTS = {
     "def_buff": "value: flat DEF bonus for the rest of this fight",
     "spatk_buff": "value: flat SpAtk bonus for the rest of this fight",
     "spdef_buff": "value: flat SpDef bonus for the rest of this fight",
+    "hp_buff": "value: flat max HP bonus (current HP rises by the same amount) for the rest of this fight",
     "atk_debuff": "value: flat amount the target's ATK is lowered by, for the rest of this fight",
     "spatk_debuff": "value: flat amount the target's SpAtk is lowered by, for the rest of this fight",
     "spdef_debuff": "value: flat amount the target's SpDef is lowered by, for the rest of this fight",
@@ -599,5 +614,7 @@ EFFECT_TYPE_HINTS = {
     "dot": "value: flat damage taken each round; duration: how many rounds it lasts",
     "hot": "value: fraction of max HP restored each round (0-1); duration: how many rounds it lasts",
 }
+
+EQUIPMENT_EFFECT_TRIGGERS = list(dungeon.EQUIPMENT_EFFECT_TRIGGERS)
 
 SHOP_KINDS = list(npcs.SHOP_KINDS.keys())

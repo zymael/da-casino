@@ -21,24 +21,94 @@ MAX_SELECT_OPTIONS = 25  # Discord's hard limit on a single Select's options
 
 
 def _stat_bonus_text(item: dict) -> str:
-    """e.g. 'ATK +3' or 'HP +2 / DEF +1' -- the compact form used everywhere an item's power
-    needs to be legible at a glance (embed lines and Select option descriptions alike)."""
+    """e.g. 'ATK +3' or 'HP +2 / DEF +1' -- the compact form used everywhere an item's constant
+    power needs to be legible at a glance (embed lines and Select option descriptions alike).
+    Constant-only on purpose: on_use/on_hit effects go through _dynamic_effect_lines instead,
+    never here -- this text also feeds a Select option's char-capped description (see
+    _equipment_summary), which a proc's description could overflow."""
     order = ("hp", "atk", "def", "spatk", "spdef")
-    parts = [f"{stat.upper()} +{item['stat_bonuses'][stat]}" for stat in order if item["stat_bonuses"].get(stat)]
+    bonuses = dungeon.constant_stat_bonuses(item)
+    parts = [f"{stat.upper()} +{bonuses[stat]}" for stat in order if bonuses.get(stat)]
     return " / ".join(parts)
 
 
 def _equipment_summary(item: dict) -> str:
-    """'ATK +3 · rare' -- used in Select option descriptions, where space is tight."""
-    return f"{_stat_bonus_text(item)} · {item['rarity']}"
+    """'ATK +3 · rare' -- used in Select option descriptions, where space is tight. An item with
+    no constant effects at all (pure on_use/on_hit) just omits the stat segment rather than
+    leaving a dangling '· rare' separator."""
+    stat_text = _stat_bonus_text(item)
+    return f"{stat_text} · {item['rarity']}" if stat_text else item["rarity"]
+
+
+def _effect_phrase(effect: dict) -> str:
+    """A short player-facing description of one on_use/on_hit effect -- e.g. '1.5x damage' or
+    'enemy DEF −3' -- used by _dynamic_effect_lines. Deliberately terser than
+    admin_schemas.EFFECT_TYPE_HINTS, which is authoring-oriented text for someone filling in a
+    form, not a player reading their own gear."""
+    t, v = effect["type"], effect.get("value")
+    if t == "damage_multiplier":
+        return f"{v}x damage"
+    if t == "heal_fraction":
+        return f"heal {v * 100:.0f}% HP"
+    if t == "guard":
+        return f"block {effect['reduction'] * 100:.0f}% of the next hit"
+    if t == "lifesteal_fraction":
+        return f"drain {v * 100:.0f}% of the damage as HP"
+    if t == "def_shred":
+        return f"enemy DEF −{v}"
+    if t == "extra_attack":
+        return f"bonus attack (x{effect.get('multiplier', 1.0)})"
+    if t == "atk_buff":
+        return f"ATK +{v}"
+    if t == "def_buff":
+        return f"DEF +{v}"
+    if t == "spatk_buff":
+        return f"SpAtk +{v}"
+    if t == "spdef_buff":
+        return f"SpDef +{v}"
+    if t == "hp_buff":
+        return f"Max HP +{v}"
+    if t == "atk_debuff":
+        return f"enemy ATK −{v}"
+    if t == "spatk_debuff":
+        return f"enemy SpAtk −{v}"
+    if t == "spdef_debuff":
+        return f"enemy SpDef −{v}"
+    if t == "dodge_buff":
+        return f"Dodge +{v * 100:.0f}% for {effect['duration']} round(s)"
+    if t == "resist_buff":
+        return f"Resist +{v * 100:.0f}% for {effect['duration']} round(s)"
+    if t == "dot":
+        return f"{v} dmg/round for {effect['duration']} round(s)"
+    if t == "hot":
+        return f"heal {v * 100:.0f}% HP/round for {effect['duration']} round(s)"
+    return t
+
+
+def _dynamic_effect_lines(item: dict) -> list[str]:
+    """One line per on_use/on_hit effect on `item` -- constant effects are already covered by
+    _stat_bonus_text, this is what makes the other two trigger kinds visible to a player at all."""
+    lines = []
+    for effect in item["effects"]:
+        if effect["trigger"] == "on_use":
+            lines.append(f"✨ On Use: {_effect_phrase(effect)}")
+        elif effect["trigger"] == "on_hit":
+            pct = round(effect["chance"] * 100)
+            lines.append(f"⚡ {pct}% on hit: {_effect_phrase(effect)}")
+    return lines
 
 
 def _equipment_line(item_id: str, qty: int | None = None) -> str:
-    """A full detail line for an embed field: name, stats, rarity, qty, and flavor text on its
-    own line beneath -- used for both the Equipped and Stored sections."""
+    """A full detail line for an embed field: name, stats, rarity, qty, dynamic effects, and
+    flavor text on its own line beneath -- used for both the Equipped and Stored sections."""
     item = dungeon.EQUIPMENT[item_id]
     qty_suffix = f" x{qty}" if qty and qty > 1 else ""
-    return f"**{item['name']}**{qty_suffix} — {_stat_bonus_text(item)} · *{item['rarity']}*\n> {item['flavor']}"
+    stat_text = _stat_bonus_text(item)
+    stat_suffix = f" — {stat_text}" if stat_text else ""
+    lines = [f"**{item['name']}**{qty_suffix}{stat_suffix} · *{item['rarity']}*"]
+    lines.extend(_dynamic_effect_lines(item))
+    lines.append(f"> {item['flavor']}")
+    return "\n".join(lines)
 
 
 def _quest_item_line(item_id: str, qty: int) -> str:

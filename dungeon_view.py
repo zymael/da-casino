@@ -95,6 +95,10 @@ class DelveSession:
         # skill can weaken the player, same full parity as the buff side already had.
         self.atk_debuff = self.def_debuff = self.spatk_debuff = self.spdef_debuff = 0
         self.timed_effects: list[dict] = []
+        # Equipped item ids whose on_use effect has already been cast this fight -- reset
+        # alongside chips at every combat-room entry (see _goto_room), same "once per fight"
+        # reset point.
+        self.used_item_effects: set[str] = set()
         self.loot_mult = dungeon.SUBCLASSES[self.subclass]["loot_mult"]
         self.display_name = dungeon.display_name(self.main_class, self.subclass)
         # Level-1 skill is guaranteed to exist for every build (validated at import time in
@@ -194,6 +198,7 @@ class PartyMember:
         self.spdef = effective["spdef"]
         self.atk_debuff = self.def_debuff = self.spatk_debuff = self.spdef_debuff = 0
         self.timed_effects: list[dict] = []
+        self.used_item_effects: set[str] = set()
         # Same "start wherever the last delve left off" rule as DelveSession -- see its own hp
         # comment for why.
         self.hp = min(character["current_hp"], self.max_hp)
@@ -300,6 +305,7 @@ class PartyDelveSession:
                 self.monsters.append(instance)
             for m in self.members:
                 m.chips = m.max_chips
+                m.used_item_effects = set()
             self.turn_queue = [m.user_id for m in self.living_members()]
         else:
             self.monsters = []
@@ -448,6 +454,7 @@ async def _goto_room(interaction: discord.Interaction, session: DelveSession, ro
         session.monsters = _roll_monster_instances(room)
         session.current_target_slot = 0
         session.chips = session.max_chips
+        session.used_item_effects = set()
     else:
         session.monsters = []
     embed, file, view = await _build_room_display(session)
@@ -739,6 +746,29 @@ class UseItemSelect(discord.ui.Select):
             self.view.stop()
 
 
+def castable_equipment(equipped: dict[str, str]) -> list[dict]:
+    """Equipped items (weapon/armor/trinket, at most 3) carrying at least one on_use effect --
+    shared by solo and party CastItemButton building. Unlike UseItemButton/Select's consumables,
+    this never needs a DB re-fetch: equipment isn't consumed, and `equipped` already reflects a
+    mid-fight auto-equip swap live (see _award_kill)."""
+    items = (dungeon.EQUIPMENT[item_id] for item_id in equipped.values())
+    return [item for item in items if any(e["trigger"] == "on_use" for e in item["effects"])]
+
+
+class CastItemButton(discord.ui.Button):
+    """One button per equipped item with an on_use effect (at most 3 -- weapon/armor/trinket) --
+    disabled (not hidden), same "show what you can't do yet" convention SkillButton already uses,
+    once its own id is in session.used_item_effects for this fight."""
+
+    def __init__(self, item: dict, disabled: bool):
+        super().__init__(label=f"✨ {item['name']}", style=discord.ButtonStyle.secondary, disabled=disabled, row=3)
+        self.item = item
+
+    async def callback(self, interaction: discord.Interaction):
+        if await _handle_cast_item(interaction, self.view.session, self.item):
+            self.view.stop()
+
+
 class TargetSelect(discord.ui.Select):
     """Only added to CombatView when more than one monster in the current group is still alive --
     picking an option here just changes which monster Attack/Skill/Item resolve against (see
@@ -778,6 +808,8 @@ class CombatView(discord.ui.View):
             self.add_item(UseItemButton(usable_items[0]))
         elif len(usable_items) > 1:
             self.add_item(UseItemSelect(usable_items))
+        for item in castable_equipment(session.equipped):
+            self.add_item(CastItemButton(item, disabled=item["id"] in session.used_item_effects))
         if len(session.living_monsters()) > 1:
             self.add_item(TargetSelect(session))
         session.current_view = self
@@ -903,8 +935,8 @@ async def _award_kill(
         current_item = dungeon.EQUIPMENT.get(current_item_id) if current_item_id else None
         if dungeon.is_upgrade(current_item_id, dropped):
             await asyncio.to_thread(db.equip_item_smart, guild_id, actor.user_id, slot, dropped["id"])
-            old_bonuses = current_item["stat_bonuses"] if current_item else {}
-            new_bonuses = dropped["stat_bonuses"]
+            old_bonuses = dungeon.constant_stat_bonuses(current_item) if current_item else {}
+            new_bonuses = dungeon.constant_stat_bonuses(dropped)
             actor.max_hp += new_bonuses.get("hp", 0) - old_bonuses.get("hp", 0)
             actor.hp += new_bonuses.get("hp", 0) - old_bonuses.get("hp", 0)
             actor.atk += new_bonuses.get("atk", 0) - old_bonuses.get("atk", 0)
@@ -1036,6 +1068,12 @@ def _effect_spdef_buff(actor, monster_state, effect: dict, log_lines: list[str],
     log_lines.append(f"{_possessive_label(actor)} SpDef rises by **{effect['value']}** for the rest of the fight.")
 
 
+def _effect_hp_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    actor.max_hp += effect["value"]
+    actor.hp += effect["value"]
+    log_lines.append(f"{_possessive_label(actor)} max HP rises by **{effect['value']}** for the rest of the fight.")
+
+
 def _effect_atk_debuff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     monster_state.atk_debuff += effect["value"]
     log_lines.append(f"{_possessive_label(monster_state)} ATK falls by **{effect['value']}** for the rest of the fight.")
@@ -1090,6 +1128,7 @@ EFFECT_HANDLERS = {
     "def_buff": _effect_def_buff,
     "spatk_buff": _effect_spatk_buff,
     "spdef_buff": _effect_spdef_buff,
+    "hp_buff": _effect_hp_buff,
     "atk_debuff": _effect_atk_debuff,
     "spatk_debuff": _effect_spatk_debuff,
     "spdef_debuff": _effect_spdef_debuff,
@@ -1144,6 +1183,29 @@ def _tick_timed_effects(entities: list, log_lines: list[str]) -> None:
         for eff in entity.timed_effects:
             eff["remaining"] -= 1
         entity.timed_effects = [e for e in entity.timed_effects if e["remaining"] > 0]
+
+
+def _roll_on_hit_procs(actor, monster_state, equipped_items: list[dict], dmg: int, log_lines: list[str]) -> None:
+    """After a damage-dealing hit lands (never on a dodge or a non-damage action -- callers only
+    reach this once `dmg` is known), independently rolls each of `actor`'s equipped items' own
+    on_hit effect (if any) against its own `chance`. `type == "lifesteal_fraction"` is
+    special-cased -- unlike every other on_hit-eligible type, its handler doesn't apply anything
+    itself, it only sets a `mods` flag a caller reads back against a damage number that, for an
+    on-hit proc, is exactly this hit's own already-known `dmg` -- so it's applied directly here
+    with the same formula the primary hit's own lifesteal already uses, instead of going through
+    EFFECT_HANDLERS. Every other on_hit-eligible type is fully self-contained (only ever touches
+    `actor`/`monster_state`), so it dispatches through the normal EFFECT_HANDLERS unchanged."""
+    for item in equipped_items:
+        for effect in item["effects"]:
+            if effect.get("trigger") != "on_hit" or random.random() >= effect["chance"]:
+                continue
+            if effect["type"] == "lifesteal_fraction":
+                healed = min(actor.max_hp, actor.hp + round(dmg * effect["value"])) - actor.hp
+                actor.hp += healed
+                if healed:
+                    log_lines.append(f"{item['name']} drains **{healed}** HP from the strike.")
+            else:
+                EFFECT_HANDLERS[effect["type"]](actor, monster_state, effect, log_lines, _default_mods())
 
 
 def _resolve_monster_attack(
@@ -1241,6 +1303,8 @@ async def _resolve_combat_turn(
                     log_lines.append(f"You drain **{healed}** HP from the strike.")
             target.hp -= dmg
             log_lines.append(f"You {verb} for **{dmg}** damage.")
+            equipped_items = [dungeon.EQUIPMENT[iid] for iid in session.equipped.values()]
+            _roll_on_hit_procs(session, target, equipped_items, dmg, log_lines)
 
     if target.hp <= 0:
         log_lines.append(f"**{target.monster['name']} is defeated!**")
@@ -1328,6 +1392,20 @@ async def _handle_use_item(interaction: discord.Interaction, session: DelveSessi
         return False
     verb = f"use **{item['name']}**"
     return await _resolve_combat_turn(interaction, session, item["effects"], verb, [], item.get("special", False))
+
+
+async def _handle_cast_item(interaction: discord.Interaction, session: DelveSession, item: dict) -> bool:
+    """Triggers `item`'s on_use effects as a full turn -- mechanically identical to
+    _handle_use_item's consumable cast (same _resolve_combat_turn tail), just not consumed and
+    gated by a once-per-fight-per-item flag (session.used_item_effects) instead of an inventory
+    quantity."""
+    if item["id"] in session.used_item_effects:
+        await interaction.response.send_message("You've already used that this fight.", ephemeral=True)
+        return False
+    session.used_item_effects.add(item["id"])
+    effects = [e for e in item["effects"] if e["trigger"] == "on_use"]
+    verb = f"unleash **{item['name']}**"
+    return await _resolve_combat_turn(interaction, session, effects, verb, [], item.get("special", False))
 
 
 async def _present_room_result(interaction: discord.Interaction, session: DelveSession, log_lines: list[str]):
@@ -1533,6 +1611,8 @@ async def _resolve_party_turn(
                     log_lines.append(f"{member.label} drains **{healed}** HP from the strike.")
             target.hp -= dmg
             log_lines.append(f"{member.label} {verb} for **{dmg}** damage.")
+            equipped_items = [dungeon.EQUIPMENT[iid] for iid in member.equipped.values()]
+            _roll_on_hit_procs(member, target, equipped_items, dmg, log_lines)
 
     if target.hp <= 0:
         log_lines.append(f"**{target.monster['name']} is defeated!**")
@@ -1592,6 +1672,20 @@ async def _handle_party_use_item(
     )
 
 
+async def _handle_party_cast_item(
+    interaction: discord.Interaction, session: PartyDelveSession, member: PartyMember, item: dict,
+) -> bool:
+    """Party sibling of _handle_cast_item -- same once-per-fight-per-item gate, scoped to this
+    member's own used_item_effects."""
+    if item["id"] in member.used_item_effects:
+        await interaction.response.send_message("You've already used that this fight.", ephemeral=True)
+        return False
+    member.used_item_effects.add(item["id"])
+    effects = [e for e in item["effects"] if e["trigger"] == "on_use"]
+    verb = f"unleash **{item['name']}**"
+    return await _resolve_party_turn(interaction, session, member, effects, verb, [], item.get("special", False))
+
+
 class PartyAttackButton(discord.ui.Button):
     def __init__(self):
         super().__init__(label="Attack", style=discord.ButtonStyle.primary, row=0)
@@ -1635,6 +1729,19 @@ class PartyUseItemSelect(discord.ui.Select):
             self.view.stop()
 
 
+class PartyCastItemButton(discord.ui.Button):
+    """Party sibling of CastItemButton -- disabled once its own id is in this member's own
+    used_item_effects for this fight."""
+
+    def __init__(self, item: dict, disabled: bool):
+        super().__init__(label=f"✨ {item['name']}", style=discord.ButtonStyle.secondary, disabled=disabled, row=3)
+        self.item = item
+
+    async def callback(self, interaction: discord.Interaction):
+        if await _handle_party_cast_item(interaction, self.view.session, self.view.actor, self.item):
+            self.view.stop()
+
+
 class PartyTargetSelect(discord.ui.Select):
     """Party sibling of TargetSelect -- scoped to whichever member's turn it currently is; picking
     an option only updates that member's own entry in session.member_target_slots (see
@@ -1674,6 +1781,8 @@ class PartyCombatView(discord.ui.View):
             self.add_item(PartyUseItemButton(usable_items[0]))
         elif len(usable_items) > 1:
             self.add_item(PartyUseItemSelect(usable_items))
+        for item in castable_equipment(actor.equipped):
+            self.add_item(PartyCastItemButton(item, disabled=item["id"] in actor.used_item_effects))
         if len(session.living_monsters()) > 1:
             self.add_item(PartyTargetSelect(session, actor))
         session.current_view = self
