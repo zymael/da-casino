@@ -449,12 +449,15 @@ def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
     return delves
 
 
-def active_delves() -> dict[str, dict]:
+def active_delves(include_inactive: bool = False) -> dict[str, dict]:
     """Every delve actually offered to players -- the one place "is this delve playable" is
     decided, so a new delve-selection surface (a command, a picker view, ...) never needs its own
     copy of the "active" check. See _load_delves' module-docstring-adjacent comment on the
     "active" field for why an inactive delve can still be saved (and still lives in DELVES) despite
-    never showing up here."""
+    never showing up here. `include_inactive` is for a guild with delve_test_mode on (db.py) --
+    testers get to see/play a delve before it's flipped active for everyone else."""
+    if include_inactive:
+        return dict(DELVES)
     return {delve_id: delve for delve_id, delve in DELVES.items() if delve.get("active", True)}
 
 
