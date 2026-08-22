@@ -2276,10 +2276,13 @@ class ClassPickerView(discord.ui.View):
             name = dungeon.display_name(self.main_class, self.subclass)
             stats = dungeon.compute_stats(self.main_class, self.subclass)
             skill = dungeon.unlocked_skills(self.main_class, self.subclass, 1)[0]
+            dodge_pct = round(dungeon.dodge_chance(stats["def"]) * 100)
+            resist_pct = round(dungeon.dodge_chance(stats["spdef"]) * 100)
             embed.add_field(
                 name=f"Preview: {name}",
                 value=f"HP {stats['hp']} / ATK {stats['atk']} / DEF {stats['def']} / "
                       f"SpAtk {stats['spatk']} / SpDef {stats['spdef']} / 🪙 Chips {stats['chips']}\n"
+                      f"Dodge {dodge_pct}% / Resist {resist_pct}%\n"
                       f"Skill: **{skill['name']}** — {skill['flavor']}",
                 inline=False,
             )
@@ -2307,10 +2310,13 @@ class ConfirmButton(discord.ui.Button):
             return
 
         name = dungeon.display_name(picker.main_class, picker.subclass)
+        dodge_pct = round(dungeon.dodge_chance(stats["def"]) * 100)
+        resist_pct = round(dungeon.dodge_chance(stats["spdef"]) * 100)
         embed = discord.Embed(
             title=f"✅ You are now a {name}!",
             description=f"HP {stats['hp']} / ATK {stats['atk']} / DEF {stats['def']} / "
-                        f"SpAtk {stats['spatk']} / SpDef {stats['spdef']} / 🪙 Chips {stats['chips']}\n\n"
+                        f"SpAtk {stats['spatk']} / SpDef {stats['spdef']} / 🪙 Chips {stats['chips']}\n"
+                        f"Dodge {dodge_pct}% / Resist {resist_pct}%\n\n"
                         f"Use `!delve` to enter the dungeon.",
             color=discord.Color.green(),
         )

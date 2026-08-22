@@ -328,11 +328,14 @@ async def stats_cmd(ctx):
             dungeon.EQUIPMENT[equipped[slot]]["name"] for slot in dungeon.EQUIPMENT_SLOTS if slot in equipped
         ) or "none"
         current_hp = min(character["current_hp"], effective["hp"])
+        dodge_pct = round(dungeon.dodge_chance(effective["def"]) * 100)
+        resist_pct = round(dungeon.dodge_chance(effective["spdef"]) * 100)
         embed.add_field(
             name="🗡️ Class",
             value=f"{name} {suit_symbol} — Level {character['level']}\n"
             f"HP {current_hp}/{effective['hp']} / ATK {effective['atk']} / DEF {effective['def']} / "
             f"SpAtk {effective['spatk']} / SpDef {effective['spdef']}\n"
+            f"Dodge {dodge_pct}% / Resist {resist_pct}%\n"
             f"Gear: {gear}",
             inline=True,
         )
@@ -782,12 +785,15 @@ async def class_cmd(ctx):
         xp_needed = dungeon.xp_to_next_level(character["level"])
 
         current_hp = min(character["current_hp"], effective["hp"])
+        dodge_pct = round(dungeon.dodge_chance(effective["def"]) * 100)
+        resist_pct = round(dungeon.dodge_chance(effective["spdef"]) * 100)
         embed = discord.Embed(title=name, color=discord.Color.blurple())
         embed.add_field(name="Level", value=f"{character['level']} ({character['xp']}/{xp_needed} XP)", inline=True)
         embed.add_field(
             name="Stats",
             value=f"HP {current_hp}/{effective['hp']} / ATK {effective['atk']} / DEF {effective['def']} / "
-                  f"SpAtk {effective['spatk']} / SpDef {effective['spdef']}",
+                  f"SpAtk {effective['spatk']} / SpDef {effective['spdef']}\n"
+                  f"Dodge {dodge_pct}% / Resist {resist_pct}%",
             inline=True,
         )
         gear_lines = []
