@@ -23,6 +23,7 @@ import json
 import os
 import re
 import sqlite3
+import subprocess
 
 from aiohttp import web
 from dotenv import load_dotenv
@@ -2456,13 +2457,34 @@ def _load_raw_entries(spec: dict) -> list[dict]:
         return json.load(f)
 
 
+def _auto_commit_content_save(path: str, spec: dict) -> None:
+    """Commits `path`'s new content as its own git commit, right after a successful save/publish/
+    delete -- every real content edit through this admin panel becomes its own checkpoint instead
+    of piling up as uncommitted working-tree state indefinitely (these JSON files are edited live,
+    constantly, exactly the kind of continuously-changing production data that's most exposed by
+    sitting uncommitted -- see CLAUDE.md/git history for why this exists). Best-effort and silent:
+    never raises and never blocks a save from succeeding -- a git failure here (no repo, nothing
+    actually changed, a lock held by something else) is a missed checkpoint, not a reason to
+    reject content an admin just successfully validated and wrote."""
+    repo_dir = os.path.dirname(__file__)
+    try:
+        subprocess.run(["git", "add", "--", path], cwd=repo_dir, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", f"content: save {os.path.basename(path)} via admin panel", "--", path],
+            cwd=repo_dir, capture_output=True,
+        )
+    except Exception:
+        pass  # best-effort checkpoint only -- see docstring
+
+
 def _write_and_validate(spec: dict, entries: list[dict]) -> str | None:
     """Writes `entries` to a temp file, validates by calling the real dungeon.py loader against
     it (plus any of this content type's own "extra_validators" -- see admin_schemas.py's "rooms"
     entry for why a loader alone sometimes can't cover everything), and only replaces the live
     JSON file (and hot-reloads the in-memory registry) if that succeeds. Returns None on success,
     or the failing validator's own error message on failure -- in which case the live file is
-    untouched."""
+    untouched. Every successful write also gets its own git commit (see
+    _auto_commit_content_save) -- best-effort, never blocks the save itself."""
     path = _entries_path(spec)
     tmp_path = path + ".tmp"
     with open(tmp_path, "w") as f:
@@ -2477,6 +2499,7 @@ def _write_and_validate(spec: dict, entries: list[dict]) -> str | None:
         return str(e)
     os.replace(tmp_path, path)
     setattr(spec["module"], spec["registry_attr"], new_registry)
+    _auto_commit_content_save(path, spec)
     return None
 
 
