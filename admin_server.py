@@ -14,12 +14,15 @@ the in-memory registry) if that succeeds. A bad edit can't corrupt content that'
 working, and there is exactly one place each content type's rules live either way.
 """
 
+import asyncio
+import datetime
 import hashlib
 import hmac
 import html
 import json
 import os
 import re
+import sqlite3
 
 from aiohttp import web
 from dotenv import load_dotenv
@@ -61,6 +64,8 @@ COOKIE_NAME = "admin_session"
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5MB -- generous for a sprite or a background, not a video
+
+BACKUPS_DIR = os.path.join(os.path.dirname(__file__), "backups")
 
 
 def _signing_key() -> bytes:
@@ -1134,7 +1139,14 @@ def _sidebar_html(active_content_type: str | None) -> str:
     assets_link = (
         f'<a class="nav-item{" active" if active_content_type == "assets" else ""}" href="/assets">🖼️ Assets</a>'
     )
-    return f'<nav class="sidebar"><a class="brand" href="/">🛠️ Content Editor</a>{assets_link}{"".join(sections)}</nav>'
+    utilities_link = (
+        f'<a class="nav-item{" active" if active_content_type == "utilities" else ""}" '
+        f'href="/utilities">🧰 Utilities</a>'
+    )
+    return (
+        f'<nav class="sidebar"><a class="brand" href="/">🛠️ Content Editor</a>'
+        f'{assets_link}{utilities_link}{"".join(sections)}</nav>'
+    )
 
 
 def _breadcrumbs_html(crumbs: list[tuple[str, str | None]]) -> str:
@@ -2382,6 +2394,44 @@ def _save_arbitrary_asset(file_field, subdir: str) -> str:
     return os.path.relpath(dest_path, os.path.dirname(__file__)).replace(os.sep, "/")
 
 
+def _list_db_backups() -> list[tuple[str, float, str]]:
+    """Every casino.db snapshot under backups/, as (filename, size-in-KB, saved-at) triples sorted
+    newest first -- backs the Utilities page's browse table. Separate from _list_asset_files since
+    these aren't images and don't live under assets/."""
+    if not os.path.isdir(BACKUPS_DIR):
+        return []
+    out = []
+    for fname in os.listdir(BACKUPS_DIR):
+        full = os.path.join(BACKUPS_DIR, fname)
+        if not os.path.isfile(full):
+            continue
+        saved_at = datetime.datetime.fromtimestamp(os.path.getmtime(full)).strftime("%Y-%m-%d %H:%M:%S")
+        out.append((fname, os.path.getsize(full) / 1024, saved_at))
+    out.sort(reverse=True)  # filename embeds a sortable timestamp -- newest first with no extra key
+    return out
+
+
+def _create_db_backup() -> str:
+    """Snapshots the live casino.db into backups/<timestamp>.db via sqlite3's own online backup
+    API (Connection.backup) -- safe to run while the bot has the database open and mid-transaction,
+    unlike a plain file copy, which can grab a torn/corrupt snapshot. Synchronous (the sqlite3
+    module has no async API) -- see utilities_view for why this is always awaited via
+    asyncio.to_thread rather than called directly from a route handler. Returns the new
+    filename."""
+    os.makedirs(BACKUPS_DIR, exist_ok=True)
+    filename = f"casino_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+    source = sqlite3.connect(db.DB_PATH)
+    try:
+        dest = sqlite3.connect(os.path.join(BACKUPS_DIR, filename))
+        try:
+            source.backup(dest)
+        finally:
+            dest.close()
+    finally:
+        source.close()
+    return filename
+
+
 # --- Routes --------------------------------------------------------------------------------
 
 async def login(request: web.Request) -> web.Response:
@@ -2706,6 +2756,51 @@ async def delete_asset_view(request: web.Request) -> web.Response:
     raise web.HTTPFound("/assets")
 
 
+async def utilities_view(request: web.Request) -> web.Response:
+    """Standalone page for one-off admin actions that aren't content edits -- just a manual
+    "back up the database now" button for the moment (see _create_db_backup), served from
+    /backups (a static route alongside /assets, added in build_app) so a saved snapshot can be
+    pulled down directly -- e.g. by a scheduled `scp`/`rsync` from elsewhere -- without needing a
+    separate download route."""
+    message = ""
+    if request.method == "POST":
+        filename = await asyncio.to_thread(_create_db_backup)
+        message = f'<p class="success">Saved <code>backups/{html.escape(filename)}</code>.</p>'
+
+    rows = "".join(
+        f'<tr><td><code>{html.escape(fname)}</code></td><td>{saved_at}</td><td>{size_kb:.1f} KB</td>'
+        f'<td><a class="row-link" href="/backups/{html.escape(fname)}">Download</a></td>'
+        f'<td><form method="post" action="/utilities/delete-backup" '
+        f'onsubmit="return confirm(\'Delete {html.escape(fname)}?\')">'
+        f'<input type="hidden" name="filename" value="{html.escape(fname)}">'
+        f'<button type="submit" class="danger">Delete</button></form></td></tr>'
+        for fname, size_kb, saved_at in _list_db_backups()
+    )
+    body = f"""
+    <h1>🧰 Utilities</h1>
+    <h2>Database Backup</h2>
+    <p>Snapshots <code>casino.db</code> into <code>backups/</code> using SQLite's own online backup
+    API, safe to run while the bot is live. Download a snapshot here, or pull it from
+    <code>/backups/&lt;filename&gt;</code> directly (e.g. from a scheduled <code>scp</code>).</p>
+    {message}
+    <form method="post"><button type="submit">Back Up Now</button></form>
+    <table><thead><tr><th>File</th><th>Saved</th><th>Size</th><th></th><th></th></tr></thead>
+    <tbody>{rows}</tbody></table>
+    """
+    return _html_response(_page("Utilities", body, active="utilities", breadcrumbs=[("Home", "/"), ("Utilities", None)]))
+
+
+async def delete_backup_view(request: web.Request) -> web.Response:
+    form = await request.post()
+    filename = form.get("filename", "")
+    full_path = os.path.realpath(os.path.join(BACKUPS_DIR, filename))
+    backups_real = os.path.realpath(BACKUPS_DIR)
+    if not full_path.startswith(backups_real + os.sep) or not os.path.isfile(full_path):
+        raise web.HTTPBadRequest(text="Invalid path")
+    os.remove(full_path)
+    raise web.HTTPFound("/utilities")
+
+
 def build_app(bot=None) -> web.Application:
     if not ADMIN_PANEL_PASSWORD:
         raise RuntimeError("Set ADMIN_PANEL_PASSWORD in .env before starting the content editor.")
@@ -2730,6 +2825,16 @@ def build_app(bot=None) -> web.Application:
     # static route at "/assets" makes that same string a valid URL with just a leading "/".
     # Behind auth_middleware like everything else here, so this doesn't expose anything publicly.
     app.router.add_static("/assets", ASSETS_DIR)
+    app.router.add_get("/utilities", utilities_view)
+    app.router.add_post("/utilities", utilities_view)
+    app.router.add_post("/utilities/delete-backup", delete_backup_view)
+    # Same reasoning as /assets above -- lets a saved snapshot be pulled straight from
+    # /backups/<filename> (e.g. by a scheduled scp/rsync), not just downloaded through the page.
+    # add_static requires the directory to exist up front, unlike ASSETS_DIR (already present in
+    # the repo) -- backups/ is never committed (git-ignored, created on first use), so it has to be
+    # created here rather than assumed.
+    os.makedirs(BACKUPS_DIR, exist_ok=True)
+    app.router.add_static("/backups", BACKUPS_DIR)
     return app
 
 

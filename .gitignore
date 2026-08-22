@@ -4,5 +4,7 @@ __pycache__/
 *.pyc
 casino.db
 casino.db-*
+casino.db.*.bak
+backups/
 *.log
 .claude/settings.local.json
