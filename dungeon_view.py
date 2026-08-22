@@ -948,6 +948,14 @@ async def _award_kill(
                 log_lines.append(f"⚔️ Found **{dropped['name']}**! Replaced {current_item['name']} — equipped (stored in `!equipment`).")
             else:
                 log_lines.append(f"⚔️ Found **{dropped['name']}**! Equipped.")
+        elif dropped["id"] == current_item_id:
+            # A dead-even is_upgrade tie against the exact item already worn (not just something
+            # of equal power) -- storing it would put the same item_id in equipment_inventory
+            # while it's ALSO equipped, an invariant equip_item_smart otherwise always maintains
+            # (see inventory_view._stored_excluding_equipped, added after this produced a live
+            # crash: a duplicate Discord Select option value in EquipmentSlotSelect). Nothing to
+            # gain from a spare of an already-worn item, so it's just not kept.
+            log_lines.append(f"⚔️ Found another **{dropped['name']}** -- you're already wearing one.")
         else:
             await asyncio.to_thread(db.store_equipment_item, guild_id, actor.user_id, dropped["id"])
             log_lines.append(f"⚔️ Found **{dropped['name']}**, but your current {slot} is better — stored in `!equipment`.")

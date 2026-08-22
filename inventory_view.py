@@ -129,6 +129,20 @@ def _consumable_line(item_id: str, qty: int) -> str:
     return f"🧪 **{item['name']}**{qty_suffix}\n> {item['flavor']}"
 
 
+def _stored_excluding_equipped(equipped: dict[str, str], stored: dict[str, int]) -> dict[str, int]:
+    """db.get_equipment_inventory's raw {item_id: qty} can end up ALSO containing whatever's
+    currently equipped -- db.store_equipment_item (a monster drop that ties the equipped item's
+    own power rather than beating it, or an admin "Give Item" grant of something already worn)
+    doesn't know equip_item_smart's own invariant that the equipped copy is never also counted in
+    storage. Filtered out wherever stored items are shown or offered, regardless of how the
+    overlap arose -- letting the same item_id appear as both an "equipped" option AND a "stored"
+    option in EquipmentSlotSelect is what Discord rejects as a duplicate option value (400 Invalid
+    Form Body), and even where it wouldn't crash (the plain Stored Equipment listing), showing an
+    item as both equipped and stored is just confusing."""
+    equipped_ids = set(equipped.values())
+    return {item_id: qty for item_id, qty in stored.items() if item_id not in equipped_ids}
+
+
 def _horse_clothes_line(item_id: str, qty: int) -> str:
     item = horse_clothes.HORSE_CLOTHES[item_id]
     qty_suffix = f" x{qty}" if qty > 1 else ""
@@ -160,7 +174,7 @@ def _inventory_sections(
 async def build_inventory_embed(guild_id: int, user_id: int) -> discord.Embed:
     held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
     equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
-    stored = await asyncio.to_thread(db.get_equipment_inventory, guild_id, user_id)
+    stored = _stored_excluding_equipped(equipped, await asyncio.to_thread(db.get_equipment_inventory, guild_id, user_id))
     quest_items, materials, consumables, horse_clothes_held = _inventory_sections(held)
 
     embed = discord.Embed(title="🎒 Inventory", color=discord.Color.blurple())
@@ -217,7 +231,7 @@ def _equipped_lines(equipped: dict[str, str]) -> str:
 
 async def build_equipment_display(guild_id: int, user_id: int) -> tuple[discord.Embed, "EquipmentView"]:
     equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
-    stored = await asyncio.to_thread(db.get_equipment_inventory, guild_id, user_id)
+    stored = _stored_excluding_equipped(equipped, await asyncio.to_thread(db.get_equipment_inventory, guild_id, user_id))
 
     embed = discord.Embed(
         title="⚔️ Equipment",

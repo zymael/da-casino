@@ -3520,6 +3520,15 @@ def _grant_item(guild_id: int, user_id: int, kind: str, item_id: str, qty: int) 
     if registry is None or item_id not in registry:
         return f"Unknown {kind or 'item'} id {item_id!r}."
     if kind == "equipment":
+        # Storing an item_id that's ALSO currently equipped puts the same id in both
+        # character_equipment and equipment_inventory at once -- an invariant equip_item_smart
+        # otherwise always maintains (it removes from storage the moment something's equipped).
+        # dungeon_view._award_kill hit the same trap on a tied non-upgrade drop; this produces a
+        # live crash (a duplicate Discord Select option value in EquipmentSlotSelect) rather than
+        # just a cosmetic double-listing, so it's rejected outright here instead of silently
+        # creating the same broken state again.
+        if db.get_equipped_items(guild_id, user_id).get(registry[item_id]["slot"]) == item_id:
+            return f"{registry[item_id]['name']} is already equipped by this player."
         db.store_equipment_item(guild_id, user_id, item_id, qty)
     else:
         db.add_inventory_item(guild_id, user_id, item_id, qty)
