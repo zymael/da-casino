@@ -4,33 +4,48 @@ import discord
 
 import achievements
 import db
+import jackpot
 import slots
 import slots_render
 from holdem_view import busy_players as holdem_busy_players
 
 BASE_LINE_BET = 1  # credits staked per active line at 1x multiplier
 MULTIPLIERS = [1, 2, 5, 10, 20]
+JACKPOT_GAME = "slots"
 
 
-async def play_spin(guild_id: int, user_id: int, lines: int, multiplier: int) -> tuple[list[list[str]], list, int, int, int]:
+async def play_spin(guild_id: int, user_id: int, lines: int, multiplier: int) -> tuple[list[list[str]], list, int, int, int, int, int]:
     """Escrows the total bet, spins, and pays out.
 
-    Returns (grid, winning_lines, total_payout, new_balance, net), where winning_lines is a
-    list of (line_index, symbols, payout) for each active line that hit.
+    Returns (grid, winning_lines, total_payout, new_balance, net, jackpot_won, jackpot_pot),
+    where winning_lines is a list of (line_index, symbols, payout) for each active line that
+    hit, jackpot_won is >0 if a natural triple-7 claimed the progressive jackpot this spin (this
+    on top of that line's normal payout, and it's already folded into total_payout), and
+    jackpot_pot is the pot's size after this spin (its new, post-payout size if claimed).
     """
     bet_per_line = multiplier * BASE_LINE_BET
     bet = lines * bet_per_line
     await asyncio.to_thread(db.update_balance, guild_id, user_id, -bet)
+    jackpot_pot = await asyncio.to_thread(jackpot.contribute, guild_id, JACKPOT_GAME, bet)
 
     grid = slots.spin_grid()
     winning_lines = []
     total_payout = 0
+    hit_jackpot = False
     for i in range(lines):
         symbols = slots.line_symbols(grid, slots.PAYLINES[i])
         payout = int(bet_per_line * slots.payout_multiplier(symbols))
         if payout:
             winning_lines.append((i, symbols, payout))
             total_payout += payout
+        if symbols == [slots.JACKPOT_SYMBOL] * 3:
+            hit_jackpot = True
+
+    jackpot_won = 0
+    if hit_jackpot:
+        jackpot_won = await asyncio.to_thread(jackpot.claim, guild_id, JACKPOT_GAME)
+        jackpot_pot = jackpot.SEED
+        total_payout += jackpot_won
 
     if total_payout:
         balance = await asyncio.to_thread(db.update_balance, guild_id, user_id, total_payout)
@@ -38,7 +53,7 @@ async def play_spin(guild_id: int, user_id: int, lines: int, multiplier: int) ->
         balance = await asyncio.to_thread(db.get_balance, guild_id, user_id)
     net = total_payout - bet
     await asyncio.to_thread(db.log_bet, guild_id, user_id, "slots", bet, net)
-    return grid, winning_lines, total_payout, balance, net
+    return grid, winning_lines, total_payout, balance, net, jackpot_won, jackpot_pot
 
 
 class LineSelect(discord.ui.Select):
@@ -96,17 +111,26 @@ class SpinButton(discord.ui.Button):
             )
             return
 
-        grid, winning_lines, total_payout, balance, net = await play_spin(
+        grid, winning_lines, total_payout, balance, net, jackpot_won, jackpot_pot = await play_spin(
             view.guild_id, view.author.id, view.lines, view.multiplier
         )
         view.balance = balance
+        view.jackpot_pot = jackpot_pot
         view.sync_option_defaults()
-        embed = view.build_result_embed(winning_lines, total_payout)
+        embed = view.build_result_embed(winning_lines, total_payout, jackpot_won)
         file = discord.File(slots_render.render_reels(grid, winning_lines), filename="slots.png")
         await interaction.response.edit_message(embed=embed, view=view, attachments=[file])
+        if jackpot_won:
+            currency = db.get_currency_name(view.guild_id)
+            await interaction.followup.send(
+                f"🎰💰 **JACKPOT!!!** {view.author.display_name} hit three {slots.JACKPOT_SYMBOL} and won the "
+                f"progressive jackpot of **{jackpot_won}** {currency}!"
+            )
 
         kinds = achievements.kinds_for_bet("slots", net)
         kinds += await achievements.record_and_check(view.guild_id, view.author.id, "slots", net)
+        if jackpot_won:
+            kinds.append("hit_jackpot")
         if kinds:
             await achievements.try_award_many(
                 interaction.followup.send, view.guild_id, view.author.id, view.author.display_name, kinds
@@ -114,11 +138,12 @@ class SpinButton(discord.ui.Button):
 
 
 class SlotsView(discord.ui.View):
-    def __init__(self, author: discord.abc.User, balance: int, guild_id: int):
+    def __init__(self, author: discord.abc.User, balance: int, guild_id: int, jackpot_pot: int):
         super().__init__(timeout=90)
         self.author = author
         self.balance = balance
         self.guild_id = guild_id
+        self.jackpot_pot = jackpot_pot
         self.lines = 1
         self.multiplier = 1
         self.message: discord.Message | None = None
@@ -153,6 +178,11 @@ class SlotsView(discord.ui.View):
         embed.add_field(name="Paylines", value=f"{self.lines} / {slots.MAX_LINES}", inline=True)
         embed.add_field(name="Multiplier", value=f"{self.multiplier}x", inline=True)
         embed.add_field(name="Total Bet", value=f"{self.total_bet} {currency}", inline=True)
+        embed.add_field(
+            name="💰 Progressive Jackpot",
+            value=f"{self.jackpot_pot} {currency} — three {slots.JACKPOT_SYMBOL} on any line wins it!",
+            inline=False,
+        )
         embed.set_image(url="attachment://slots.png")
         embed.set_footer(text=f"Balance: {self.balance} {currency}")
         return embed
@@ -160,11 +190,13 @@ class SlotsView(discord.ui.View):
     def build_initial_file(self) -> discord.File:
         return discord.File(slots_render.render_reels(None), filename="slots.png")
 
-    def build_result_embed(self, winning_lines: list, total_payout: int) -> discord.Embed:
+    def build_result_embed(self, winning_lines: list, total_payout: int, jackpot_won: int = 0) -> discord.Embed:
         currency = db.get_currency_name(self.guild_id)
         bet = self.total_bet
         net = total_payout - bet
-        if not winning_lines:
+        if jackpot_won:
+            outcome, color = f"🎰💰 JACKPOT! +{net} {currency}", discord.Color.gold()
+        elif not winning_lines:
             outcome, color = f"💥 No winning lines — you lose {bet} {currency}", discord.Color.red()
         elif net == 0:
             outcome, color = "🤝 Push — bet returned", discord.Color.greyple()
@@ -183,6 +215,9 @@ class SlotsView(discord.ui.View):
         embed.add_field(name="Paylines", value=str(self.lines), inline=True)
         embed.add_field(name="Multiplier", value=f"{self.multiplier}x", inline=True)
         embed.add_field(name="Total Bet", value=f"{bet} {currency}", inline=True)
+        if jackpot_won:
+            embed.add_field(name="💰 Jackpot Won", value=f"{jackpot_won} {currency}", inline=True)
+        embed.add_field(name="💰 Progressive Jackpot", value=f"{self.jackpot_pot} {currency}", inline=True)
         embed.add_field(name="Result", value=outcome, inline=False)
         embed.set_footer(text=f"Balance: {self.balance} {currency}")
         return embed

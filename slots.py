@@ -14,6 +14,8 @@ SYMBOLS = {
 CHERRY = "🍒"
 CHERRY_PAIR_PAYOUT = 2  # any two (not three) cherries on a line
 
+JACKPOT_SYMBOL = "7️⃣"  # a natural triple on any line also claims the progressive jackpot
+
 _POOL = list(SYMBOLS.keys())
 _WEIGHTS = [SYMBOLS[symbol]["weight"] for symbol in _POOL]
 

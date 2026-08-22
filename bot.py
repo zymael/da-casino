@@ -28,6 +28,7 @@ import horserace
 from horserace_view import HorseRaceView, active_races
 import hub_ui
 import inventory_view
+import jackpot
 import moon
 import quests
 import ranch_view
@@ -35,8 +36,10 @@ import room_commands
 import room_view
 import rooms
 from roulette_view import RouletteView, active_rounds
+import slots_view
 from slots_view import SlotsView
 import video_poker
+import video_poker_view
 from video_poker_view import VideoPokerView
 
 load_dotenv()
@@ -86,7 +89,7 @@ HELP_CATEGORIES = [
     ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost", "horseequip"]),
     ("🗡️ Dungeon", ["class", "delve", "inventory", "equipment", "craft", "quests"]),
     ("🏆 Achievements", ["achievements"]),
-    ("⚙️ Utility", ["ping", "setcasino", "setcurrency", "rub", "roy"]),
+    ("⚙️ Utility", ["ping", "setcasino", "setcurrency", "setdelvetest", "rub", "roy"]),
 ]
 
 _SYNCED_GUILD_IDS: set[int] = set()
@@ -206,6 +209,28 @@ async def setcurrency_cmd(ctx, *, name: str = None):
 
     await asyncio.to_thread(db.set_currency_name, ctx.guild.id, name)
     await ctx.send(f"💱 This server's currency is now called **{name}**.")
+
+
+@bot.command(name="setdelvetest")
+@commands.guild_only()
+@commands.is_owner()
+async def setdelvetest_cmd(ctx, state: str = None):
+    """Toggle whether this server can play delves marked inactive in the admin panel, for free:
+    !setdelvetest on/off -- lets a test server play WIP dungeons without exposing them anywhere
+    else (a delve's "active" flag otherwise applies everywhere at once), and without burning real
+    energy while doing it."""
+    if state not in ("on", "off"):
+        await ctx.send("Usage: `!setdelvetest on` or `!setdelvetest off`")
+        return
+    enabled = state == "on"
+    await asyncio.to_thread(db.set_delve_test_mode, ctx.guild.id, enabled)
+    if enabled:
+        await ctx.send(
+            "🧪 Delve test mode is **on** for this server — inactive delves are now playable here, "
+            "and delves no longer cost energy."
+        )
+    else:
+        await ctx.send("Delve test mode is **off** for this server — only active delves are playable here.")
 
 
 @bot.command(name="ping")
@@ -487,9 +512,7 @@ async def tip_cmd(ctx, member: discord.Member = None):
     )
 
 
-# Undocumented on purpose -- the bit only works if it looks like a fair random pick from outside.
-RUB_LUCKY_TARGET_ID = 272816170749526027
-RUB_LUCKY_TARGET_WEIGHT = 0.8
+RUB_LUCKY_TARGET_ID = 272816170749526027  # fallback only, if no active user is found
 RUB_AUTHOR_LUCK_GAIN = 3  # permanent -- the rubber's own belly-rub payoff
 RUB_TARGET_LUCK_PENALTY = 8  # also permanent -- stolen luck stays stolen
 
@@ -497,12 +520,9 @@ RUB_TARGET_LUCK_PENALTY = 8  # also permanent -- stolen luck stays stolen
 @bot.command(name="rub")
 async def rub_cmd(ctx):
     """Rub your belly for good luck (once every 12 hours) -- permanently makes you luckier, and someone else less lucky."""
-    if random.random() < RUB_LUCKY_TARGET_WEIGHT:
-        target_id = RUB_LUCKY_TARGET_ID
-    else:
-        target_id = await asyncio.to_thread(db.get_random_active_user, ctx.guild.id)
-        if target_id is None:
-            target_id = RUB_LUCKY_TARGET_ID  # nobody's logged a bet in this guild yet -- still land the joke
+    target_id = await asyncio.to_thread(db.get_random_active_user, ctx.guild.id)
+    if target_id is None:
+        target_id = RUB_LUCKY_TARGET_ID  # nobody's logged a bet in this guild yet -- still land the joke
 
     status, value = await asyncio.to_thread(
         db.apply_rub, ctx.guild.id, ctx.author.id, target_id, RUB_AUTHOR_LUCK_GAIN, RUB_TARGET_LUCK_PENALTY
@@ -600,7 +620,8 @@ async def slots_cmd(ctx):
         await ctx.send(f"You only have **{balance}** {currency}, {ctx.author.display_name} — not enough to play.")
         return
 
-    view = SlotsView(ctx.author, balance, ctx.guild.id)
+    jackpot_pot = await asyncio.to_thread(jackpot.get_pot, ctx.guild.id, slots_view.JACKPOT_GAME)
+    view = SlotsView(ctx.author, balance, ctx.guild.id, jackpot_pot)
     message = await ctx.send(embed=view.build_bet_embed(), view=view, file=view.build_initial_file())
     view.message = message
 
@@ -619,7 +640,8 @@ async def _start_video_poker(ctx, bet: int, command_name: str, variant: str):
         return
 
     balance = await asyncio.to_thread(db.update_balance, ctx.guild.id, ctx.author.id, -bet)
-    view = VideoPokerView(ctx.author, ctx.guild.id, bet, balance, variant=variant)
+    jackpot_pot = await asyncio.to_thread(jackpot.contribute, ctx.guild.id, video_poker_view.JACKPOT_GAME, bet)
+    view = VideoPokerView(ctx.author, ctx.guild.id, bet, balance, jackpot_pot, variant=variant)
     message = await ctx.send(embed=view.build_deal_embed(), file=view.build_hand_file(), view=view)
     view.message = message
 
@@ -798,13 +820,14 @@ async def delve_cmd(ctx, delve_id: str = None):
         await ctx.send("You're already mid-delve — finish that one first!")
         return
 
+    test_mode = await asyncio.to_thread(db.get_delve_test_mode, ctx.guild.id)
     if delve_id is not None:
         delve = dungeon.DELVES.get(delve_id)
-        if delve is None or not delve.get("active", True):
+        if delve is None or not (delve.get("active", True) or test_mode):
             await ctx.send(f"No such delve `{delve_id}`.")
             return
     else:
-        available = dungeon.active_delves()
+        available = dungeon.active_delves(include_inactive=test_mode)
         if not available:
             await ctx.send("No delves are available to play right now.")
             return
@@ -812,7 +835,7 @@ async def delve_cmd(ctx, delve_id: str = None):
             # No specific delve pinned and more than one active dungeon defined -- let the player
             # pick which dungeon first; its own confirm button leads into the same Solo/Party
             # choice below.
-            embed, view = await build_delve_picker_display(ctx.guild.id, ctx.author.id, character)
+            embed, view = await build_delve_picker_display(ctx.guild.id, ctx.author.id, character, test_mode)
             await ctx.send(embed=embed, view=view)
             return
         delve = next(iter(available.values()))

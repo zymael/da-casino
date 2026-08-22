@@ -36,8 +36,8 @@ import room_commands
 import rooms
 from admin_schemas import (
     CATEGORIES, CONTENT_TYPES, EFFECT_PARAM_NAMES, EFFECT_PARAMS_BY_TYPE, EFFECT_TYPE_HINTS,
-    EFFECT_TYPES, SHOP_KINDS, TRIGGER_PARAM_HINTS, TRIGGER_PARAM_KINDS, TRIGGER_PARAM_NAMES,
-    TRIGGER_TYPES,
+    EFFECT_TYPES, MONSTER_SKILL_EFFECT_TYPES, SHOP_KINDS, TRIGGER_PARAM_HINTS, TRIGGER_PARAM_KINDS,
+    TRIGGER_PARAM_NAMES, TRIGGER_TYPES,
 )
 
 # kind -> a no-arg callable returning the live sorted list of valid ids for that kind of trigger
@@ -123,6 +123,10 @@ h2 { color: #9a9aa4; font-size: 0.85rem; text-transform: uppercase; letter-spaci
 table { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
 th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #35353f; }
 th { color: #9a9aa4; }
+#list-table th { cursor: pointer; user-select: none; }
+#list-table th:hover { color: #e8e8ec; }
+#list-table th.sort-asc::after { content: " ▲"; }
+#list-table th.sort-desc::after { content: " ▼"; }
 a.row-link { color: #e8e8ec; text-decoration: none; }
 a.row-link:hover { color: #e8813a; }
 #list-filter { max-width: 320px; margin-bottom: 12px; }
@@ -163,6 +167,12 @@ svg.delve-arrows text { user-select: none; }
 .room-box.selected { border-color: #e8813a; }
 .room-box.is-start { box-shadow: 0 0 0 2px #40a060; }
 .room-box.drop-target-hover { border-color: #e8813a; box-shadow: 0 0 0 3px rgba(232, 129, 58, 0.55); z-index: 3; }
+.room-box.has-error { border-color: #c04040; box-shadow: 0 0 0 2px rgba(192, 64, 64, 0.45); }
+.action-node.has-error { border-left-color: #c04040; box-shadow: 0 0 0 2px rgba(192, 64, 64, 0.45); }
+.draft-tag { background: #4a3a1f; border: 1px solid #a08040; color: #f0d0a0; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; }
+#draft-save-status.saving { color: #9a9aa4; }
+#draft-save-status.saved { color: #6ac080; }
+#draft-save-status.failed { color: #e08080; }
 .room-box-header { display: flex; align-items: center; gap: 4px; }
 .room-box-id { flex: 1; font-weight: bold; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .room-flag, .room-box-select { background: none; border: none; padding: 2px; font-size: 0.85rem; cursor: pointer; color: #9a9aa4; }
@@ -220,12 +230,12 @@ _TRIGGER_PARAMS_BY_TYPE = {
 
 # Which of a delve room's type-specific detail-panel field groups (see
 # _render_room_detail_panel) apply to each room type -- same "type hides irrelevant fields" idea
-# TRIGGER_PARAMS_BY_TYPE drives for trigger rows, just at the level of whole field groups (monsters
+# TRIGGER_PARAMS_BY_TYPE drives for trigger rows, just at the level of whole field groups (groups
 # vs prompt/actions) rather than individual params. "next" isn't listed here at all -- room-to-room
 # connections are drawn on the flowchart canvas (see _render_room_box), never typed into this
 # panel. Named _DELVE_ROOM_FIELDS_BY_TYPE (not just "room") to stay clearly distinct from rooms.py's
 # unrelated casino-hub room concept _ROOM_COMMAND_KINDS mirrors above.
-_DELVE_ROOM_FIELDS_BY_TYPE = {"combat": ["monsters", "prompt"], "choice": ["prompt", "actions"]}
+_DELVE_ROOM_FIELDS_BY_TYPE = {"combat": ["groups", "prompt"], "choice": ["prompt", "actions"]}
 
 # Mirrors rooms.py's own _COMMAND_KINDS -- fixed regardless of content, same footing as
 # EFFECT_TYPES/TRIGGER_TYPES above.
@@ -469,6 +479,7 @@ function wireRepeatAdd(root) {
             // cloned monster/action row nested inside an already-open room's detail panel.
             if (window.wireFlowchartNode) window.wireFlowchartNode(container.lastElementChild);
             if (window.refreshRoomBoxIfNested) window.refreshRoomBoxIfNested(container.lastElementChild);
+            if (window.__scheduleDelveAutosave) window.__scheduleDelveAutosave();
             nextIndex++;
         });
     });
@@ -487,9 +498,11 @@ document.addEventListener('click', function (event) {
         var wrapper = group.closest('.room-wrapper');
         group.remove();
         if (wrapper && window.refreshRoomBoxIfNested) window.refreshRoomBoxIfNested(wrapper);
+        if (window.__scheduleDelveAutosave) window.__scheduleDelveAutosave();
     } else if (event.target.matches('[data-remove-room]')) {
         event.target.closest('.room-wrapper').remove();
         if (window.__redrawDelveArrows) window.__redrawDelveArrows();
+        if (window.__scheduleDelveAutosave) window.__scheduleDelveAutosave();
     }
 });
 
@@ -647,7 +660,7 @@ document.addEventListener('click', function (event) {
         clearX.setAttribute('fill', '#e8e8ec'); clearX.setAttribute('font-size', '8'); clearX.setAttribute('text-anchor', 'middle');
         clearX.style.pointerEvents = 'none';
         clearX.textContent = '✕';
-        clearDot.addEventListener('click', function (e) { e.stopPropagation(); onClear(); redrawAllArrows(); });
+        clearDot.addEventListener('click', function (e) { e.stopPropagation(); onClear(); redrawAllArrows(); scheduleAutosave(); });
         clearGroup.appendChild(clearDot);
         clearGroup.appendChild(clearX);
         svg.appendChild(clearGroup);
@@ -726,8 +739,10 @@ document.addEventListener('click', function (event) {
         var type = typeSelect ? typeSelect.value : 'combat';
         var summary = box.querySelector('[data-room-box-summary]');
         if (type === 'combat') {
-            var count = wrapper.querySelectorAll('[data-room-field="monsters"] .row-group').length;
-            summary.textContent = count + (count === 1 ? ' monster' : ' monsters');
+            var monsterCount = wrapper.querySelectorAll('[data-room-field="groups"] [data-monster-row]').length;
+            var groupCount = wrapper.querySelectorAll('[data-room-field="groups"] [data-monster-group]').length;
+            summary.textContent = monsterCount + (monsterCount === 1 ? ' monster' : ' monsters') +
+                ' (' + groupCount + (groupCount === 1 ? ' group)' : ' groups)');
         } else {
             var actionRows = wrapper.querySelectorAll('.action-row');
             summary.textContent = actionRows.length + (actionRows.length === 1 ? ' action' : ' actions');
@@ -806,6 +821,7 @@ document.addEventListener('click', function (event) {
                 if (targetInput) {
                     targetInput.value = otherIdInput.value;
                     updateLiveNextTags(wrapper);
+                    scheduleAutosave();
                 }
                 redrawAllArrows();
             }
@@ -849,6 +865,7 @@ document.addEventListener('click', function (event) {
                 node.classList.remove('dragging');
                 node.removeEventListener('pointermove', onMove);
                 node.removeEventListener('pointerup', onUp);
+                scheduleAutosave();
             }
             node.addEventListener('pointermove', onMove);
             node.addEventListener('pointerup', onUp);
@@ -978,6 +995,7 @@ document.addEventListener('click', function (event) {
         wrapper.querySelector('.room-box').classList.add('is-start');
         wrapper.querySelector('.room-flag').classList.add('is-start');
         document.getElementById('start_room_field').value = idInput.value;
+        scheduleAutosave();
     }
 
     function renameRoomReferences(oldId, newId) {
@@ -1029,6 +1047,7 @@ document.addEventListener('click', function (event) {
                 box.classList.remove('dragging');
                 box.removeEventListener('pointermove', onMove);
                 box.removeEventListener('pointerup', onUp);
+                scheduleAutosave();
             }
             box.addEventListener('pointermove', onMove);
             box.addEventListener('pointerup', onUp);
@@ -1102,6 +1121,106 @@ document.addEventListener('click', function (event) {
         refreshRoomBox(wrapper);
     }
 
+    // Draft autosave -- a delve's edit form has no "Save" button at all (see edit_view/
+    // delve_autosave_view); every meaningful change instead debounces a background POST that
+    // persists a draft (dungeon.save_delve_draft) with no validation gate, and the response's
+    // structured problem list (dungeon.check_delve_problems) drives the .has-error highlighting
+    // on the canvas below, so a still-broken draft is visible right where it's wrong without
+    // waiting for an explicit Publish attempt. This is the one place this admin panel uses
+    // fetch()/AJAX -- everywhere else is a plain full-page form POST (see the module docstring).
+    var form = canvas.closest('form');
+    var statusEl = document.getElementById('draft-save-status');
+    var autosaveTimer = null;
+    var autosaveInFlight = false;
+    var autosavePending = false;
+
+    function setStatus(text, cls) {
+        if (!statusEl) return;
+        statusEl.textContent = text;
+        statusEl.className = 'field-hint' + (cls ? ' ' + cls : '');
+    }
+
+    function applyProblems(problems) {
+        canvas.querySelectorAll('.room-box.has-error, .action-node.has-error').forEach(function (el) {
+            el.classList.remove('has-error');
+            el.removeAttribute('data-tooltip');
+        });
+        var byId = roomsById();
+        var roomMsgs = {}, actionMsgs = {};
+        (problems || []).forEach(function (p) {
+            if (!p.room_id) return; // delve-level (e.g. unreachable rooms) -- shown in the page banner only
+            if (p.action_index === null || p.action_index === undefined) {
+                (roomMsgs[p.room_id] = roomMsgs[p.room_id] || []).push(p.message);
+            } else {
+                actionMsgs[p.room_id] = actionMsgs[p.room_id] || {};
+                (actionMsgs[p.room_id][p.action_index] = actionMsgs[p.room_id][p.action_index] || []).push(p.message);
+            }
+        });
+        Object.keys(roomMsgs).forEach(function (rid) {
+            var wrapper = byId[rid];
+            if (!wrapper) return;
+            var box = wrapper.querySelector('.room-box');
+            box.classList.add('has-error');
+            box.setAttribute('data-tooltip', roomMsgs[rid].join(' / '));
+        });
+        Object.keys(actionMsgs).forEach(function (rid) {
+            var wrapper = byId[rid];
+            if (!wrapper) return;
+            Object.keys(actionMsgs[rid]).forEach(function (idx) {
+                var node = wrapper.querySelector('[data-action-node="' + wrapper.dataset.roomWrapper + '_actions_' + idx + '"]');
+                if (!node) return;
+                node.classList.add('has-error');
+                node.setAttribute('data-tooltip', actionMsgs[rid][idx].join(' / '));
+            });
+        });
+    }
+
+    function runAutosave(isRetry) {
+        if (autosaveInFlight) { autosavePending = true; return; }
+        autosaveInFlight = true;
+        setStatus('Saving…', 'saving');
+        var itemId = form.dataset.delveItemId;
+        fetch('/edit/delves/' + encodeURIComponent(itemId) + '/autosave', { method: 'POST', body: new FormData(form) })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                autosaveInFlight = false;
+                if (!data.ok) throw new Error(data.error || 'autosave rejected');
+                if (data.id && data.id !== itemId) {
+                    // A brand-new delve just got its first real id (or an existing one was
+                    // renamed) -- retarget future autosave/publish calls and the visible URL
+                    // without a reload, so the draft stays findable if the tab is closed/reopened
+                    // (edit_view looks a draft up by the URL's own item_id).
+                    form.dataset.delveItemId = data.id;
+                    var publishBtn = form.querySelector('button[formaction]');
+                    if (publishBtn) publishBtn.setAttribute('formaction', '/edit/delves/' + encodeURIComponent(data.id) + '/publish');
+                    history.replaceState(null, '', '/edit/delves/' + encodeURIComponent(data.id));
+                }
+                setStatus(data.id ? ('Saved as draft · ' + new Date().toLocaleTimeString()) : 'Waiting for an id…', 'saved');
+                applyProblems(data.problems);
+                if (autosavePending) { autosavePending = false; scheduleAutosave(); }
+            })
+            .catch(function () {
+                autosaveInFlight = false;
+                if (!isRetry) {
+                    setStatus('Autosave failed, retrying…', 'failed');
+                    setTimeout(function () { runAutosave(true); }, 3000);
+                } else {
+                    setStatus('Autosave failed -- edits are only in this browser tab until it succeeds.', 'failed');
+                }
+            });
+    }
+
+    function scheduleAutosave() {
+        if (autosaveTimer) clearTimeout(autosaveTimer);
+        autosaveTimer = setTimeout(runAutosave, 1800);
+    }
+
+    if (form) {
+        form.addEventListener('input', function (e) { if (e.target.type !== 'file' || e.target.value) scheduleAutosave(); });
+        form.addEventListener('change', scheduleAutosave);
+    }
+    window.__scheduleDelveAutosave = scheduleAutosave;
+
     window.wireFlowchartNode = wireFlowchartNode;
     window.refreshRoomBoxIfNested = refreshRoomBoxIfNested;
     window.__redrawDelveArrows = redrawAllArrows;
@@ -1121,6 +1240,40 @@ if (listFilter) {
         });
     });
 }
+
+// Click-to-sort headers for every list_view's table -- one shared listener, generic over
+// whatever columns a given content type's schema happens to render (list_view never needs to
+// know this exists). Numeric-looking columns (e.g. a monster's "tier") sort numerically; anything
+// else sorts as case-insensitive text. Reorders actual <tr> elements in place via appendChild
+// (which moves, not clones), so it composes for free with the filter box above -- a hidden row
+// stays hidden after a re-sort, since sorting never touches style.display.
+(function () {
+    var table = document.getElementById('list-table');
+    if (!table) return;
+    var tbody = table.querySelector('tbody');
+    var headers = table.querySelectorAll('thead th');
+    var sortState = { col: -1, asc: true };
+    headers.forEach(function (th, colIndex) {
+        th.addEventListener('click', function () {
+            var asc = sortState.col === colIndex ? !sortState.asc : true;
+            sortState = { col: colIndex, asc: asc };
+            headers.forEach(function (h) { h.classList.remove('sort-asc', 'sort-desc'); });
+            th.classList.add(asc ? 'sort-asc' : 'sort-desc');
+
+            var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+            rows.sort(function (a, b) {
+                var av = (a.children[colIndex] ? a.children[colIndex].textContent : '').trim();
+                var bv = (b.children[colIndex] ? b.children[colIndex].textContent : '').trim();
+                var an = parseFloat(av), bn = parseFloat(bv);
+                var cmp = (av !== '' && bv !== '' && !isNaN(an) && !isNaN(bn))
+                    ? an - bn
+                    : av.toLowerCase().localeCompare(bv.toLowerCase());
+                return asc ? cmp : -cmp;
+            });
+            rows.forEach(function (row) { tbody.appendChild(row); });
+        });
+    });
+})();
 """
 
 
@@ -1143,9 +1296,13 @@ def _sidebar_html(active_content_type: str | None) -> str:
         f'<a class="nav-item{" active" if active_content_type == "utilities" else ""}" '
         f'href="/utilities">🧰 Utilities</a>'
     )
+    player_debug_link = (
+        f'<a class="nav-item{" active" if active_content_type == "player-debug" else ""}" '
+        f'href="/player-debug">🐛 Player Debug</a>'
+    )
     return (
         f'<nav class="sidebar"><a class="brand" href="/">🛠️ Content Editor</a>'
-        f'{assets_link}{utilities_link}{"".join(sections)}</nav>'
+        f'{assets_link}{utilities_link}{player_debug_link}{"".join(sections)}</nav>'
     )
 
 
@@ -1253,9 +1410,17 @@ def _render_repeatable(container_id: str, rows_html: list[str], template_row_htm
     )
 
 
-def _render_effect_row(prefix: str, effect: dict) -> str:
-    """One row of an "effects" list. See _parse_field's "effects" case for the matching parse
-    side, and _render_stage_row for why `prefix` is sometimes a "ROWIDX" placeholder.
+def _render_effect_row(prefix: str, effect: dict, allowed_types: list[str] = EFFECT_TYPES) -> str:
+    """One row of an "effects" list. See _parse_field's "effects" case (and _parse_effects_list,
+    reused by monster skills' own nested effects) for the matching parse side, and
+    _render_stage_row for why `prefix` is sometimes a "ROWIDX" placeholder.
+
+    `allowed_types` narrows which types the dropdown even offers -- a top-level skill/consumable
+    "effects" field uses every EFFECT_TYPES entry (the default), while a monster's own skill is
+    restricted to MONSTER_SKILL_EFFECT_TYPES (see admin_schemas.py for why). The page script's
+    wireEffectSelects hide/show logic (keyed by EFFECT_PARAMS_BY_TYPE) needs no changes either way
+    -- it only ever reacts to whichever type ends up selected, never enumerates the dropdown's own
+    option list itself.
 
     Every row shows all of EFFECT_PARAM_NAMES (value/reduction/multiplier), each wrapped in a
     label carrying data-param="<name>" -- the page script's wireEffectSelects hides whichever ones
@@ -1266,7 +1431,7 @@ def _render_effect_row(prefix: str, effect: dict) -> str:
     type."""
     type_options = "".join(
         f'<option value="{t}"{" selected" if t == effect.get("type") else ""}>{t}</option>'
-        for t in [""] + EFFECT_TYPES
+        for t in [""] + allowed_types
     )
     param_inputs = "".join(
         f'<label data-param="{p}">{p}<input type="number" step="any" name="{prefix}_{p}" value="{effect.get(p, "")}"></label>'
@@ -1277,6 +1442,38 @@ def _render_effect_row(prefix: str, effect: dict) -> str:
         f'<label>type<select name="{prefix}_type" class="effect-type-select">{type_options}</select></label>'
         f'<small class="field-hint effect-hint"></small>'
         f'{param_inputs}<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
+    )
+
+
+def _render_monster_skill_row(prefix: str, skill: dict) -> str:
+    """One entry in a monster's own "skills" repeatable -- name + chance (a relative WEIGHT
+    against the monster's own attack_chance and every other skill's own chance, see
+    dungeon.pick_monster_action -- NOT a 0-1 probability, so e.g. two skills both at chance=1 with
+    attack_chance=1 split evenly three ways) plus its own nested effects repeatable, one level
+    deeper than the monster's top-level "drops"/"groups"-shaped fields -- same nesting-depth-
+    agnostic wireRepeatAdd/ROWIDX machinery every other nested repeatable in this admin panel
+    already relies on (rooms -> room -> groups -> group -> monster is the deepest existing
+    precedent). Effects here are restricted to MONSTER_SKILL_EFFECT_TYPES (see
+    dungeon.MONSTER_SKILL_EFFECT_TYPES for why) via _render_effect_row's allowed_types param --
+    the same row-builder a player skill/consumable's own top-level "effects" field uses, just with
+    a narrower type dropdown."""
+    effects_container = f"{prefix}_effects"
+    effects = list(skill.get("effects") or [])
+    effect_rows_html = [
+        _render_effect_row(f"{effects_container}_{i}", e, MONSTER_SKILL_EFFECT_TYPES) for i, e in enumerate(effects)
+    ]
+    effect_template_html = _render_effect_row(f"{effects_container}_ROWIDX", {}, MONSTER_SKILL_EFFECT_TYPES)
+    effects_repeatable = _render_repeatable(effects_container, effect_rows_html, effect_template_html, "+ Add effect")
+    return (
+        f'<fieldset class="row-group"><legend>Skill</legend>'
+        f'<label>name<input type="text" name="{prefix}_name" value="{html.escape(skill.get("name", ""))}"></label>'
+        f'<label>chance (weight)<input type="number" step="any" min="0" name="{prefix}_chance" '
+        f'value="{skill.get("chance", "")}"></label>'
+        f'<small class="field-hint">A relative weight against this monster\'s own attack_chance '
+        f'and its other skills\' chances -- not a 0-1 probability. Higher = more likely relative '
+        f'to the others.</small>'
+        f'<div>{effects_repeatable}</div>'
+        f'<button type="button" class="remove-row" data-remove-row>✕ Remove skill</button></fieldset>'
     )
 
 
@@ -1331,12 +1528,18 @@ def _render_image_input(name: str, label: str, value: str | None) -> str:
 
 
 def _monster_option_choices() -> list[tuple[str, str]]:
-    """monster_id -> "Tier N — Name", sorted by tier then name -- the label shown in every
+    """monster_id -> "Lvl N — Name", sorted by level then name -- the label shown in every
     monster <select> the delve room editor renders, so a large roster stays scannable by
-    difficulty instead of just alphabetically."""
+    difficulty instead of just alphabetically. Uses each monster's own intended_level if it's been
+    set, else dungeon.estimate_monster_level's reverse estimate off its actual stats -- same
+    fallback xp_for_monster already uses, so every monster sorts sensibly even before it's been
+    given an explicit intended_level."""
+    def level_of(m: dict) -> float:
+        return m.get("intended_level") or dungeon.estimate_monster_level(m)
+
     return [
-        (mid, f"Tier {m['tier']} — {m['name']}")
-        for mid, m in sorted(dungeon.MONSTERS.items(), key=lambda kv: (kv[1]["tier"], kv[1]["name"]))
+        (mid, f"Lvl {level_of(m):.0f} — {m['name']}")
+        for mid, m in sorted(dungeon.MONSTERS.items(), key=lambda kv: (level_of(kv[1]), kv[1]["name"]))
     ]
 
 
@@ -1350,8 +1553,31 @@ def _render_room_monster_row(name: str, monster_id: str | None) -> str:
         for mid, label in [("", "—")] + _monster_option_choices()
     )
     return (
-        f'<div class="row-group"><label>monster<select name="{name}">{options}</select></label>'
+        f'<div class="row-group" data-monster-row><label>monster<select name="{name}">{options}</select></label>'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
+    )
+
+
+def _render_room_monster_group_row(prefix: str, group: list[str]) -> str:
+    """One monster GROUP within a combat room's own repeatable "groups" list -- a group is every
+    monster that spawns simultaneously as one encounter (a group of one is an ordinary
+    single-monster fight; see dungeon.py's module docstring). Nests _render_room_monster_row's own
+    repeatable one level deeper than before (room -> groups -> group -> monster), reusing the exact
+    same wireRepeatAdd/ROWIDX machinery already proven nesting-depth-agnostic by _render_action_row
+    (rooms -> room -> actions) -- no JS changes needed. Also carries "row-group" so the page's
+    generic remove-row handler (`event.target.closest('.row-group')`) removes the whole group when
+    its own remove button is clicked, same as it already removes just one nested monster row when
+    *that* row's own remove button is clicked instead -- DOM proximity alone disambiguates which
+    level a given remove click means, no extra JS needed here either. See
+    _render_room_detail_panel below and _parse_delve_flowchart's matching parse side."""
+    monsters_container = f"{prefix}_monsters"
+    monster_rows_html = [_render_room_monster_row(f"{monsters_container}_{j}", mid) for j, mid in enumerate(group)]
+    monster_template_html = _render_room_monster_row(f"{monsters_container}_ROWIDX", None)
+    monsters_repeatable = _render_repeatable(monsters_container, monster_rows_html, monster_template_html, "+ Add monster")
+    return (
+        f'<fieldset class="row-group monster-group" data-monster-group>'
+        f'<legend>Group</legend>{monsters_repeatable}'
+        f'<button type="button" class="remove-row" data-remove-row>✕ Remove group</button></fieldset>'
     )
 
 
@@ -1459,7 +1685,7 @@ def _default_action_position(room_pos: dict, index: int) -> dict:
     return {"x": room_pos["x"] + 190, "y": room_pos["y"] + index * 74}
 
 
-def _render_action_node(action_prefix: str, action: dict, pos: dict) -> str:
+def _render_action_node(action_prefix: str, action: dict, pos: dict, error_messages: list[str] | None = None) -> str:
     """A choice action's own connector box on the canvas -- each action gets one, freely
     draggable (its position persists on the action itself, "x"/"y", not auto-tracking its room)
     and connected to its parent room by a plain purple arrow, so a room with several actions
@@ -1470,7 +1696,12 @@ def _render_action_node(action_prefix: str, action: dict, pos: dict) -> str:
     syncActionNodes), its own x/y hidden inputs (set by dragging, see wireActionNodeDrag), and
     whichever connector handle(s) its outcome actually has: a "success" handle always, a second
     dashed "fail" handle only once this action has a check configured (see dungeon.py's module
-    docstring for why that -- not the check -- is the primary way a delve is meant to branch)."""
+    docstring for why that -- not the check -- is the primary way a delve is meant to branch).
+
+    `error_messages`, if given, is this action's own share of dungeon.check_delve_problems's
+    output (see _group_delve_problems) -- adds a ".has-error" class and a tooltip listing what's
+    still wrong, so a draft's still-broken actions are visible right on the canvas instead of only
+    in a page-level banner."""
     check = action.get("check") or {}
     has_check = bool(check.get("stat") and check.get("dc"))
     label = html.escape(action.get("label") or "(unlabeled)")
@@ -1479,9 +1710,12 @@ def _render_action_node(action_prefix: str, action: dict, pos: dict) -> str:
         f'data-tooltip="Drag onto another room -- where {label} leads if the check fails."></div>'
         if has_check else ""
     )
+    error_attr = (
+        f' data-tooltip="{html.escape(" / ".join(error_messages))}"' if error_messages else ""
+    )
     return (
-        f'<div class="action-node" data-action-node="{action_prefix}" '
-        f'style="left:{pos["x"]}px;top:{pos["y"]}px">'
+        f'<div class="action-node{" has-error" if error_messages else ""}" data-action-node="{action_prefix}" '
+        f'style="left:{pos["x"]}px;top:{pos["y"]}px"{error_attr}>'
         f'<input type="hidden" name="{action_prefix}_x" class="action-x-input" value="{pos["x"]}">'
         f'<input type="hidden" name="{action_prefix}_y" class="action-y-input" value="{pos["y"]}">'
         f'<span class="action-node-label" data-action-node-label>{label}</span>'
@@ -1493,7 +1727,7 @@ def _render_action_node(action_prefix: str, action: dict, pos: dict) -> str:
     )
 
 
-def _render_room_box(prefix: str, room: dict, pos: dict, is_start: bool) -> str:
+def _render_room_box(prefix: str, room: dict, pos: dict, is_start: bool, error_messages: list[str] | None = None) -> str:
     """The draggable box on the flowchart canvas -- id, a type icon, a summary, and (combat only)
     the one connector handle a connection is *drawn from* (see admin_server.py's flowchart script
     in _dynamic_script for the drag-to-move/drag-to-connect behavior itself). A choice room's own
@@ -1502,13 +1736,35 @@ def _render_room_box(prefix: str, room: dict, pos: dict, is_start: bool) -> str:
     corner of one shared box. The hidden room_{i}_x/_y/_next inputs live here, next to the controls
     that actually set them; id/type/monsters/prompt/actions/background live in the paired detail
     panel (_render_room_detail_panel), which is what actually cuts down the old wall-of-text-boxes
-    problem -- only the selected room's own fields are ever on screen at once."""
+    problem -- only the selected room's own fields are ever on screen at once.
+
+    `error_messages`, if given, is this room's own share of dungeon.check_delve_problems's output
+    (see _group_delve_problems) -- adds a ".has-error" class and a tooltip listing what's still
+    wrong with this room specifically (not its actions, which get their own via
+    _render_action_node), same "highlight it right where it is" reasoning."""
     room_type = room.get("type") or "combat"
     room_id = room.get("id", "")
     icon = "⚔️" if room_type == "combat" else "💬"
     if room_type == "combat":
-        monster_count = len(room.get("monsters", []))
-        summary = f"{monster_count} monster{'s' if monster_count != 1 else ''}"
+        groups = room.get("monster_groups", [])
+        monster_count = sum(len(g) for g in groups)
+        # Best-effort level-equivalent range across the room's candidate groups (see
+        # dungeon.estimate_group_level) -- skips any not-yet-known monster id (an in-progress,
+        # unsaved edit can reference one) rather than erroring, same "display, don't validate"
+        # spirit as the rest of this box.
+        group_levels = [
+            dungeon.estimate_group_level([dungeon.MONSTERS[mid] for mid in g if mid in dungeon.MONSTERS])
+            for g in groups
+        ]
+        group_levels = [lvl for lvl in group_levels if lvl > 0]
+        level_range = ""
+        if group_levels:
+            lo, hi = min(group_levels), max(group_levels)
+            level_range = f", ≈ Lvl {lo:.0f}" if hi - lo < 0.5 else f", ≈ Lvl {lo:.0f}-{hi:.0f}"
+        summary = (
+            f"{monster_count} monster{'s' if monster_count != 1 else ''} "
+            f"({len(groups)} group{'s' if len(groups) != 1 else ''}{level_range})"
+        )
         handles_html = (
             f'<div class="connector-handle" data-connector-role="success" '
             f'data-tooltip="Drag onto another room -- where the player goes after winning the '
@@ -1523,9 +1779,13 @@ def _render_room_box(prefix: str, room: dict, pos: dict, is_start: bool) -> str:
         f'<input type="hidden" name="{prefix}_next" class="room-next-input" value="{html.escape(room.get("next") or "")}">'
         if room_type == "combat" else ""
     )
+    error_attr = (
+        f' data-tooltip="{html.escape(" / ".join(error_messages))}"' if error_messages else ""
+    )
     return (
-        f'<div class="room-box room-box-{room_type}{" is-start" if is_start else ""}" '
-        f'data-room-prefix="{prefix}" style="left:{pos["x"]}px;top:{pos["y"]}px">'
+        f'<div class="room-box room-box-{room_type}{" is-start" if is_start else ""}'
+        f'{" has-error" if error_messages else ""}" '
+        f'data-room-prefix="{prefix}" style="left:{pos["x"]}px;top:{pos["y"]}px"{error_attr}>'
         f'<input type="hidden" name="{prefix}_x" class="room-x-input" value="{pos["x"]}">'
         f'<input type="hidden" name="{prefix}_y" class="room-y-input" value="{pos["y"]}">'
         f'{next_hidden}'
@@ -1557,11 +1817,11 @@ def _render_room_detail_panel(prefix: str, room: dict) -> str:
         f'<option value="{t}"{" selected" if t == room_type else ""}>{t}</option>' for t in dungeon.ROOM_TYPES
     )
 
-    monsters_container = f"{prefix}_monsters"
-    monster_ids = room.get("monsters", [])
-    monster_rows_html = [_render_room_monster_row(f"{monsters_container}_{j}", mid) for j, mid in enumerate(monster_ids)]
-    monster_template_html = _render_room_monster_row(f"{monsters_container}_ROWIDX", None)
-    monsters_repeatable = _render_repeatable(monsters_container, monster_rows_html, monster_template_html, "+ Add monster")
+    groups_container = f"{prefix}_groups"
+    groups = room.get("monster_groups", [])
+    group_rows_html = [_render_room_monster_group_row(f"{groups_container}_{j}", g) for j, g in enumerate(groups)]
+    group_template_html = _render_room_monster_group_row(f"{groups_container}_ROWIDX", [])
+    groups_repeatable = _render_repeatable(groups_container, group_rows_html, group_template_html, "+ Add group")
 
     actions_container = f"{prefix}_actions"
     actions = room.get("actions", [])
@@ -1586,7 +1846,10 @@ def _render_room_detail_panel(prefix: str, room: dict) -> str:
         f'<small class="field-hint">Combat: a monster fight with one exit. Choice: flavor text '
         f'plus player-picked actions, each with its own destination -- this is where branching '
         f'paths are authored.</small></label>'
-        f'<div data-room-field="monsters"><label>monsters</label>{monsters_repeatable}</div>'
+        f'<div data-room-field="groups"><label>monster groups<small class="field-hint">One group is '
+        f'picked at random each visit; every monster within a group spawns together as one '
+        f'simultaneous encounter. A group of one monster is an ordinary single-monster '
+        f'fight.</small></label>{groups_repeatable}</div>'
         f'<div data-room-field="prompt"><label>prompt'
         f'<small class="field-hint">Required for a choice room -- the menu text shown alongside '
         f'its actions. Optional for a combat room: shown once, right as the room is entered, ahead '
@@ -1601,12 +1864,18 @@ def _render_room_detail_panel(prefix: str, room: dict) -> str:
     )
 
 
-def _render_room_node(prefix: str, room: dict, pos: dict, is_start: bool) -> str:
+def _render_room_node(
+    prefix: str, room: dict, pos: dict, is_start: bool,
+    room_errors: list[str] | None = None, action_errors: dict[int, list[str]] | None = None,
+) -> str:
     """Box + action nodes (choice rooms only) + detail panel for one room, wrapped in a single
     .room-wrapper -- the unit _render_repeatable's existing <template>/ROWIDX clone mechanism (see
     wireRepeatAdd) operates on, so "+ Add Room" keeps working with zero changes to that shared
     primitive. Action nodes are siblings of the room's own box (not nested inside it) so each gets
-    its own independent position in the same canvas coordinate space -- see _render_action_node."""
+    its own independent position in the same canvas coordinate space -- see _render_action_node.
+
+    `room_errors`/`action_errors` are this one room's slice of a delve-wide problem map (see
+    _group_delve_problems) -- action_errors is keyed by action index within this room."""
     action_nodes_html = ""
     if (room.get("type") or "combat") == "choice":
         action_nodes_html = "".join(
@@ -1614,34 +1883,63 @@ def _render_room_node(prefix: str, room: dict, pos: dict, is_start: bool) -> str
                 f"{prefix}_actions_{j}", action,
                 {"x": action["x"], "y": action["y"]} if "x" in action and "y" in action
                 else _default_action_position(pos, j),
+                (action_errors or {}).get(j),
             )
             for j, action in enumerate(room.get("actions", []))
         )
     return (
         f'<div class="room-wrapper" data-room-wrapper="{prefix}">'
-        f'{_render_room_box(prefix, room, pos, is_start)}'
+        f'{_render_room_box(prefix, room, pos, is_start, room_errors)}'
         f'{action_nodes_html}'
         f'{_render_room_detail_panel(prefix, room)}'
         f'</div>'
     )
 
 
-def _render_delve_flowchart(label: str, rooms: list[dict], entry: dict) -> str:
+def _group_delve_problems(problems: list[dict]) -> tuple[dict[str, list[str]], dict[str, dict[int, list[str]]]]:
+    """Splits dungeon.check_delve_problems's flat output into (room_id -> messages, room_id ->
+    {action_index -> messages}) -- the shape _render_delve_flowchart needs to hand each room/action
+    node its own slice. A delve-level problem (room_id is None -- e.g. unreachable rooms, a bad
+    start_room) has nowhere on the canvas to attach to, so it's dropped here; it's still shown in
+    the page-level banner (see edit_view), same as it always was."""
+    room_msgs: dict[str, list[str]] = {}
+    action_msgs: dict[str, dict[int, list[str]]] = {}
+    for p in problems:
+        room_id = p["room_id"]
+        if room_id is None:
+            continue
+        if p["action_index"] is None:
+            room_msgs.setdefault(room_id, []).append(p["message"])
+        else:
+            action_msgs.setdefault(room_id, {}).setdefault(p["action_index"], []).append(p["message"])
+    return room_msgs, action_msgs
+
+
+def _render_delve_flowchart(label: str, rooms: list[dict], entry: dict, problems: list[dict] | None = None) -> str:
     """Top-level renderer for a delve's "rooms" field -- a flowchart canvas (draggable room boxes
     + an SVG arrow overlay, see the flowchart script in _dynamic_script) instead of a flat stack of
     text-box rows. `entry` is the full delve dict, not just its "rooms" value -- _render_field
     already passes this through for every field type (see the "cascaded_id" case), so this reads
     entry.get("layout")/entry.get("start_room") with no new plumbing. The single page-level hidden
     "start_room" input lives here, replacing the old free-typed top-level field entirely (see
-    admin_schemas.py) -- it's set by clicking a room's own flag icon (_render_room_box) instead."""
+    admin_schemas.py) -- it's set by clicking a room's own flag icon (_render_room_box) instead.
+
+    `problems`, if given, is dungeon.check_delve_problems's output for this exact entry -- grouped
+    per room/action (see _group_delve_problems) so a draft's still-broken spots are highlighted
+    directly on the canvas, not just named in a page-level banner."""
     layout = entry.get("layout") or {}
     start_room = entry.get("start_room") or (rooms[0]["id"] if rooms else "")
+    room_msgs, action_msgs = _group_delve_problems(problems or [])
 
     room_nodes_html = []
     for i, room in enumerate(rooms):
         prefix = f"room_{i}"
         pos = layout.get(room.get("id"), _default_room_position(i))
-        room_nodes_html.append(_render_room_node(prefix, room, pos, room.get("id") == start_room))
+        room_id = room.get("id")
+        room_nodes_html.append(_render_room_node(
+            prefix, room, pos, room.get("id") == start_room,
+            room_msgs.get(room_id), action_msgs.get(room_id),
+        ))
     template_html = _render_room_node("room_ROWIDX", {}, _default_room_position(len(rooms)), False)
 
     canvas_html = _render_repeatable("delve-rooms-canvas", room_nodes_html, template_html, "+ Add Room")
@@ -1763,7 +2061,7 @@ def _render_room_command_row(prefix: str, command: dict) -> str:
     )
 
 
-def _render_field(field: dict, value, entry: dict | None = None) -> str:
+def _render_field(field: dict, value, entry: dict | None = None, problems: list[dict] | None = None) -> str:
     name, ftype = field["name"], field["type"]
     label = html.escape(name)
 
@@ -1842,6 +2140,13 @@ def _render_field(field: dict, value, entry: dict | None = None) -> str:
         repeatable = _render_repeatable(f"{name}-rows", rows_html, template_html, "+ Add effect")
         return f'<fieldset><legend>{label}</legend>{repeatable}</fieldset>'
 
+    if ftype == "monster_skills":
+        skills = list(value or [])
+        rows_html = [_render_monster_skill_row(f"skill_{i}", s) for i, s in enumerate(skills)]
+        template_html = _render_monster_skill_row("skill_ROWIDX", {})
+        repeatable = _render_repeatable(f"{name}-rows", rows_html, template_html, "+ Add skill")
+        return f'<fieldset><legend>{label}</legend>{repeatable}</fieldset>'
+
     if ftype == "materials":
         materials = list((value or {}).items())
         rows_html = [_render_material_row(f"material_{i}", m_id, qty) for i, (m_id, qty) in enumerate(materials)]
@@ -1858,7 +2163,7 @@ def _render_field(field: dict, value, entry: dict | None = None) -> str:
 
     if ftype == "delve_flowchart":
         rooms = list(value or [])
-        return _render_delve_flowchart(label, rooms, entry or {})
+        return _render_delve_flowchart(label, rooms, entry or {}, problems)
 
     if ftype == "shop_items":
         shop_entries = list(value or [])
@@ -1891,20 +2196,21 @@ def _render_field(field: dict, value, entry: dict | None = None) -> str:
     raise ValueError(f"admin_schemas.py: unknown field type {ftype!r}")
 
 
-def _render_field_with_hint(field: dict, value, entry: dict | None = None) -> str:
+def _render_field_with_hint(field: dict, value, entry: dict | None = None, problems: list[dict] | None = None) -> str:
     """_render_field, plus that field's optional schema-level "hint" (see admin_schemas.py's
     module docstring) as small print underneath -- for a top-level box like "npc" whose meaning
     isn't obvious from its name alone. Kept separate from _render_field itself so every field
     type's branch there stays focused on just its own markup. `entry` is only ever consulted by
-    the "cascaded_id" branch (it needs a sibling field's current value, not just its own)."""
-    field_html = _render_field(field, value, entry)
+    the "cascaded_id" branch (it needs a sibling field's current value, not just its own);
+    `problems` only by "delve_flowchart" (see _render_delve_flowchart)."""
+    field_html = _render_field(field, value, entry, problems)
     hint = field.get("hint")
     if not hint:
         return field_html
     return field_html + f'<small class="field-hint">{html.escape(hint)}</small>'
 
 
-def _render_fields(fields: list[dict], entry: dict) -> str:
+def _render_fields(fields: list[dict], entry: dict, problems: list[dict] | None = None) -> str:
     """Renders a whole edit form's fields in schema order, inserting a heading each time a
     field's "group" (see admin_schemas.py's module docstring) differs from the previous field's --
     turns a flat stack of same-weight boxes into sections ("Identity", "Stats", "Loot", ...).
@@ -1917,8 +2223,31 @@ def _render_fields(fields: list[dict], entry: dict) -> str:
         if group and group != last_group:
             parts.append(f'<div class="field-group-heading">{html.escape(group)}</div>')
         last_group = group
-        parts.append(_render_field_with_hint(field, entry.get(field["name"]), entry))
+        parts.append(_render_field_with_hint(field, entry.get(field["name"]), entry, problems))
     return "".join(parts)
+
+
+def _parse_effects_list(container_prefix: str, form: dict) -> list[dict]:
+    """Parses one "effects" repeatable's submitted rows -- shared by the top-level "effects" field
+    type and each monster skill's own nested effects list (see "monster_skills" below).
+    Indices aren't contiguous from 0 -- rows can be added/removed client-side in any order (see
+    _render_effect_row) -- so this discovers whatever "<container_prefix>_<N>_type" keys actually
+    made it into the submission."""
+    pattern = re.compile(rf"{re.escape(container_prefix)}_(\d+)_type")
+    indices = sorted(int(m.group(1)) for k in form if (m := pattern.fullmatch(k)))
+    effects = []
+    for i in indices:
+        prefix = f"{container_prefix}_{i}"
+        effect_type = form.get(f"{prefix}_type", "").strip()
+        if not effect_type:
+            continue
+        effect = {"type": effect_type}
+        for p in EFFECT_PARAM_NAMES:
+            raw = form.get(f"{prefix}_{p}", "").strip()
+            if raw:
+                effect[p] = float(raw) if "." in raw else int(raw)
+        effects.append(effect)
+    return effects
 
 
 def _parse_field(field: dict, form: dict) -> tuple | None:
@@ -1980,23 +2309,27 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
         return (name, bonuses)
 
     if ftype == "effects":
-        # Indices aren't contiguous from 0 -- rows can be added/removed client-side in any order
-        # (see _render_field's "effects" case) -- so this discovers whatever effect_<N>_type keys
-        # actually made it into the submission, same approach as "quest_stages" below.
-        indices = sorted(int(m.group(1)) for k in form if (m := re.fullmatch(r"effect_(\d+)_type", k)))
-        effects = []
+        return (name, _parse_effects_list("effect", form))
+
+    if ftype == "monster_skills":
+        # A skill row is discovered by its own "_name" key being non-blank -- same "not yet filled
+        # in, just skip it" reasoning _render_room_monster_row's monster rows already use, rather
+        # than actions'/rooms' presence-based-plus-error-banner approach, since a monster skill's
+        # name has nowhere sensible to fall back to (no "blank name = special meaning" case exists
+        # here the way a blank room "next" means "wins the delve").
+        indices = sorted({
+            int(m.group(1)) for k in form if (m := re.fullmatch(r"skill_(\d+)_name", k)) and form[k].strip()
+        })
+        skills = []
         for i in indices:
-            prefix = f"effect_{i}"
-            effect_type = form.get(f"{prefix}_type", "").strip()
-            if not effect_type:
-                continue
-            effect = {"type": effect_type}
-            for p in EFFECT_PARAM_NAMES:
-                raw = form.get(f"{prefix}_{p}", "").strip()
-                if raw:
-                    effect[p] = float(raw) if "." in raw else int(raw)
-            effects.append(effect)
-        return (name, effects)
+            prefix = f"skill_{i}"
+            skill_name = form.get(f"{prefix}_name", "").strip()
+            raw_chance = form.get(f"{prefix}_chance", "").strip()
+            chance = (float(raw_chance) if "." in raw_chance else int(raw_chance)) if raw_chance else 0
+            effects = _parse_effects_list(f"{prefix}_effects", form)
+            if effects:  # a skill with no effects yet isn't meaningful to save -- drop it silently
+                skills.append({"name": skill_name, "chance": chance, "effects": effects})
+        return (name, skills)
 
     if ftype == "materials":
         indices = sorted(int(m.group(1)) for k in form if (m := re.fullmatch(r"material_(\d+)_id", k)))
@@ -2171,6 +2504,62 @@ def _save_uploaded_image(file_field, subdir: str, entry_id: str) -> str | None:
     return os.path.relpath(dest_path, os.path.dirname(__file__))
 
 
+def _build_entry_from_form(spec: dict, form: dict, entry_id_for_upload: str, existing_entry: dict) -> tuple[dict, list[str], list[str]]:
+    """Parses one submitted edit-form into the JSON-shaped dict `_write_and_validate` (or, for a
+    delve draft, dungeon.save_delve_draft) expects, field by field per spec["fields"]. Shared by
+    every content type's ordinary save AND (for delves) both the autosave and publish routes, so
+    those three save paths can never drift from each other on what a submitted form actually
+    means.
+
+    Returns (new_entry, fatal_errors, soft_errors). fatal_errors is a bad image upload -- always
+    fatal, for any content type, since there's no partial state worth preserving for a failed file
+    write. soft_errors is delve-only: a still-blank room id/action label, collected by
+    _parse_delve_flowchart instead of raised (see its own docstring) -- an ordinary save still
+    treats this as fatal too (see edit_view, which merges both lists back together for that path),
+    but a delve's draft autosave does not, which is the entire reason these are kept separate
+    here rather than one merged list like before."""
+    new_entry: dict = {}
+    fatal_errors: list[str] = []
+    soft_errors: list[str] = []
+    for field in spec["fields"]:
+        if field["type"] == "image":
+            try:
+                new_path = _save_uploaded_image(
+                    form.get(f"{field['name']}_file"), field["subdir"], entry_id_for_upload
+                )
+            except ValueError as e:
+                fatal_errors.append(str(e))
+                new_path = None
+            if new_path is not None:
+                new_entry[field["name"]] = new_path
+            elif existing_entry.get(field["name"]):
+                new_entry[field["name"]] = existing_entry[field["name"]]  # no new upload -- keep what was there
+            continue
+        if field["type"] == "delve_flowchart":
+            try:
+                parsed = _parse_delve_flowchart(form, entry_id_for_upload, existing_entry, field["subdir"])
+            except ValueError as e:
+                # Still raised for a genuinely bad image upload (see that function's own
+                # docstring) -- there's no partial room/action data to preserve in that case,
+                # unlike a blank id/label below.
+                fatal_errors.append(str(e))
+            else:
+                # Always applied, errors or not -- a blank id/label is carried in "errors" (see
+                # _parse_delve_flowchart's docstring) rather than raised, specifically so "rooms"
+                # here still reflects exactly what was submitted and the canvas re-renders
+                # unchanged instead of coming back empty.
+                new_entry[field["name"]] = parsed["rooms"]
+                if parsed["layout"]:
+                    new_entry["layout"] = parsed["layout"]
+                new_entry["start_room"] = parsed["start_room"]
+                soft_errors.extend(parsed["errors"])
+            continue
+        parsed = _parse_field(field, form)
+        if parsed is not None:
+            new_entry[parsed[0]] = parsed[1]
+    return new_entry, fatal_errors, soft_errors
+
+
 def _parse_outcome(prefix: str, form: dict) -> dict:
     """An action's on_success/on_fail -- next/hp_delta/message, each omitted (not written as an
     empty string / null) if left blank, same "blank means absent" convention every other optional
@@ -2265,11 +2654,14 @@ def _parse_delve_flowchart(form: dict, entry_id_for_upload: str, existing_entry:
     added to the canvas has a position, even one added and left otherwise untouched, unlike a
     combat room's monster rows (which can legitimately be entirely empty while the row is being
     filled in, so those really are discovered by "non-blank"). Branches on that room's own
-    "room_<i>_type" to decide which fields matter: combat parses its monster rows (two further
-    levels of index, "room_<i>_monsters_<j>", same "don't assume contiguous-from-0" technique), its
+    "room_<i>_type" to decide which fields matter: combat parses its groups repeatable (three
+    further levels of index -- "room_<i>_groups_<j>_monsters_<k>" -- group index j discovered from
+    key *presence* the same way _parse_actions discovers action indices, monster index k within
+    each group discovered by "non-blank" the same way a bare monster row already was; a group with
+    no non-blank monster left in it is dropped entirely rather than saved as an empty group), its
     own "next" (written by the flowchart script's drag-to-connect, not typed -- see
     _render_room_box), and its own optional "prompt" (shown once at room-entry, ahead of the
-    monster's own flavor text -- see dungeon_view._combat_intro_text); choice parses its own
+    monsters' own flavor text -- see dungeon_view._combat_intro_text); choice parses its own
     required prompt plus its own nested actions repeatable (_parse_actions, whose on_success/
     on_fail "next" is the same drag-to-connect story). Also collects each room's
     canvas position ("room_<i>_x"/"_y", also script-written) into a top-level "layout" dict, and
@@ -2310,13 +2702,21 @@ def _parse_delve_flowchart(form: dict, entry_id_for_upload: str, existing_entry:
         room: dict = {"id": room_id, "type": room_type}
 
         if room_type == "combat":
-            monster_indices = sorted(
-                int(m.group(1)) for k in form
-                if (m := re.fullmatch(rf"{p}_monsters_(\d+)", k)) and form[k].strip()
-            )
-            monsters = [form[f"{p}_monsters_{j}"].strip() for j in monster_indices]
-            if monsters:
-                room["monsters"] = monsters
+            group_indices = sorted({
+                int(m.group(1)) for k in form if (m := re.fullmatch(rf"{p}_groups_(\d+)_monsters_\d+", k))
+            })
+            groups = []
+            for j in group_indices:
+                gp = f"{p}_groups_{j}"
+                monster_indices = sorted(
+                    int(m.group(1)) for k in form
+                    if (m := re.fullmatch(rf"{gp}_monsters_(\d+)", k)) and form[k].strip()
+                )
+                monsters = [form[f"{gp}_monsters_{k}"].strip() for k in monster_indices]
+                if monsters:
+                    groups.append(monsters)
+            if groups:
+                room["monster_groups"] = groups
             next_room = form.get(f"{p}_next", "").strip()
             if next_room:
                 room["next"] = next_room
@@ -2475,11 +2875,31 @@ async def list_view(request: web.Request) -> web.Response:
         raise web.HTTPNotFound()
 
     columns = spec["list_columns"]
-    header = "".join(f"<th>{html.escape(c)}</th>" for c in columns)
+    is_delve = content_type == "delves"
+    # Delves get one extra column beyond their own: whether there's a draft with unpublished
+    # changes, or (for a delve never published at all) whether the row IS only a draft -- see
+    # dungeon.load_delve_drafts. No other content type has this two-tier draft/publish split.
+    header = "".join(f"<th>{html.escape(c)}</th>" for c in columns) + ("<th></th>" if is_delve else "")
+    drafts = dungeon.load_delve_drafts() if is_delve else {}
     rows = []
     for item_id, entry in getattr(spec["module"], spec["registry_attr"]).items():
         cells = "".join(f"<td>{html.escape(str(entry.get(c, '')))}</td>" for c in columns)
+        if is_delve:
+            has_unpublished = item_id in drafts and drafts[item_id] != entry
+            status = (
+                '<span class="draft-tag" data-tooltip="Has unpublished draft changes.">Draft</span>'
+                if has_unpublished else ""
+            )
+            cells += f"<td>{status}</td>"
         rows.append(f'<tr><td><a class="row-link" href="/edit/{content_type}/{item_id}">✏️</a></td>{cells}</tr>')
+    if is_delve:
+        live_ids = set(getattr(spec["module"], spec["registry_attr"]).keys())
+        for draft_id, draft_entry in drafts.items():
+            if draft_id in live_ids:
+                continue
+            cells = "".join(f"<td>{html.escape(str(draft_entry.get(c, '')))}</td>" for c in columns)
+            cells += '<td><span class="draft-tag" data-tooltip="Never published -- only exists as a draft.">Draft</span></td>'
+            rows.append(f'<tr><td><a class="row-link" href="/edit/{content_type}/{draft_id}">✏️</a></td>{cells}</tr>')
 
     singular = spec["label"][:-1] if spec["label"].endswith("s") else spec["label"]
     # Every non-delve content type's save redirects here (see edit_view's "?saved=1") -- a delve
@@ -2498,6 +2918,39 @@ async def list_view(request: web.Request) -> web.Response:
     return _html_response(_page(spec["label"], body, active=content_type, breadcrumbs=breadcrumbs))
 
 
+def _apply_generate_level(content_type: str, entry: dict, query) -> dict:
+    """If the monster/equipment edit page's "Generate stats for level" sub-form was just
+    submitted (?generate_level=N, for monsters also ?archetype=tank/balanced/glass_cannon, and
+    for equipment also ?slot=...), returns a NEW dict with hp/atk/def (monsters) or stat_bonuses
+    (equipment) plus intended_level overridden by dungeon.generate_monster_stats/
+    generate_item_stat_bonuses. Never mutates `entry` in place -- it may be the LIVE registry
+    entry itself when editing something that already exists -- and never saves anything; the
+    admin still has to click the normal Save button. A no-op (returns `entry` unchanged) for any
+    other content type or a missing/invalid generate_level, including on an ordinary POST/Save
+    request whose URL happens to still carry a stale ?generate_level= from an earlier Generate
+    click -- harmless either way, since edit_view's POST path parses fresh from the submitted
+    form and never reads this return value for that branch."""
+    if content_type not in ("monsters", "equipment"):
+        return entry
+    raw_level = query.get("generate_level", "").strip()
+    if not raw_level.isdigit() or int(raw_level) < 1:
+        return entry
+    level = int(raw_level)
+    entry = dict(entry)
+    entry["intended_level"] = level
+    if content_type == "monsters":
+        # Absent/unrecognized archetype (e.g. the plain "Random" button) falls through to None,
+        # which generate_monster_stats treats as "roll one" -- see dungeon.MONSTER_ARCHETYPES for
+        # the named presets the Tank/Balanced/Glass Cannon buttons pass here.
+        archetype = dungeon.MONSTER_ARCHETYPES.get(query.get("archetype", ""))
+        entry.update(dungeon.generate_monster_stats(level, archetype=archetype))
+    else:
+        slot = query.get("slot") or entry.get("slot") or "weapon"
+        entry["slot"] = slot
+        entry["stat_bonuses"] = dungeon.generate_item_stat_bonuses(level, slot)
+    return entry
+
+
 async def edit_view(request: web.Request) -> web.Response:
     content_type = request.match_info["content_type"]
     item_id = request.match_info["item_id"]
@@ -2506,10 +2959,18 @@ async def edit_view(request: web.Request) -> web.Response:
         raise web.HTTPNotFound()
 
     is_new = item_id == "new"
+    is_delve = content_type == "delves"
     registry = getattr(spec["module"], spec["registry_attr"])
-    entry = {} if is_new else registry.get(item_id)
+    # A delve prefers its own draft over the live published version, if one exists -- that's the
+    # entire point of the draft/publish split (see dungeon.save_delve_draft): reopening a delve
+    # that's mid-edit shows exactly the unpublished state it was left in, not what's actually
+    # live. A brand-new delve never has a draft under "new" itself (see delve_autosave_view --
+    # drafts are always keyed by the delve's own real id, assigned client-side once typed).
+    draft_entry = dungeon.load_delve_drafts().get(item_id) if is_delve else None
+    entry = draft_entry if draft_entry is not None else ({} if is_new else registry.get(item_id))
     if entry is None and not is_new:
         raise web.HTTPNotFound()
+    entry = _apply_generate_level(content_type, entry, request.query)
 
     error = ""
     if request.method == "POST":
@@ -2518,44 +2979,8 @@ async def edit_view(request: web.Request) -> web.Response:
         # the filename an upload gets saved under) -- always present since every schema lists it
         # first and required, but read directly here rather than relying on loop order.
         entry_id_for_upload = form.get("id", "").strip() or item_id
-        new_entry = {}
-        upload_errors: list[str] = []
-        for field in spec["fields"]:
-            if field["type"] == "image":
-                try:
-                    new_path = _save_uploaded_image(
-                        form.get(f"{field['name']}_file"), field["subdir"], entry_id_for_upload
-                    )
-                except ValueError as e:
-                    upload_errors.append(str(e))
-                    new_path = None
-                if new_path is not None:
-                    new_entry[field["name"]] = new_path
-                elif entry.get(field["name"]):
-                    new_entry[field["name"]] = entry[field["name"]]  # no new upload -- keep what was there
-                continue
-            if field["type"] == "delve_flowchart":
-                try:
-                    parsed = _parse_delve_flowchart(form, entry_id_for_upload, entry, field["subdir"])
-                except ValueError as e:
-                    # Still raised for a genuinely bad image upload (see that function's own
-                    # docstring) -- there's no partial room/action data to preserve in that case,
-                    # unlike a blank id/label below.
-                    upload_errors.append(str(e))
-                else:
-                    # Always applied, errors or not -- a blank id/label is carried in "errors"
-                    # (see _parse_delve_flowchart's docstring) rather than raised, specifically so
-                    # "rooms" here still reflects exactly what was submitted and the canvas
-                    # re-renders unchanged instead of coming back empty.
-                    new_entry[field["name"]] = parsed["rooms"]
-                    if parsed["layout"]:
-                        new_entry["layout"] = parsed["layout"]
-                    new_entry["start_room"] = parsed["start_room"]
-                    upload_errors.extend(parsed["errors"])
-                continue
-            parsed = _parse_field(field, form)
-            if parsed is not None:
-                new_entry[parsed[0]] = parsed[1]
+        new_entry, fatal_errors, soft_errors = _build_entry_from_form(spec, form, entry_id_for_upload, entry)
+        upload_errors = fatal_errors + soft_errors
 
         if upload_errors:
             # One banner per problem, same .error styling as every other error here -- so fixing a
@@ -2576,49 +3001,43 @@ async def edit_view(request: web.Request) -> web.Response:
                 entries.append(new_entry)
                 entry_index = len(entries) - 1
 
-            # A delve's flowchart editor is normally used for a long string of small saves while
-            # a delve is still being wired up, so it stays on the same entry's edit page after a
-            # save instead of bouncing to the list view like every other content type -- that
-            # bounce is the more useful landing spot when you're working through a batch of
-            # separate, one-shot entries, but pure friction for a single delve you're iterating on
-            # for a while.
-            is_delve_edit = content_type == "delves"
+            # A delve's flowchart editor no longer submits to this generic route in normal use --
+            # it autosaves to a draft and only ever commits through the dedicated publish route
+            # below (delve_publish_view), which is the one place "get rid of saving broken delves
+            # entirely" is actually enforced. This path stays exactly as it always was for every
+            # other content type, and as a harmless fallback if anything still posts here directly.
             redirect_url = (
-                f"/edit/{content_type}/{new_entry.get('id', item_id)}" if is_delve_edit
+                f"/edit/{content_type}/{new_entry.get('id', item_id)}" if is_delve
                 else f"/edit/{content_type}"
             )
 
             error_msg = _write_and_validate(spec, entries)
-            if error_msg is not None and is_delve_edit and new_entry.get("active"):
-                # An active delve failing validation is most commonly just "not fully wired up
-                # yet" (the reachability check, only enforced for active delves -- see
-                # dungeon._load_delves's "active" handling). Rather than reject the save outright
-                # and force a separate "uncheck active, save that, then save your WIP" round trip,
-                # retry once here with active forced off. If that succeeds, the save goes through
-                # anyway (with a heads-up on reload, not silently) so work is never stuck behind a
-                # validation error; if it still fails, whatever's wrong isn't reachability at all
-                # (e.g. a genuinely malformed action), and the original error below is what
-                # actually explains it -- restore the entry so that's what gets shown.
-                downgraded_entry = dict(new_entry, active=False)
-                entries[entry_index] = downgraded_entry
-                if _write_and_validate(spec, entries) is None:
-                    raise web.HTTPFound(f"{redirect_url}?downgraded=1")
-                entries[entry_index] = new_entry
             if error_msg is None:
                 raise web.HTTPFound(f"{redirect_url}?saved=1")
             error = f'<p class="error">{html.escape(error_msg)}</p>'
             entry = new_entry  # show what they submitted, not the stale pre-edit values
 
-    if request.method == "GET" and request.query.get("downgraded"):
+    if request.method == "GET" and request.query.get("published"):
+        error = '<p class="success">Published.</p>'
+    elif request.method == "GET" and request.query.get("publish_error"):
         error = (
-            '<p class="success">Saved — this delve didn\'t pass its full checks (most likely '
-            'some rooms aren\'t reachable yet), so it was automatically marked inactive rather '
-            'than blocking the save. Check "active" once it\'s actually finished.</p>'
+            '<p class="error">Publish failed — see the highlighted room(s)/action(s) below for '
+            "what's still wrong. Nothing changed; your draft is untouched.</p>"
         )
     elif request.method == "GET" and request.query.get("saved"):
         error = '<p class="success">Saved.</p>'
 
-    fields_html = _render_fields(spec["fields"], entry)
+    # A delve's own structured problem list -- always computed for display (not just on a failed
+    # Publish), so reopening a still-broken draft shows its red highlights immediately rather than
+    # waiting for the next autosave tick. Skipped for a genuinely blank new-delve page (entry == {}
+    # is falsy) -- there's nothing to report yet and every required-field message would just be
+    # noise before the author's typed anything.
+    problems: list[dict] = []
+    if is_delve and entry:
+        other_ids = set(dungeon.DELVES.keys()) - {item_id, entry.get("id", "")}
+        problems = dungeon.check_delve_problems(entry, other_ids)
+
+    fields_html = _render_fields(spec["fields"], entry, problems)
     delete_button = (
         f'<button type="submit" form="delete-form" class="danger">Delete</button>' if not is_new else ""
     )
@@ -2627,15 +3046,162 @@ async def edit_view(request: web.Request) -> web.Response:
     # form -- see .delve-canvas-wrap in _PAGE_CSS -- so this is the one place a schema field type
     # needs to reach the <form> tag itself rather than just its own rendered markup.
     form_class = " delve-form" if any(f["type"] == "delve_flowchart" for f in spec["fields"]) else ""
+
+    # "Generate stats for level" + the reverse "≈ balanced for level X" hint -- see
+    # _apply_generate_level's docstring for how the GET sub-form below feeds back into this same
+    # page pre-filled, never auto-saved. Plain GET form reload, same "server computes, no AJAX"
+    # convention every other admin-panel interaction already follows.
+    level_tools_html = ""
+    if content_type in ("monsters", "equipment"):
+        estimate = None
+        if content_type == "monsters" and all(k in entry for k in ("hp", "atk", "def")):
+            estimate = dungeon.estimate_monster_level(entry)
+        elif content_type == "equipment" and entry.get("stat_bonuses"):
+            estimate = dungeon.estimate_item_level(entry)
+        estimate_html = (
+            f'<p class="field-hint">≈ balanced for level <strong>{estimate:.1f}</strong> (based on current stats)</p>'
+            if estimate is not None else ""
+        )
+        slot_input = ""
+        if content_type == "equipment":
+            slot_options = "".join(
+                f'<option value="{s}"{" selected" if s == entry.get("slot") else ""}>{s}</option>'
+                for s in dungeon.EQUIPMENT_SLOTS
+            )
+            slot_input = f'<label>slot<select name="slot">{slot_options}</select></label>'
+        default_level = entry.get("intended_level") or 1
+        # Each archetype button submits the SAME form with its own name="archetype" value -- plain
+        # HTML multi-submit-button behavior (whichever button was actually clicked is the only one
+        # whose name/value pair is included), no JS needed. Monsters only -- equipment's "trade-off"
+        # is already expressed by slot (weapon/armor/trinket), it has no archetype concept.
+        generate_buttons = (
+            f'<button type="submit" name="archetype" value="tank">🛡️ Tank</button>'
+            f'<button type="submit" name="archetype" value="balanced">⚖️ Balanced</button>'
+            f'<button type="submit" name="archetype" value="glass_cannon">🗡️ Glass Cannon</button>'
+            f'<button type="submit">🎲 Random</button>'
+            if content_type == "monsters" else '<button type="submit">Generate</button>'
+        )
+        level_tools_html = (
+            f'<div>{estimate_html}'
+            f'<form method="get" class="row-group">'
+            f'<label>Generate stats for level<input type="number" name="generate_level" min="1" value="{default_level}"></label>'
+            f'{slot_input}{generate_buttons}</form></div>'
+        )
+
+    # Delves have no "Save" button at all -- edits autosave to a draft in the background (see
+    # delve_autosave_view + the flowchart script's scheduleAutosave), so the only explicit action
+    # left is Publish (delve_publish_view), which is also the one place a broken delve can ever be
+    # rejected outright instead of silently accepted. `data-delve-item-id` is how the autosave/
+    # publish JS knows what id to target -- updated client-side (no reload) the first time a
+    # brand-new delve's draft gets assigned a real id.
+    if is_delve:
+        draft_notice = (
+            '<p class="field-hint">📝 Draft — autosaving as you edit. Nothing here is live '
+            "until you hit Publish.</p>" if draft_entry is not None else ""
+        )
+        form_html = (
+            f'<form method="post" enctype="multipart/form-data" class="{form_class.strip()}" '
+            f'data-delve-item-id="{html.escape(item_id)}">{fields_html}'
+            f'<div class="row-group"><span id="draft-save-status" class="field-hint"></span>'
+            f'<button type="submit" formaction="/edit/delves/{html.escape(item_id)}/publish">Publish</button>'
+            f'</div></form>'
+        )
+    else:
+        draft_notice = ""
+        form_html = (
+            f'<form method="post" enctype="multipart/form-data" class="{form_class.strip()}">'
+            f'{fields_html}<button type="submit">Save</button></form>'
+        )
+
     body = f"""
     <h1>{spec["icon"]} {"New" if is_new else "Edit"} {html.escape(spec["label"])}</h1>
     {error}
-    <form method="post" enctype="multipart/form-data" class="{form_class.strip()}">{fields_html}<button type="submit">Save</button></form>
+    {draft_notice}
+    {level_tools_html}
+    {form_html}
     {f'<form id="delete-form" method="post" action="/delete/{content_type}/{item_id}"></form>' if not is_new else ""}
     {delete_button}
     """
     breadcrumbs = [("Home", "/"), (spec["label"], f"/edit/{content_type}"), (crumb_label, None)]
     return _html_response(_page(f"Edit {spec['label']}", body, active=content_type, breadcrumbs=breadcrumbs))
+
+
+async def delve_autosave_view(request: web.Request) -> web.Response:
+    """AJAX draft-autosave for one delve's flowchart editor (see the flowchart script's
+    scheduleAutosave) -- never blocked by content problems, a draft can be arbitrarily broken,
+    that's the entire point (see dungeon.save_delve_draft). The one exception is a genuinely bad
+    image upload, which has no sensible partial state worth persisting, same as everywhere else
+    this codebase handles uploads. Always responds with the freshly-saved entry's structured
+    problem list (dungeon.check_delve_problems) so the canvas can update its red highlights
+    without waiting for an explicit Publish attempt."""
+    item_id = request.match_info["item_id"]
+    spec = CONTENT_TYPES["delves"]
+    drafts = dungeon.load_delve_drafts()
+    existing = drafts.get(item_id) or dungeon.DELVES.get(item_id, {})
+    form = dict(await request.post())
+    entry_id_for_upload = form.get("id", "").strip() or item_id
+    new_entry, fatal_errors, _soft_errors = _build_entry_from_form(spec, form, entry_id_for_upload, existing)
+
+    if fatal_errors:
+        return web.json_response({"ok": False, "error": "; ".join(fatal_errors)})
+
+    new_id = new_entry.get("id", "").strip()
+    if not new_id:
+        # Nothing to key a draft by yet -- report problems (which will include the missing "id"
+        # itself, via dungeon._REQUIRED_DELVE_FIELDS) without persisting anything.
+        problems = dungeon.check_delve_problems(new_entry, set(dungeon.DELVES.keys()))
+        return web.json_response({"ok": True, "id": None, "problems": problems})
+
+    dungeon.save_delve_draft(new_entry)
+    if item_id not in ("new", new_id) and item_id in drafts:
+        # The delve's own id was renamed mid-draft -- drop the stale draft filed under its old id
+        # so it doesn't linger as an orphan now that everything's keyed by the new one.
+        dungeon.delete_delve_draft(item_id)
+
+    problems = dungeon.check_delve_problems(new_entry, set(dungeon.DELVES.keys()) - {new_id})
+    return web.json_response({"ok": True, "id": new_id, "problems": problems})
+
+
+async def delve_publish_view(request: web.Request) -> web.Response:
+    """Runs a delve draft through full validation and, only if it passes, commits it to the real
+    dungeon_delves.json -- the one place a broken delve can ever be rejected outright instead of
+    silently accepted (see CLAUDE.md's "content is data" section and the module docstring above).
+    On failure the live file is never touched and the draft is left exactly as it was, so nothing
+    is lost -- the redirect back to the edit page recomputes the same structured problems fresh
+    from that untouched draft (see edit_view) to highlight what's still wrong."""
+    item_id = request.match_info["item_id"]
+    spec = CONTENT_TYPES["delves"]
+    draft = dungeon.load_delve_drafts().get(item_id)
+    if draft is None:
+        # Nothing autosaved yet under this id (Publish clicked before the first autosave tick
+        # landed, or with JS unavailable) -- build it fresh from whatever the form just submitted,
+        # same shape every other save path uses.
+        existing = dungeon.DELVES.get(item_id, {})
+        form = dict(await request.post())
+        entry_id_for_upload = form.get("id", "").strip() or item_id
+        draft, fatal_errors, _soft = _build_entry_from_form(spec, form, entry_id_for_upload, existing)
+        if fatal_errors:
+            raise web.HTTPFound(f"/edit/delves/{item_id}?publish_error=1")
+        dungeon.save_delve_draft(draft)
+
+    new_id = draft.get("id", "").strip() or item_id
+    entries = _load_raw_entries(spec)
+    entry_index = None
+    for i, e in enumerate(entries):
+        if e.get("id") in (item_id, new_id):
+            entries[i] = draft
+            entry_index = i
+            break
+    if entry_index is None:
+        entries.append(draft)
+
+    error_msg = _write_and_validate(spec, entries)
+    if error_msg is None:
+        dungeon.delete_delve_draft(new_id)
+        if new_id != item_id:
+            dungeon.delete_delve_draft(item_id)
+        raise web.HTTPFound(f"/edit/delves/{new_id}?published=1")
+    raise web.HTTPFound(f"/edit/delves/{new_id}?publish_error=1")
 
 
 def _delete_blockers(content_type: str, item_id: str) -> list[str]:
@@ -2647,9 +3213,10 @@ def _delete_blockers(content_type: str, item_id: str) -> list[str]:
     Three kinds of cross-reference exist in this content set:
       - Recipes reference materials (by key) and equipment/consumables (by output_id).
       - Monsters reference equipment/materials in their own `drops` list.
-      - Delves reference individual monster ids directly in each room -- so deleting a monster is
-        only unsafe if it's the *only* monster checked in some room (removing it from a room that
-        still has others left is fine, and is exactly what re-editing that delve would do).
+      - Delves reference individual monster ids within each combat room's monster_groups -- so
+        deleting a monster is only unsafe if it's the *only* monster in some group (removing it
+        from a group that still has others left, or from a room that has other groups, is fine,
+        and is exactly what re-editing that delve would do).
     """
     if content_type == "materials":
         recipe_blockers = [r["name"] for r in dungeon.RECIPES.values() if item_id in r["materials"]]
@@ -2670,7 +3237,11 @@ def _delete_blockers(content_type: str, item_id: str) -> list[str]:
     if content_type == "monsters":
         return [
             d["name"] for d in dungeon.DELVES.values()
-            if any(room.get("type") == "combat" and room.get("monsters") == [item_id] for room in d["rooms"])
+            if any(
+                group == [item_id]
+                for room in d["rooms"] if room.get("type") == "combat"
+                for group in room.get("monster_groups", [])
+            )
         ]
     return []
 
@@ -2801,6 +3372,119 @@ async def delete_backup_view(request: web.Request) -> web.Response:
     raise web.HTTPFound("/utilities")
 
 
+def _player_label(bot, guild_id: int, user_id: int) -> str:
+    """A live Discord display name for user_id in guild_id if the bot's own member cache has it
+    (request.app["bot"].get_guild/.get_member -- synchronous cache lookups, safe to call directly
+    from a request handler), else just the bare id. The bot doesn't request the privileged Members
+    intent, so this cache is only ever as complete as whoever's been recently active -- falling
+    back to the id (rather than erroring) is what lets the player picker below list EVERY user
+    db.list_known_users knows about regardless of cache coverage."""
+    guild = bot.get_guild(guild_id) if bot else None
+    member = guild.get_member(user_id) if guild else None
+    return f"{member.display_name} ({user_id})" if member else f"Unknown player ({user_id})"
+
+
+async def player_debug_view(request: web.Request) -> web.Response:
+    """Standalone page (same "not a content edit" shape as Utilities) for directly inspecting and
+    overriding one player's live balance/energy/dungeon-character state -- the manual DB-poke
+    workflow an admin would otherwise need shell access for (see db.set_balance/set_energy/
+    set_character_progress). Player lookup is a two-step guild -> known-player picker instead of
+    free-typed ids: the guild list comes from the live bot's own connected guilds
+    (request.app["bot"].guilds), and the player list comes from db.list_known_users (every user_id
+    this guild's economy has ever touched -- a user with no row here has nothing to debug anyway),
+    each resolved to a display name via _player_label. Each `<select>` auto-submits its own GET
+    form on change (plain page reloads, no AJAX) so picking a server reveals that server's player
+    list, and picking a player reveals their editable stats -- same "no bespoke JS beyond a trivial
+    onchange" bar the rest of this admin panel holds to."""
+    bot = request.app.get("bot")
+
+    if request.method == "POST":
+        form = await request.post()
+        gid, uid = int(form["guild_id"]), int(form["user_id"])
+        await asyncio.to_thread(db.set_balance, gid, uid, int(form.get("balance") or 0))
+        await asyncio.to_thread(db.set_energy, gid, uid, int(form.get("energy") or 0))
+        if "level" in form and "xp" in form and "current_hp" in form:
+            await asyncio.to_thread(
+                db.set_character_progress, gid, uid,
+                int(form["level"]), int(form["xp"]), int(form["current_hp"]),
+            )
+        raise web.HTTPFound(f"/player-debug?guild_id={gid}&user_id={uid}&saved=1")
+
+    guild_id = request.query.get("guild_id") or ""
+    user_id = request.query.get("user_id") or ""
+    saved_notice = '<p class="success">Saved.</p>' if request.query.get("saved") else ""
+
+    guild_options = "".join(
+        f'<option value="{g.id}"{" selected" if str(g.id) == guild_id else ""}>{html.escape(g.name)}</option>'
+        for g in sorted(bot.guilds, key=lambda g: g.name.lower())
+    ) if bot else ""
+    guild_picker = (
+        f'<form method="get" class="player-debug-picker"><label>Server'
+        f'<select name="guild_id" onchange="this.form.submit()">'
+        f'<option value="">— choose a server —</option>{guild_options}</select></label></form>'
+    )
+
+    player_picker = ""
+    stats_form = ""
+    if guild_id and bot:
+        gid = int(guild_id)
+        known_ids = db.list_known_users(gid)
+        if known_ids:
+            user_options = "".join(
+                f'<option value="{uid}"{" selected" if str(uid) == user_id else ""}>'
+                f'{html.escape(_player_label(bot, gid, uid))}</option>'
+                for uid in known_ids
+            )
+            player_picker = (
+                f'<form method="get" class="player-debug-picker">'
+                f'<input type="hidden" name="guild_id" value="{gid}">'
+                f'<label>Player<select name="user_id" onchange="this.form.submit()">'
+                f'<option value="">— choose a player —</option>{user_options}</select></label></form>'
+            )
+        else:
+            player_picker = "<p>No known players in this server yet.</p>"
+
+        if user_id:
+            uid = int(user_id)
+            balance = db.get_balance(gid, uid)
+            energy = db.get_energy(gid, uid)
+            character = db.get_character(gid, uid)
+            if character:
+                character_fields = (
+                    f'<label>Level<input type="number" min="1" name="level" value="{character["level"]}"></label>'
+                    f'<label>XP<input type="number" min="0" name="xp" value="{character["xp"]}"></label>'
+                    f'<label>Current HP <small class="field-hint">max {character["hp"]}</small>'
+                    f'<input type="number" min="0" max="{character["hp"]}" name="current_hp" '
+                    f'value="{character["current_hp"]}"></label>'
+                )
+            else:
+                character_fields = "<p><em>No dungeon character yet.</em></p>"
+            stats_form = (
+                f'<form method="post">'
+                f'<input type="hidden" name="guild_id" value="{gid}">'
+                f'<input type="hidden" name="user_id" value="{uid}">'
+                f'<h2>{html.escape(_player_label(bot, gid, uid))}</h2>'
+                f'<label>Balance<input type="number" min="0" name="balance" value="{balance}"></label>'
+                f'<label>Energy <small class="field-hint">0-{db.ENERGY_MAX}</small>'
+                f'<input type="number" min="0" max="{db.ENERGY_MAX}" name="energy" value="{energy}"></label>'
+                f'{character_fields}'
+                f'<button type="submit">Save</button></form>'
+            )
+
+    body = f"""
+    <h1>🐛 Player Debug</h1>
+    <p>Look up one player's live economy/character state and override it directly -- for
+    un-sticking a bad delve, refilling energy, or fixing a balance issue without shell access.</p>
+    {saved_notice}
+    {guild_picker}
+    {player_picker}
+    {stats_form}
+    """
+    return _html_response(
+        _page("Player Debug", body, active="player-debug", breadcrumbs=[("Home", "/"), ("Player Debug", None)])
+    )
+
+
 def build_app(bot=None) -> web.Application:
     if not ADMIN_PANEL_PASSWORD:
         raise RuntimeError("Set ADMIN_PANEL_PASSWORD in .env before starting the content editor.")
@@ -2816,6 +3500,8 @@ def build_app(bot=None) -> web.Application:
     app.router.add_get("/edit/{content_type}", list_view)
     app.router.add_get("/edit/{content_type}/{item_id}", edit_view)
     app.router.add_post("/edit/{content_type}/{item_id}", edit_view)
+    app.router.add_post("/edit/delves/{item_id}/autosave", delve_autosave_view)
+    app.router.add_post("/edit/delves/{item_id}/publish", delve_publish_view)
     app.router.add_post("/delete/{content_type}/{item_id}", delete_view)
     app.router.add_get("/assets", assets_view)
     app.router.add_post("/assets", assets_view)
@@ -2828,6 +3514,8 @@ def build_app(bot=None) -> web.Application:
     app.router.add_get("/utilities", utilities_view)
     app.router.add_post("/utilities", utilities_view)
     app.router.add_post("/utilities/delete-backup", delete_backup_view)
+    app.router.add_get("/player-debug", player_debug_view)
+    app.router.add_post("/player-debug", player_debug_view)
     # Same reasoning as /assets above -- lets a saved snapshot be pulled straight from
     # /backups/<filename> (e.g. by a scheduled scp/rsync), not just downloaded through the page.
     # add_static requires the directory to exist up front, unlike ASSETS_DIR (already present in

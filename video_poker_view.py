@@ -5,9 +5,12 @@ import discord
 import achievements
 import cards_render
 import db
+import jackpot
 import video_poker
 from game import Deck
 from holdem_view import busy_players as holdem_busy_players
+
+JACKPOT_GAME = "video_poker"
 
 
 class HoldButton(discord.ui.Button):
@@ -44,6 +47,11 @@ class DrawButton(discord.ui.Button):
         view.hand = video_poker.draw_replacements(view.deck, view.hand, view.held)
         label, multiplier = video_poker.evaluate(view.hand, view.variant)
         payout = view.bet * multiplier
+        jackpot_won = 0
+        if label in video_poker.JACKPOT_HANDS:
+            jackpot_won = await asyncio.to_thread(jackpot.claim, view.guild_id, JACKPOT_GAME)
+            view.jackpot_pot = jackpot.SEED
+            payout += jackpot_won
         net = payout - view.bet
         if payout:
             balance = await asyncio.to_thread(db.update_balance, view.guild_id, view.author.id, payout)
@@ -55,15 +63,24 @@ class DrawButton(discord.ui.Button):
         view.result_label = label
         view.multiplier = multiplier
         view.net = net
+        view.jackpot_won = jackpot_won
         view.resolved = True
         view.rebuild_items()
 
         embed = view.build_result_embed()
         file = view.build_hand_file()
         await interaction.response.edit_message(embed=embed, view=view, attachments=[file])
+        if jackpot_won:
+            currency = db.get_currency_name(view.guild_id)
+            await interaction.followup.send(
+                f"🃏💰 **JACKPOT!!!** {view.author.display_name} hit a {label} and won the progressive "
+                f"jackpot of **{jackpot_won}** {currency}!"
+            )
 
         kinds = achievements.kinds_for_bet(view.variant, net)
         kinds += await achievements.record_and_check(view.guild_id, view.author.id, view.variant, net)
+        if jackpot_won:
+            kinds.append("hit_jackpot")
         if kinds:
             await achievements.try_award_many(
                 interaction.followup.send, view.guild_id, view.author.id, view.author.display_name, kinds
@@ -88,7 +105,8 @@ class PlayAgainButton(discord.ui.Button):
             return
 
         balance = await asyncio.to_thread(db.update_balance, view.guild_id, view.author.id, -view.bet)
-        view.reset_round(balance)
+        jackpot_pot = await asyncio.to_thread(jackpot.contribute, view.guild_id, JACKPOT_GAME, view.bet)
+        view.reset_round(balance, jackpot_pot)
 
         embed = view.build_deal_embed()
         file = view.build_hand_file()
@@ -102,6 +120,7 @@ class VideoPokerView(discord.ui.View):
         guild_id: int,
         bet: int,
         balance: int,
+        jackpot_pot: int,
         variant: str = video_poker.JACKS_OR_BETTER,
     ):
         super().__init__(timeout=90)
@@ -119,11 +138,13 @@ class VideoPokerView(discord.ui.View):
         self.result_label = ""
         self.multiplier = 0
         self.net = 0
+        self.jackpot_won = 0
 
-        self.reset_round(balance)
+        self.reset_round(balance, jackpot_pot)
 
-    def reset_round(self, balance: int):
+    def reset_round(self, balance: int, jackpot_pot: int):
         self.balance = balance
+        self.jackpot_pot = jackpot_pot
         self.deck = Deck()
         self.hand = video_poker.deal(self.deck)
         self.held = [False] * 5
@@ -131,6 +152,7 @@ class VideoPokerView(discord.ui.View):
         self.result_label = ""
         self.multiplier = 0
         self.net = 0
+        self.jackpot_won = 0
         self.rebuild_items()
 
     def rebuild_items(self):
@@ -155,6 +177,7 @@ class VideoPokerView(discord.ui.View):
         )
         embed.add_field(name="Bet", value=f"{self.bet} {currency}", inline=True)
         embed.add_field(name="Held", value=f"{held_count} / 5", inline=True)
+        embed.add_field(name="💰 Progressive Jackpot", value=f"{self.jackpot_pot} {currency}", inline=True)
         paytable_text = " · ".join(f"{label} {mult}x" for label, mult in video_poker.PAYTABLES[self.variant])
         embed.add_field(name="Paytable", value=paytable_text, inline=False)
         embed.set_image(url="attachment://video_poker.png")
@@ -163,8 +186,10 @@ class VideoPokerView(discord.ui.View):
 
     def build_result_embed(self) -> discord.Embed:
         currency = db.get_currency_name(self.guild_id)
-        payout = self.bet * self.multiplier
-        if self.multiplier == 0:
+        payout = self.bet * self.multiplier + self.jackpot_won
+        if self.jackpot_won:
+            outcome, color = f"🃏💰 JACKPOT! {self.result_label}! (+{self.net} {currency})", discord.Color.gold()
+        elif self.multiplier == 0:
             outcome, color = f"💥 {self.result_label} — you lose {self.bet} {currency}", discord.Color.red()
         elif self.net == 0:
             outcome, color = f"🤝 {self.result_label} — bet returned", discord.Color.greyple()
@@ -175,6 +200,9 @@ class VideoPokerView(discord.ui.View):
         embed.set_image(url="attachment://video_poker.png")
         embed.add_field(name="Bet", value=f"{self.bet} {currency}", inline=True)
         embed.add_field(name="Payout", value=f"{payout} {currency} ({self.multiplier}x)", inline=True)
+        if self.jackpot_won:
+            embed.add_field(name="💰 Jackpot Won", value=f"{self.jackpot_won} {currency}", inline=True)
+        embed.add_field(name="💰 Progressive Jackpot", value=f"{self.jackpot_pot} {currency}", inline=True)
         embed.add_field(name="Result", value=outcome, inline=False)
         embed.set_footer(text=f"Balance: {self.balance} {currency}")
         return embed

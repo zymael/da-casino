@@ -207,6 +207,10 @@ def init_db():
     columns = {row[1] for row in conn.execute("PRAGMA table_info(guild_settings)")}
     if "currency_name" not in columns:
         conn.execute("ALTER TABLE guild_settings ADD COLUMN currency_name TEXT")
+    # Same predates-the-table story as currency_name above -- delve_test_mode is 0/absent by
+    # default, meaning "obey each delve's own active flag" (see dungeon.active_delves).
+    if "delve_test_mode" not in columns:
+        conn.execute("ALTER TABLE guild_settings ADD COLUMN delve_test_mode INTEGER NOT NULL DEFAULT 0")
     # horse_ownership and horse_record (both briefly shipped, holding nothing but seed/empty
     # data so far — no real purchases or races existed against either) are superseded by the
     # single `horses` table below, which now also owns stats/age. Safe to drop and reseed.
@@ -530,6 +534,32 @@ def update_balance(guild_id: int, user_id: int, delta: int) -> int:
             "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
         ).fetchone()
         return row[0]
+    finally:
+        conn.close()
+
+
+def set_balance(guild_id: int, user_id: int, value: int) -> None:
+    """Admin-panel direct override -- unlike update_balance (a delta applied by normal gameplay),
+    this sets balance to an exact value. Clamped to >= 0."""
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.execute(
+            "UPDATE users SET balance = ? WHERE guild_id = ? AND user_id = ?",
+            (max(0, value), guild_id, user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_known_users(guild_id: int) -> list[int]:
+    """Every user_id this guild has an economy row for -- the admin panel's player-debug tool uses
+    this to populate its player picker, since a user with no row here has nothing to debug anyway."""
+    conn = _connect()
+    try:
+        rows = conn.execute("SELECT user_id FROM users WHERE guild_id = ? ORDER BY user_id", (guild_id,)).fetchall()
+        return [row[0] for row in rows]
     finally:
         conn.close()
 
@@ -976,6 +1006,35 @@ def set_casino_channel_id(guild_id: int, channel_id: int):
             "INSERT INTO guild_settings (guild_id, casino_channel_id) VALUES (?, ?) "
             "ON CONFLICT(guild_id) DO UPDATE SET casino_channel_id = excluded.casino_channel_id",
             (guild_id, channel_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_delve_test_mode(guild_id: int) -> bool:
+    """Whether this guild sees every delve regardless of its own "active" flag (see
+    dungeon.active_delves) AND pays no energy to start one (see dungeon_view._spend_delve_energy)
+    -- lets a test server play WIP delves freely without exposing them, or the free plays, to
+    anywhere else. Off (obey each delve's active flag and normal energy cost) unless a guild has
+    explicitly turned it on."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT delve_test_mode FROM guild_settings WHERE guild_id = ?", (guild_id,)
+        ).fetchone()
+        return bool(row[0]) if row else False
+    finally:
+        conn.close()
+
+
+def set_delve_test_mode(guild_id: int, enabled: bool):
+    conn = _connect()
+    try:
+        conn.execute(
+            "INSERT INTO guild_settings (guild_id, delve_test_mode) VALUES (?, ?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET delve_test_mode = excluded.delve_test_mode",
+            (guild_id, int(enabled)),
         )
         conn.commit()
     finally:
@@ -1659,6 +1718,21 @@ def spend_energy(guild_id: int, user_id: int, amount: int = 1) -> bool:
         conn.close()
 
 
+def set_energy(guild_id: int, user_id: int, value: int) -> None:
+    """Admin-panel direct override -- unlike spend_energy (gated, delta-based, for normal
+    gameplay), this sets energy to an exact value. Clamped to [0, ENERGY_MAX]."""
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.execute(
+            "UPDATE users SET energy = ? WHERE guild_id = ? AND user_id = ?",
+            (max(0, min(ENERGY_MAX, value)), guild_id, user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def claim_mine(
     guild_id: int, user_id: int, reward: int, mature_seconds: int, cooldown_seconds: int
 ) -> tuple[str, float | int | None]:
@@ -1802,6 +1876,22 @@ def set_current_hp(guild_id: int, user_id: int, hp: int) -> None:
         conn.execute(
             "UPDATE characters SET current_hp = ? WHERE guild_id = ? AND user_id = ?",
             (max(0, hp), guild_id, user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_character_progress(guild_id: int, user_id: int, level: int, xp: int, current_hp: int) -> None:
+    """Admin-panel direct override for a character's level/xp/current_hp -- unlike add_xp (which
+    also grows hp/atk/def as a side effect of leveling through normal play), this only touches
+    these three fields, so an admin can un-stick a bad delve state without silently reshaping the
+    character's permanent stats too. A no-op if this user has no character."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE characters SET level = ?, xp = ?, current_hp = ? WHERE guild_id = ? AND user_id = ?",
+            (max(1, level), max(0, xp), max(0, current_hp), guild_id, user_id),
         )
         conn.commit()
     finally:

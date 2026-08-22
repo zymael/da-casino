@@ -55,6 +55,9 @@ PAYTABLES = {
     DEUCES_WILD: _DW_PAYTABLE,
 }
 
+# Landing either variant's top-tier natural hand also claims the progressive jackpot.
+JACKPOT_HANDS = {"Royal Flush", "Natural Royal Flush"}
+
 GAME_TITLES = {
     JACKS_OR_BETTER: "Video Poker",
     DEUCES_WILD: "Deuces Wild",

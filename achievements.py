@@ -77,6 +77,14 @@ ACHIEVEMENTS = [
         "reward": 25,
     },
     {
+        "kind": "hit_jackpot",
+        "scope": "personal",
+        "emoji": "💰",
+        "name": "Jackpot!",
+        "description": "Hit the progressive jackpot on slots or video poker.",
+        "reward": 200,
+    },
+    {
         "kind": "big_win_1",
         "scope": "personal",
         "emoji": "💰",

@@ -8,27 +8,39 @@
       {
         "id": "room1",
         "type": "combat",
-        "monsters": [
-          "goblin_grunt",
-          "goblin_scavenger"
-        ],
-        "next": "room2"
+        "next": "room2",
+        "monster_groups": [
+          [
+            "goblin_grunt"
+          ],
+          [
+            "goblin_scavenger"
+          ]
+        ]
       },
       {
         "id": "room2",
         "type": "combat",
-        "monsters": [
-          "goblin_skirmisher",
-          "goblin_archer"
-        ],
-        "next": "room3"
+        "next": "room3",
+        "monster_groups": [
+          [
+            "goblin_skirmisher"
+          ],
+          [
+            "goblin_archer"
+          ]
+        ]
       },
       {
         "id": "room3",
         "type": "combat",
-        "monsters": [
-          "goblin_chief",
-          "goblin_warlord"
+        "monster_groups": [
+          [
+            "goblin_chief"
+          ],
+          [
+            "goblin_warlord"
+          ]
         ]
       }
     ],
@@ -58,8 +70,11 @@
       {
         "id": "The Sewer",
         "type": "combat",
-        "monsters": [
-          "goblin_grunt"
+        "monster_groups": [
+          [
+            "goblin_warlord",
+            "goblin_chief"
+          ]
         ],
         "next": "The Doorman"
       },
@@ -111,16 +126,35 @@
       {
         "id": "The Bathhouse",
         "type": "combat",
-        "monsters": [
-          "goblin_grunt"
+        "monster_groups": [
+          [
+            "enchanted_comb",
+            "enchanted_soap",
+            "enchanted_towel"
+          ],
+          [
+            "enchanted_comb",
+            "enchanted_soap",
+            "enchanted_soap",
+            "enchanted_towel"
+          ],
+          [
+            "enchanted_comb",
+            "enchanted_soap",
+            "enchanted_towel",
+            "enchanted_towel"
+          ]
         ],
-        "next": "A desperate choice!"
+        "next": "A Private Bath",
+        "prompt": "As you enter the Bathhouse proper, the furniture awakens to attack you.\r\nDefend yourself!"
       },
       {
         "id": "Fight the Doorman",
         "type": "combat",
-        "monsters": [
-          "goblin_grunt"
+        "monster_groups": [
+          [
+            "goblin_grunt"
+          ]
         ],
         "next": "The Bathhouse"
       },
@@ -134,32 +168,54 @@
             "on_success": {
               "next": "The Bog of Z'Goolok"
             },
-            "x": 1195.0,
-            "y": 417.0
+            "x": 1473.0,
+            "y": 385.0
           },
           {
             "label": "Curtain",
             "on_success": {
               "next": "The Leather Daddy's Private Room"
             },
-            "x": 1195.0,
-            "y": 491.0
+            "x": 1471.0,
+            "y": 478.0
           }
         ]
       },
       {
         "id": "The Bog of Z'Goolok",
         "type": "combat",
-        "monsters": [
-          "goblin_grunt"
+        "monster_groups": [
+          [
+            "goblin_grunt"
+          ]
         ]
       },
       {
         "id": "The Leather Daddy's Private Room",
         "type": "combat",
-        "monsters": [
-          "goblin_grunt"
+        "monster_groups": [
+          [
+            "goblin_grunt"
+          ]
         ]
+      },
+      {
+        "id": "A Private Bath",
+        "type": "combat",
+        "monster_groups": [
+          [
+            "nakedgnome_1",
+            "nakedgnome_3",
+            "nakedgnome_2"
+          ],
+          [
+            "enchanted_towel",
+            "enchanted_comb",
+            "bath_witch"
+          ]
+        ],
+        "next": "A desperate choice!",
+        "prompt": "As you remove the curtains to enter in what you think is the main room, it turns out you stumble into a private bath!"
       }
     ],
     "layout": {
@@ -180,18 +236,60 @@
         "y": 424.0
       },
       "A desperate choice!": {
-        "x": 955.0,
-        "y": 433.0
+        "x": 1238.0,
+        "y": 414.0
       },
       "The Bog of Z'Goolok": {
-        "x": 1478.0,
-        "y": 115.0
+        "x": 1713.0,
+        "y": 377.0
       },
       "The Leather Daddy's Private Room": {
-        "x": 1606.0,
-        "y": 408.0
+        "x": 1720.0,
+        "y": 470.0
+      },
+      "A Private Bath": {
+        "x": 1104.0,
+        "y": 282.0
       }
     },
     "start_room": "The Sewer"
+  },
+  {
+    "id": "test",
+    "name": "test delve",
+    "active": false,
+    "flavor": "test",
+    "rooms": [
+      {
+        "id": "test",
+        "type": "combat",
+        "monster_groups": [
+          [
+            "gnome_leather_daddy"
+          ]
+        ],
+        "next": "Test"
+      },
+      {
+        "id": "Test",
+        "type": "combat",
+        "monster_groups": [
+          [
+            "nakedgnome_1"
+          ]
+        ]
+      }
+    ],
+    "layout": {
+      "test": {
+        "x": 40.0,
+        "y": 40.0
+      },
+      "Test": {
+        "x": 329.0,
+        "y": 171.0
+      }
+    },
+    "start_room": "test"
   }
 ]

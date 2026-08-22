@@ -52,7 +52,7 @@ _REQUIRED_STAGE_FIELDS = {"prompt", "on_complete_message"}
 TRIGGER_SCHEMAS = {
     "turn_in_item": ({"item_id"}, {"drop_monster"}),
     "achievement": ({"kind"}, set()),
-    "kill_monster": ({"count"}, {"monster_id", "tier"}),
+    "kill_monster": ({"count"}, {"monster_id"}),
     "craft_item": ({"count"}, {"recipe_id"}),
     "quest_complete": ({"quest_id"}, set()),
     "flag_at_least": ({"key", "value"}, set()),
@@ -69,8 +69,7 @@ TRIGGER_SCHEMAS = {
 # record_progress uses it to decide whether an incoming event bumps a given counter at all.
 _TRIGGER_MATCHERS = {
     "kill_monster": lambda trigger, data: (
-        (trigger.get("monster_id") is None or trigger["monster_id"] == data.get("monster_id"))
-        and (trigger.get("tier") is None or trigger["tier"] == data.get("tier"))
+        trigger.get("monster_id") is None or trigger["monster_id"] == data.get("monster_id")
     ),
     "craft_item": lambda trigger, data: (
         trigger.get("recipe_id") is None or trigger["recipe_id"] == data.get("recipe_id")
@@ -185,8 +184,6 @@ def _validate_trigger(trigger: dict, context: str):
         raise ValueError(f"{context} trigger references unknown recipe {trigger['recipe_id']!r}")
     if "count" in params and trigger["count"] <= 0:
         raise ValueError(f"{context} trigger {trigger_type!r} count must be > 0")
-    if "tier" in params and trigger["tier"] <= 0:
-        raise ValueError(f"{context} trigger {trigger_type!r} tier must be > 0")
     if "main_class" in params and trigger["main_class"] not in dungeon.CLASSES:
         raise ValueError(f"{context} trigger references unknown class {trigger['main_class']!r}")
     if "subclass" in params and trigger["subclass"] not in dungeon.SUBCLASSES:

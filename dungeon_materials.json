@@ -1,86 +1,92 @@
 [
-    {
-        "id": "stick",
-        "name": "Stick",
-        "rarity": "common",
-        "flavor": "Sturdy enough. Barely."
-    },
-    {
-        "id": "comb",
-        "name": "Comb",
-        "rarity": "common",
-        "flavor": "A few teeth missing, but so is everyone's."
-    },
-    {
-        "id": "nail",
-        "name": "Nail",
-        "rarity": "common",
-        "flavor": "Bent, rusty, and somehow still pointy."
-    },
-    {
-        "id": "dirty_cloth",
-        "name": "Dirty Cloth",
-        "rarity": "common",
-        "flavor": "You don't want to know what the stains are."
-    },
-    {
-        "id": "hair",
-        "name": "Hair",
-        "rarity": "common",
-        "flavor": "Whose is a question best left unasked."
-    },
-    {
-        "id": "used_thong",
-        "name": "Used Thong",
-        "rarity": "common",
-        "flavor": "It's seen things. It won't say what."
-    },
-    {
-        "id": "droppings",
-        "name": "Droppings",
-        "rarity": "common",
-        "flavor": "Fresh-ish. That's the best you can say about it."
-    },
-    {
-        "id": "charcoal",
-        "name": "Charcoal",
-        "rarity": "common",
-        "flavor": "Still warm from something you'd rather not ask about."
-    },
-    {
-        "id": "pan",
-        "name": "Pan",
-        "rarity": "common",
-        "flavor": "Dented in a way that suggests a good story."
-    },
-    {
-        "id": "razor",
-        "name": "Razor",
-        "rarity": "common",
-        "flavor": "Dull, but still capable of ruining your day."
-    },
-    {
-        "id": "shiny_rock",
-        "name": "Shiny Rock",
-        "rarity": "common",
-        "flavor": "Probably not magic. Probably."
-    },
-    {
-        "id": "pointy_rock",
-        "name": "Pointy Rock",
-        "rarity": "common",
-        "flavor": "Nature's cheapest weapon."
-    },
-    {
-        "id": "oversized_hat",
-        "name": "Oversized Hat",
-        "rarity": "common",
-        "flavor": "Falls over your eyes at the worst possible moment."
-    },
-    {
-        "id": "rat_tooth",
-        "name": "Rat Tooth",
-        "rarity": "common",
-        "flavor": "Sharper than it has any right to be."
-    }
+  {
+    "id": "stick",
+    "name": "Stick",
+    "rarity": "common",
+    "flavor": "Sturdy enough. Barely."
+  },
+  {
+    "id": "comb",
+    "name": "Comb",
+    "rarity": "common",
+    "flavor": "A few teeth missing, but so is everyone's."
+  },
+  {
+    "id": "nail",
+    "name": "Nail",
+    "rarity": "common",
+    "flavor": "Bent, rusty, and somehow still pointy."
+  },
+  {
+    "id": "dirty_cloth",
+    "name": "Dirty Cloth",
+    "rarity": "common",
+    "flavor": "You don't want to know what the stains are."
+  },
+  {
+    "id": "hair",
+    "name": "Hair",
+    "rarity": "common",
+    "flavor": "Whose is a question best left unasked."
+  },
+  {
+    "id": "used_thong",
+    "name": "Used Thong",
+    "rarity": "common",
+    "flavor": "It's seen things. It won't say what."
+  },
+  {
+    "id": "droppings",
+    "name": "Droppings",
+    "rarity": "common",
+    "flavor": "Fresh-ish. That's the best you can say about it."
+  },
+  {
+    "id": "charcoal",
+    "name": "Charcoal",
+    "rarity": "common",
+    "flavor": "Still warm from something you'd rather not ask about."
+  },
+  {
+    "id": "pan",
+    "name": "Pan",
+    "rarity": "common",
+    "flavor": "Dented in a way that suggests a good story."
+  },
+  {
+    "id": "razor",
+    "name": "Razor",
+    "rarity": "common",
+    "flavor": "Dull, but still capable of ruining your day."
+  },
+  {
+    "id": "shiny_rock",
+    "name": "Shiny Rock",
+    "rarity": "common",
+    "flavor": "Probably not magic. Probably."
+  },
+  {
+    "id": "pointy_rock",
+    "name": "Pointy Rock",
+    "rarity": "common",
+    "flavor": "Nature's cheapest weapon."
+  },
+  {
+    "id": "oversized_hat",
+    "name": "Oversized Hat",
+    "rarity": "common",
+    "flavor": "Falls over your eyes at the worst possible moment."
+  },
+  {
+    "id": "rat_tooth",
+    "name": "Rat Tooth",
+    "rarity": "common",
+    "flavor": "Sharper than it has any right to be."
+  },
+  {
+    "id": "femur",
+    "name": "Femur",
+    "rarity": "rare",
+    "flavor": "A big chonky bone!"
+  }
 ]

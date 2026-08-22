@@ -2,10 +2,10 @@
   {
     "id": "goblin_grunt",
     "name": "Goblin Grunt",
-    "tier": 1,
-    "hp": 10,
-    "atk": 3,
-    "def": 1,
+    "hp": 27,
+    "atk": 9,
+    "def": 2,
+    "intended_level": 1,
     "shape": "triangle",
     "color": "#4a7c3c",
     "flavor": "A scrawny goblin snarls and raises a rusty knife.",
@@ -88,10 +88,10 @@
   {
     "id": "goblin_scavenger",
     "name": "Goblin Scavenger",
-    "tier": 1,
-    "hp": 8,
-    "atk": 4,
-    "def": 0,
+    "hp": 27,
+    "atk": 5,
+    "def": 2,
+    "intended_level": 1,
     "shape": "triangle",
     "color": "#6b8e3a",
     "flavor": "A goblin picks through a pile of bones, then hisses at you.",
@@ -199,10 +199,10 @@
   {
     "id": "goblin_skirmisher",
     "name": "Goblin Skirmisher",
-    "tier": 2,
-    "hp": 16,
-    "atk": 5,
-    "def": 2,
+    "hp": 31,
+    "atk": 11,
+    "def": 3,
+    "intended_level": 3,
     "shape": "pentagon",
     "color": "#3c6e4a",
     "flavor": "A wiry goblin circles you, twin blades flashing.",
@@ -230,10 +230,10 @@
   {
     "id": "goblin_archer",
     "name": "Goblin Archer",
-    "tier": 2,
-    "hp": 14,
-    "atk": 6,
-    "def": 1,
+    "hp": 21,
+    "atk": 15,
+    "def": 2,
+    "intended_level": 3,
     "shape": "pentagon",
     "color": "#2f6b57",
     "flavor": "An arrow whistles past your ear -- this one keeps its distance.",
@@ -261,16 +261,15 @@
   {
     "id": "goblin_chief",
     "name": "Goblin Chief",
-    "tier": 3,
-    "hp": 28,
-    "atk": 8,
-    "def": 3,
+    "hp": 26,
+    "atk": 19,
+    "def": 2,
+    "intended_level": 5,
     "shape": "hexagon",
     "color": "#8a3c2a",
     "flavor": "The goblin chief hefts a jagged cleaver, crowned in stolen gold.",
     "loot_min": 120,
     "loot_max": 250,
-    "sprite_path": "assets/dungeon/monsters/goblin_chief.png",
     "drops": [
       {
         "kind": "equipment",
@@ -287,21 +286,21 @@
         "item_id": "signet_of_kings",
         "chance": 0.08
       }
-    ]
+    ],
+    "sprite_path": "assets/dungeon/monsters/goblin_chief.png"
   },
   {
     "id": "goblin_warlord",
     "name": "Goblin Warlord",
-    "tier": 3,
-    "hp": 30,
-    "atk": 7,
-    "def": 4,
+    "hp": 46,
+    "atk": 9,
+    "def": 5,
+    "intended_level": 5,
     "shape": "hexagon",
     "color": "#6b2a3c",
     "flavor": "Scarred and armored in scavenged plate, the warlord roars a challenge.",
     "loot_min": 120,
     "loot_max": 250,
-    "sprite_path": "assets/dungeon/monsters/goblin_warlord.png",
     "drops": [
       {
         "kind": "equipment",
@@ -318,35 +317,37 @@
         "item_id": "amulet_of_vigor",
         "chance": 0.08
       }
-    ]
+    ],
+    "sprite_path": "assets/dungeon/monsters/goblin_warlord.png"
   },
   {
     "id": "enchanted_comb",
     "name": "Enchanted Comb",
-    "tier": 2,
-    "hp": 20,
-    "atk": 6,
+    "hp": 24,
+    "atk": 14,
     "def": 2,
+    "intended_level": 4,
     "shape": "rectangle",
     "color": "#a153ca",
     "flavor": "A shiney comb only for the goodest gnomes",
-    "loot_min": 30,
-    "loot_max": 65,
+    "loot_min": 15,
+    "loot_max": 30,
     "drops": [
       {
         "kind": "material",
         "item_id": "comb",
         "chance": 0.3
       }
-    ]
+    ],
+    "skills": []
   },
   {
     "id": "gnome_doorman",
     "name": "Gnomish Doorman",
-    "tier": 3,
-    "hp": 25,
-    "atk": 5,
-    "def": 3,
+    "hp": 40,
+    "atk": 13,
+    "def": 5,
+    "intended_level": 6,
     "shape": "hexagon",
     "color": "#b30000",
     "flavor": "bablalblab",
@@ -362,6 +363,315 @@
         "kind": "equipment",
         "item_id": "padded_jerkin",
         "chance": 0.01
+      }
+    ],
+    "skills": []
+  },
+  {
+    "id": "gnome_leather_daddy",
+    "name": "Gnomish Leather Daddy",
+    "hp": 62,
+    "atk": 17,
+    "def": 12,
+    "intended_level": 15,
+    "shape": "circle",
+    "color": "#000000",
+    "flavor": "Oh no...",
+    "loot_min": 100,
+    "loot_max": 200,
+    "drops": []
+  },
+  {
+    "id": "enchanted_towel",
+    "name": "Enchanted Towel",
+    "hp": 32,
+    "atk": 11,
+    "def": 4,
+    "intended_level": 4,
+    "shape": "hexagon",
+    "color": "#b5b5b5",
+    "flavor": "A wet towel to spank naughty bottoms",
+    "loot_min": 25,
+    "loot_max": 45,
+    "drops": [
+      {
+        "kind": "material",
+        "item_id": "dirty_cloth",
+        "chance": 0.3
+      }
+    ],
+    "skills": [
+      {
+        "name": "Towel spank!",
+        "chance": 0.2,
+        "effects": [
+          {
+            "type": "extra_attack",
+            "multiplier": 0.7
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "nakedgnome_1",
+    "name": "Belly Gnome",
+    "hp": 39,
+    "atk": 10,
+    "def": 7,
+    "intended_level": 7,
+    "shape": "hexagon",
+    "color": "#000000",
+    "flavor": "A gnome that likes to pat his phat belly",
+    "loot_min": 35,
+    "loot_max": 70,
+    "drops": [
+      {
+        "kind": "equipment",
+        "item_id": "lucky_coin",
+        "chance": 0.1
+      }
+    ],
+    "skills": [
+      {
+        "name": "Belly slam",
+        "chance": 0.3,
+        "effects": [
+          {
+            "type": "lifesteal_fraction",
+            "value": 0.4
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "enchanted_soap",
+    "name": "Enchanted Soap",
+    "hp": 32,
+    "atk": 9,
+    "def": 7,
+    "intended_level": 4,
+    "shape": "hexagon",
+    "color": "#000000",
+    "flavor": "Slippery thing!",
+    "loot_min": 20,
+    "loot_max": 55,
+    "drops": [],
+    "skills": [
+      {
+        "name": "Slippery slap!",
+        "chance": 0.2,
+        "effects": [
+          {
+            "type": "lifesteal_fraction",
+            "value": 0.3
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "nakedgnome_2",
+    "name": "Towel Gnome",
+    "hp": 41,
+    "atk": 15,
+    "def": 5,
+    "intended_level": 7,
+    "shape": "hexagon",
+    "color": "#000000",
+    "flavor": "A gnome with a wet towel!",
+    "loot_min": 35,
+    "loot_max": 65,
+    "drops": [
+      {
+        "kind": "material",
+        "item_id": "dirty_cloth",
+        "chance": 0.2
+      }
+    ],
+    "skills": [
+      {
+        "name": "Towel spank!",
+        "chance": 0.2,
+        "effects": [
+          {
+            "type": "extra_attack",
+            "multiplier": 0.7
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "nakedgnome_3",
+    "name": "Thong Gnome",
+    "hp": 28,
+    "atk": 23,
+    "def": 3,
+    "intended_level": 7,
+    "shape": "hexagon",
+    "color": "#000000",
+    "flavor": "A gnome in a leopard thong",
+    "loot_min": 15,
+    "loot_max": 65,
+    "drops": [
+      {
+        "kind": "material",
+        "item_id": "used_thong",
+        "chance": 0.2
+      }
+    ],
+    "skills": [
+      {
+        "name": "Questionable Dance",
+        "chance": 0.3,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 1.3
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "bath_witch",
+    "name": "Frustrated Witch",
+    "hp": 43,
+    "atk": 31,
+    "def": 5,
+    "intended_level": 13,
+    "shape": "hexagon",
+    "color": "#560075",
+    "flavor": "More interlopers??\r\nThat's enough, get out!",
+    "loot_min": 80,
+    "loot_max": 160,
+    "drops": [
+      {
+        "kind": "equipment",
+        "item_id": "magic_amulet",
+        "chance": 0.05
+      },
+      {
+        "kind": "equipment",
+        "item_id": "magic_wand",
+        "chance": 0.05
+      },
+      {
+        "kind": "equipment",
+        "item_id": "fancy_hat",
+        "chance": 0.02
+      },
+      {
+        "kind": "material",
+        "item_id": "shiny_rock",
+        "chance": 0.1
+      },
+      {
+        "kind": "material",
+        "item_id": "hair",
+        "chance": 0.3
+      }
+    ],
+    "attack_chance": 6,
+    "skills": [
+      {
+        "name": "Zap!",
+        "chance": 3,
+        "effects": [
+          {
+            "type": "extra_attack",
+            "multiplier": 0.4
+          }
+        ]
+      },
+      {
+        "name": "Cold Floating Bucket",
+        "chance": 1,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 1.3
+          }
+        ]
+      },
+      {
+        "name": "Floating Kiss",
+        "chance": 1,
+        "effects": [
+          {
+            "type": "extra_attack",
+            "multiplier": 0.7
+          },
+          {
+            "type": "lifesteal_fraction",
+            "value": 0.4
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "z_goolok",
+    "name": "Z'Goolok, the End of All",
+    "hp": 120,
+    "atk": 40,
+    "def": 34,
+    "intended_level": 30,
+    "shape": "hexagon",
+    "color": "#1a90ea",
+    "flavor": "GNAM GNAM GNAM!\r\nHE APPEARS!",
+    "loot_min": 790,
+    "loot_max": 1050,
+    "drops": [
+      {
+        "kind": "equipment",
+        "item_id": "amulet_of_vigor",
+        "chance": 0.1
+      },
+      {
+        "kind": "material",
+        "item_id": "shiny_rock",
+        "chance": 0.3
+      },
+      {
+        "kind": "material",
+        "item_id": "droppings",
+        "chance": 1.0
+      },
+      {
+        "kind": "material",
+        "item_id": "droppings",
+        "chance": 0.4
+      },
+      {
+        "kind": "equipment",
+        "item_id": "dragonhide_cloak",
+        "chance": 0.1
+      }
+    ],
+    "attack_chance": 1,
+    "skills": [
+      {
+        "name": "Bite!",
+        "chance": 1,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 1.5
+          }
+        ]
+      },
+      {
+        "name": "Tail slap!",
+        "chance": 1,
+        "effects": [
+          {
+            "type": "extra_attack",
+            "multiplier": 1
+          }
+        ]
       }
     ]
   }

@@ -52,12 +52,12 @@ def _draw_monster_shape(draw: ImageDraw.ImageDraw, cx: float, cy: float, radius:
 SPRITE_HEIGHT = 140
 
 
-def _load_monster_sprite(sprite_path: str) -> Image.Image | None:
+def _load_monster_sprite(sprite_path: str, target_height: int = SPRITE_HEIGHT) -> Image.Image | None:
     if not sprite_path or not os.path.exists(sprite_path):
         return None
     sprite = Image.open(sprite_path).convert("RGBA")
-    scale = SPRITE_HEIGHT / sprite.height
-    new_size = (max(1, round(sprite.width * scale)), SPRITE_HEIGHT)
+    scale = target_height / sprite.height
+    new_size = (max(1, round(sprite.width * scale)), target_height)
     return sprite.resize(new_size, Image.NEAREST)
 
 
@@ -80,25 +80,46 @@ def _load_background(background_path: str | None) -> Image.Image:
     return img
 
 
-def render_room(visited_count: int, monster: dict | None, background_path: str | None = None) -> io.BytesIO:
-    """Renders the corridor view for one dungeon room -- with its monster standing at the far end
-    if there is one (combat rooms), or just the empty scene if not (choice rooms have no monster
-    to draw). Combat HP/stats are shown as embed text by the caller, not baked into this image --
-    this only draws the scene. `visited_count` labels the room ("Room N") with no denominator,
-    since a branching delve graph has no single well-defined total room count the way a flat list
-    did -- a fork's two paths can have different lengths, and a room can even be revisited via a
-    dead-end self-loop. Returns a ready-to-attach BytesIO."""
+# x-offsets from center for each living monster, keyed by how many are being drawn -- count 1 is
+# byte-identical to the old single-monster centering (offset 0). Beyond 2, sprites also shrink
+# (see _sprite_height_for) so a 4-wide group doesn't overlap at WIDTH=500.
+_GROUP_X_OFFSETS = {
+    1: [0],
+    2: [-90, 90],
+    3: [-150, 0, 150],
+    4: [-180, -60, 60, 180],
+}
+
+
+def _sprite_height_for(count: int) -> int:
+    return SPRITE_HEIGHT if count <= 2 else round(SPRITE_HEIGHT * 0.75)
+
+
+def render_room(visited_count: int, monsters: list[dict], background_path: str | None = None) -> io.BytesIO:
+    """Renders the corridor view for one dungeon room -- with its living monster(s) standing at the
+    far end if there are any (combat rooms), or just the empty scene if not (choice rooms, or a
+    combat room whose group has been fully cleared, pass an empty list). Combat HP/stats are shown
+    as embed text by the caller, not baked into this image -- this only draws the scene.
+    `visited_count` labels the room ("Room N") with no denominator, since a branching delve graph
+    has no single well-defined total room count the way a flat list did -- a fork's two paths can
+    have different lengths, and a room can even be revisited via a dead-end self-loop. Returns a
+    ready-to-attach BytesIO."""
     img = _load_background(background_path)
 
-    if monster is not None:
-        cx, cy = WIDTH / 2, HEIGHT / 2 - 10
-        sprite = _load_monster_sprite(monster.get("sprite_path"))
+    cx, cy = WIDTH / 2, HEIGHT / 2 - 10
+    count = len(monsters)
+    sprite_height = _sprite_height_for(count)
+    offsets = _GROUP_X_OFFSETS.get(count, _GROUP_X_OFFSETS[4])
+    for monster, x_offset in zip(monsters, offsets):
+        mx = cx + x_offset
+        sprite = _load_monster_sprite(monster.get("sprite_path"), sprite_height)
         if sprite:
-            pos = (round(cx - sprite.width / 2), round(cy + 75 - sprite.height))
+            pos = (round(mx - sprite.width / 2), round(cy + 75 - sprite.height))
             img.alpha_composite(sprite, pos)
         else:
             draw = ImageDraw.Draw(img)
-            _draw_monster_shape(draw, cx, cy, 60, monster["shape"], _parse_color(monster["color"]))
+            radius = 60 if count <= 2 else 45
+            _draw_monster_shape(draw, mx, cy, radius, monster["shape"], _parse_color(monster["color"]))
 
     draw = ImageDraw.Draw(img)
     draw.text((16, HEIGHT - 32), f"Room {visited_count}", font=_label_font, fill=(200, 200, 210, 255))
