@@ -609,6 +609,7 @@
       {
         "name": "Zap!",
         "chance": 3,
+        "special": true,
         "effects": [
           {
             "type": "extra_attack",
@@ -619,6 +620,7 @@
       {
         "name": "Cold Floating Bucket",
         "chance": 1,
+        "special": true,
         "effects": [
           {
             "type": "damage_multiplier",
@@ -629,6 +631,7 @@
       {
         "name": "Floating Kiss",
         "chance": 1,
+        "special": true,
         "effects": [
           {
             "type": "extra_attack",

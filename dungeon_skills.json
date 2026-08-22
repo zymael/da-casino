@@ -87,7 +87,8 @@
         "name": "War Blast",
         "flavor": "Battle magic with none of the finesse and all of the boom.",
         "effects": [{"type": "damage_multiplier", "value": 1.8}],
-        "chip_cost": 10
+        "chip_cost": 10,
+        "special": true
     },
     {
         "id": "nightweaver_fireball",
@@ -97,7 +98,8 @@
         "name": "Shadow Bolt",
         "flavor": "A bolt of dark flame that swallows the light around it.",
         "effects": [{"type": "damage_multiplier", "value": 1.8}],
-        "chip_cost": 10
+        "chip_cost": 10,
+        "special": true
     },
     {
         "id": "enchanter_fireball",
@@ -107,7 +109,8 @@
         "name": "Arcane Flame",
         "flavor": "A carefully woven spell, warm at the edges.",
         "effects": [{"type": "damage_multiplier", "value": 1.8}],
-        "chip_cost": 10
+        "chip_cost": 10,
+        "special": true
     },
     {
         "id": "artificer_fireball",
@@ -117,7 +120,8 @@
         "name": "Overcharged Bolt",
         "flavor": "A gadget never rated for this much mana.",
         "effects": [{"type": "damage_multiplier", "value": 1.8}],
-        "chip_cost": 10
+        "chip_cost": 10,
+        "special": true
     },
     {
         "id": "bar_fighter_sneak_attack",
@@ -257,7 +261,8 @@
         "name": "Hammer and Splint",
         "flavor": "One tool breaks bones, the other fixes them. Multitasking.",
         "effects": [{"type": "damage_multiplier", "value": 1.3}, {"type": "heal_fraction", "value": 0.15}],
-        "chip_cost": 20
+        "chip_cost": 20,
+        "special": true
     },
     {
         "id": "plague_doctor_noxious_cloud",
@@ -277,7 +282,8 @@
         "name": "Miasma Strike",
         "flavor": "A cane strike that leaves more than a bruise.",
         "effects": [{"type": "damage_multiplier", "value": 1.4}, {"type": "def_shred", "value": 1}],
-        "chip_cost": 20
+        "chip_cost": 20,
+        "special": true
     },
     {
         "id": "priest_greater_mending",
@@ -327,7 +333,8 @@
         "name": "Arcane Smash",
         "flavor": "Magic as a blunt instrument, twice in a row.",
         "effects": [{"type": "damage_multiplier", "value": 1.5}, {"type": "extra_attack"}],
-        "chip_cost": 15
+        "chip_cost": 15,
+        "special": true
     },
     {
         "id": "war_mage_meteor",
@@ -337,7 +344,8 @@
         "name": "Meteor",
         "flavor": "Subtlety was never the point.",
         "effects": [{"type": "damage_multiplier", "value": 2.2}],
-        "chip_cost": 20
+        "chip_cost": 20,
+        "special": true
     },
     {
         "id": "nightweaver_drain_bolt",
@@ -347,7 +355,8 @@
         "name": "Drain Bolt",
         "flavor": "Siphons life through the dark before it even lands.",
         "effects": [{"type": "damage_multiplier", "value": 1.4}, {"type": "lifesteal_fraction", "value": 0.25}],
-        "chip_cost": 15
+        "chip_cost": 15,
+        "special": true
     },
     {
         "id": "nightweaver_umbral_collapse",
@@ -357,7 +366,8 @@
         "name": "Umbral Collapse",
         "flavor": "The shadows fold inward, taking the armor with them.",
         "effects": [{"type": "damage_multiplier", "value": 1.6}, {"type": "def_shred", "value": 2}],
-        "chip_cost": 20
+        "chip_cost": 20,
+        "special": true
     },
     {
         "id": "enchanter_warding_sigil",
@@ -377,7 +387,8 @@
         "name": "Radiant Burst",
         "flavor": "Warm light, sharp edges.",
         "effects": [{"type": "damage_multiplier", "value": 1.6}, {"type": "heal_fraction", "value": 0.15}],
-        "chip_cost": 20
+        "chip_cost": 20,
+        "special": true
     },
     {
         "id": "artificer_overclock",
@@ -397,7 +408,8 @@
         "name": "Payload Detonation",
         "flavor": "Two charges. Definitely intentional.",
         "effects": [{"type": "damage_multiplier", "value": 1.7}, {"type": "extra_attack"}],
-        "chip_cost": 20
+        "chip_cost": 20,
+        "special": true
     },
     {
         "id": "bar_fighter_bottle_it",
