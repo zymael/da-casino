@@ -80,23 +80,28 @@ def _load_background(background_path: str | None) -> Image.Image:
     return img
 
 
-def render_room(room_index: int, total_rooms: int, monster: dict, background_path: str | None = None) -> io.BytesIO:
-    """Renders the corridor view for one dungeon room, with its monster standing at the far end.
-    Combat HP/stats are shown as embed text by the caller, not baked into this image -- this
-    only draws the scene. Returns a ready-to-attach BytesIO."""
+def render_room(visited_count: int, monster: dict | None, background_path: str | None = None) -> io.BytesIO:
+    """Renders the corridor view for one dungeon room -- with its monster standing at the far end
+    if there is one (combat rooms), or just the empty scene if not (choice rooms have no monster
+    to draw). Combat HP/stats are shown as embed text by the caller, not baked into this image --
+    this only draws the scene. `visited_count` labels the room ("Room N") with no denominator,
+    since a branching delve graph has no single well-defined total room count the way a flat list
+    did -- a fork's two paths can have different lengths, and a room can even be revisited via a
+    dead-end self-loop. Returns a ready-to-attach BytesIO."""
     img = _load_background(background_path)
 
-    cx, cy = WIDTH / 2, HEIGHT / 2 - 10
-    sprite = _load_monster_sprite(monster.get("sprite_path"))
-    if sprite:
-        pos = (round(cx - sprite.width / 2), round(cy + 75 - sprite.height))
-        img.alpha_composite(sprite, pos)
-    else:
-        draw = ImageDraw.Draw(img)
-        _draw_monster_shape(draw, cx, cy, 60, monster["shape"], _parse_color(monster["color"]))
+    if monster is not None:
+        cx, cy = WIDTH / 2, HEIGHT / 2 - 10
+        sprite = _load_monster_sprite(monster.get("sprite_path"))
+        if sprite:
+            pos = (round(cx - sprite.width / 2), round(cy + 75 - sprite.height))
+            img.alpha_composite(sprite, pos)
+        else:
+            draw = ImageDraw.Draw(img)
+            _draw_monster_shape(draw, cx, cy, 60, monster["shape"], _parse_color(monster["color"]))
 
     draw = ImageDraw.Draw(img)
-    draw.text((16, HEIGHT - 32), f"Room {room_index + 1} / {total_rooms}", font=_label_font, fill=(200, 200, 210, 255))
+    draw.text((16, HEIGHT - 32), f"Room {visited_count}", font=_label_font, fill=(200, 200, 210, 255))
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")

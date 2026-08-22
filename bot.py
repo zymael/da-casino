@@ -302,10 +302,11 @@ async def stats_cmd(ctx):
         gear = ", ".join(
             dungeon.EQUIPMENT[equipped[slot]]["name"] for slot in dungeon.EQUIPMENT_SLOTS if slot in equipped
         ) or "none"
+        current_hp = min(character["current_hp"], effective["hp"])
         embed.add_field(
             name="🗡️ Class",
             value=f"{name} {suit_symbol} — Level {character['level']}\n"
-            f"HP {effective['hp']} / ATK {effective['atk']} / DEF {effective['def']}\n"
+            f"HP {current_hp}/{effective['hp']} / ATK {effective['atk']} / DEF {effective['def']}\n"
             f"Gear: {gear}",
             inline=True,
         )
@@ -757,10 +758,13 @@ async def class_cmd(ctx):
         effective = dungeon.compute_effective_stats(character, equipped)
         xp_needed = dungeon.xp_to_next_level(character["level"])
 
+        current_hp = min(character["current_hp"], effective["hp"])
         embed = discord.Embed(title=name, color=discord.Color.blurple())
         embed.add_field(name="Level", value=f"{character['level']} ({character['xp']}/{xp_needed} XP)", inline=True)
         embed.add_field(
-            name="Stats", value=f"HP {effective['hp']} / ATK {effective['atk']} / DEF {effective['def']}", inline=True
+            name="Stats",
+            value=f"HP {current_hp}/{effective['hp']} / ATK {effective['atk']} / DEF {effective['def']}",
+            inline=True,
         )
         gear_lines = []
         for slot in dungeon.EQUIPMENT_SLOTS:
@@ -787,23 +791,31 @@ async def delve_cmd(ctx, delve_id: str = None):
     if character is None:
         await ctx.send(f"You don't have a character yet, {ctx.author.display_name} — run `!class` to pick one first.")
         return
+    if character["current_hp"] <= 0:
+        await ctx.send(f"{ctx.author.display_name}, you're too beat up to delve — run `!rest` to heal first.")
+        return
     if ctx.author.id in active_delves:
         await ctx.send("You're already mid-delve — finish that one first!")
         return
 
     if delve_id is not None:
         delve = dungeon.DELVES.get(delve_id)
-        if delve is None:
+        if delve is None or not delve.get("active", True):
             await ctx.send(f"No such delve `{delve_id}`.")
             return
-    elif len(dungeon.DELVES) > 1:
-        # No specific delve pinned and more than one dungeon defined -- let the player pick which
-        # dungeon first; its own confirm button leads into the same Solo/Party choice below.
-        embed, view = await build_delve_picker_display(ctx.guild.id, ctx.author.id, character)
-        await ctx.send(embed=embed, view=view)
-        return
     else:
-        delve = next(iter(dungeon.DELVES.values()))
+        available = dungeon.active_delves()
+        if not available:
+            await ctx.send("No delves are available to play right now.")
+            return
+        if len(available) > 1:
+            # No specific delve pinned and more than one active dungeon defined -- let the player
+            # pick which dungeon first; its own confirm button leads into the same Solo/Party
+            # choice below.
+            embed, view = await build_delve_picker_display(ctx.guild.id, ctx.author.id, character)
+            await ctx.send(embed=embed, view=view)
+            return
+        delve = next(iter(available.values()))
 
     # Energy is never spent just to see this choice -- only Solo Delve or a party leader's Start
     # Delve (both inside DelveModeChoiceView/PartyLobbyView) actually spends the charge, so

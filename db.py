@@ -171,6 +171,15 @@ def init_db():
     for column in ("level", "xp"):
         if column not in character_columns:
             conn.execute(f"ALTER TABLE characters ADD COLUMN {column} INTEGER NOT NULL DEFAULT {1 if column == 'level' else 0}")
+    # current_hp persists a character's HP *across* delves -- unlike `hp` (the permanent max, only
+    # ever raised by leveling/equipment), this is what's left after a delve's damage/heals, and it
+    # carries into the next delve unhealed except by !rest (claim_rest below) or an in-combat
+    # heal/item. Backfilled to each row's full `hp` since that's the only sane value for a
+    # character that predates this column -- can't be a literal ALTER DEFAULT since it has to
+    # match each row's own hp, not a constant.
+    if "current_hp" not in character_columns:
+        conn.execute("ALTER TABLE characters ADD COLUMN current_hp INTEGER")
+        conn.execute("UPDATE characters SET current_hp = hp WHERE current_hp IS NULL")
     # A character's currently equipped gear -- one row per filled slot, upserted on equip/replace.
     # No row for a slot means empty, same "absence = default state" idea as ranch_facilities.
     conn.execute(
@@ -1516,14 +1525,16 @@ def _seconds_until_refresh(last_timestamp: str | None) -> float | None:
 
 
 def claim_rest(guild_id: int, user_id: int, gold_amount: int) -> tuple[str, float | int]:
-    """Grants `gold_amount` credits and refills energy to ENERGY_MAX, once every REFRESH_HOURS
-    (still gated by last_daily -- renamed from claim_daily now that resting does double duty, the
-    column itself wasn't worth an ALTER just for the name; it stores a full timestamp now rather
-    than a bare date, despite the name).
+    """Grants `gold_amount` credits, refills energy to ENERGY_MAX, and (if this user has a dungeon
+    character) heals it to full -- once every REFRESH_HOURS (still gated by last_daily -- renamed
+    from claim_daily now that resting does multiple duties, the column itself wasn't worth an
+    ALTER just for the name; it stores a full timestamp now rather than a bare date, despite the
+    name). Healing here is deliberate: current_hp otherwise only rises from an in-combat heal
+    skill/item, never automatically between delves -- see set_current_hp.
 
     Returns (status, value):
       - ("cooldown", seconds_remaining) — still within REFRESH_HOURS of the last rest
-      - ("claimed", new_balance) — credits granted and energy refilled
+      - ("claimed", new_balance) — credits granted, energy refilled, character healed
     """
     conn = _connect()
     try:
@@ -1540,6 +1551,9 @@ def claim_rest(guild_id: int, user_id: int, gold_amount: int) -> tuple[str, floa
         conn.execute(
             "UPDATE users SET balance = ?, last_daily = ?, energy = ? WHERE guild_id = ? AND user_id = ?",
             (new_balance, now, ENERGY_MAX, guild_id, user_id),
+        )
+        conn.execute(
+            "UPDATE characters SET current_hp = hp WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
         )
         conn.commit()
         return "claimed", new_balance
@@ -1743,9 +1757,9 @@ def create_character(
     conn = _connect()
     try:
         cursor = conn.execute(
-            "INSERT OR IGNORE INTO characters (guild_id, user_id, main_class, subclass, hp, atk, def) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (guild_id, user_id, main_class, subclass, hp, atk, def_),
+            "INSERT OR IGNORE INTO characters (guild_id, user_id, main_class, subclass, hp, atk, def, current_hp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (guild_id, user_id, main_class, subclass, hp, atk, def_, hp),
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -1756,22 +1770,40 @@ def create_character(
 def get_character(guild_id: int, user_id: int) -> dict | None:
     """Returns this user's dungeon character, or None if they haven't picked one yet. hp/atk/def
     already include all permanent level growth (see add_xp) -- equipment bonuses are separate,
-    see get_equipped_items/dungeon.compute_effective_stats."""
+    see get_equipped_items/dungeon.compute_effective_stats. current_hp is what a fresh delve
+    starts at (see set_current_hp) -- everything from this row except that one field is a
+    permanent stat, never healed."""
     conn = _connect()
     try:
         row = conn.execute(
-            "SELECT main_class, subclass, hp, atk, def, last_delve, level, xp FROM characters "
+            "SELECT main_class, subclass, hp, atk, def, last_delve, level, xp, current_hp FROM characters "
             "WHERE guild_id = ? AND user_id = ?",
             (guild_id, user_id),
         ).fetchone()
         if row is None:
             return None
-        main_class, subclass, hp, atk, def_, last_delve, level, xp = row
+        main_class, subclass, hp, atk, def_, last_delve, level, xp, current_hp = row
         return {
             "main_class": main_class, "subclass": subclass,
             "hp": hp, "atk": atk, "def": def_, "last_delve": last_delve,
-            "level": level, "xp": xp,
+            "level": level, "xp": xp, "current_hp": current_hp,
         }
+    finally:
+        conn.close()
+
+
+def set_current_hp(guild_id: int, user_id: int, hp: int) -> None:
+    """Persists a character's HP at the end of a delve (retreat, victory, death, or a party wipe)
+    -- the value the *next* delve will start from, since HP no longer auto-refills between delves,
+    only !rest (claim_rest) or an in-combat heal/item raises it. A no-op if this user has no
+    character (defensive; every real caller already has one, but costs nothing to be safe)."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE characters SET current_hp = ? WHERE guild_id = ? AND user_id = ?",
+            (max(0, hp), guild_id, user_id),
+        )
+        conn.commit()
     finally:
         conn.close()
 

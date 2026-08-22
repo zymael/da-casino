@@ -47,6 +47,8 @@ _TRIGGER_PARAM_CHOICES = {
     "recipe": lambda: sorted(dungeon.RECIPES.keys()),
     "achievement": lambda: sorted(a["kind"] for a in achievements.ACHIEVEMENTS),
     "quest": lambda: sorted(quests.QUESTS_BY_ID.keys()),
+    "main_class": lambda: sorted(dungeon.CLASSES.keys()),
+    "subclass": lambda: sorted(dungeon.SUBCLASSES.keys()),
 }
 
 load_dotenv()
@@ -141,22 +143,67 @@ button:hover { background: #45454f; }
 .add-row { align-self: flex-start; }
 .asset-thumb { max-width: 60px; max-height: 40px; border-radius: 4px; display: block; }
 .asset-table form { flex-direction: row; max-width: none; }
+.info-icon { cursor: help; color: #6a6a74; margin-left: 4px; font-size: 0.8rem; }
+
+/* Delve flowchart editor (see admin_server.py's _render_delve_flowchart / _dynamic_script) */
+form.delve-form { max-width: none; }
+.delve-canvas-wrap { position: relative; overflow: auto; max-height: 640px; padding: 0; border: 1px solid #35353f; border-radius: 8px; background: #14141a; margin-bottom: 8px; max-width: calc(100vw - 640px); min-width: 320px; }
+#delve-rooms-canvas { position: relative; width: 2000px; height: 1000px; }
+svg.delve-arrows { position: absolute; top: 0; left: 0; width: 2000px; height: 1000px; pointer-events: none; overflow: visible; }
+svg.delve-arrows text { user-select: none; }
+.add-row[data-repeat-add="delve-rooms-canvas"] { position: sticky; bottom: 8px; left: 8px; z-index: 5; }
+.room-wrapper { display: contents; }
+.room-box { position: absolute; width: 170px; background: #26262e; border: 2px solid #45454f; border-radius: 8px; padding: 8px; cursor: grab; user-select: none; touch-action: none; z-index: 1; transition: border-color 0.1s, box-shadow 0.1s; }
+.room-box.dragging { cursor: grabbing; z-index: 2; }
+.room-box.selected { border-color: #e8813a; }
+.room-box.is-start { box-shadow: 0 0 0 2px #40a060; }
+.room-box.drop-target-hover { border-color: #e8813a; box-shadow: 0 0 0 3px rgba(232, 129, 58, 0.55); z-index: 3; }
+.room-box-header { display: flex; align-items: center; gap: 4px; }
+.room-box-id { flex: 1; font-weight: bold; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.room-flag, .room-box-select { background: none; border: none; padding: 2px; font-size: 0.85rem; cursor: pointer; color: #9a9aa4; }
+.room-flag.is-start { color: #40a060; }
+.room-box-summary { font-size: 0.78rem; color: #9a9aa4; margin-top: 4px; }
+.connector-handle { position: absolute; right: -10px; bottom: -10px; width: 20px; height: 20px; border-radius: 50%; background: #40a060; border: 3px solid #1a1a1f; cursor: crosshair; touch-action: none; z-index: 4; }
+.connector-handle:hover { transform: scale(1.15); }
+.connector-handle.fail { background: #c04040; }
+.action-node { position: absolute; min-width: 84px; max-width: 130px; background: #1c1c26; border: 1px solid #3a3a4a; border-left: 4px solid #7a7ae0; border-radius: 5px; padding: 5px 26px 5px 8px; font-size: 0.7rem; color: #c8c8f0; z-index: 1; user-select: none; cursor: grab; touch-action: none; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+.action-node.dragging { cursor: grabbing; z-index: 2; }
+.action-node:hover { border-left-color: #9a9af0; }
+.action-node .connector-handle { width: 16px; height: 16px; }
+.action-node .connector-handle.fail { right: 14px; }
+.action-node-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.action-owner-line { stroke: #7a7ae0; stroke-width: 1.5; stroke-dasharray: 4,3; opacity: 0.75; }
+.arrow-disconnect { opacity: 0.55; transition: opacity 0.15s; }
+.arrow-disconnect:hover { opacity: 1; }
+.room-detail-panel { position: fixed; top: 90px; right: 24px; width: 340px; max-height: calc(100vh - 120px); overflow-y: auto; background: #202027; border: 1px solid #45454f; border-radius: 8px; padding: 14px; z-index: 20; max-width: 340px; box-shadow: -4px 0 16px rgba(0,0,0,0.5); }
+.room-detail-panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.live-next-tag { font-weight: normal; color: #9a9aa4; font-size: 0.78rem; margin-left: 6px; }
+#tooltip-bubble { position: fixed; z-index: 999; background: #101014; color: #e8e8ec; border: 1px solid #52525e; padding: 6px 10px; border-radius: 6px; font-size: 0.78rem; max-width: 260px; display: none; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
 """
 
 # Attaches to every image-upload input on the page (there may be several) -- picking a file
 # updates its own preview <img> immediately via a local object URL, no server round-trip needed
 # just to see what you picked. Vanilla JS, no new dependency, one shared script rather than
-# per-field inline handlers so there's no f-string quote-escaping to get wrong.
+# per-field inline handlers so there's no f-string quote-escaping to get wrong. A named function
+# (rather than a bare top-level querySelectorAll) so wireRepeatAdd's clone handler can re-run it
+# on a freshly-added row too -- a delve room's own background-image input (see
+# _render_room_detail_panel) only exists once a room's been added via "+ Add Room", same reasoning
+# as every other wireX call there.
 _PREVIEW_SCRIPT = """
-document.querySelectorAll('input[type=file][data-preview-target]').forEach(function (input) {
-    input.addEventListener('change', function () {
-        if (this.files && this.files[0]) {
-            var img = document.getElementById(this.dataset.previewTarget);
-            img.src = URL.createObjectURL(this.files[0]);
-            img.style.display = 'block';
-        }
+function wireImagePreviews(root) {
+    root.querySelectorAll('input[type=file][data-preview-target]').forEach(function (input) {
+        if (input.dataset.previewWired) return;
+        input.dataset.previewWired = '1';
+        input.addEventListener('change', function () {
+            if (this.files && this.files[0]) {
+                var img = document.getElementById(this.dataset.previewTarget);
+                img.src = URL.createObjectURL(this.files[0]);
+                img.style.display = 'block';
+            }
+        });
     });
-});
+}
+wireImagePreviews(document);
 """
 
 # TRIGGER_TYPES aren't hot-reloadable data (unlike dungeon.MONSTERS etc) -- they're a fixed set of
@@ -165,6 +212,15 @@ document.querySelectorAll('input[type=file][data-preview-target]').forEach(funct
 _TRIGGER_PARAMS_BY_TYPE = {
     trigger_type: sorted(required | optional) for trigger_type, (required, optional) in quests.TRIGGER_SCHEMAS.items()
 }
+
+# Which of a delve room's type-specific detail-panel field groups (see
+# _render_room_detail_panel) apply to each room type -- same "type hides irrelevant fields" idea
+# TRIGGER_PARAMS_BY_TYPE drives for trigger rows, just at the level of whole field groups (monsters
+# vs prompt/actions) rather than individual params. "next" isn't listed here at all -- room-to-room
+# connections are drawn on the flowchart canvas (see _render_room_box), never typed into this
+# panel. Named _DELVE_ROOM_FIELDS_BY_TYPE (not just "room") to stay clearly distinct from rooms.py's
+# unrelated casino-hub room concept _ROOM_COMMAND_KINDS mirrors above.
+_DELVE_ROOM_FIELDS_BY_TYPE = {"combat": ["monsters", "prompt"], "choice": ["prompt", "actions"]}
 
 # Mirrors rooms.py's own _COMMAND_KINDS -- fixed regardless of content, same footing as
 # EFFECT_TYPES/TRIGGER_TYPES above.
@@ -225,6 +281,14 @@ def _cascade_options() -> dict:
             "equipment": _choices({k: v for k, v in dungeon.EQUIPMENT.items() if not v.get("quest_only")}),
             "material": _choices(dungeon.MATERIALS),
         },
+        # A choice-room action's own cost -- backs its item_kind -> item_id select. Equipment isn't
+        # here on purpose: costs are qty-based (db.craft_item's {item_id: qty} shape), which
+        # equipped-or-stored gear doesn't fit, and nothing authored needs it as a spendable cost.
+        "action_cost": {
+            "material": _choices(dungeon.MATERIALS),
+            "consumable": _choices(dungeon.CONSUMABLES),
+            "quest_item": _choices(quests.QUEST_ITEMS),
+        },
     }
 
 
@@ -234,8 +298,28 @@ def _dynamic_script() -> str:
         "var EFFECT_PARAMS_BY_TYPE = " + json.dumps(EFFECT_PARAMS_BY_TYPE) + ";\n"
         "var EFFECT_TYPE_HINTS = " + json.dumps(EFFECT_TYPE_HINTS) + ";\n"
         "var CASCADE_OPTIONS = " + json.dumps(_cascade_options()) + ";\n"
+        "var DELVE_ROOM_FIELDS_BY_TYPE = " + json.dumps(_DELVE_ROOM_FIELDS_BY_TYPE) + ";\n"
     )
     return data_script + """
+// Same idea as trigger param visibility, for a delve room's detail panel: monsters only matters
+// for a combat room, prompt/actions only for a choice room -- see _render_room_detail_panel's
+// data-room-field wrappers and _DELVE_ROOM_FIELDS_BY_TYPE above.
+function updateRoomTypeVisibility(select) {
+    var container = select.closest('.room-row');
+    if (!container) return;
+    var visible = DELVE_ROOM_FIELDS_BY_TYPE[select.value] || [];
+    container.querySelectorAll('[data-room-field]').forEach(function (el) {
+        el.style.display = visible.indexOf(el.dataset.roomField) !== -1 ? '' : 'none';
+    });
+}
+
+function wireRoomTypeSelects(root) {
+    root.querySelectorAll('select.room-type-select').forEach(function (select) {
+        updateRoomTypeVisibility(select);
+        select.addEventListener('change', function () { updateRoomTypeVisibility(select); });
+    });
+}
+
 function updateTriggerVisibility(select) {
     var container = select.closest('.trigger-fields');
     var visible = TRIGGER_PARAMS_BY_TYPE[select.value] || [];
@@ -338,16 +422,16 @@ function wireCascadingSelects(root) {
 
 // Wires every [data-repeat-add] button under `root` that isn't already wired -- called once at
 // page load (root=document) and again on every freshly-cloned row (root=that row), since a clone
-// can itself introduce a new "+ Add" button one level down (a delve room's own "+ Add monster"
-// button, nested inside the "+ Add room" template -- the only nested repeatable in this schema,
-// see admin_server._render_delve_room_row) that only exists from this point on and needs its own
-// click handler wired. ROWIDX substitution covers name/id/data-repeat-add -- id/data-repeat-add
-// matter once a repeatable can nest, so a newly-added room's own "+ Add monster" button ends up
-// pointing at that room's own freshly-renamed container/template, not a colliding shared one. A
-// nested <template>'s own content is inert to querySelectorAll run from an ancestor's clone (a
-// standard DOM quirk -- template content lives in a separate document, not the light tree), so
-// its own ROWIDX placeholders are left untouched until that inner template is itself cloned
-// later -- the same "ROWIDX" token works at any nesting depth without collision.
+// can itself introduce a new "+ Add" button one level down (a delve room's own "+ Add monster"/
+// "+ Add action" buttons, nested inside the "+ Add Room" template -- the only nested repeatables
+// in this schema, see admin_server._render_room_detail_panel) that only exist from this point on
+// and need their own click handler wired. ROWIDX substitution covers name/id/data-repeat-add --
+// id/data-repeat-add matter once a repeatable can nest, so a newly-added room's own "+ Add
+// monster" button ends up pointing at that room's own freshly-renamed container/template, not a
+// colliding shared one. A nested <template>'s own content is inert to querySelectorAll run from
+// an ancestor's clone (a standard DOM quirk -- template content lives in a separate document, not
+// the light tree), so its own ROWIDX placeholders are left untouched until that inner template is
+// itself cloned later -- the same "ROWIDX" token works at any nesting depth without collision.
 function wireRepeatAdd(root) {
     root.querySelectorAll('[data-repeat-add]').forEach(function (button) {
         if (button.dataset.repeatWired) return;
@@ -371,7 +455,15 @@ function wireRepeatAdd(root) {
             wireEffectSelects(container.lastElementChild);
             wireCommandKindSelects(container.lastElementChild);
             wireCascadingSelects(container.lastElementChild);
+            wireImagePreviews(container.lastElementChild);
+            wireRoomTypeSelects(container.lastElementChild);
             wireRepeatAdd(container.lastElementChild);
+            // Flowchart-only hooks -- no-ops everywhere else (window.wireFlowchartNode only
+            // exists on a delve's edit page, see the flowchart script below). Handles both a
+            // freshly-cloned room (a .room-wrapper straight from "+ Add Room") and a freshly-
+            // cloned monster/action row nested inside an already-open room's detail panel.
+            if (window.wireFlowchartNode) window.wireFlowchartNode(container.lastElementChild);
+            if (window.refreshRoomBoxIfNested) window.refreshRoomBoxIfNested(container.lastElementChild);
             nextIndex++;
         });
     });
@@ -380,14 +472,638 @@ function wireRepeatAdd(root) {
 wireTriggerSelects(document);
 wireEffectSelects(document);
 wireCommandKindSelects(document);
+wireRoomTypeSelects(document);
 wireCascadingSelects(document);
 wireRepeatAdd(document);
 
 document.addEventListener('click', function (event) {
     if (event.target.matches('[data-remove-row]')) {
-        event.target.closest('.row-group').remove();
+        var group = event.target.closest('.row-group');
+        var wrapper = group.closest('.room-wrapper');
+        group.remove();
+        if (wrapper && window.refreshRoomBoxIfNested) window.refreshRoomBoxIfNested(wrapper);
+    } else if (event.target.matches('[data-remove-room]')) {
+        event.target.closest('.room-wrapper').remove();
+        if (window.__redrawDelveArrows) window.__redrawDelveArrows();
     }
 });
+
+// Shared tooltip bubble for every [data-tooltip] element on any page (delve flowchart controls,
+// but usable anywhere) -- one floating div, positioned under whatever's hovered, rather than
+// relying on the native title="" tooltip (slow to appear, can't be styled, wraps badly).
+(function () {
+    var bubble = document.getElementById('tooltip-bubble');
+    if (!bubble) {
+        bubble = document.createElement('div');
+        bubble.id = 'tooltip-bubble';
+        document.body.appendChild(bubble);
+    }
+    document.addEventListener('mouseover', function (event) {
+        var target = event.target.closest('[data-tooltip]');
+        if (!target) return;
+        bubble.textContent = target.dataset.tooltip;
+        var rect = target.getBoundingClientRect();
+        bubble.style.display = 'block';
+        var left = rect.left;
+        if (left + bubble.offsetWidth > window.innerWidth - 8) left = window.innerWidth - bubble.offsetWidth - 8;
+        bubble.style.left = Math.max(8, left) + 'px';
+        bubble.style.top = (rect.bottom + 6) + 'px';
+    });
+    document.addEventListener('mouseout', function (event) {
+        if (event.target.closest('[data-tooltip]')) bubble.style.display = 'none';
+    });
+})();
+
+// --- Delve flowchart editor -----------------------------------------------------------------
+// No-ops on every page except a delve's edit page (guarded by the #delve-rooms-canvas lookup
+// below) -- see admin_schemas.py's "delve_flowchart" doc block and admin_server.py's
+// _render_delve_flowchart/_render_room_box/_render_room_detail_panel for the HTML this operates
+// on. Exposes wireFlowchartNode/refreshRoomBoxIfNested/__redrawDelveArrows on window so the
+// generic wireRepeatAdd/remove-row handlers above (which know nothing about delves specifically)
+// can call into it without this script needing to know about *them* either.
+(function () {
+    var canvas = document.getElementById('delve-rooms-canvas');
+    var svg = canvas ? canvas.parentElement.querySelector('svg.delve-arrows') : null;
+    if (!canvas || !svg) return;
+
+    function roomsById() {
+        var map = {};
+        canvas.querySelectorAll('.room-wrapper').forEach(function (w) {
+            var idInput = w.querySelector('.room-id-input');
+            if (idInput && idInput.value) map[idInput.value] = w;
+        });
+        return map;
+    }
+
+    function boxCenter(el) {
+        var canvasRect = canvas.getBoundingClientRect();
+        var r = el.getBoundingClientRect();
+        return { x: r.left - canvasRect.left + r.width / 2, y: r.top - canvasRect.top + r.height / 2 };
+    }
+
+    function boxRect(el) {
+        var canvasRect = canvas.getBoundingClientRect();
+        var r = el.getBoundingClientRect();
+        return { left: r.left - canvasRect.left, top: r.top - canvasRect.top, right: r.right - canvasRect.left, bottom: r.bottom - canvasRect.top };
+    }
+
+    // Clips the segment source->target to wherever it first crosses into `rect` -- the standard
+    // ray/AABB "slab" test. Used so an arrow's arrowhead lands right on the target box's nearest
+    // edge (whichever edge the straight line from the other end actually reaches first) instead
+    // of terminating at its center, buried under the box's own content and, with several edges
+    // converging on one room, indistinguishable from each other right where they'd matter most.
+    function clipToRect(source, target, rect) {
+        var dx = target.x - source.x, dy = target.y - source.y;
+        var tmin = 0, tmax = 1;
+        if (dx !== 0) {
+            var tx1 = (rect.left - source.x) / dx, tx2 = (rect.right - source.x) / dx;
+            tmin = Math.max(tmin, Math.min(tx1, tx2));
+            tmax = Math.min(tmax, Math.max(tx1, tx2));
+        } else if (source.x < rect.left || source.x > rect.right) {
+            return target;
+        }
+        if (dy !== 0) {
+            var ty1 = (rect.top - source.y) / dy, ty2 = (rect.bottom - source.y) / dy;
+            tmin = Math.max(tmin, Math.min(ty1, ty2));
+            tmax = Math.min(tmax, Math.max(ty1, ty2));
+        } else if (source.y < rect.top || source.y > rect.bottom) {
+            return target;
+        }
+        if (tmin > tmax) return target;
+        return { x: source.x + tmin * dx, y: source.y + tmin * dy };
+    }
+
+    function clearSvg() {
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        var defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+        [['success', '#40a060'], ['fail', '#c04040'], ['owner', '#7a7ae0']].forEach(function (pair) {
+            var marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+            marker.setAttribute('id', 'arrowhead-' + pair[0]);
+            marker.setAttribute('markerWidth', '10');
+            marker.setAttribute('markerHeight', '10');
+            marker.setAttribute('refX', '8');
+            marker.setAttribute('refY', '3');
+            marker.setAttribute('orient', 'auto');
+            var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', 'M0,0 L8,3 L0,6 Z');
+            path.setAttribute('fill', pair[1]);
+            marker.appendChild(path);
+            defs.appendChild(marker);
+        });
+        svg.appendChild(defs);
+    }
+
+    function drawEdge(fromBox, toBox, kind, label, onClear) {
+        var from = boxCenter(fromBox);
+        var to = clipToRect(from, boxCenter(toBox), boxRect(toBox));
+        var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', from.x); line.setAttribute('y1', from.y);
+        line.setAttribute('x2', to.x); line.setAttribute('y2', to.y);
+        line.setAttribute('stroke', kind === 'fail' ? '#c04040' : '#40a060');
+        line.setAttribute('stroke-width', '2');
+        if (kind === 'fail') line.setAttribute('stroke-dasharray', '6,4');
+        line.setAttribute('marker-end', 'url(#arrowhead-' + kind + ')');
+        svg.appendChild(line);
+
+        // Labels sit 35% of the way from source to target (not the exact midpoint) -- with several
+        // actions/edges in a small area, exact midpoints collide far more often than an off-center
+        // point does. A background rect behind the text means an unavoidable overlap at least
+        // occludes cleanly instead of interleaving both labels' letters into an unreadable mess.
+        var labelX = from.x + (to.x - from.x) * 0.35, labelY = from.y + (to.y - from.y) * 0.35;
+        if (label) {
+            var bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            var w = Math.min(label.length * 6 + 8, 140), h = 14;
+            bg.setAttribute('x', labelX - w / 2); bg.setAttribute('y', labelY - 10 - h + 3);
+            bg.setAttribute('width', w); bg.setAttribute('height', h);
+            bg.setAttribute('fill', '#14141a'); bg.setAttribute('opacity', '0.85');
+            svg.appendChild(bg);
+            var text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text.setAttribute('x', labelX); text.setAttribute('y', labelY - 10);
+            text.setAttribute('fill', '#c0c0c8'); text.setAttribute('font-size', '11');
+            text.setAttribute('text-anchor', 'middle');
+            text.textContent = label;
+            svg.appendChild(text);
+        }
+        // Faint by default (CSS :hover on the group brings it to full opacity) so a busy diagram's
+        // lines aren't dominated by disconnect controls -- still exactly where a line visually is,
+        // just not competing with it for attention until you're actually looking to remove that
+        // connection. Grouped so the circle and its "x" fade together -- hovering only the text
+        // (pointer-events: none, so it can never itself be the :hover target) would otherwise
+        // leave it looking stuck at low opacity while the circle beneath it brightened.
+        var clearGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        clearGroup.setAttribute('class', 'arrow-disconnect');
+        var clearDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        clearDot.setAttribute('cx', labelX); clearDot.setAttribute('cy', labelY); clearDot.setAttribute('r', '6');
+        clearDot.setAttribute('fill', '#1a1a1f'); clearDot.setAttribute('stroke', '#52525e');
+        clearDot.style.cursor = 'pointer'; clearDot.style.pointerEvents = 'auto';
+        clearDot.setAttribute('data-tooltip', 'Disconnect this arrow');
+        var clearX = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        clearX.setAttribute('x', labelX); clearX.setAttribute('y', labelY + 3);
+        clearX.setAttribute('fill', '#e8e8ec'); clearX.setAttribute('font-size', '8'); clearX.setAttribute('text-anchor', 'middle');
+        clearX.style.pointerEvents = 'none';
+        clearX.textContent = '✕';
+        clearDot.addEventListener('click', function (e) { e.stopPropagation(); onClear(); redrawAllArrows(); });
+        clearGroup.appendChild(clearDot);
+        clearGroup.appendChild(clearX);
+        svg.appendChild(clearGroup);
+    }
+
+    function drawOwnerLine(roomBox, actionNode) {
+        // Clipped at both ends -- unlike drawEdge's success/fail arrows, both endpoints here are
+        // real boxes (a room and its action), not a small handle dot, so both deserve the same
+        // "lands on the nearest edge" treatment instead of visibly starting inside one of them.
+        var roomRect = boxRect(roomBox), actionRect = boxRect(actionNode);
+        var roomCenter = boxCenter(roomBox), actionCenter = boxCenter(actionNode);
+        var from = clipToRect(actionCenter, roomCenter, roomRect);
+        var to = clipToRect(roomCenter, actionCenter, actionRect);
+        var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', from.x); line.setAttribute('y1', from.y);
+        line.setAttribute('x2', to.x); line.setAttribute('y2', to.y);
+        line.setAttribute('marker-end', 'url(#arrowhead-owner)');
+        line.setAttribute('class', 'action-owner-line');
+        svg.appendChild(line);
+    }
+
+    function redrawAllArrows() {
+        clearSvg();
+        var byId = roomsById();
+        canvas.querySelectorAll('.room-wrapper').forEach(function (w) {
+            var typeSelect = w.querySelector('.room-type-select');
+            var type = typeSelect ? typeSelect.value : 'combat';
+            var box = w.querySelector('.room-box');
+            if (type === 'combat') {
+                var nextInput = w.querySelector('.room-next-input');
+                var handle = box.querySelector('.connector-handle');
+                if (handle && nextInput && nextInput.value && byId[nextInput.value]) {
+                    drawEdge(handle, byId[nextInput.value].querySelector('.room-box'), 'success', null,
+                        function () { nextInput.value = ''; });
+                }
+            } else {
+                // Each action has its own connector box on the canvas (see _render_action_node /
+                // syncActionNodes) instead of a handle bunched onto the room's own box -- edges
+                // originate from that box, not `box` itself, so two actions leading to different
+                // rooms produce two visually distinct lines instead of two lines leaving the exact
+                // same point. The dashed line back to the room is just a "this belongs to that
+                // room" indicator, not an editable connection.
+                w.querySelectorAll('.action-node').forEach(function (node) {
+                    drawOwnerLine(box, node);
+                    var prefix = node.dataset.actionNode;
+                    var successInput = document.getElementsByName(prefix + '_success_next')[0];
+                    var failInput = document.getElementsByName(prefix + '_fail_next')[0];
+                    var successHandle = node.querySelector('.connector-handle:not(.fail)');
+                    var failHandle = node.querySelector('.connector-handle.fail');
+                    var labelSpan = node.querySelector('.action-node-label');
+                    var label = labelSpan ? labelSpan.textContent : null;
+                    if (successHandle && successInput && successInput.value && byId[successInput.value]) {
+                        drawEdge(successHandle, byId[successInput.value].querySelector('.room-box'), 'success', label,
+                            function () { successInput.value = ''; });
+                    }
+                    if (failHandle && failInput && failInput.value && byId[failInput.value]) {
+                        drawEdge(failHandle, byId[failInput.value].querySelector('.room-box'), 'fail', label,
+                            function () { failInput.value = ''; });
+                    }
+                });
+            }
+        });
+    }
+
+    function updateLiveNextTags(root) {
+        (root || document).querySelectorAll('[data-live-next]').forEach(function (span) {
+            var input = document.getElementsByName(span.getAttribute('data-live-next'))[0];
+            if (!input) return;
+            span.textContent = input.value ? ('→ ' + input.value) : '→ (wins the delve)';
+        });
+    }
+
+    function refreshRoomBox(wrapper) {
+        var box = wrapper.querySelector('.room-box');
+        var typeSelect = wrapper.querySelector('.room-type-select');
+        var type = typeSelect ? typeSelect.value : 'combat';
+        var summary = box.querySelector('[data-room-box-summary]');
+        if (type === 'combat') {
+            var count = wrapper.querySelectorAll('[data-room-field="monsters"] .row-group').length;
+            summary.textContent = count + (count === 1 ? ' monster' : ' monsters');
+        } else {
+            var actionRows = wrapper.querySelectorAll('.action-row');
+            summary.textContent = actionRows.length + (actionRows.length === 1 ? ' action' : ' actions');
+        }
+        var idInput = wrapper.querySelector('.room-id-input');
+        var idLabel = box.querySelector('[data-room-box-id]');
+        if (idInput && idLabel) idLabel.textContent = idInput.value || '(no id yet)';
+        updateLiveNextTags(wrapper);
+        redrawAllArrows();
+    }
+
+    // Finds whichever .room-box the given viewport point currently sits over, if any -- used both
+    // to highlight a drop candidate while dragging and to resolve the actual drop target on
+    // release, so what got highlighted is exactly what gets connected (no separate, potentially
+    // inconsistent hit-test).
+    function roomBoxAtPoint(clientX, clientY) {
+        var found = null;
+        canvas.querySelectorAll('.room-box').forEach(function (otherBox) {
+            if (found) return;
+            var r = otherBox.getBoundingClientRect();
+            if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) found = otherBox;
+        });
+        return found;
+    }
+
+    function wireConnectorHandle(handle) {
+        if (!handle || handle.dataset.connectWired) return;
+        handle.dataset.connectWired = '1';
+        handle.addEventListener('pointerdown', function (e) {
+            e.stopPropagation();
+            e.preventDefault();
+            handle.setPointerCapture(e.pointerId);
+            var role = handle.dataset.connectorRole;
+            var actionPrefix = handle.dataset.actionPrefix || null;
+            var wrapper = handle.closest('.room-wrapper');
+            var canvasRect = canvas.getBoundingClientRect();
+            var start = boxCenter(handle);
+            var rubberBand = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            rubberBand.setAttribute('x1', start.x); rubberBand.setAttribute('y1', start.y);
+            rubberBand.setAttribute('x2', start.x); rubberBand.setAttribute('y2', start.y);
+            rubberBand.setAttribute('stroke', role === 'fail' ? '#c04040' : '#40a060');
+            rubberBand.setAttribute('stroke-width', '2');
+            rubberBand.setAttribute('stroke-dasharray', '4,4');
+            svg.appendChild(rubberBand);
+            var hoverTarget = null;
+
+            function setHover(box) {
+                if (hoverTarget === box) return;
+                if (hoverTarget) hoverTarget.classList.remove('drop-target-hover');
+                hoverTarget = box;
+                if (hoverTarget) hoverTarget.classList.add('drop-target-hover');
+            }
+            function onMove(ev) {
+                rubberBand.setAttribute('x2', ev.clientX - canvasRect.left);
+                rubberBand.setAttribute('y2', ev.clientY - canvasRect.top);
+                setHover(roomBoxAtPoint(ev.clientX, ev.clientY));
+            }
+            function onUp(ev) {
+                handle.removeEventListener('pointermove', onMove);
+                handle.removeEventListener('pointerup', onUp);
+                if (rubberBand.parentNode) rubberBand.parentNode.removeChild(rubberBand);
+                setHover(null);
+
+                // A miss (dropped on empty canvas, or the panel/anything else covering it) leaves
+                // the existing connection exactly as it was -- it must NOT silently clear to
+                // blank, since blank means "this leads to winning the delve." Only an explicit
+                // click on an arrow's own "disconnect" glyph (see drawEdge) is allowed to do that.
+                var targetBox = roomBoxAtPoint(ev.clientX, ev.clientY);
+                if (!targetBox) { redrawAllArrows(); return; }
+                var otherIdInput = targetBox.closest('.room-wrapper').querySelector('.room-id-input');
+                if (!otherIdInput || !otherIdInput.value) { redrawAllArrows(); return; }
+
+                var targetInput = actionPrefix
+                    ? document.getElementsByName(actionPrefix + '_' + (role === 'fail' ? 'fail_next' : 'success_next'))[0]
+                    : wrapper.querySelector('.room-next-input');
+                if (targetInput) {
+                    targetInput.value = otherIdInput.value;
+                    updateLiveNextTags(wrapper);
+                }
+                redrawAllArrows();
+            }
+            handle.addEventListener('pointermove', onMove);
+            handle.addEventListener('pointerup', onUp);
+        });
+    }
+
+    function wireActionNodeClick(node, wrapper) {
+        if (node.dataset.clickWired) return;
+        node.dataset.clickWired = '1';
+        node.addEventListener('click', function (e) {
+            if (e.target.closest('[data-connector-role]')) return;
+            selectRoom(wrapper);
+        });
+    }
+
+    // Action nodes are freely draggable, same shape as wireBoxDrag but simpler (no click-to-select
+    // filtering beyond the connector handles, and no ownership of anything else that needs to move
+    // with it) -- position persists directly on the action's own hidden x/y inputs, not derived
+    // from its parent room, so dragging a room no longer drags its actions along with it.
+    function wireActionNodeDrag(node) {
+        if (node.dataset.dragWired) return;
+        node.dataset.dragWired = '1';
+        node.addEventListener('pointerdown', function (e) {
+            if (e.target.closest('[data-connector-role]')) return;
+            node.setPointerCapture(e.pointerId);
+            node.classList.add('dragging');
+            var xInput = node.querySelector('.action-x-input');
+            var yInput = node.querySelector('.action-y-input');
+            function onMove(ev) {
+                var newLeft = parseFloat(node.style.left) + ev.movementX;
+                var newTop = parseFloat(node.style.top) + ev.movementY;
+                node.style.left = newLeft + 'px';
+                node.style.top = newTop + 'px';
+                xInput.value = Math.round(newLeft);
+                yInput.value = Math.round(newTop);
+                redrawAllArrows();
+            }
+            function onUp() {
+                node.classList.remove('dragging');
+                node.removeEventListener('pointermove', onMove);
+                node.removeEventListener('pointerup', onUp);
+            }
+            node.addEventListener('pointermove', onMove);
+            node.addEventListener('pointerup', onUp);
+        });
+    }
+
+    // Rebuilds this room's action nodes from scratch from whatever action rows currently exist in
+    // its (possibly still-hidden) detail panel -- same "clear and rebuild" approach the old
+    // in-box handle list used, just producing standalone sibling boxes on the canvas instead (see
+    // _render_action_node's docstring for why: separate boxes so different actions' lines don't
+    // bunch up at the same corner of one shared room box). Existing nodes' dragged positions are
+    // captured before the rebuild and carried over by prefix -- without this, editing anything
+    // about an action (its label, its check) would silently snap every action in the room back to
+    // its default stacked position, undoing whatever the user had just arranged.
+    function syncActionNodes(wrapper) {
+        var existingPositions = {};
+        wrapper.querySelectorAll('.action-node').forEach(function (n) {
+            existingPositions[n.dataset.actionNode] = { x: parseFloat(n.style.left) || 0, y: parseFloat(n.style.top) || 0 };
+        });
+        wrapper.querySelectorAll('.action-node').forEach(function (n) { n.remove(); });
+        var typeSelect = wrapper.querySelector('.room-type-select');
+        if (!typeSelect || typeSelect.value !== 'choice') { redrawAllArrows(); return; }
+
+        var box = wrapper.querySelector('.room-box');
+        var roomPos = { x: parseFloat(box.style.left) || 0, y: parseFloat(box.style.top) || 0 };
+        var freshIndex = 0;
+        wrapper.querySelectorAll('.action-row').forEach(function (actionRow) {
+            var labelInput = actionRow.querySelector('input[name$="_label"]');
+            if (!labelInput) return;
+            var prefix = labelInput.name.slice(0, -('_label'.length));
+            var statInput = actionRow.querySelector('[name="' + prefix + '_check_stat"]');
+            var dcInput = actionRow.querySelector('[name="' + prefix + '_check_dc"]');
+            var hasCheck = !!(statInput && dcInput && statInput.value && dcInput.value);
+            var label = labelInput.value || '(unlabeled)';
+
+            var node = document.createElement('div');
+            node.className = 'action-node';
+            node.dataset.actionNode = prefix;
+            var pos = existingPositions[prefix];
+            if (!pos) { pos = { x: roomPos.x + 190, y: roomPos.y + freshIndex * 74 }; freshIndex++; }
+            node.style.left = pos.x + 'px';
+            node.style.top = pos.y + 'px';
+
+            var xInput = document.createElement('input');
+            xInput.type = 'hidden'; xInput.className = 'action-x-input'; xInput.name = prefix + '_x'; xInput.value = pos.x;
+            node.appendChild(xInput);
+            var yInput = document.createElement('input');
+            yInput.type = 'hidden'; yInput.className = 'action-y-input'; yInput.name = prefix + '_y'; yInput.value = pos.y;
+            node.appendChild(yInput);
+
+            var labelSpan = document.createElement('span');
+            labelSpan.className = 'action-node-label';
+            labelSpan.textContent = label;
+            node.appendChild(labelSpan);
+
+            var successDot = document.createElement('div');
+            successDot.className = 'connector-handle';
+            successDot.dataset.connectorRole = 'success';
+            successDot.dataset.actionPrefix = prefix;
+            successDot.dataset.tooltip = 'Drag onto another room -- where ' + label + ' leads ' +
+                (hasCheck ? 'if the check succeeds.' : 'when the player picks it.');
+            node.appendChild(successDot);
+            wireConnectorHandle(successDot);
+
+            if (hasCheck) {
+                var failDot = document.createElement('div');
+                failDot.className = 'connector-handle fail';
+                failDot.dataset.connectorRole = 'fail';
+                failDot.dataset.actionPrefix = prefix;
+                failDot.dataset.tooltip = 'Drag onto another room -- where ' + label + ' leads if the check fails.';
+                node.appendChild(failDot);
+                wireConnectorHandle(failDot);
+            }
+
+            wireActionNodeClick(node, wrapper);
+            wireActionNodeDrag(node);
+            wrapper.appendChild(node);
+        });
+        redrawAllArrows();
+    }
+
+    function syncRoomHandles(wrapper) {
+        var typeSelect = wrapper.querySelector('.room-type-select');
+        var box = wrapper.querySelector('.room-box');
+        var type = typeSelect.value;
+        box.classList.remove('room-box-combat', 'room-box-choice');
+        box.classList.add('room-box-' + type);
+        box.querySelector('.room-box-icon').textContent = type === 'combat' ? '⚔️' : '💬';
+
+        if (type === 'combat') {
+            wrapper.querySelectorAll('.action-node').forEach(function (n) { n.remove(); });
+            if (!box.querySelector('.connector-handle')) {
+                var handle = document.createElement('div');
+                handle.className = 'connector-handle';
+                handle.dataset.connectorRole = 'success';
+                handle.dataset.tooltip = 'Drag onto another room -- where the player goes after winning the fight here. Drop on empty canvas to disconnect.';
+                box.appendChild(handle);
+                wireConnectorHandle(handle);
+            }
+            if (!wrapper.querySelector('.room-next-input')) {
+                var nextInput = document.createElement('input');
+                nextInput.type = 'hidden';
+                nextInput.className = 'room-next-input';
+                nextInput.name = wrapper.dataset.roomWrapper + '_next';
+                box.appendChild(nextInput);
+            }
+        } else {
+            var existingHandle = box.querySelector('.connector-handle');
+            if (existingHandle) existingHandle.remove();
+            syncActionNodes(wrapper);
+        }
+        refreshRoomBox(wrapper);
+    }
+
+    function selectRoom(wrapper) {
+        canvas.querySelectorAll('.room-box').forEach(function (b) { b.classList.remove('selected'); });
+        document.querySelectorAll('.room-detail-panel').forEach(function (p) { p.hidden = true; });
+        wrapper.querySelector('.room-box').classList.add('selected');
+        wrapper.querySelector('.room-detail-panel').hidden = false;
+    }
+
+    function setStartRoom(wrapper) {
+        var idInput = wrapper.querySelector('.room-id-input');
+        if (!idInput || !idInput.value) return;
+        document.querySelectorAll('.room-box').forEach(function (b) { b.classList.remove('is-start'); });
+        document.querySelectorAll('.room-flag').forEach(function (f) { f.classList.remove('is-start'); });
+        wrapper.querySelector('.room-box').classList.add('is-start');
+        wrapper.querySelector('.room-flag').classList.add('is-start');
+        document.getElementById('start_room_field').value = idInput.value;
+    }
+
+    function renameRoomReferences(oldId, newId) {
+        if (!oldId || oldId === newId) return;
+        canvas.querySelectorAll('.room-next-input, input[name$="_success_next"], input[name$="_fail_next"]').forEach(function (input) {
+            if (input.value === oldId) input.value = newId;
+        });
+        var startField = document.getElementById('start_room_field');
+        if (startField.value === oldId) startField.value = newId;
+        updateLiveNextTags(document);
+        redrawAllArrows();
+    }
+
+    function wireIdInput(wrapper) {
+        var idInput = wrapper.querySelector('.room-id-input');
+        if (!idInput || idInput.dataset.wired) return;
+        idInput.dataset.wired = '1';
+        var lastValue = idInput.value;
+        idInput.addEventListener('input', function () {
+            wrapper.querySelector('[data-room-box-id]').textContent = idInput.value || '(no id yet)';
+        });
+        idInput.addEventListener('blur', function () {
+            renameRoomReferences(lastValue, idInput.value);
+            lastValue = idInput.value;
+            if (!document.getElementById('start_room_field').value) setStartRoom(wrapper);
+        });
+    }
+
+    function wireBoxDrag(box) {
+        if (box.dataset.dragWired) return;
+        box.dataset.dragWired = '1';
+        box.addEventListener('pointerdown', function (e) {
+            if (e.target.closest('[data-connector-role]') || e.target.closest('button')) return;
+            box.setPointerCapture(e.pointerId);
+            box.classList.add('dragging');
+            var wrapper = box.closest('.room-wrapper');
+            var xInput = wrapper.querySelector('.room-x-input');
+            var yInput = wrapper.querySelector('.room-y-input');
+            function onMove(ev) {
+                var newLeft = parseFloat(box.style.left) + ev.movementX;
+                var newTop = parseFloat(box.style.top) + ev.movementY;
+                box.style.left = newLeft + 'px';
+                box.style.top = newTop + 'px';
+                xInput.value = Math.round(newLeft);
+                yInput.value = Math.round(newTop);
+                redrawAllArrows();
+            }
+            function onUp() {
+                box.classList.remove('dragging');
+                box.removeEventListener('pointermove', onMove);
+                box.removeEventListener('pointerup', onUp);
+            }
+            box.addEventListener('pointermove', onMove);
+            box.addEventListener('pointerup', onUp);
+        });
+        box.addEventListener('click', function (e) {
+            if (e.target.closest('[data-connector-role]') || e.target.closest('button')) return;
+            selectRoom(box.closest('.room-wrapper'));
+        });
+    }
+
+    // Wires the "keep the box's on-canvas display in sync" listeners for whatever action/label/
+    // check inputs exist under `root` right now -- `root` can be a whole room (initial page load)
+    // or just one freshly-added action row (root is narrower than `wrapper` in that case, since a
+    // new action row is cloned into an already-open detail panel, not as part of a new room). This
+    // must NOT be folded into wireFlowchartNode's own "only operates on a whole .room-wrapper"
+    // guard below -- a freshly-added action row isn't a .room-wrapper itself, so that guard would
+    // (and previously did) silently skip wiring it entirely, leaving its label/check inputs
+    // permanently unwired: typing a label or adding a check would never update the box's handle
+    // list or live-next text, which looked exactly like "the label never sticks until you save
+    // and reopen" even though the value itself was being captured correctly all along.
+    function wireActionSyncInputs(root, wrapper) {
+        root.querySelectorAll('.action-check-input, input[name$="_label"]').forEach(function (input) {
+            if (input.dataset.actionSyncWired) return;
+            input.dataset.actionSyncWired = '1';
+            input.addEventListener('input', function () { syncActionNodes(wrapper); refreshRoomBox(wrapper); });
+        });
+    }
+
+    function wireFlowchartNode(node) {
+        if (!node || !node.classList || !node.classList.contains('room-wrapper')) return;
+        var box = node.querySelector('.room-box');
+        wireBoxDrag(box);
+        node.querySelectorAll('[data-connector-role]').forEach(wireConnectorHandle);
+        node.querySelectorAll('.action-node').forEach(function (actionNode) {
+            wireActionNodeClick(actionNode, node);
+            wireActionNodeDrag(actionNode);
+        });
+        var flag = node.querySelector('[data-set-start]');
+        if (flag && !flag.dataset.wired) {
+            flag.dataset.wired = '1';
+            flag.addEventListener('click', function (e) { e.stopPropagation(); setStartRoom(node); });
+        }
+        var selectBtn = node.querySelector('.room-box-select');
+        if (selectBtn && !selectBtn.dataset.wired) {
+            selectBtn.dataset.wired = '1';
+            selectBtn.addEventListener('click', function (e) { e.stopPropagation(); selectRoom(node); });
+        }
+        var closeBtn = node.querySelector('.room-detail-close');
+        if (closeBtn && !closeBtn.dataset.wired) {
+            closeBtn.dataset.wired = '1';
+            closeBtn.addEventListener('click', function () {
+                node.querySelector('.room-detail-panel').hidden = true;
+                box.classList.remove('selected');
+            });
+        }
+        wireIdInput(node);
+        var typeSelect = node.querySelector('.room-type-select');
+        if (typeSelect && !typeSelect.dataset.flowchartWired) {
+            typeSelect.dataset.flowchartWired = '1';
+            typeSelect.addEventListener('change', function () { syncRoomHandles(node); });
+        }
+        wireActionSyncInputs(node, node);
+        refreshRoomBox(node);
+    }
+
+    function refreshRoomBoxIfNested(el) {
+        var wrapper = el && el.closest ? el.closest('.room-wrapper') : null;
+        if (!wrapper) return;
+        wireActionSyncInputs(el, wrapper);
+        syncActionNodes(wrapper);
+        refreshRoomBox(wrapper);
+    }
+
+    window.wireFlowchartNode = wireFlowchartNode;
+    window.refreshRoomBoxIfNested = refreshRoomBoxIfNested;
+    window.__redrawDelveArrows = redrawAllArrows;
+
+    canvas.querySelectorAll('.room-wrapper').forEach(wireFlowchartNode);
+    redrawAllArrows();
+})();
 
 // Filters a list_view's table rows by substring match against the whole row's text -- one shared
 // listener rather than a per-page inline handler, matches every #list-filter box the same way.
@@ -586,6 +1302,22 @@ def _render_drop_row(prefix: str, drop: dict) -> str:
     )
 
 
+def _render_image_input(name: str, label: str, value: str | None) -> str:
+    """The <label>+preview+file-input markup for one image upload -- shared by _render_field's
+    top-level "image" case and _render_room_detail_panel's per-room background field, since both
+    need the exact same live-preview wiring (see wireImagePreviews) and "keep existing on no
+    upload" semantics (see _save_uploaded_image / _parse_delve_flowchart)."""
+    preview_id = f"preview_{name}"
+    src = f"/{value}" if value else ""
+    display = "block" if value else "none"
+    return (
+        f'<label>{label}'
+        f'<img id="{preview_id}" class="image-preview" src="{html.escape(src)}" style="display:{display}">'
+        f'<input type="file" name="{html.escape(name)}_file" accept="image/*" '
+        f'data-preview-target="{preview_id}"></label>'
+    )
+
+
 def _monster_option_choices() -> list[tuple[str, str]]:
     """monster_id -> "Tier N — Name", sorted by tier then name -- the label shown in every
     monster <select> the delve room editor renders, so a large roster stays scannable by
@@ -598,9 +1330,9 @@ def _monster_option_choices() -> list[tuple[str, str]]:
 
 def _render_room_monster_row(name: str, monster_id: str | None) -> str:
     """One monster <select> row within a delve room's own nested repeatable list -- see
-    _render_delve_room_row below and _parse_field's "delve_rooms" case for the matching parse
-    side. Unlike every other row-builder here this one has just the one field, so `name` is the
-    input's actual name, not a "prefix_suffix" pair."""
+    _render_room_detail_panel below and _parse_delve_flowchart's matching parse side. Unlike every
+    other row-builder here this one has just the one field, so `name` is the input's actual name,
+    not a "prefix_suffix" pair."""
     options = "".join(
         f'<option value="{mid}"{" selected" if mid == monster_id else ""}>{html.escape(label)}</option>'
         for mid, label in [("", "—")] + _monster_option_choices()
@@ -611,20 +1343,304 @@ def _render_room_monster_row(name: str, monster_id: str | None) -> str:
     )
 
 
-def _render_delve_room_row(prefix: str, monster_ids: list[str]) -> str:
-    """One room of a "delve_rooms" list -- a nested add/remove-able list of monster <select> rows
-    (whichever are picked can show up in this room), rather than a checkbox per dungeon.MONSTERS
-    id -- that stopped scaling once the roster grew past a screenful. This is the only nested
-    repeatable in the schema (a repeatable list inside a repeatable list); see _dynamic_script's
-    wireRepeatAdd for how "+ Add" wiring and ROWIDX substitution stay correct at any nesting
-    depth. See _parse_field's "delve_rooms" case for the matching parse side."""
-    monsters_container = f"{prefix}_monsters"
-    rows_html = [_render_room_monster_row(f"{monsters_container}_{j}", mid) for j, mid in enumerate(monster_ids)]
-    template_html = _render_room_monster_row(f"{monsters_container}_ROWIDX", None)
-    repeatable = _render_repeatable(monsters_container, rows_html, template_html, "+ Add monster")
+def _render_action_row(prefix: str, action: dict) -> str:
+    """One action within a choice room's own nested "actions" repeatable -- a third level of
+    nesting (rooms -> room -> actions), reusing the same wireRepeatAdd/ROWIDX machinery
+    already documented as nesting-depth-agnostic. See dungeon.py's module docstring for the full
+    action shape. `requires` reuses _render_trigger_inputs verbatim -- the exact same {type,
+    ...params} vocabulary quest triggers use. `cost`'s item_id is a real cascading select
+    (material/consumable/quest_item are all server-known registries).
+
+    Unlike every other field here, on_success/on_fail's "next" room reference is NOT a typed
+    input -- it's set by dragging this action's own connector handle (rendered on the room's box,
+    see _render_room_box) onto a target room on the flowchart canvas. The actual value still lives
+    in a same-named hidden input (`{prefix}_success_next`/`_fail_next`, read by _parse_actions
+    completely unchanged), just written by JS instead of a person; the visible
+    `<span data-live-next>` next to each outcome's legend is kept in sync with that hidden value by
+    the flowchart script (see _dynamic_script's "Delve flowchart editor" section) purely so a
+    person looking at this panel can see where the action currently leads without having to go
+    find the arrow on the canvas. `check`/`on_fail` are always rendered, not toggled by JS -- whether "check" ends up in
+    the saved action depends only on whether its stat+dc were actually filled in (see
+    _parse_actions), the same "blank means absent" convention every other optional field in this
+    panel already follows; this action's own on-canvas node (_render_action_node) only grows a
+    second "fail" connector handle once both are filled (see the flowchart script's
+    syncActionNodes)."""
+    cost = action.get("cost") or {}
+    check = action.get("check") or {}
+    on_success = action.get("on_success") or {}
+    on_fail = action.get("on_fail") or {}
+
+    stat_options = "".join(
+        f'<option value="{s}"{" selected" if s == check.get("stat") else ""}>{s}</option>'
+        for s in [""] + list(dungeon.CHECK_STATS)
+    )
+    item_kind_options = "".join(
+        f'<option value="{k}"{" selected" if k == cost.get("item_kind") else ""}>{k}</option>'
+        for k in [""] + list(dungeon.ACTION_COST_ITEM_KINDS)
+    )
+    item_select = _render_cascaded_select(
+        f"{prefix}_cost_item_id", "action_cost", cost.get("item_kind"), cost.get("item_id")
+    )
+
+    def _text(field_name: str, value: str | None) -> str:
+        return f'<input type="text" name="{prefix}_{field_name}" value="{html.escape(value or "")}">'
+
+    def _next_hidden(field_name: str, value: str | None) -> str:
+        return f'<input type="hidden" name="{prefix}_{field_name}" value="{html.escape(value or "")}">'
+
     return (
-        f'<div class="row-group room-row">{repeatable}'
-        f'<button type="button" class="remove-row" data-remove-row>✕ Remove room</button></div>'
+        f'<div class="row-group action-row">'
+        f'<label>label{_text("label", action.get("label"))}'
+        f'<small class="field-hint" data-tooltip="What the player sees on this action\'s button.">?</small>'
+        f'</label>'
+        f'{_render_trigger_inputs(f"{prefix}_requires", action.get("requires") or {})}'
+        f'<fieldset><legend>cost (optional)</legend>'
+        f'<label>currency<input type="number" min="0" name="{prefix}_cost_currency" value="{cost.get("currency", "")}"></label>'
+        f'<label>item_kind<select name="{prefix}_cost_item_kind" class="cascade-select" data-cascade="action_cost">'
+        f'{item_kind_options}</select></label>'
+        f'<label>item_id{item_select}</label>'
+        f'<label>item_qty<input type="number" min="1" name="{prefix}_cost_item_qty" value="{cost.get("item_qty", "")}"></label>'
+        f'</fieldset>'
+        f'<fieldset data-tooltip="Rolls this action against the character\'s own stat. Add a check '
+        f'to make this one action branch by luck, on top of (not instead of) branching by which '
+        f'action the player picks."><legend>check (optional -- scales against the character\'s own stat)</legend>'
+        f'<label>stat<select name="{prefix}_check_stat" class="action-check-input">{stat_options}</select></label>'
+        f'<label>dc<input type="number" min="1" name="{prefix}_check_dc" class="action-check-input" value="{check.get("dc", "")}"></label>'
+        f'</fieldset>'
+        f'<fieldset data-tooltip="Where this action leads if it succeeds (or always, if there\'s no '
+        f'check above). Drag this action\'s green handle on the room\'s box, on the canvas above, to '
+        f'the target room -- it can\'t be typed here.">'
+        f'<legend>on_success <span class="live-next-tag" data-live-next="{prefix}_success_next">'
+        f'{html.escape("→ " + on_success.get("next", "")) if on_success.get("next") else "→ (wins the delve)"}'
+        f'</span></legend>'
+        f'{_next_hidden("success_next", on_success.get("next"))}'
+        f'<label>hp_delta (optional)<input type="number" name="{prefix}_success_hp_delta" value="{on_success.get("hp_delta", "")}"></label>'
+        f'<label>message (optional){_text("success_message", on_success.get("message"))}</label>'
+        f'</fieldset>'
+        f'<fieldset data-tooltip="Only used once a check is set above. Where this action leads if '
+        f'the roll fails -- drag the action\'s red handle on the canvas to set it.">'
+        f'<legend>on_fail (only used if check is set) <span class="live-next-tag" data-live-next="{prefix}_fail_next">'
+        f'{html.escape("→ " + on_fail.get("next", "")) if on_fail.get("next") else "→ (wins the delve)"}'
+        f'</span></legend>'
+        f'{_next_hidden("fail_next", on_fail.get("next"))}'
+        f'<label>hp_delta (optional)<input type="number" name="{prefix}_fail_hp_delta" value="{on_fail.get("hp_delta", "")}"></label>'
+        f'<label>message (optional){_text("fail_message", on_fail.get("message"))}</label>'
+        f'</fieldset>'
+        f'<button type="button" class="remove-row" data-remove-row>✕ Remove action</button></div>'
+    )
+
+
+def _default_room_position(index: int) -> dict:
+    """Deterministic grid fallback for a room with no stored `layout` entry yet (see the
+    delve-level "layout" field in dungeon.py's module docstring) -- keeps a delve that's never
+    been opened in the flowchart editor from stacking every room's box at (0, 0)."""
+    columns = 4
+    return {"x": 40 + (index % columns) * 220, "y": 40 + (index // columns) * 170}
+
+
+def _default_action_position(room_pos: dict, index: int) -> dict:
+    """Fallback position for a choice action's own connector box (see _render_action_node) that
+    has never been dragged yet -- stacked below-and-right of its parent room, purely so a brand
+    new action doesn't render on top of its room or a sibling action. Once dragged, an action's
+    real position is persisted directly on the action itself ("x"/"y", see dungeon.py's module
+    docstring) and this default is never consulted again for that action."""
+    return {"x": room_pos["x"] + 190, "y": room_pos["y"] + index * 74}
+
+
+def _render_action_node(action_prefix: str, action: dict, pos: dict) -> str:
+    """A choice action's own connector box on the canvas -- each action gets one, freely
+    draggable (its position persists on the action itself, "x"/"y", not auto-tracking its room)
+    and connected to its parent room by a plain purple arrow, so a room with several actions
+    doesn't fan multiple connections out of the exact same corner -- that's what made overlapping
+    lines from different actions hard to tell apart before this. This box is purely a connection
+    anchor: it carries no editable fields of its own (those stay in the parent room's detail
+    panel, see _render_action_row) -- just this action's label (kept in sync client-side by
+    syncActionNodes), its own x/y hidden inputs (set by dragging, see wireActionNodeDrag), and
+    whichever connector handle(s) its outcome actually has: a "success" handle always, a second
+    dashed "fail" handle only once this action has a check configured (see dungeon.py's module
+    docstring for why that -- not the check -- is the primary way a delve is meant to branch)."""
+    check = action.get("check") or {}
+    has_check = bool(check.get("stat") and check.get("dc"))
+    label = html.escape(action.get("label") or "(unlabeled)")
+    fail_handle = (
+        f'<div class="connector-handle fail" data-connector-role="fail" data-action-prefix="{action_prefix}" '
+        f'data-tooltip="Drag onto another room -- where {label} leads if the check fails."></div>'
+        if has_check else ""
+    )
+    return (
+        f'<div class="action-node" data-action-node="{action_prefix}" '
+        f'style="left:{pos["x"]}px;top:{pos["y"]}px">'
+        f'<input type="hidden" name="{action_prefix}_x" class="action-x-input" value="{pos["x"]}">'
+        f'<input type="hidden" name="{action_prefix}_y" class="action-y-input" value="{pos["y"]}">'
+        f'<span class="action-node-label" data-action-node-label>{label}</span>'
+        f'<div class="connector-handle" data-connector-role="success" data-action-prefix="{action_prefix}" '
+        f'data-tooltip="Drag onto another room -- where {label} leads '
+        f'{"if the check succeeds" if has_check else "when the player picks it"}."></div>'
+        f'{fail_handle}'
+        f'</div>'
+    )
+
+
+def _render_room_box(prefix: str, room: dict, pos: dict, is_start: bool) -> str:
+    """The draggable box on the flowchart canvas -- id, a type icon, a summary, and (combat only)
+    the one connector handle a connection is *drawn from* (see admin_server.py's flowchart script
+    in _dynamic_script for the drag-to-move/drag-to-connect behavior itself). A choice room's own
+    box carries no handles at all -- each of its actions gets its own separate connector box
+    instead (see _render_action_node), so lines from different actions never bunch up at the same
+    corner of one shared box. The hidden room_{i}_x/_y/_next inputs live here, next to the controls
+    that actually set them; id/type/monsters/prompt/actions/background live in the paired detail
+    panel (_render_room_detail_panel), which is what actually cuts down the old wall-of-text-boxes
+    problem -- only the selected room's own fields are ever on screen at once."""
+    room_type = room.get("type") or "combat"
+    room_id = room.get("id", "")
+    icon = "⚔️" if room_type == "combat" else "💬"
+    if room_type == "combat":
+        monster_count = len(room.get("monsters", []))
+        summary = f"{monster_count} monster{'s' if monster_count != 1 else ''}"
+        handles_html = (
+            f'<div class="connector-handle" data-connector-role="success" '
+            f'data-tooltip="Drag onto another room -- where the player goes after winning the '
+            f'fight here. Drop on empty canvas to disconnect (that makes this room the end of the '
+            f'delve, a win)."></div>'
+        )
+    else:
+        actions = room.get("actions", [])
+        summary = f"{len(actions)} action{'s' if len(actions) != 1 else ''}"
+        handles_html = ""
+    next_hidden = (
+        f'<input type="hidden" name="{prefix}_next" class="room-next-input" value="{html.escape(room.get("next") or "")}">'
+        if room_type == "combat" else ""
+    )
+    return (
+        f'<div class="room-box room-box-{room_type}{" is-start" if is_start else ""}" '
+        f'data-room-prefix="{prefix}" style="left:{pos["x"]}px;top:{pos["y"]}px">'
+        f'<input type="hidden" name="{prefix}_x" class="room-x-input" value="{pos["x"]}">'
+        f'<input type="hidden" name="{prefix}_y" class="room-y-input" value="{pos["y"]}">'
+        f'{next_hidden}'
+        f'<div class="room-box-header">'
+        f'<button type="button" class="room-flag{" is-start" if is_start else ""}" data-set-start '
+        f'data-tooltip="Set as the room every player starts this delve at.">🚩</button>'
+        f'<span class="room-box-icon">{icon}</span>'
+        f'<span class="room-box-id" data-room-box-id>{html.escape(room_id) or "(no id yet)"}</span>'
+        f'<button type="button" class="room-box-select" data-tooltip="Click to edit this room\'s fields.">✏️</button>'
+        f'</div>'
+        f'<div class="room-box-summary" data-room-box-summary>{summary}</div>'
+        f'{handles_html}'
+        f'</div>'
+    )
+
+
+def _render_room_detail_panel(prefix: str, room: dict) -> str:
+    """The collapsible per-room field panel -- id/type/monsters (combat) or prompt+actions
+    (choice)/background image. Shown for at most one room at a time (see the flowchart script's
+    selectRoom), which is what actually cuts down the old "million text boxes" problem: every
+    other room's fields simply aren't on screen while it's collapsed. Wrapped in "room-row" so the
+    existing data-room-field/wireRoomTypeSelects show/hide-by-type machinery
+    (admin_server.py:269-283) keeps working unchanged. There is deliberately no "next" field here
+    at all, for either room type -- that connection is made by dragging a handle on the room's own
+    box (_render_room_box), never typed; see _render_action_row for why on_success/on_fail's own
+    "next" is a hidden input kept in sync by the same drag gesture instead of a text box."""
+    room_type = room.get("type") or "combat"
+    type_options = "".join(
+        f'<option value="{t}"{" selected" if t == room_type else ""}>{t}</option>' for t in dungeon.ROOM_TYPES
+    )
+
+    monsters_container = f"{prefix}_monsters"
+    monster_ids = room.get("monsters", [])
+    monster_rows_html = [_render_room_monster_row(f"{monsters_container}_{j}", mid) for j, mid in enumerate(monster_ids)]
+    monster_template_html = _render_room_monster_row(f"{monsters_container}_ROWIDX", None)
+    monsters_repeatable = _render_repeatable(monsters_container, monster_rows_html, monster_template_html, "+ Add monster")
+
+    actions_container = f"{prefix}_actions"
+    actions = room.get("actions", [])
+    action_rows_html = [_render_action_row(f"{actions_container}_{j}", a) for j, a in enumerate(actions)]
+    action_template_html = _render_action_row(f"{actions_container}_ROWIDX", {})
+    actions_repeatable = _render_repeatable(actions_container, action_rows_html, action_template_html, "+ Add action")
+
+    image_html = _render_image_input(
+        f"{prefix}_background_path", "background (optional -- falls back to the delve's own)",
+        room.get("background_path"),
+    )
+    return (
+        f'<div class="room-detail-panel room-row" data-room-panel="{prefix}" hidden>'
+        f'<div class="room-detail-panel-header"><strong>Room details</strong>'
+        f'<button type="button" class="room-detail-close" '
+        f'data-tooltip="Close this panel -- the room stays on the canvas.">✕ Close</button></div>'
+        f'<label>id<input type="text" name="{prefix}_id" class="room-id-input" '
+        f'value="{html.escape(room.get("id", ""))}">'
+        f'<small class="field-hint">Other rooms connect to this room by this id -- renaming it '
+        f'here automatically fixes up any arrows already pointing here.</small></label>'
+        f'<label>type<select name="{prefix}_type" class="room-type-select">{type_options}</select>'
+        f'<small class="field-hint">Combat: a monster fight with one exit. Choice: flavor text '
+        f'plus player-picked actions, each with its own destination -- this is where branching '
+        f'paths are authored.</small></label>'
+        f'<div data-room-field="monsters"><label>monsters</label>{monsters_repeatable}</div>'
+        f'<div data-room-field="prompt"><label>prompt'
+        f'<small class="field-hint">Required for a choice room -- the menu text shown alongside '
+        f'its actions. Optional for a combat room: shown once, right as the room is entered, ahead '
+        f'of the monster\'s own flavor text, to introduce the room itself before the fight '
+        f'starts.</small>'
+        f'<textarea name="{prefix}_prompt">{html.escape(room.get("prompt", ""))}</textarea></label></div>'
+        f'<div data-room-field="actions"><label>actions<small class="field-hint">Each action gets '
+        f'its own arrow on the canvas -- two or more actions already fork the path by player '
+        f'choice alone, with no check needed.</small></label>{actions_repeatable}</div>'
+        f'{image_html}'
+        f'<button type="button" class="remove-row" data-remove-room>✕ Remove room</button></div>'
+    )
+
+
+def _render_room_node(prefix: str, room: dict, pos: dict, is_start: bool) -> str:
+    """Box + action nodes (choice rooms only) + detail panel for one room, wrapped in a single
+    .room-wrapper -- the unit _render_repeatable's existing <template>/ROWIDX clone mechanism (see
+    wireRepeatAdd) operates on, so "+ Add Room" keeps working with zero changes to that shared
+    primitive. Action nodes are siblings of the room's own box (not nested inside it) so each gets
+    its own independent position in the same canvas coordinate space -- see _render_action_node."""
+    action_nodes_html = ""
+    if (room.get("type") or "combat") == "choice":
+        action_nodes_html = "".join(
+            _render_action_node(
+                f"{prefix}_actions_{j}", action,
+                {"x": action["x"], "y": action["y"]} if "x" in action and "y" in action
+                else _default_action_position(pos, j),
+            )
+            for j, action in enumerate(room.get("actions", []))
+        )
+    return (
+        f'<div class="room-wrapper" data-room-wrapper="{prefix}">'
+        f'{_render_room_box(prefix, room, pos, is_start)}'
+        f'{action_nodes_html}'
+        f'{_render_room_detail_panel(prefix, room)}'
+        f'</div>'
+    )
+
+
+def _render_delve_flowchart(label: str, rooms: list[dict], entry: dict) -> str:
+    """Top-level renderer for a delve's "rooms" field -- a flowchart canvas (draggable room boxes
+    + an SVG arrow overlay, see the flowchart script in _dynamic_script) instead of a flat stack of
+    text-box rows. `entry` is the full delve dict, not just its "rooms" value -- _render_field
+    already passes this through for every field type (see the "cascaded_id" case), so this reads
+    entry.get("layout")/entry.get("start_room") with no new plumbing. The single page-level hidden
+    "start_room" input lives here, replacing the old free-typed top-level field entirely (see
+    admin_schemas.py) -- it's set by clicking a room's own flag icon (_render_room_box) instead."""
+    layout = entry.get("layout") or {}
+    start_room = entry.get("start_room") or (rooms[0]["id"] if rooms else "")
+
+    room_nodes_html = []
+    for i, room in enumerate(rooms):
+        prefix = f"room_{i}"
+        pos = layout.get(room.get("id"), _default_room_position(i))
+        room_nodes_html.append(_render_room_node(prefix, room, pos, room.get("id") == start_room))
+    template_html = _render_room_node("room_ROWIDX", {}, _default_room_position(len(rooms)), False)
+
+    canvas_html = _render_repeatable("delve-rooms-canvas", room_nodes_html, template_html, "+ Add Room")
+    return (
+        f'<fieldset><legend>{label}</legend>'
+        f'<small class="field-hint">Drag rooms to arrange them, drag a room\'s handle onto another '
+        f'room to connect them, click a room to edit its fields, and click the flag to set the '
+        f'start room.</small>'
+        f'<input type="hidden" name="start_room" id="start_room_field" value="{html.escape(start_room)}">'
+        f'<div class="delve-canvas-wrap">{canvas_html}<svg class="delve-arrows"></svg></div>'
+        f'</fieldset>'
     )
 
 
@@ -751,6 +1767,18 @@ def _render_field(field: dict, value, entry: dict | None = None) -> str:
         v = "" if value is None else value
         return f'<label>{label}<textarea name="{html.escape(name)}">{html.escape(str(v))}</textarea></label>'
 
+    if ftype == "bool":
+        # Unlike every other field type, `value` being None doesn't mean "leave it blank" -- a
+        # checkbox is always definitively on or off. For a field where the *real loader* treats a
+        # missing key as true (e.g. dungeon.py's delve "active", absent = active, for pre-existing
+        # content saved before this field existed), a schema "default" of True is what makes the
+        # checkbox's initial state match that actual behavior instead of always starting unchecked
+        # for old data -- otherwise resaving an old delve untouched would silently write "active":
+        # false the first time, since an unchecked box is genuinely absent from the submitted form.
+        v = value if value is not None else field.get("default", False)
+        checked = " checked" if v else ""
+        return f'<label class="checkbox-label"><input type="checkbox" name="{html.escape(name)}"{checked}> {label}</label>'
+
     if ftype == "enum":
         # An optional enum gets a blank leading option (a real <select> otherwise always defaults
         # to its first choice, which would silently pick one for a value that was actually never
@@ -816,12 +1844,9 @@ def _render_field(field: dict, value, entry: dict | None = None) -> str:
         repeatable = _render_repeatable(f"{name}-rows", rows_html, template_html, "+ Add drop")
         return f'<fieldset><legend>{label}</legend>{repeatable}</fieldset>'
 
-    if ftype == "delve_rooms":
+    if ftype == "delve_flowchart":
         rooms = list(value or [])
-        rows_html = [_render_delve_room_row(f"room_{i}", r) for i, r in enumerate(rooms)]
-        template_html = _render_delve_room_row("room_ROWIDX", [])
-        repeatable = _render_repeatable(f"{name}-rows", rows_html, template_html, "+ Add room")
-        return f'<fieldset><legend>{label}</legend>{repeatable}</fieldset>'
+        return _render_delve_flowchart(label, rooms, entry or {})
 
     if ftype == "shop_items":
         shop_entries = list(value or [])
@@ -834,15 +1859,7 @@ def _render_field(field: dict, value, entry: dict | None = None) -> str:
         # No _parse_field case for "image" -- it needs actual file I/O and the entry's current
         # value (to keep it when no new file is uploaded), neither of which a plain form->value
         # parser has access to. edit_view handles it separately; see _save_uploaded_image.
-        preview_id = f"preview_{name}"
-        src = f"/{value}" if value else ""
-        display = "block" if value else "none"
-        return (
-            f'<label>{label}'
-            f'<img id="{preview_id}" class="image-preview" src="{html.escape(src)}" style="display:{display}">'
-            f'<input type="file" name="{html.escape(name)}_file" accept="image/*" '
-            f'data-preview-target="{preview_id}"></label>'
-        )
+        return _render_image_input(name, label, value)
 
     if ftype == "trigger":
         return f'<fieldset><legend>{label}</legend>{_render_trigger_inputs(name, value or {})}</fieldset>'
@@ -908,6 +1925,13 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
     if ftype == "color":
         v = form.get(name, "").strip()
         return (name, v) if v else None
+
+    if ftype == "bool":
+        # A checkbox is simply absent from the submitted form when unchecked (never "off" or
+        # "false") -- presence is the whole signal. Always returns a value (never None), unlike
+        # every other field type here, since "not checked" is itself a meaningful, always-valid
+        # False rather than "the author left this blank."
+        return (name, name in form)
 
     if ftype == "cascaded_id":
         # Parses identically to "str" -- it's still just a free-standing id, the <select>
@@ -985,24 +2009,10 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
                 drops.append({"kind": kind, "item_id": item_id, "chance": float(chance)})
         return (name, drops)
 
-    if ftype == "delve_rooms":
-        # Two levels of indices here -- room index i, monster-row index j within that room's own
-        # nested repeatable ("room_<i>_monsters_<j>", see _render_delve_room_row) -- discovered
-        # together from whichever keys actually made it into the submission, same "don't assume
-        # contiguous-from-0" reasoning as every other repeatable type, just one level deeper. A
-        # blank ("—") monster row is skipped, and a room left with no monster rows at all (every
-        # row blank, or the room itself never got any) is dropped entirely.
-        room_monsters: dict[int, list[tuple[int, str]]] = {}
-        for k, v in form.items():
-            m = re.fullmatch(r"room_(\d+)_monsters_(\d+)", k)
-            if not m or not v.strip():
-                continue
-            room_monsters.setdefault(int(m.group(1)), []).append((int(m.group(2)), v.strip()))
-        room_list = [
-            [monster_id for _, monster_id in sorted(room_monsters[i])]
-            for i in sorted(room_monsters)
-        ]
-        return (name, room_list)
+    # No case here for "delve_flowchart" -- like "image", each room can carry an uploaded
+    # background image, which needs real file I/O and the entry's previous value, neither of which
+    # this plain form->value parser has access to. edit_view handles it separately, via
+    # _parse_delve_flowchart.
 
     if ftype == "shop_items":
         indices = sorted(int(m.group(1)) for k in form if (m := re.fullmatch(r"shop_(\d+)_kind", k)))
@@ -1149,6 +2159,184 @@ def _save_uploaded_image(file_field, subdir: str, entry_id: str) -> str | None:
     return os.path.relpath(dest_path, os.path.dirname(__file__))
 
 
+def _parse_outcome(prefix: str, form: dict) -> dict:
+    """An action's on_success/on_fail -- next/hp_delta/message, each omitted (not written as an
+    empty string / null) if left blank, same "blank means absent" convention every other optional
+    field here follows."""
+    outcome: dict = {}
+    next_room = form.get(f"{prefix}_next", "").strip()
+    if next_room:
+        outcome["next"] = next_room
+    hp_delta = form.get(f"{prefix}_hp_delta", "").strip()
+    if hp_delta:
+        outcome["hp_delta"] = int(hp_delta)
+    message = form.get(f"{prefix}_message", "").strip()
+    if message:
+        outcome["message"] = message
+    return outcome
+
+
+def _parse_actions(prefix: str, form: dict) -> tuple[list[dict], list[str]]:
+    """Parses a choice room's nested "actions" repeatable -- action index i discovered from
+    whichever "<prefix>_<i>_success_next" keys are *present* (every action row always renders this
+    hidden input, even one added and left otherwise untouched -- unlike, say, "room_<i>_id" this
+    one is fine being blank, since that's the valid "wins the delve" state, so presence rather than
+    non-blank is the right signal here), rather than scanning nested per-field indices the way
+    _parse_delve_flowchart does for monster rows, since an action's own fields are all fixed-shape
+    (one row, one index, no further repeatable underneath it besides its own "requires" trigger,
+    which _parse_trigger already handles as a unit).
+
+    Returns (actions, errors) rather than raising straight away when an action still has a blank
+    label -- the caller (_parse_delve_flowchart) needs the *rest* of this room's data regardless,
+    so the canvas can still be redrawn exactly as submitted if these turn out to be the only
+    problems (see that function's own docstring for why silently dropping one instead would be
+    worse). Every blank label is reported, not just the first, so edit_view can show one error
+    banner per problem in a single pass instead of a "fix one, resubmit, find the next" loop.
+    Whether "check" (and therefore "on_fail") ends up in the saved action depends only on whether
+    stat+dc were both actually filled in -- see _render_action_row's docstring for why this isn't
+    toggled by JS instead."""
+    indices = sorted(
+        int(m.group(1)) for k in form if (m := re.fullmatch(rf"{re.escape(prefix)}_(\d+)_success_next", k))
+    )
+    actions = []
+    errors = []
+    for i in indices:
+        p = f"{prefix}_{i}"
+        label = form.get(f"{p}_label", "").strip()
+        if not label:
+            errors.append("An action on the canvas needs a label before this can be saved.")
+        action: dict = {"label": label}
+
+        requires = _parse_trigger(f"{p}_requires", form)
+        if requires is not None:
+            action["requires"] = requires
+
+        cost: dict = {}
+        currency = form.get(f"{p}_cost_currency", "").strip()
+        if currency:
+            cost["currency"] = int(currency)
+        item_id = form.get(f"{p}_cost_item_id", "").strip()
+        if item_id:
+            cost["item_kind"] = form.get(f"{p}_cost_item_kind", "").strip()
+            cost["item_id"] = item_id
+            qty = form.get(f"{p}_cost_item_qty", "").strip()
+            if qty:
+                cost["item_qty"] = int(qty)
+        if cost:
+            action["cost"] = cost
+
+        stat = form.get(f"{p}_check_stat", "").strip()
+        dc = form.get(f"{p}_check_dc", "").strip()
+        has_check = bool(stat and dc)
+        if has_check:
+            action["check"] = {"stat": stat, "dc": float(dc) if "." in dc else int(dc)}
+
+        action["on_success"] = _parse_outcome(f"{p}_success", form)
+        if has_check:
+            action["on_fail"] = _parse_outcome(f"{p}_fail", form)
+
+        x, y = form.get(f"{p}_x", "").strip(), form.get(f"{p}_y", "").strip()
+        if x and y:
+            action["x"], action["y"] = float(x), float(y)
+
+        actions.append(action)
+    return actions, errors
+
+
+def _parse_delve_flowchart(form: dict, entry_id_for_upload: str, existing_entry: dict, subdir: str) -> dict:
+    """Parses a "delve_flowchart" field's submission -- pulled out of _parse_field entirely (unlike
+    every other repeatable type) because each room can carry its own uploaded background image,
+    which needs real file I/O and the entry's previous value, the same reason top-level "image"
+    fields are handled outside _parse_field. Called directly from edit_view's POST handler.
+
+    Room index i is discovered from whichever "room_<i>_x" keys are present -- every room ever
+    added to the canvas has a position, even one added and left otherwise untouched, unlike a
+    combat room's monster rows (which can legitimately be entirely empty while the row is being
+    filled in, so those really are discovered by "non-blank"). Branches on that room's own
+    "room_<i>_type" to decide which fields matter: combat parses its monster rows (two further
+    levels of index, "room_<i>_monsters_<j>", same "don't assume contiguous-from-0" technique), its
+    own "next" (written by the flowchart script's drag-to-connect, not typed -- see
+    _render_room_box), and its own optional "prompt" (shown once at room-entry, ahead of the
+    monster's own flavor text -- see dungeon_view._combat_intro_text); choice parses its own
+    required prompt plus its own nested actions repeatable (_parse_actions, whose on_success/
+    on_fail "next" is the same drag-to-connect story). Also collects each room's
+    canvas position ("room_<i>_x"/"_y", also script-written) into a top-level "layout" dict, and
+    reads the one page-level "start_room" hidden input (see _render_delve_flowchart) -- all
+    returned alongside "rooms" instead of a bare list, since this is now the sole place every piece
+    the flowchart canvas owns get assembled.
+
+    A room discovered this way with a still-blank id (or, via _parse_actions, an action with a
+    still-blank label) does NOT raise here -- it's included in "rooms" as-is (blank id and all)
+    and "errors" collects every such problem found across every room, instead of raising
+    immediately on the first one. Building the full room list regardless of any errors is what lets
+    edit_view re-render the canvas exactly as submitted (see that function's own handling of this
+    "errors" key) rather than the earlier, much worse failure mode: raising immediately would abort
+    this whole function before "rooms" is ever built, and edit_view's error-path re-render would
+    then have nothing to show but an empty canvas -- "not saving at all" with no indication why,
+    exactly the bug this replaced.
+
+    Background image: a new upload at "room_<i>_background_path_file" is saved (via
+    _save_uploaded_image, named "<entry_id>_room_<room id><ext>" -- keyed by the room's own id, not
+    its position, so reordering rooms across saves can't misattribute one room's image to
+    another). With no new upload, whichever existing room shares this same id keeps its old
+    background_path, if it had one -- same "re-uploading isn't required on every edit" rule as any
+    other image field. Raises ValueError (same as _save_uploaded_image) on a bad upload -- unlike a
+    blank id/label there's no sensible partial state to preserve for a failed upload, so this one
+    case still aborts the whole save, same as before."""
+    room_indices = sorted(int(m.group(1)) for k in form if (m := re.fullmatch(r"room_(\d+)_x", k)))
+    existing_by_id = {r["id"]: r for r in existing_entry.get("rooms", []) if r.get("id")}
+
+    rooms = []
+    layout: dict = {}
+    errors = []
+    for i in room_indices:
+        p = f"room_{i}"
+        room_id = form.get(f"{p}_id", "").strip()
+        if not room_id:
+            errors.append(f"Room #{i + 1} on the canvas needs an id before this can be saved.")
+        room_type = form.get(f"{p}_type", "combat").strip()
+        room: dict = {"id": room_id, "type": room_type}
+
+        if room_type == "combat":
+            monster_indices = sorted(
+                int(m.group(1)) for k in form
+                if (m := re.fullmatch(rf"{p}_monsters_(\d+)", k)) and form[k].strip()
+            )
+            monsters = [form[f"{p}_monsters_{j}"].strip() for j in monster_indices]
+            if monsters:
+                room["monsters"] = monsters
+            next_room = form.get(f"{p}_next", "").strip()
+            if next_room:
+                room["next"] = next_room
+            prompt = form.get(f"{p}_prompt", "").strip()
+            if prompt:
+                room["prompt"] = prompt
+        else:
+            prompt = form.get(f"{p}_prompt", "").strip()
+            if prompt:
+                room["prompt"] = prompt
+            actions, action_errors = _parse_actions(f"{p}_actions", form)
+            errors.extend(action_errors)
+            if actions:
+                room["actions"] = actions
+
+        new_path = _save_uploaded_image(
+            form.get(f"{p}_background_path_file"), subdir, f"{entry_id_for_upload}_room_{room_id}"
+        )
+        if new_path is not None:
+            room["background_path"] = new_path
+        elif room_id in existing_by_id and existing_by_id[room_id].get("background_path"):
+            room["background_path"] = existing_by_id[room_id]["background_path"]
+
+        rooms.append(room)
+
+        x, y = form.get(f"{p}_x", "").strip(), form.get(f"{p}_y", "").strip()
+        if room_id and x and y:
+            layout[room_id] = {"x": float(x), "y": float(y)}
+
+    return {"rooms": rooms, "layout": layout, "start_room": form.get("start_room", "").strip(), "errors": errors}
+
+
 def _list_asset_files() -> list[tuple[str, float]]:
     """Every file under assets/, as (path-relative-to-repo-root, size-in-KB) pairs sorted by path
     -- e.g. ("assets/dungeon/monsters/goblin_grunt.png", 12.4). Backs the standalone Assets page's
@@ -1244,8 +2432,14 @@ async def list_view(request: web.Request) -> web.Response:
         rows.append(f'<tr><td><a class="row-link" href="/edit/{content_type}/{item_id}">✏️</a></td>{cells}</tr>')
 
     singular = spec["label"][:-1] if spec["label"].endswith("s") else spec["label"]
+    # Every non-delve content type's save redirects here (see edit_view's "?saved=1") -- a delve
+    # instead stays on its own edit page after saving, so this never fires for delves in practice,
+    # but reusing the same query-param convention here too costs nothing and keeps the two save
+    # flows consistent if that ever changes.
+    saved_notice = '<p class="success">Saved.</p>' if request.query.get("saved") else ""
     body = (
         f'<h1>{spec["icon"]} {html.escape(spec["label"])}</h1>'
+        f'{saved_notice}'
         f'<p><a class="row-link" href="/edit/{content_type}/new">+ New {html.escape(singular)}</a></p>'
         f'<input id="list-filter" type="text" placeholder="Filter {html.escape(spec["label"].lower())}...">'
         f'<table id="list-table"><thead><tr><th></th>{header}</tr></thead><tbody>{"".join(rows)}</tbody></table>'
@@ -1275,7 +2469,7 @@ async def edit_view(request: web.Request) -> web.Response:
         # first and required, but read directly here rather than relying on loop order.
         entry_id_for_upload = form.get("id", "").strip() or item_id
         new_entry = {}
-        upload_error = None
+        upload_errors: list[str] = []
         for field in spec["fields"]:
             if field["type"] == "image":
                 try:
@@ -1283,47 +2477,110 @@ async def edit_view(request: web.Request) -> web.Response:
                         form.get(f"{field['name']}_file"), field["subdir"], entry_id_for_upload
                     )
                 except ValueError as e:
-                    upload_error = str(e)
+                    upload_errors.append(str(e))
                     new_path = None
                 if new_path is not None:
                     new_entry[field["name"]] = new_path
                 elif entry.get(field["name"]):
                     new_entry[field["name"]] = entry[field["name"]]  # no new upload -- keep what was there
                 continue
+            if field["type"] == "delve_flowchart":
+                try:
+                    parsed = _parse_delve_flowchart(form, entry_id_for_upload, entry, field["subdir"])
+                except ValueError as e:
+                    # Still raised for a genuinely bad image upload (see that function's own
+                    # docstring) -- there's no partial room/action data to preserve in that case,
+                    # unlike a blank id/label below.
+                    upload_errors.append(str(e))
+                else:
+                    # Always applied, errors or not -- a blank id/label is carried in "errors"
+                    # (see _parse_delve_flowchart's docstring) rather than raised, specifically so
+                    # "rooms" here still reflects exactly what was submitted and the canvas
+                    # re-renders unchanged instead of coming back empty.
+                    new_entry[field["name"]] = parsed["rooms"]
+                    if parsed["layout"]:
+                        new_entry["layout"] = parsed["layout"]
+                    new_entry["start_room"] = parsed["start_room"]
+                    upload_errors.extend(parsed["errors"])
+                continue
             parsed = _parse_field(field, form)
             if parsed is not None:
                 new_entry[parsed[0]] = parsed[1]
 
-        if upload_error is not None:
-            error = f'<p class="error">{html.escape(upload_error)}</p>'
+        if upload_errors:
+            # One banner per problem, same .error styling as every other error here -- so fixing a
+            # delve with several still-unnamed rooms/actions doesn't mean "save, get told about
+            # just the first one, fix it, save again, get told about the next."
+            error = "".join(f'<p class="error">{html.escape(e)}</p>' for e in upload_errors)
             entry = new_entry
         else:
             entries = _load_raw_entries(spec)
             original_id = None if is_new else item_id
-            replaced = False
+            entry_index = None
             for i, e in enumerate(entries):
                 if e.get("id") == original_id:
                     entries[i] = new_entry
-                    replaced = True
+                    entry_index = i
                     break
-            if not replaced:
+            if entry_index is None:
                 entries.append(new_entry)
+                entry_index = len(entries) - 1
+
+            # A delve's flowchart editor is normally used for a long string of small saves while
+            # a delve is still being wired up, so it stays on the same entry's edit page after a
+            # save instead of bouncing to the list view like every other content type -- that
+            # bounce is the more useful landing spot when you're working through a batch of
+            # separate, one-shot entries, but pure friction for a single delve you're iterating on
+            # for a while.
+            is_delve_edit = content_type == "delves"
+            redirect_url = (
+                f"/edit/{content_type}/{new_entry.get('id', item_id)}" if is_delve_edit
+                else f"/edit/{content_type}"
+            )
 
             error_msg = _write_and_validate(spec, entries)
+            if error_msg is not None and is_delve_edit and new_entry.get("active"):
+                # An active delve failing validation is most commonly just "not fully wired up
+                # yet" (the reachability check, only enforced for active delves -- see
+                # dungeon._load_delves's "active" handling). Rather than reject the save outright
+                # and force a separate "uncheck active, save that, then save your WIP" round trip,
+                # retry once here with active forced off. If that succeeds, the save goes through
+                # anyway (with a heads-up on reload, not silently) so work is never stuck behind a
+                # validation error; if it still fails, whatever's wrong isn't reachability at all
+                # (e.g. a genuinely malformed action), and the original error below is what
+                # actually explains it -- restore the entry so that's what gets shown.
+                downgraded_entry = dict(new_entry, active=False)
+                entries[entry_index] = downgraded_entry
+                if _write_and_validate(spec, entries) is None:
+                    raise web.HTTPFound(f"{redirect_url}?downgraded=1")
+                entries[entry_index] = new_entry
             if error_msg is None:
-                raise web.HTTPFound(f"/edit/{content_type}")
+                raise web.HTTPFound(f"{redirect_url}?saved=1")
             error = f'<p class="error">{html.escape(error_msg)}</p>'
             entry = new_entry  # show what they submitted, not the stale pre-edit values
+
+    if request.method == "GET" and request.query.get("downgraded"):
+        error = (
+            '<p class="success">Saved — this delve didn\'t pass its full checks (most likely '
+            'some rooms aren\'t reachable yet), so it was automatically marked inactive rather '
+            'than blocking the save. Check "active" once it\'s actually finished.</p>'
+        )
+    elif request.method == "GET" and request.query.get("saved"):
+        error = '<p class="success">Saved.</p>'
 
     fields_html = _render_fields(spec["fields"], entry)
     delete_button = (
         f'<button type="submit" form="delete-form" class="danger">Delete</button>' if not is_new else ""
     )
     crumb_label = "New" if is_new else f"Edit: {item_id}"
+    # A delve's flowchart canvas needs real width to be usable, unlike every other content type's
+    # form -- see .delve-canvas-wrap in _PAGE_CSS -- so this is the one place a schema field type
+    # needs to reach the <form> tag itself rather than just its own rendered markup.
+    form_class = " delve-form" if any(f["type"] == "delve_flowchart" for f in spec["fields"]) else ""
     body = f"""
     <h1>{spec["icon"]} {"New" if is_new else "Edit"} {html.escape(spec["label"])}</h1>
     {error}
-    <form method="post" enctype="multipart/form-data">{fields_html}<button type="submit">Save</button></form>
+    <form method="post" enctype="multipart/form-data" class="{form_class.strip()}">{fields_html}<button type="submit">Save</button></form>
     {f'<form id="delete-form" method="post" action="/delete/{content_type}/{item_id}"></form>' if not is_new else ""}
     {delete_button}
     """
@@ -1363,7 +2620,7 @@ def _delete_blockers(content_type: str, item_id: str) -> list[str]:
     if content_type == "monsters":
         return [
             d["name"] for d in dungeon.DELVES.values()
-            if any(room == [item_id] for room in d["rooms"])
+            if any(room.get("type") == "combat" and room.get("monsters") == [item_id] for room in d["rooms"])
         ]
     return []
 

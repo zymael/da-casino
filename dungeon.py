@@ -152,15 +152,129 @@ def roll_drops(monster: dict, chance_mult: float = 1.0) -> list[dict]:
 
 
 # --- Delve content ---------------------------------------------------------------------------
-# A delve is a named dungeon layout: an ordered sequence of rooms (room count is just
-# len(rooms), no separate field), each an explicit list of monster ids that can show up there --
-# arbitrarily chosen by whoever authors the delve, not gated by a shared tier. Loaded after
-# MONSTERS since a delve's rooms get cross-validated against it -- an unknown monster id would
-# otherwise only surface as a crash mid-delve (a KeyError), not at startup where a bad edit
-# belongs.
+# A delve is a named dungeon layout: a room GRAPH, not a flat sequence. Rooms are addressed by id
+# (unique within the delve); each room's own "next" (a combat room) or its actions' own outcomes
+# (a choice room) name which room comes after it, so a delve can fork into multiple paths,
+# reconverge, or dead-end back on itself -- a flat list-with-implicit-next-index can only ever
+# express one successor per position, which can't represent a fork at all. `start_room` says which
+# room id a session begins at, since room order is no longer implicit.
+#
+# Two room types:
+#   "combat": {"id", "type": "combat", "monsters": [...], "background_path"?, "next"?, "prompt"?}
+#     monsters is the explicit set of ids that can show up there (one picked at random each visit,
+#     see monster_for_room); next is another room's id, or absent -- absent means clearing this
+#     room's monster wins the delve (same semantics as today's "last room", just explicit now
+#     instead of positional). prompt (optional, unlike a choice room's required one) introduces the
+#     room itself -- shown once, right when the room is entered, ahead of the monster's own flavor
+#     text (see dungeon_view._combat_intro_text) -- purely flavor, never read by combat logic
+#     itself.
+#   "choice": {"id", "type": "choice", "prompt": str, "actions": [...], "background_path"?}
+#     a non-combat room: flavor text plus a menu of player-chosen actions (see _validate_action),
+#     each carrying its own optional gate/cost/skill-check and its own next-room outcome -- this is
+#     where actual branching happens, not on combat rooms. Each action can also carry its own
+#     optional "x"/"y" (numbers) -- where the admin panel's flowchart editor drew that action's own
+#     connector box, same presentational-only role as a delve's top-level "layout" for rooms, just
+#     carried directly on the action instead of in an external dict (an action has no stable id of
+#     its own to key such a dict by -- its position within "actions" can shift as rows are added/
+#     removed/reordered, unlike a room id).
+# background_path (either room type) optionally overrides the delve's own top-level
+# background_path for just that room -- a room without one falls back to the delve's (see
+# dungeon_view.py's _room_background_path).
+#
+# layout (optional, top-level on the delve, not per-room): {room_id: {"x": number, "y": number}},
+# written by the admin panel's flowchart editor to remember where each room's box was dragged to on
+# the canvas. Purely presentational -- dungeon_view.py's traversal only ever does
+# rooms_by_id(delve)[current_room_id] lookups and never reads this, and it has no bearing on the
+# edges/reachability graph below. A room with no entry here just hasn't been positioned yet (the
+# editor falls back to a default grid slot); layout is never required to cover every room.
+#
+# active (optional, top-level, bool, default True if absent): whether this delve is offered to
+# players at all -- see active_delves() below, the one place that's decided. An inactive delve
+# still lives in DELVES and is still structurally validated here (known ids, valid action shapes,
+# etc. -- protects against a crash the moment any code touches it), but is exempt from the
+# reachability check below, since a delve mid-construction in the admin panel is legitimately
+# unreachable-riddled for most of that process and still needs to be saveable. Flip it back to
+# active once it's actually finished.
+#
+# Loaded after MONSTERS/MATERIALS/CONSUMABLES since a delve's rooms get cross-validated against
+# them (an unknown monster/material/consumable id would otherwise only surface as a crash mid-
+# delve, not at startup where a bad edit belongs) -- see the load order note near CONSUMABLES
+# below for why DELVES is actually instantiated after that registry despite this section coming
+# first in the file. A choice room's "requires" (any trigger type) and a quest_item cost's item id
+# can NOT be validated here at all -- dungeon.py can't import quests.py without a cycle, the same
+# constraint npcs.py's own visible_trigger already lives under. See quests.py's own post-load
+# cross-validation pass for that half; _load_delves below only checks that "requires"/quest_item
+# costs are shaped like plain dicts, nothing about their actual contents.
+
+ROOM_TYPES = ("combat", "choice")
+CHECK_STATS = ("atk", "def", "hp")  # which of a character's own stats a skill check can roll against
+ACTION_COST_ITEM_KINDS = ("material", "consumable", "quest_item")
+_REQUIRED_ROOM_FIELDS_BY_TYPE = {"combat": {"monsters"}, "choice": {"prompt", "actions"}}
+_OPTIONAL_ROOM_FIELDS_BY_TYPE = {"combat": {"background_path", "next", "prompt"}, "choice": {"background_path"}}
 
 _DELVES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_delves.json")
-_REQUIRED_DELVE_FIELDS = {"id", "name", "flavor", "rooms"}
+_REQUIRED_DELVE_FIELDS = {"id", "name", "flavor", "rooms", "start_room"}
+_ACTION_OUTCOME_KEYS = {"next", "hp_delta", "message"}
+
+
+def _validate_action(action: dict, context: str) -> None:
+    """One action within a choice room -- see the module docstring above for the full shape.
+    Doesn't touch "requires" contents (opaque here, see module docstring) or whether cost/outcome
+    "next" room ids actually exist (checked by the caller, which has the full room-id set)."""
+    if not action.get("label"):
+        raise ValueError(f"{context}: missing a label")
+
+    # x/y (both optional): where the admin panel's flowchart editor drew this action's own
+    # connector box on the canvas -- purely presentational, exactly like a delve's top-level
+    # "layout" (see the module docstring), just carried directly on the action instead of in an
+    # external dict, since an action has no stable id of its own to key such a dict by (its
+    # position within "actions" can shift as rows are added/removed/reordered, unlike a room id).
+    for key in ("x", "y"):
+        if key in action and not isinstance(action[key], (int, float)):
+            raise ValueError(f"{context}: {key} must be a number")
+    if action.get("requires") is not None and not isinstance(action["requires"], dict):
+        raise ValueError(f"{context}: requires must be an object")
+
+    cost = action.get("cost")
+    if cost is not None:
+        if not cost.get("currency") and not cost.get("item_id"):
+            raise ValueError(f"{context}: cost must set currency and/or item_id")
+        if "currency" in cost and cost["currency"] <= 0:
+            raise ValueError(f"{context}: cost currency must be positive")
+        if cost.get("item_id"):
+            item_kind = cost.get("item_kind")
+            if item_kind not in ACTION_COST_ITEM_KINDS:
+                raise ValueError(f"{context}: cost with an item_id needs item_kind in {ACTION_COST_ITEM_KINDS}")
+            if item_kind == "material" and cost["item_id"] not in MATERIALS:
+                raise ValueError(f"{context}: cost references unknown material {cost['item_id']!r}")
+            if item_kind == "consumable" and cost["item_id"] not in CONSUMABLES:
+                raise ValueError(f"{context}: cost references unknown consumable {cost['item_id']!r}")
+            # quest_item existence is checked by quests.py's cross-validation pass (see module docstring)
+            if cost.get("item_qty", 1) <= 0:
+                raise ValueError(f"{context}: cost item_qty must be positive")
+
+    check = action.get("check")
+    if check is not None:
+        if check.get("stat") not in CHECK_STATS:
+            raise ValueError(f"{context}: check stat must be one of {CHECK_STATS}")
+        if not isinstance(check.get("dc"), (int, float)) or check["dc"] <= 0:
+            raise ValueError(f"{context}: check dc must be a positive number")
+
+    if "on_success" not in action:
+        raise ValueError(f"{context}: missing on_success")
+    if check is not None and "on_fail" not in action:
+        raise ValueError(f"{context}: has a check but no on_fail")
+    if check is None and "on_fail" in action:
+        raise ValueError(f"{context}: has on_fail but no check to fail against")
+    for key in ("on_success", "on_fail"):
+        outcome = action.get(key)
+        if outcome is None:
+            continue
+        unknown = outcome.keys() - _ACTION_OUTCOME_KEYS
+        if unknown:
+            raise ValueError(f"{context}: {key} has unknown field(s): {sorted(unknown)}")
+        if "hp_delta" in outcome and not isinstance(outcome["hp_delta"], int):
+            raise ValueError(f"{context}: {key}.hp_delta must be an int")
 
 
 def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
@@ -177,20 +291,149 @@ def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
         rooms = entry["rooms"]
         if not rooms:
             raise ValueError(f"dungeon_delves.json: delve {entry_id!r} has empty rooms")
+
+        room_ids: set[str] = set()
         for room in rooms:
-            if not room:
-                raise ValueError(f"dungeon_delves.json: delve {entry_id!r} has a room with no monsters")
-            for monster_id in room:
-                if monster_id not in MONSTERS:
+            room_id = room.get("id")
+            if not room_id:
+                raise ValueError(f"dungeon_delves.json: delve {entry_id!r} has a room with no id")
+            if room_id in room_ids:
+                raise ValueError(f"dungeon_delves.json: delve {entry_id!r} has duplicate room id {room_id!r}")
+            room_ids.add(room_id)
+            room_type = room.get("type")
+            if room_type not in ROOM_TYPES:
+                raise ValueError(
+                    f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} has unknown type {room_type!r}"
+                )
+            allowed = _REQUIRED_ROOM_FIELDS_BY_TYPE[room_type] | _OPTIONAL_ROOM_FIELDS_BY_TYPE[room_type] | {"id", "type"}
+            missing_room = _REQUIRED_ROOM_FIELDS_BY_TYPE[room_type] - room.keys()
+            if missing_room:
+                raise ValueError(
+                    f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} missing field(s): {sorted(missing_room)}"
+                )
+            unknown_room = room.keys() - allowed
+            if unknown_room:
+                raise ValueError(
+                    f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} has unknown field(s): {sorted(unknown_room)}"
+                )
+
+        if entry["start_room"] not in room_ids:
+            raise ValueError(
+                f"dungeon_delves.json: delve {entry_id!r} start_room {entry['start_room']!r} is not a room here"
+            )
+
+        if "active" in entry and not isinstance(entry["active"], bool):
+            raise ValueError(f"dungeon_delves.json: delve {entry_id!r} active must be true/false")
+
+        layout = entry.get("layout")
+        if layout is not None:
+            if not isinstance(layout, dict):
+                raise ValueError(f"dungeon_delves.json: delve {entry_id!r} layout must be an object")
+            for room_id, pos in layout.items():
+                if room_id not in room_ids:
                     raise ValueError(
-                        f"dungeon_delves.json: delve {entry_id!r} references unknown monster {monster_id!r}"
+                        f"dungeon_delves.json: delve {entry_id!r} layout references unknown room {room_id!r}"
                     )
+                if not isinstance(pos, dict) or pos.keys() != {"x", "y"}:
+                    raise ValueError(
+                        f"dungeon_delves.json: delve {entry_id!r} layout for room {room_id!r} must be an "
+                        f"object with exactly x and y"
+                    )
+                if not all(isinstance(pos[k], (int, float)) for k in ("x", "y")):
+                    raise ValueError(
+                        f"dungeon_delves.json: delve {entry_id!r} layout for room {room_id!r} has non-numeric x/y"
+                    )
+
+        # Every "next"-shaped edge (a combat room's own, or a choice action's on_success/on_fail),
+        # collected as we validate each room -- reused below for the reachability pass.
+        edges: dict[str, list[str]] = {rid: [] for rid in room_ids}
+        for room in rooms:
+            room_id = room["id"]
+            if room["type"] == "combat":
+                monsters = room["monsters"]
+                if not monsters:
+                    raise ValueError(f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} has no monsters")
+                for monster_id in monsters:
+                    if monster_id not in MONSTERS:
+                        raise ValueError(
+                            f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} "
+                            f"references unknown monster {monster_id!r}"
+                        )
+                next_room = room.get("next")
+                if next_room is not None:
+                    if next_room not in room_ids:
+                        raise ValueError(
+                            f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} "
+                            f"next {next_room!r} is not a room here"
+                        )
+                    edges[room_id].append(next_room)
+            else:  # choice
+                if not room.get("prompt"):
+                    raise ValueError(f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} has no prompt")
+                actions = room.get("actions")
+                if not actions:
+                    raise ValueError(f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} has no actions")
+                for i, action in enumerate(actions):
+                    context = f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} action {i}"
+                    _validate_action(action, context)
+                    for key in ("on_success", "on_fail"):
+                        outcome = action.get(key)
+                        next_room = outcome.get("next") if outcome else None
+                        if next_room is not None:
+                            if next_room not in room_ids:
+                                raise ValueError(f"{context}: {key}.next {next_room!r} is not a room here")
+                            edges[room_id].append(next_room)
+
+        # Every authored room must be reachable from start_room -- an unreachable room is almost
+        # certainly a content bug (a dangling fork, a copy-paste leftover), the same strictness
+        # this codebase already applies elsewhere (e.g. every build needs a level-1 skill). A room
+        # with no outgoing edges at all (a legitimate dead end/final room) is fine either way.
+        #
+        # Only enforced for an *active* delve (entry.get("active", True) -- absent/missing means
+        # active, so every delve authored before this field existed keeps behaving exactly as it
+        # always did). A delve being actively built in the admin panel's flowchart editor is
+        # legitimately unreachable-riddled for most of that process -- rooms get added before
+        # they're wired up, choice actions before their outcomes are connected -- and requiring
+        # full reachability on every single save made it impossible to save that work in progress
+        # at all. Flip a delve to inactive while building it (see admin_schemas.py's "active"
+        # field) and this check no longer blocks the save; flip it back once it's actually done,
+        # at which point this same check is what confirms it's really finished. Structural
+        # correctness (known room/monster/material ids, valid action shapes, etc.) is never
+        # relaxed by this flag -- those protect against a crash the moment any code touches this
+        # delve, active or not, e.g. from the admin panel's own list view.
+        if entry.get("active", True):
+            seen = {entry["start_room"]}
+            frontier = [entry["start_room"]]
+            while frontier:
+                for neighbor in edges[frontier.pop()]:
+                    if neighbor not in seen:
+                        seen.add(neighbor)
+                        frontier.append(neighbor)
+            unreachable = room_ids - seen
+            if unreachable:
+                raise ValueError(
+                    f"dungeon_delves.json: delve {entry_id!r} has unreachable room(s): {sorted(unreachable)}"
+                )
+
         delves[entry_id] = entry
     return delves
 
 
-def monster_for_room(room: list[str]) -> dict:
-    return MONSTERS[random.choice(room)]
+def active_delves() -> dict[str, dict]:
+    """Every delve actually offered to players -- the one place "is this delve playable" is
+    decided, so a new delve-selection surface (a command, a picker view, ...) never needs its own
+    copy of the "active" check. See _load_delves' module-docstring-adjacent comment on the
+    "active" field for why an inactive delve can still be saved (and still lives in DELVES) despite
+    never showing up here."""
+    return {delve_id: delve for delve_id, delve in DELVES.items() if delve.get("active", True)}
+
+
+def rooms_by_id(delve: dict) -> dict[str, dict]:
+    return {room["id"]: room for room in delve["rooms"]}
+
+
+def monster_for_room(room: dict) -> dict:
+    return MONSTERS[random.choice(room["monsters"])]
 
 
 # --- Leveling ------------------------------------------------------------------------------
@@ -393,10 +636,8 @@ def _load_materials(path: str = _MATERIALS_PATH) -> dict[str, dict]:
 
 MATERIALS = _load_materials()
 
-# Loaded here, after EQUIPMENT/MATERIALS: a monster's drops list is cross-validated against
-# them, and a delve's rooms are in turn cross-validated against MONSTERS.
+# Loaded here, after EQUIPMENT/MATERIALS: a monster's drops list is cross-validated against them.
 MONSTERS = _load_monsters()
-DELVES = _load_delves()
 
 
 # --- Consumables -------------------------------------------------------------------------------
@@ -429,6 +670,12 @@ def _load_consumables(path: str = _CONSUMABLES_PATH) -> dict[str, dict]:
 
 
 CONSUMABLES = _load_consumables()
+
+# DELVES is instantiated down here, after MONSTERS/MATERIALS/CONSUMABLES all exist, even though
+# _load_delves/_validate_action (the functions) are defined much earlier alongside the rest of the
+# "Delve content" section -- a choice room's action costs can reference any of the three, so the
+# call has to wait for whichever loads last.
+DELVES = _load_delves()
 
 
 # --- Recipes -------------------------------------------------------------------------------
@@ -546,3 +793,15 @@ def party_hp_multiplier(living_count: int) -> float:
     (roughly 1.0/1.41/1.73/2.0 for party sizes 1-4). Recomputed fresh at every new monster off
     however many members are still standing at that moment, not the party's original size."""
     return math.sqrt(max(1, living_count))
+
+
+def roll_check(stat_value: int, dc: int) -> tuple[bool, int]:
+    """A choice room's skill check -- rolls one of a character's own existing stats (see
+    CHECK_STATS) against an author-set difficulty, same +-15% variance as roll_damage rather than
+    a hand-set probability, so a check's odds naturally improve as a character's stats grow instead
+    of needing to be re-tuned separately. `dc` is a plain number in the stat's own units (e.g. a
+    DEF-based check calibrated against typical DEF values), not a 0-1 probability -- the same
+    "hand-tune against real stat numbers" approach monster ATK/DEF already use. Returns (success,
+    the actual rolled value) -- the roll is exposed so callers can show it in combat-log text."""
+    rolled = round(stat_value * random.uniform(DAMAGE_VARIANCE_LOW, DAMAGE_VARIANCE_HIGH))
+    return rolled >= dc, rolled

@@ -61,19 +61,34 @@ class DelveSession:
         # dungeon.py) and is always sorted first, so unlocked_skills is never empty.
         self.unlocked_skills = dungeon.unlocked_skills(self.main_class, self.subclass, self.level)
 
-        # Which delve this session is running -- rooms[room_index] is this delve's explicit list
-        # of monster ids eligible for the current room, and its length is this delve's room
-        # count. See dungeon.DELVES.
+        # Which delve this session is running -- a graph of rooms addressed by id (not a flat
+        # sequence), see dungeon.DELVES/dungeon.rooms_by_id. current_room_id/rooms_visited replace
+        # the old room_index/len(rooms) -- a branching graph has no single well-defined "room N of
+        # Y" the way a flat list did (different forks can have different lengths, and a room can
+        # even be revisited via a dead-end self-loop), so rooms_visited just counts transitions.
         self.delve = delve
-        self.rooms = delve["rooms"]
+        self.rooms_by_id = dungeon.rooms_by_id(delve)
+        self.current_room_id = delve["start_room"]
+        self.rooms_visited = 1
 
-        self.hp = self.max_hp
-        self.room_index = 0
-        self.monster = dungeon.monster_for_room(self.rooms[0])
-        self.monster_hp = self.monster["hp"]
+        # Starts wherever the character's last delve left off (db.set_current_hp), clamped to the
+        # current max in case max_hp grew since -- HP no longer auto-refills to full just from
+        # starting a fresh delve, only !rest or an in-combat heal raises it.
+        self.hp = min(character["current_hp"], self.max_hp)
+        self.loot_total = 0
+
+        # monster/monster_hp/monster_def_debuff/ability_used are combat-room-only state -- None/0
+        # if the start room happens to be a non-combat "choice" room instead (see dungeon.py's
+        # room shape). _goto_room (re)populates these on every transition into a combat room.
+        start_room = self.rooms_by_id[self.current_room_id]
+        if start_room["type"] == "combat":
+            self.monster = dungeon.monster_for_room(start_room)
+            self.monster_hp = self.monster["hp"]
+        else:
+            self.monster = None
+            self.monster_hp = 0
         self.monster_def_debuff = 0  # from def_shred-type skills; resets each new monster
         self.ability_used = False
-        self.loot_total = 0
 
         self.message: discord.Message | None = None
         # Which view is currently the "live" one attached to `message` -- lets a stale view's
@@ -116,7 +131,9 @@ class PartyMember:
         self.max_hp = effective["hp"]
         self.atk = effective["atk"]
         self.def_ = effective["def"]
-        self.hp = self.max_hp
+        # Same "start wherever the last delve left off" rule as DelveSession -- see its own hp
+        # comment for why.
+        self.hp = min(character["current_hp"], self.max_hp)
         self.loot_mult = dungeon.SUBCLASSES[self.subclass]["loot_mult"]
         self.build_name = dungeon.display_name(self.main_class, self.subclass)
         self.unlocked_skills = dungeon.unlocked_skills(self.main_class, self.subclass, self.level)
@@ -157,8 +174,7 @@ class PartyDelveSession:
     def __init__(self, guild_id: int, delve: dict, members: list[PartyMember]):
         self.guild_id = guild_id
         self.delve = delve
-        self.rooms = delve["rooms"]
-        self.room_index = 0
+        self.rooms_by_id = dungeon.rooms_by_id(delve)
         self.members = members
         self.members_by_id = {m.user_id: m for m in members}
         self.monster_def_debuff = 0
@@ -166,7 +182,8 @@ class PartyDelveSession:
         self.monster_hp = 0
         self.monster_max_hp = 0
         self.turn_queue: list[int] = []
-        self._roll_new_monster()
+        self.rooms_visited = 1
+        self._enter_room(delve["start_room"])
 
         self.message: discord.Message | None = None
         self.current_view: discord.ui.View | None = None
@@ -177,19 +194,47 @@ class PartyDelveSession:
     def all_user_ids(self) -> list[int]:
         return [m.user_id for m in self.members]
 
-    def _roll_new_monster(self):
-        """Rolls a fresh monster for the current room and rebuilds the round's turn queue --
-        called on session init and on Push Deeper. Monster HP is scaled by however many members
-        are alive RIGHT NOW (party_hp_multiplier), not the party's original size, so a roster
-        thinned by earlier knockouts faces a fight scaled to its current strength."""
-        self.monster = dungeon.monster_for_room(self.rooms[self.room_index])
-        mult = dungeon.party_hp_multiplier(len(self.living_members()))
-        self.monster_max_hp = round(self.monster["hp"] * mult)
-        self.monster_hp = self.monster_max_hp
-        self.monster_def_debuff = 0
-        for m in self.members:
-            m.ability_used = False
-        self.turn_queue = [m.user_id for m in self.living_members()]
+    def _enter_room(self, room_id: str):
+        """Moves into room_id -- rolls a fresh monster and rebuilds the round's turn queue if it's
+        a combat room (called on session init and on Push Deeper), or clears combat state if not.
+        Monster HP is scaled by however many members are alive RIGHT NOW (party_hp_multiplier),
+        not the party's original size, so a roster thinned by earlier knockouts faces a fight
+        scaled to its current strength. Doesn't touch rooms_visited -- callers bump that
+        themselves, since __init__'s first call shouldn't double-count the starting room."""
+        self.current_room_id = room_id
+        room = self.rooms_by_id[room_id]
+        if room["type"] == "combat":
+            self.monster = dungeon.monster_for_room(room)
+            mult = dungeon.party_hp_multiplier(len(self.living_members()))
+            self.monster_max_hp = round(self.monster["hp"] * mult)
+            self.monster_hp = self.monster_max_hp
+            self.monster_def_debuff = 0
+            for m in self.members:
+                m.ability_used = False
+            self.turn_queue = [m.user_id for m in self.living_members()]
+        else:
+            self.monster = None
+            self.monster_hp = 0
+            self.monster_max_hp = 0
+            self.turn_queue = []
+
+
+def _room_background_path(delve: dict, room: dict) -> str | None:
+    """A room's own background_path if it set one, else the delve's top-level default -- lets
+    different rooms in the same delve look different without requiring every room to set one."""
+    return room.get("background_path") or delve.get("background_path")
+
+
+def _combat_intro_text(room: dict, monster: dict) -> str:
+    """The description shown the moment a combat room is entered -- the room's own optional
+    "prompt" (introducing the room itself, dungeon.py's module docstring) followed by the
+    monster's own flavor text. Only ever used at room-entry (_build_room_display/
+    _build_party_room_display); a later combat-turn embed reuses _combat_embed/_party_combat_embed
+    with the fight's actual log lines instead, so a room's intro is shown exactly once per visit,
+    not repeated on every attack."""
+    parts = [f"*{room['prompt']}*"] if room.get("prompt") else []
+    parts.append(f"*{monster['flavor']}*")
+    return "\n\n".join(parts)
 
 
 def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.Embed, discord.File]:
@@ -198,12 +243,314 @@ def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.Embed, 
     embed.add_field(
         name=session.monster["name"], value=f"HP {max(session.monster_hp, 0)}/{session.monster['hp']}", inline=True
     )
-    buf = dungeon_render.render_room(
-        session.room_index, len(session.rooms), session.monster, session.delve.get("background_path")
-    )
+    room = session.rooms_by_id[session.current_room_id]
+    buf = dungeon_render.render_room(session.rooms_visited, session.monster, _room_background_path(session.delve, room))
     file = discord.File(buf, filename="room.png")
     embed.set_image(url="attachment://room.png")
     return embed, file
+
+
+# --- Choice rooms -------------------------------------------------------------------------------
+# A non-combat room: flavor text plus a menu of player-chosen actions (dungeon.py's room shape),
+# each optionally gated (requires), costed, and/or skill-checked, with its own next-room outcome
+# -- this is where a delve actually branches, not on combat rooms (which have at most one `next`).
+# See dungeon.py's module docstring for the full action shape.
+
+_CHECK_STAT_LABELS = {"atk": "ATK", "def": "DEF", "hp": "HP"}
+
+
+def _stat_value_for_check(actor, stat: str) -> int:
+    """The actor's own value for whichever stat a skill check rolls against -- "hp" reads max_hp,
+    not current wounded HP, so a check's odds don't depend on unrelated earlier combat damage."""
+    if stat == "hp":
+        return actor.max_hp
+    if stat == "def":
+        return actor.def_
+    return actor.atk
+
+
+def _cost_item_registry(item_kind: str) -> dict:
+    return {"material": dungeon.MATERIALS, "consumable": dungeon.CONSUMABLES, "quest_item": quests.QUEST_ITEMS}[item_kind]
+
+
+def _cost_summary(cost: dict | None, currency_name: str) -> str | None:
+    if not cost:
+        return None
+    parts = []
+    if cost.get("currency"):
+        parts.append(f"{cost['currency']} {currency_name}")
+    if cost.get("item_id"):
+        item = _cost_item_registry(cost["item_kind"]).get(cost["item_id"], {})
+        qty = cost.get("item_qty", 1)
+        parts.append(f"{qty}x {item.get('name', cost['item_id'])}")
+    return "💰 " + ", ".join(parts)
+
+
+def _action_summary_lines(action: dict, currency_name: str) -> list[str]:
+    """Cost/check info shown on an action's button field, so a player knows what they're
+    committing to before clicking it."""
+    lines = []
+    cost_line = _cost_summary(action.get("cost"), currency_name)
+    if cost_line:
+        lines.append(cost_line)
+    check = action.get("check")
+    if check:
+        lines.append(f"🎲 {_CHECK_STAT_LABELS[check['stat']]} check (DC {check['dc']})")
+    return lines
+
+
+def _choice_embed(session: DelveSession, room: dict, description: str) -> tuple[discord.Embed, discord.File]:
+    currency = db.get_currency_name(session.guild_id)
+    embed = discord.Embed(title="🚪 A Choice", description=description, color=discord.Color.blurple())
+    embed.add_field(name=f"{session.display_name} (You)", value=f"HP {max(session.hp, 0)}/{session.max_hp}", inline=False)
+    for action in room["actions"]:
+        lines = _action_summary_lines(action, currency)
+        embed.add_field(name=action["label"], value="\n".join(lines) if lines else "—", inline=True)
+    buf = dungeon_render.render_room(session.rooms_visited, None, _room_background_path(session.delve, room))
+    file = discord.File(buf, filename="room.png")
+    embed.set_image(url="attachment://room.png")
+    return embed, file
+
+
+async def _build_choice_room_view(session: DelveSession, room: dict) -> "ChoiceRoomView":
+    """Pre-checks each action's `requires` (if any) so gated actions render disabled rather than
+    hidden -- mirrors how an already-used skill button is shown-disabled in CombatView rather than
+    removed, same "you can see what you can't do yet" idea."""
+    character = {"main_class": session.main_class, "subclass": session.subclass}
+    availability = []
+    for action in room["actions"]:
+        requires = action.get("requires")
+        ok = True
+        if requires is not None:
+            ok = await quests.trigger_satisfied(session.guild_id, session.user_id, requires, character=character)
+        availability.append(ok)
+    return ChoiceRoomView(session, room, availability)
+
+
+async def _build_room_display(session: DelveSession) -> tuple[discord.Embed, discord.File, discord.ui.View]:
+    """Builds the (embed, file, view) triple for whatever room a session is CURRENTLY sitting on
+    -- used both for a fresh delve's very first room and, via _goto_room, every later transition,
+    so there's one place that branches on room type rather than duplicating it at each call site."""
+    room = session.rooms_by_id[session.current_room_id]
+    if room["type"] == "combat":
+        embed, file = _combat_embed(session, _combat_intro_text(room, session.monster))
+        view = await _build_combat_view(session)
+    else:
+        embed, file = _choice_embed(session, room, room["prompt"])
+        view = await _build_choice_room_view(session, room)
+    return embed, file, view
+
+
+async def _goto_room(interaction: discord.Interaction, session: DelveSession, room_id: str, intro_text: str = ""):
+    """Transitions a solo session into room_id -- sets up a fresh fight if it's a combat room,
+    clears combat state and renders the choice menu if not. Shared by Push Deeper (after a combat
+    victory) and a choice action's own outcome (after resolving that action) -- either can now
+    land on either room type, a direct consequence of rooms forming a graph instead of a flat
+    sequence."""
+    session.current_room_id = room_id
+    session.rooms_visited += 1
+    room = session.rooms_by_id[room_id]
+    if room["type"] == "combat":
+        session.monster = dungeon.monster_for_room(room)
+        session.monster_hp = session.monster["hp"]
+        session.monster_def_debuff = 0
+        session.ability_used = False
+    else:
+        session.monster = None
+        session.monster_hp = 0
+    embed, file, view = await _build_room_display(session)
+    if intro_text:
+        embed.description = f"{intro_text}\n\n{embed.description}"
+    await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+
+
+async def _handle_choice_action(
+    interaction: discord.Interaction, session: DelveSession, room: dict, action: dict,
+) -> bool:
+    """Resolves one choice-room action: requires gate -> cost spend (atomic) -> skill check (if
+    any) -> apply the chosen outcome (hp_delta, then a room transition, victory, or death). Same
+    bool contract as _handle_action (False = rejected, view stays live and un-stopped; True =
+    resolved, caller stop()s the view)."""
+    requires = action.get("requires")
+    if requires is not None:
+        character = {"main_class": session.main_class, "subclass": session.subclass}
+        satisfied = await quests.trigger_satisfied(session.guild_id, session.user_id, requires, character=character)
+        if not satisfied:
+            await interaction.response.send_message("You don't meet the requirements for that.", ephemeral=True)
+            return False
+
+    cost = action.get("cost")
+    if cost is not None:
+        materials = {cost["item_id"]: cost.get("item_qty", 1)} if cost.get("item_id") else {}
+        status, _balance = await asyncio.to_thread(
+            db.craft_item, session.guild_id, session.user_id, materials, cost.get("currency", 0)
+        )
+        if status != "ok":
+            reason = "You can't afford that." if status == "broke" else "You don't have what that requires."
+            await interaction.response.send_message(reason, ephemeral=True)
+            return False
+
+    log_lines = []
+    check = action.get("check")
+    if check is not None:
+        stat_value = _stat_value_for_check(session, check["stat"])
+        success, rolled = dungeon.roll_check(stat_value, check["dc"])
+        stat_label = _CHECK_STAT_LABELS[check["stat"]]
+        log_lines.append(
+            f"🎲 {stat_label} check: rolled **{rolled}** vs DC **{check['dc']}** — "
+            f"{'success!' if success else 'failure!'}"
+        )
+        outcome = action["on_success"] if success else action["on_fail"]
+    else:
+        outcome = action["on_success"]
+
+    if outcome.get("message"):
+        log_lines.append(outcome["message"])
+
+    hp_delta = outcome.get("hp_delta", 0)
+    if hp_delta:
+        session.hp = min(session.max_hp, session.hp + hp_delta)
+        verb = "recover" if hp_delta > 0 else "take"
+        log_lines.append(f"You {verb} **{abs(hp_delta)}** HP.")
+
+    if session.hp <= 0:
+        currency = db.get_currency_name(session.guild_id)
+        await _forfeit(session)
+        embed = discord.Embed(
+            title="💀 You Have Fallen",
+            description="\n".join(log_lines) + f"\n\nYou're carried out of the dungeon empty-handed, losing this "
+            f"delve's **{session.loot_total}** {currency} haul.",
+            color=discord.Color.dark_red(),
+        )
+        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+        return True
+
+    next_room = outcome.get("next")
+    if next_room is None:
+        currency = db.get_currency_name(session.guild_id)
+        balance = await asyncio.to_thread(db.update_balance, session.guild_id, session.user_id, session.loot_total)
+        await asyncio.to_thread(db.log_bet, session.guild_id, session.user_id, "dungeon", 0, session.loot_total)
+        await asyncio.to_thread(db.set_current_hp, session.guild_id, session.user_id, session.hp)
+        _cleanup(session)
+        embed = discord.Embed(
+            title="🏆 Victory!",
+            description="\n".join(log_lines) + f"\n\nYou've cleared the dungeon! Balance: **{balance}** {currency}.",
+            color=discord.Color.gold(),
+        )
+        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+        return True
+
+    await _present_choice_outcome(interaction, session, next_room, log_lines)
+    return True
+
+
+class ChoiceActionButton(discord.ui.Button):
+    def __init__(self, action: dict, row: int, disabled: bool):
+        super().__init__(label=action["label"][:80], style=discord.ButtonStyle.primary, row=row, disabled=disabled)
+        self.action = action
+
+    async def callback(self, interaction: discord.Interaction):
+        if await _handle_choice_action(interaction, self.view.session, self.view.room, self.action):
+            self.view.stop()
+
+
+class RetreatFromChoiceButton(discord.ui.Button):
+    def __init__(self, row: int):
+        super().__init__(label="Retreat with Loot", style=discord.ButtonStyle.secondary, row=row)
+
+    async def callback(self, interaction: discord.Interaction):
+        embed = await _apply_retreat(self.view.session)
+        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+        self.view.stop()
+
+
+class ChoiceRoomView(discord.ui.View):
+    """Every room-entry screen (this one and RoomResultView) offers Retreat -- a delve that routes
+    straight into a choice room needs its own way to bank loot and leave, same as a combat victory
+    already does, rather than forcing a commitment to one of this room's actions."""
+
+    def __init__(self, session: DelveSession, room: dict, availability: list[bool]):
+        super().__init__(timeout=DELVE_ACTION_TIMEOUT)
+        self.session = session
+        self.room = room
+        for i, (action, ok) in enumerate(zip(room["actions"], availability)):
+            self.add_item(ChoiceActionButton(action, row=min(3, i // 5), disabled=not ok))
+        self.add_item(RetreatFromChoiceButton(row=4))
+        session.current_view = self
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.session.user_id:
+            await interaction.response.send_message("This isn't your delve.", ephemeral=True)
+            return False
+        return True
+
+    async def on_timeout(self):
+        session = self.session
+        if session.current_view is not self:
+            return
+        if session.message is None:
+            await _forfeit(session)
+            return
+        embed = await _apply_retreat(session)  # default to the safe choice if they don't respond
+        try:
+            await session.message.edit(embed=embed, attachments=[], view=None)
+        except discord.HTTPException:
+            pass
+
+
+class ChoiceOutcomeView(discord.ui.View):
+    """Interstitial shown after a choice action resolves, before actually moving into whatever
+    room its outcome points at -- without this, an outcome landing on a combat room reads as
+    "you just got dropped straight into a fight" with no beat to register what happened first.
+    Deliberately generic regardless of the destination room's type (a more tailored message per
+    case can come later); mirrors RoomResultView's own shape (an embed of what just happened plus
+    Continue/Retreat, same timeout-defaults-to-retreat safety net) since this is the same kind of
+    room-boundary pause, just triggered by a choice outcome instead of a combat win."""
+
+    def __init__(self, session: DelveSession, next_room_id: str):
+        super().__init__(timeout=DELVE_ACTION_TIMEOUT)
+        self.session = session
+        self.next_room_id = next_room_id
+        session.current_view = self
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.session.user_id:
+            await interaction.response.send_message("This isn't your delve.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Continue", style=discord.ButtonStyle.primary)
+    async def continue_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _goto_room(interaction, self.session, self.next_room_id)
+        self.stop()
+
+    @discord.ui.button(label="Retreat with Loot", style=discord.ButtonStyle.secondary)
+    async def retreat_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = await _apply_retreat(self.session)
+        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+        self.stop()
+
+    async def on_timeout(self):
+        session = self.session
+        if session.current_view is not self:
+            return
+        if session.message is None:
+            await _forfeit(session)
+            return
+        embed = await _apply_retreat(session)  # default to the safe choice if they don't respond
+        try:
+            await session.message.edit(embed=embed, attachments=[], view=None)
+        except discord.HTTPException:
+            pass
+
+
+async def _present_choice_outcome(
+    interaction: discord.Interaction, session: DelveSession, next_room_id: str, log_lines: list[str],
+):
+    embed = discord.Embed(title="🚪 Onward", description="\n".join(log_lines), color=discord.Color.blurple())
+    embed.add_field(name=f"{session.display_name} (You)", value=f"HP {max(session.hp, 0)}/{session.max_hp}", inline=True)
+    view = ChoiceOutcomeView(session, next_room_id)
+    await interaction.response.edit_message(embed=embed, attachments=[], view=view)
 
 
 def _cleanup(entity) -> None:
@@ -219,6 +566,7 @@ async def _apply_retreat(session: DelveSession) -> discord.Embed:
     currency = db.get_currency_name(session.guild_id)
     balance = await asyncio.to_thread(db.update_balance, session.guild_id, session.user_id, session.loot_total)
     await asyncio.to_thread(db.log_bet, session.guild_id, session.user_id, "dungeon", 0, session.loot_total)
+    await asyncio.to_thread(db.set_current_hp, session.guild_id, session.user_id, session.hp)
     _cleanup(session)
     return discord.Embed(
         title="🏃 Retreated Safely",
@@ -227,9 +575,11 @@ async def _apply_retreat(session: DelveSession) -> discord.Embed:
     )
 
 
-def _forfeit(session: DelveSession):
+async def _forfeit(session: DelveSession):
     """Ends the delve with no payout -- shared cleanup for death, abandonment (timeout), and
-    anything else short of a deliberate retreat."""
+    anything else short of a deliberate retreat. Still persists current_hp (usually 0, on death)
+    so the next delve picks up from there rather than silently starting back at full."""
+    await asyncio.to_thread(db.set_current_hp, session.guild_id, session.user_id, session.hp)
     _cleanup(session)
 
 
@@ -319,7 +669,7 @@ class CombatView(discord.ui.View):
         session = self.session
         if session.current_view is not self:
             return  # superseded -- the player already moved on through some other path
-        _forfeit(session)
+        await _forfeit(session)
         if session.message is None:
             return
         currency = db.get_currency_name(session.guild_id)
@@ -356,14 +706,10 @@ class RoomResultView(discord.ui.View):
     @discord.ui.button(label="Push Deeper", style=discord.ButtonStyle.danger)
     async def push_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         session = self.session
-        session.room_index += 1
-        session.monster = dungeon.monster_for_room(session.rooms[session.room_index])
-        session.monster_hp = session.monster["hp"]
-        session.monster_def_debuff = 0
-        session.ability_used = False
-        embed, file = _combat_embed(session, f"You press deeper into the dungeon...\n\n*{session.monster['flavor']}*")
-        view = await _build_combat_view(session)
-        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+        room = session.rooms_by_id[session.current_room_id]
+        # Guaranteed non-None -- this view is only ever shown when _present_room_result found a
+        # "next" room to push into (see its is_last_room check).
+        await _goto_room(interaction, session, room["next"], "You press deeper into the dungeon...")
         self.stop()
 
     async def on_timeout(self):
@@ -371,7 +717,7 @@ class RoomResultView(discord.ui.View):
         if session.current_view is not self:
             return
         if session.message is None:
-            _forfeit(session)
+            await _forfeit(session)
             return
         embed = await _apply_retreat(session)  # default to the safe choice if they don't respond
         try:
@@ -381,7 +727,7 @@ class RoomResultView(discord.ui.View):
 
 
 async def _award_kill(
-    guild_id: int, monster: dict, actor, room_index: int, log_lines: list[str],
+    guild_id: int, monster: dict, actor, room_id: str, log_lines: list[str],
     *, loot_mult: float, chance_mult: float,
 ):
     """Shared kill-reward logic for a solo delve (actor=the DelveSession itself) or a party delve
@@ -446,7 +792,7 @@ async def _award_kill(
 
     await quests.record_progress(guild_id, actor.user_id, "kill_monster", monster_id=monster["id"], tier=monster["tier"])
 
-    quest_item = await quests.roll_item_drop(guild_id, actor.user_id, room_index, monster["id"])
+    quest_item = await quests.roll_item_drop(guild_id, actor.user_id, room_id, monster["id"])
     if quest_item is not None:
         log_lines.append(f"{quest_item['emoji']} Found a **{quest_item['name']}**...")
 
@@ -578,7 +924,7 @@ async def _resolve_combat_turn(
     if session.monster_hp <= 0:
         log_lines.append(f"**{session.monster['name']} is defeated!**")
         await _award_kill(
-            session.guild_id, session.monster, session, session.room_index, log_lines,
+            session.guild_id, session.monster, session, session.current_room_id, log_lines,
             loot_mult=session.loot_mult * player_moon_mult, chance_mult=1.0,
         )
         await _present_room_result(interaction, session, log_lines)
@@ -595,7 +941,7 @@ async def _resolve_combat_turn(
     session.hp -= monster_dmg
 
     if session.hp <= 0:
-        _forfeit(session)
+        await _forfeit(session)
         embed = discord.Embed(
             title="💀 You Have Fallen",
             description="\n".join(log_lines) + f"\n\nYou're carried out of the dungeon empty-handed, losing this "
@@ -642,15 +988,17 @@ async def _handle_use_item(interaction: discord.Interaction, session: DelveSessi
 
 async def _present_room_result(interaction: discord.Interaction, session: DelveSession, log_lines: list[str]):
     currency = db.get_currency_name(session.guild_id)
-    is_last_room = session.room_index >= len(session.rooms) - 1
+    room = session.rooms_by_id[session.current_room_id]
+    next_room = room.get("next")
 
-    embed = discord.Embed(title=f"🏆 Room {session.room_index + 1} Cleared!", description="\n".join(log_lines), color=discord.Color.gold())
+    embed = discord.Embed(title="🏆 Room Cleared!", description="\n".join(log_lines), color=discord.Color.gold())
     embed.add_field(name="Loot this delve", value=f"{session.loot_total} {currency}", inline=True)
     embed.add_field(name="HP", value=f"{session.hp}/{session.max_hp}", inline=True)
 
-    if is_last_room:
+    if next_room is None:
         balance = await asyncio.to_thread(db.update_balance, session.guild_id, session.user_id, session.loot_total)
         await asyncio.to_thread(db.log_bet, session.guild_id, session.user_id, "dungeon", 0, session.loot_total)
+        await asyncio.to_thread(db.set_current_hp, session.guild_id, session.user_id, session.hp)
         _cleanup(session)
         embed.description += f"\n\nYou've cleared the dungeon! Balance: **{balance}** {currency}."
         await interaction.response.edit_message(embed=embed, attachments=[], view=None)
@@ -681,9 +1029,8 @@ def _party_combat_embed(session: PartyDelveSession, log_text: str) -> tuple[disc
     embed.add_field(
         name=session.monster["name"], value=f"HP {max(session.monster_hp, 0)}/{session.monster_max_hp}", inline=True
     )
-    buf = dungeon_render.render_room(
-        session.room_index, len(session.rooms), session.monster, session.delve.get("background_path")
-    )
+    room = session.rooms_by_id[session.current_room_id]
+    buf = dungeon_render.render_room(session.rooms_visited, session.monster, _room_background_path(session.delve, room))
     file = discord.File(buf, filename="room.png")
     embed.set_image(url="attachment://room.png")
     return embed, file
@@ -744,6 +1091,8 @@ async def _advance_party_round(interaction: discord.Interaction | None, session:
         log_lines.append(f"💀 **{target.label}** is knocked out!")
 
     if not session.living_members():
+        for m in session.members:
+            await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
         _cleanup(session)
         embed = discord.Embed(
             title="💀 Your Party Has Fallen",
@@ -795,7 +1144,7 @@ async def _resolve_party_turn(
             loot_mult = m.loot_mult * (1.0 if m.is_leader else 0.5) * player_moon_mult
             chance_mult = 1.0 if m.is_leader else 0.5
             await _award_kill(
-                session.guild_id, session.monster, m, session.room_index, member_log,
+                session.guild_id, session.monster, m, session.current_room_id, member_log,
                 loot_mult=loot_mult, chance_mult=chance_mult,
             )
             log_lines.append(f"**{m.label}**")
@@ -919,9 +1268,355 @@ async def _apply_party_retreat(session: PartyDelveSession) -> discord.Embed:
     for m in session.members:
         balance = await asyncio.to_thread(db.update_balance, session.guild_id, m.user_id, m.loot_total)
         await asyncio.to_thread(db.log_bet, session.guild_id, m.user_id, "dungeon", 0, m.loot_total)
+        await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
         payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
     _cleanup(session)
     return discord.Embed(title="🏃 Party Retreated Safely", description="\n".join(payouts), color=discord.Color.green())
+
+
+# --- Party choice rooms ---------------------------------------------------------------------
+# Resolved by the party leader alone (their own stats/inventory/cost/hp) -- same authority
+# PartyRoomResultView already gives Push Deeper/Retreat. Letting each member pick independently
+# would put party members in different rooms at once, breaking the single-shared-session
+# invariant party mode depends on.
+
+
+def _party_choice_embed(session: PartyDelveSession, room: dict, description: str) -> tuple[discord.Embed, discord.File]:
+    currency = db.get_currency_name(session.guild_id)
+    embed = discord.Embed(title="🚪 A Choice", description=description, color=discord.Color.blurple())
+    for m in session.members:
+        status = "💀 Knocked out" if m.knocked_out else f"HP {max(m.hp, 0)}/{m.max_hp}"
+        embed.add_field(name=m.label, value=status, inline=True)
+    for action in room["actions"]:
+        lines = _action_summary_lines(action, currency)
+        embed.add_field(name=action["label"], value="\n".join(lines) if lines else "—", inline=True)
+    buf = dungeon_render.render_room(session.rooms_visited, None, _room_background_path(session.delve, room))
+    file = discord.File(buf, filename="room.png")
+    embed.set_image(url="attachment://room.png")
+    return embed, file
+
+
+async def _build_party_choice_room_view(session: PartyDelveSession, room: dict) -> "PartyChoiceRoomView":
+    leader = next(m for m in session.members if m.is_leader)
+    character = {"main_class": leader.main_class, "subclass": leader.subclass}
+    availability = []
+    for action in room["actions"]:
+        requires = action.get("requires")
+        ok = True
+        if requires is not None:
+            ok = await quests.trigger_satisfied(session.guild_id, leader.user_id, requires, character=character)
+        availability.append(ok)
+    return PartyChoiceRoomView(session, leader, room, availability)
+
+
+async def _build_party_room_display(session: PartyDelveSession) -> tuple[discord.Embed, discord.File, discord.ui.View]:
+    """Party sibling of _build_room_display -- builds the (embed, file, view) triple for whatever
+    room the party is CURRENTLY on."""
+    room = session.rooms_by_id[session.current_room_id]
+    if room["type"] == "combat":
+        embed, file = _party_combat_embed(session, _combat_intro_text(room, session.monster))
+        view = await _build_party_combat_view(session)
+    else:
+        embed, file = _party_choice_embed(session, room, room["prompt"])
+        view = await _build_party_choice_room_view(session, room)
+    return embed, file, view
+
+
+async def _goto_party_room(interaction: discord.Interaction, session: PartyDelveSession, room_id: str, intro_text: str = ""):
+    """Party sibling of _goto_room -- Push Deeper (after a combat victory) and a leader's choice
+    action outcome both funnel through this."""
+    session.rooms_visited += 1
+    session._enter_room(room_id)
+    embed, file, view = await _build_party_room_display(session)
+    if intro_text:
+        embed.description = f"{intro_text}\n\n{embed.description}"
+    await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+
+
+async def _handle_party_choice_action(
+    interaction: discord.Interaction, session: PartyDelveSession, leader: PartyMember, room: dict, action: dict,
+) -> bool:
+    """Party sibling of _handle_choice_action -- requires/cost still always gate against the
+    leader's own class/inventory/currency (the leader is the one deciding to spend the party's
+    resources), but an action with a skill check now hands off to a member picker
+    (PartyCheckActorPickerView) instead of always rolling against the leader's own stat -- see
+    _resolve_party_choice_action for the part that actually rolls the check and applies its
+    outcome (hp_delta included) to whichever member ends up attempting it. A single-survivor party
+    skips the picker (nothing to choose) and resolves against that one member directly."""
+    requires = action.get("requires")
+    if requires is not None:
+        character = {"main_class": leader.main_class, "subclass": leader.subclass}
+        satisfied = await quests.trigger_satisfied(session.guild_id, leader.user_id, requires, character=character)
+        if not satisfied:
+            await interaction.response.send_message("You don't meet the requirements for that.", ephemeral=True)
+            return False
+
+    cost = action.get("cost")
+    if cost is not None:
+        materials = {cost["item_id"]: cost.get("item_qty", 1)} if cost.get("item_id") else {}
+        status, _balance = await asyncio.to_thread(
+            db.craft_item, session.guild_id, leader.user_id, materials, cost.get("currency", 0)
+        )
+        if status != "ok":
+            reason = "You can't afford that." if status == "broke" else "You don't have what that requires."
+            await interaction.response.send_message(reason, ephemeral=True)
+            return False
+
+    living = session.living_members()
+    if action.get("check") is not None and len(living) > 1:
+        embed = discord.Embed(
+            title="🎯 Who Attempts This?",
+            description=f"Who in the party will attempt **{action['label']}**?",
+            color=discord.Color.blurple(),
+        )
+        view = PartyCheckActorPickerView(session, leader, room, action)
+        await interaction.response.edit_message(embed=embed, attachments=[], view=view)
+        return True
+
+    actor = living[0] if living else leader
+    await _resolve_party_choice_action(interaction, session, leader, actor, room, action)
+    return True
+
+
+async def _resolve_party_choice_action(
+    interaction: discord.Interaction, session: PartyDelveSession, leader: PartyMember, actor: PartyMember,
+    room: dict, action: dict,
+):
+    """The rest of a party choice action once requires/cost have already passed and (for a check)
+    the party has settled on who's attempting it -- `actor` is that member (same as `leader` for a
+    no-check action, or a single-survivor party). Rolls the check (if any) against `actor`'s own
+    stat and applies hp_delta/knockout to `actor`, not `leader` -- letting the party's tankiest
+    member step up for a rough check should mean *they* take the hit, not whoever happened to be
+    clicking the button. A knocked-out actor is treated exactly like a combat knockout (skipped,
+    party continues) rather than ending the delve -- unless it leaves nobody standing, the same
+    full-wipe path _advance_party_round already uses."""
+    log_lines = []
+    check = action.get("check")
+    if check is not None:
+        stat_value = _stat_value_for_check(actor, check["stat"])
+        success, rolled = dungeon.roll_check(stat_value, check["dc"])
+        stat_label = _CHECK_STAT_LABELS[check["stat"]]
+        log_lines.append(
+            f"🎲 {actor.label}'s {stat_label} check: rolled **{rolled}** vs DC **{check['dc']}** — "
+            f"{'success!' if success else 'failure!'}"
+        )
+        outcome = action["on_success"] if success else action["on_fail"]
+    else:
+        outcome = action["on_success"]
+
+    if outcome.get("message"):
+        log_lines.append(outcome["message"])
+
+    hp_delta = outcome.get("hp_delta", 0)
+    if hp_delta:
+        actor.hp = min(actor.max_hp, actor.hp + hp_delta)
+        verb = "recovers" if hp_delta > 0 else "takes"
+        log_lines.append(f"{actor.label} {verb} **{abs(hp_delta)}** HP.")
+
+    if actor.hp <= 0:
+        actor.knocked_out = True
+        log_lines.append(f"💀 **{actor.label}** is knocked out!")
+        if not session.living_members():
+            for m in session.members:
+                await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
+            _cleanup(session)
+            embed = discord.Embed(
+                title="💀 Your Party Has Fallen",
+                description="\n".join(log_lines) + "\n\nEveryone's down — the party stumbles out empty-handed, "
+                "losing every haul from this delve.",
+                color=discord.Color.dark_red(),
+            )
+            await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+            return
+
+    next_room = outcome.get("next")
+    if next_room is None:
+        currency = db.get_currency_name(session.guild_id)
+        payouts = []
+        for m in session.members:
+            balance = await asyncio.to_thread(db.update_balance, session.guild_id, m.user_id, m.loot_total)
+            await asyncio.to_thread(db.log_bet, session.guild_id, m.user_id, "dungeon", 0, m.loot_total)
+            await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
+            payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
+        _cleanup(session)
+        embed = discord.Embed(
+            title="🏆 Victory!",
+            description="\n".join(log_lines) + "\n\nThe party has cleared the dungeon!\n" + "\n".join(payouts),
+            color=discord.Color.gold(),
+        )
+        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+        return
+
+    await _present_party_choice_outcome(interaction, session, next_room, log_lines)
+
+
+class PartyCheckActorSelect(discord.ui.Select):
+    def __init__(self, session: PartyDelveSession, leader: PartyMember, room: dict, action: dict):
+        options = [
+            discord.SelectOption(label=m.label, value=str(m.user_id)) for m in session.living_members()
+        ]
+        super().__init__(placeholder="Choose who attempts this...", options=options, row=0)
+        self.leader = leader
+        self.room = room
+        self.action = action
+
+    async def callback(self, interaction: discord.Interaction):
+        session: PartyDelveSession = self.view.session
+        actor = session.members_by_id[int(self.values[0])]
+        await _resolve_party_choice_action(interaction, session, self.leader, actor, self.room, self.action)
+        self.view.stop()
+
+
+class PartyCheckActorPickerView(discord.ui.View):
+    """Shown when the leader picks an action with a skill check, in place of resolving it against
+    the leader's own stat right away -- lets the party send up whoever's actually best suited (or
+    just whoever's turn it feels like it is), the same "make delegating feel like a real
+    multiplayer decision" reasoning as PartyRoomResultView's own Push Deeper/Retreat call. Gated to
+    the leader alone, same as every other party room-boundary decision -- picking who else attempts
+    something is still the leader's call, not a free-for-all."""
+
+    def __init__(self, session: PartyDelveSession, leader: PartyMember, room: dict, action: dict):
+        super().__init__(timeout=PARTY_ACTION_TIMEOUT)
+        self.session = session
+        self.add_item(PartyCheckActorSelect(session, leader, room, action))
+        session.current_view = self
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        leader = next(m for m in self.session.members if m.is_leader)
+        if interaction.user.id != leader.user_id:
+            await interaction.response.send_message("Only the party leader can decide this.", ephemeral=True)
+            return False
+        return True
+
+    async def on_timeout(self):
+        session = self.session
+        if session.current_view is not self:
+            return
+        if session.message is None:
+            for m in session.members:
+                await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
+            _cleanup(session)
+            return
+        embed = await _apply_party_retreat(session)  # default to the safe choice if the leader doesn't respond
+        try:
+            await session.message.edit(embed=embed, attachments=[], view=None)
+        except discord.HTTPException:
+            pass
+
+
+class PartyChoiceActionButton(discord.ui.Button):
+    def __init__(self, action: dict, row: int, disabled: bool):
+        super().__init__(label=action["label"][:80], style=discord.ButtonStyle.primary, row=row, disabled=disabled)
+        self.action = action
+
+    async def callback(self, interaction: discord.Interaction):
+        view = self.view
+        if await _handle_party_choice_action(interaction, view.session, view.leader, view.room, self.action):
+            view.stop()
+
+
+class PartyRetreatFromChoiceButton(discord.ui.Button):
+    def __init__(self, row: int):
+        super().__init__(label="Retreat with Loot", style=discord.ButtonStyle.secondary, row=row)
+
+    async def callback(self, interaction: discord.Interaction):
+        embed = await _apply_party_retreat(self.view.session)
+        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+        self.view.stop()
+
+
+class PartyChoiceRoomView(discord.ui.View):
+    """Every room-entry screen (this one and PartyRoomResultView) offers Retreat -- same reasoning
+    as solo's ChoiceRoomView. Gated to the leader alone, like every other party room-boundary
+    decision."""
+
+    def __init__(self, session: PartyDelveSession, leader: PartyMember, room: dict, availability: list[bool]):
+        super().__init__(timeout=PARTY_ACTION_TIMEOUT)
+        self.session = session
+        self.leader = leader
+        self.room = room
+        for i, (action, ok) in enumerate(zip(room["actions"], availability)):
+            self.add_item(PartyChoiceActionButton(action, row=min(3, i // 5), disabled=not ok))
+        self.add_item(PartyRetreatFromChoiceButton(row=4))
+        session.current_view = self
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.leader.user_id:
+            await interaction.response.send_message("Only the party leader can decide this.", ephemeral=True)
+            return False
+        return True
+
+    async def on_timeout(self):
+        session = self.session
+        if session.current_view is not self:
+            return
+        if session.message is None:
+            for m in session.members:
+                await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
+            _cleanup(session)
+            return
+        embed = await _apply_party_retreat(session)
+        try:
+            await session.message.edit(embed=embed, attachments=[], view=None)
+        except discord.HTTPException:
+            pass
+
+
+class PartyChoiceOutcomeView(discord.ui.View):
+    """Party sibling of ChoiceOutcomeView -- same interstitial-before-transitioning idea, gated to
+    the leader alone like every other party room-boundary decision (PartyChoiceRoomView/
+    PartyRoomResultView)."""
+
+    def __init__(self, session: PartyDelveSession, next_room_id: str):
+        super().__init__(timeout=PARTY_ACTION_TIMEOUT)
+        self.session = session
+        self.next_room_id = next_room_id
+        session.current_view = self
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        leader = next(m for m in self.session.members if m.is_leader)
+        if interaction.user.id != leader.user_id:
+            await interaction.response.send_message("Only the party leader can decide this.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Continue", style=discord.ButtonStyle.primary)
+    async def continue_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _goto_party_room(interaction, self.session, self.next_room_id)
+        self.stop()
+
+    @discord.ui.button(label="Retreat with Loot", style=discord.ButtonStyle.secondary)
+    async def retreat_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = await _apply_party_retreat(self.session)
+        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+        self.stop()
+
+    async def on_timeout(self):
+        session = self.session
+        if session.current_view is not self:
+            return
+        if session.message is None:
+            for m in session.members:
+                await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
+            _cleanup(session)
+            return
+        embed = await _apply_party_retreat(session)
+        try:
+            await session.message.edit(embed=embed, attachments=[], view=None)
+        except discord.HTTPException:
+            pass
+
+
+async def _present_party_choice_outcome(
+    interaction: discord.Interaction, session: PartyDelveSession, next_room_id: str, log_lines: list[str],
+):
+    currency = db.get_currency_name(session.guild_id)
+    embed = discord.Embed(title="🚪 Onward", description="\n".join(log_lines), color=discord.Color.blurple())
+    for m in session.members:
+        status = "💀 Knocked out" if m.knocked_out else f"HP {max(m.hp, 0)}/{m.max_hp}"
+        embed.add_field(name=m.label, value=f"{status} — {m.loot_total} {currency} so far", inline=True)
+    view = PartyChoiceOutcomeView(session, next_room_id)
+    await interaction.response.edit_message(embed=embed, attachments=[], view=view)
 
 
 class PartyRoomResultView(discord.ui.View):
@@ -950,13 +1645,10 @@ class PartyRoomResultView(discord.ui.View):
     @discord.ui.button(label="Push Deeper", style=discord.ButtonStyle.danger)
     async def push_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         session = self.session
-        session.room_index += 1
-        session._roll_new_monster()
-        embed, file = _party_combat_embed(
-            session, f"The party presses deeper into the dungeon...\n\n*{session.monster['flavor']}*"
-        )
-        view = await _build_party_combat_view(session)
-        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+        room = session.rooms_by_id[session.current_room_id]
+        # Guaranteed non-None -- this view is only ever shown when _present_party_room_result
+        # found a "next" room to push into.
+        await _goto_party_room(interaction, session, room["next"], "The party presses deeper into the dungeon...")
         self.stop()
 
     async def on_timeout(self):
@@ -964,6 +1656,8 @@ class PartyRoomResultView(discord.ui.View):
         if session.current_view is not self:
             return
         if session.message is None:
+            for m in session.members:
+                await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
             _cleanup(session)
             return
         embed = await _apply_party_retreat(session)  # default to the safe choice if the leader doesn't respond
@@ -974,21 +1668,21 @@ class PartyRoomResultView(discord.ui.View):
 
 
 async def _present_party_room_result(interaction: discord.Interaction, session: PartyDelveSession, log_lines: list[str]):
-    is_last_room = session.room_index >= len(session.rooms) - 1
+    room = session.rooms_by_id[session.current_room_id]
+    next_room = room.get("next")
     currency = db.get_currency_name(session.guild_id)
 
-    embed = discord.Embed(
-        title=f"🏆 Room {session.room_index + 1} Cleared!", description="\n".join(log_lines), color=discord.Color.gold()
-    )
+    embed = discord.Embed(title="🏆 Room Cleared!", description="\n".join(log_lines), color=discord.Color.gold())
     for m in session.members:
         status = "💀 Knocked out" if m.knocked_out else f"HP {max(m.hp, 0)}/{m.max_hp}"
         embed.add_field(name=m.label, value=f"{status} — {m.loot_total} {currency} so far", inline=True)
 
-    if is_last_room:
+    if next_room is None:
         payouts = []
         for m in session.members:
             balance = await asyncio.to_thread(db.update_balance, session.guild_id, m.user_id, m.loot_total)
             await asyncio.to_thread(db.log_bet, session.guild_id, m.user_id, "dungeon", 0, m.loot_total)
+            await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
             payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
         _cleanup(session)
         embed.description += "\n\nThe party has cleared the dungeon!\n" + "\n".join(payouts)
@@ -1061,6 +1755,11 @@ class PartyLobbyView(discord.ui.View):
                 "You don't have a character yet — run `!class` to pick one first.", ephemeral=True
             )
             return
+        if character["current_hp"] <= 0:
+            await interaction.response.send_message(
+                "You're too beat up to delve — run `!rest` to heal first.", ephemeral=True
+            )
+            return
         lobby.member_ids.append(user_id)
         lobby.member_names[user_id] = interaction.user.display_name
         active_delves[user_id] = lobby
@@ -1104,8 +1803,7 @@ class PartyLobbyView(discord.ui.View):
         session = PartyDelveSession(lobby.guild_id, lobby.delve, members)
         for uid in lobby.member_ids:
             active_delves[uid] = session  # swap PartyLobby -> PartyDelveSession in place, ids stay registered throughout
-        embed, file = _party_combat_embed(session, f"*{session.monster['flavor']}*")
-        view = await _build_party_combat_view(session)
+        embed, file, view = await _build_party_room_display(session)
         await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
         session.message = await interaction.original_response()
         self.stop()
@@ -1151,8 +1849,7 @@ class DelveModeChoiceView(discord.ui.View):
             await interaction.response.send_message("You're out of energy — run `!rest` to refill it.", ephemeral=True)
             return
         session = await _new_delve_session(self.guild_id, self.user_id, self.character, self.delve)
-        embed, file = _combat_embed(session, f"*{session.monster['flavor']}*")
-        view = await _build_combat_view(session)
+        embed, file, view = await _build_room_display(session)
         await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
         session.message = await interaction.original_response()
         self.stop()
@@ -1199,7 +1896,7 @@ class DelveSelect(discord.ui.Select):
     def __init__(self, picker: "DelvePickerView"):
         options = [
             discord.SelectOption(label=d["name"], value=d_id, description=f"{len(d['rooms'])} rooms")
-            for d_id, d in list(dungeon.DELVES.items())[:25]
+            for d_id, d in list(dungeon.active_delves().items())[:25]
         ]
         super().__init__(placeholder="Choose a delve...", options=options, row=0)
         self.picker = picker
@@ -1212,9 +1909,10 @@ class DelveSelect(discord.ui.Select):
 
 
 class DelvePickerView(discord.ui.View):
-    """Shown by !delve only when there's more than one dungeon.DELVES entry to choose between --
-    a single-delve server never sees this. Either way, once a delve is settled on, the player
-    lands on the same DelveModeChoiceView (Solo/Party) as every other !delve entry path."""
+    """Shown by !delve only when there's more than one active delve (dungeon.active_delves()) to
+    choose between -- a single-active-delve server never sees this. Either way, once a delve is
+    settled on, the player lands on the same DelveModeChoiceView (Solo/Party) as every other
+    !delve entry path."""
 
     def __init__(self, guild_id: int, user_id: int, character: dict):
         super().__init__(timeout=120)

@@ -2,21 +2,196 @@
   {
     "id": "goblin_disco",
     "name": "Goblin Discoth\u00e8que",
+    "active": true,
     "flavor": "A wild goblin party that you were not invited to. ",
     "rooms": [
-      [
-        "goblin_grunt",
-        "goblin_scavenger"
-      ],
-      [
-        "goblin_skirmisher",
-        "goblin_archer"
-      ],
-      [
-        "goblin_chief",
-        "goblin_warlord"
-      ]
+      {
+        "id": "room1",
+        "type": "combat",
+        "monsters": [
+          "goblin_grunt",
+          "goblin_scavenger"
+        ],
+        "next": "room2"
+      },
+      {
+        "id": "room2",
+        "type": "combat",
+        "monsters": [
+          "goblin_skirmisher",
+          "goblin_archer"
+        ],
+        "next": "room3"
+      },
+      {
+        "id": "room3",
+        "type": "combat",
+        "monsters": [
+          "goblin_chief",
+          "goblin_warlord"
+        ]
+      }
     ],
+    "layout": {
+      "room1": {
+        "x": 40.0,
+        "y": 40.0
+      },
+      "room2": {
+        "x": 260.0,
+        "y": 40.0
+      },
+      "room3": {
+        "x": 480.0,
+        "y": 40.0
+      }
+    },
+    "start_room": "room1",
     "background_path": "assets/dungeon/backgrounds/goblin_disco.png"
+  },
+  {
+    "id": "gnome_bathhouse",
+    "name": "The Gnomish Bathhouse",
+    "active": false,
+    "flavor": "The baths",
+    "rooms": [
+      {
+        "id": "The Sewer",
+        "type": "combat",
+        "monsters": [
+          "goblin_grunt"
+        ],
+        "next": "The Doorman"
+      },
+      {
+        "id": "The Doorman",
+        "type": "choice",
+        "prompt": "A locked door with a small sliding panel",
+        "actions": [
+          {
+            "label": "Flex",
+            "check": {
+              "stat": "atk",
+              "dc": 15
+            },
+            "on_success": {
+              "next": "The Bathhouse",
+              "message": "He is impressed"
+            },
+            "on_fail": {
+              "next": "Fight the Doorman",
+              "message": "He is not impressed and atatcks!"
+            },
+            "x": 336.0,
+            "y": 188.0
+          },
+          {
+            "label": "Bribe",
+            "cost": {
+              "currency": 100
+            },
+            "on_success": {
+              "next": "The Bathhouse",
+              "message": "He pockets the bribe and lets you through"
+            },
+            "x": 336.0,
+            "y": 262.0
+          },
+          {
+            "label": "Break down the door",
+            "on_success": {
+              "next": "Fight the Doorman",
+              "message": "You just break down the door, you don't have time for this.  The Gnome Doorman Attacks!"
+            },
+            "x": 336.0,
+            "y": 336.0
+          }
+        ]
+      },
+      {
+        "id": "The Bathhouse",
+        "type": "combat",
+        "monsters": [
+          "goblin_grunt"
+        ],
+        "next": "A desperate choice!"
+      },
+      {
+        "id": "Fight the Doorman",
+        "type": "combat",
+        "monsters": [
+          "goblin_grunt"
+        ],
+        "next": "The Bathhouse"
+      },
+      {
+        "id": "A desperate choice!",
+        "type": "choice",
+        "prompt": "You can go pipe or curtain",
+        "actions": [
+          {
+            "label": "Pipe",
+            "on_success": {
+              "next": "The Bog of Z'Goolok"
+            },
+            "x": 1195.0,
+            "y": 417.0
+          },
+          {
+            "label": "Curtain",
+            "on_success": {
+              "next": "The Leather Daddy's Private Room"
+            },
+            "x": 1195.0,
+            "y": 491.0
+          }
+        ]
+      },
+      {
+        "id": "The Bog of Z'Goolok",
+        "type": "combat",
+        "monsters": [
+          "goblin_grunt"
+        ]
+      },
+      {
+        "id": "The Leather Daddy's Private Room",
+        "type": "combat",
+        "monsters": [
+          "goblin_grunt"
+        ]
+      }
+    ],
+    "layout": {
+      "The Sewer": {
+        "x": 40.0,
+        "y": 40.0
+      },
+      "The Doorman": {
+        "x": 81.0,
+        "y": 239.0
+      },
+      "The Bathhouse": {
+        "x": 941.0,
+        "y": 144.0
+      },
+      "Fight the Doorman": {
+        "x": 694.0,
+        "y": 424.0
+      },
+      "A desperate choice!": {
+        "x": 955.0,
+        "y": 433.0
+      },
+      "The Bog of Z'Goolok": {
+        "x": 1478.0,
+        "y": 115.0
+      },
+      "The Leather Daddy's Private Room": {
+        "x": 1606.0,
+        "y": 408.0
+      }
+    },
+    "start_room": "The Sewer"
   }
 ]

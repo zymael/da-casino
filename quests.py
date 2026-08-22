@@ -56,6 +56,12 @@ TRIGGER_SCHEMAS = {
     "craft_item": ({"count"}, {"recipe_id"}),
     "quest_complete": ({"quest_id"}, set()),
     "flag_at_least": ({"key", "value"}, set()),
+    # Checks a *character's* class/subclass rather than any player-state db.py already tracks --
+    # the one trigger type trigger_satisfied needs an explicit `character` dict for (every other
+    # type is self-contained from guild_id/user_id alone). Added for dungeon.py's choice-room
+    # action "requires" gates (e.g. "must be a mage" to attempt a magical unlock) -- see
+    # trigger_satisfied's own "class" branch.
+    "class": ({"main_class"}, {"subclass"}),
 }
 
 # event_type -> does this trigger match the event's data. Only the *counted* trigger types
@@ -181,6 +187,10 @@ def _validate_trigger(trigger: dict, context: str):
         raise ValueError(f"{context} trigger {trigger_type!r} count must be > 0")
     if "tier" in params and trigger["tier"] <= 0:
         raise ValueError(f"{context} trigger {trigger_type!r} tier must be > 0")
+    if "main_class" in params and trigger["main_class"] not in dungeon.CLASSES:
+        raise ValueError(f"{context} trigger references unknown class {trigger['main_class']!r}")
+    if "subclass" in params and trigger["subclass"] not in dungeon.SUBCLASSES:
+        raise ValueError(f"{context} trigger references unknown subclass {trigger['subclass']!r}")
 
 
 def _load_quests(path: str = _QUESTS_PATH) -> dict[str, dict]:
@@ -266,6 +276,30 @@ for _npc in npcs.NPCS.values():
                 f"not in QUEST_ITEMS"
             )
 
+# Same story again for a delve choice room's action "requires" (any trigger type) and its
+# quest_item-kind cost's item_id -- dungeon.py's own loader treats both as opaque (it can't import
+# this module either, for the same reason npcs.py can't), so they're cross-validated here too,
+# right alongside the NPC checks above. kill_monster/craft_item are explicitly rejected as a delve
+# gate -- both are *counted* trigger types whose progress is scoped to one quest stage's own
+# counter flag, and a delve action has no quest/stage to scope that counter to.
+for _delve in dungeon.DELVES.values():
+    for _room in _delve["rooms"]:
+        if _room["type"] != "choice":
+            continue
+        for _i, _action in enumerate(_room.get("actions", [])):
+            _context = f"dungeon_delves.json: delve {_delve['id']!r} room {_room['id']!r} action {_i}"
+            _requires = _action.get("requires")
+            if _requires is not None:
+                _validate_trigger(_requires, f"{_context} requires")
+                if _requires["type"] in ("kill_monster", "craft_item"):
+                    raise ValueError(
+                        f"{_context} requires: {_requires['type']!r} can't be used as a delve gate "
+                        f"(no quest to scope its counter to)"
+                    )
+            _cost = _action.get("cost") or {}
+            if _cost.get("item_kind") == "quest_item" and _cost.get("item_id") not in QUEST_ITEMS:
+                raise ValueError(f"{_context} cost references unknown quest item {_cost.get('item_id')!r}")
+
 
 async def npcs_present_in_room(guild_id: int, user_id: int, room_id: str) -> list[str]:
     """Every npcs.json id whose "room" matches `room_id` and whose optional "visible_trigger" (if
@@ -309,12 +343,13 @@ async def quest_log(guild_id: int, user_id: int) -> list[dict]:
     return entries
 
 
-async def roll_item_drop(guild_id: int, user_id: int, room_index: int, monster_id: str) -> dict | None:
+async def roll_item_drop(guild_id: int, user_id: int, room_id: str, monster_id: str) -> dict | None:
     """None most of the time. When it hits, adds one quest item to the player's inventory and
     returns it -- but only an item their *current* stage on some in-progress quest is actually
     waiting on, so players not on that quest never see unrelated flavor items. A stage whose
     trigger sets "drop_monster" only offers its item after killing that specific dungeon.MONSTERS
-    id; room_index is accepted for symmetry with dungeon.roll_drops's call site (no quest item is
+    id; room_id (a dungeon delve room id, unrelated to the casino-hub "room" concept elsewhere in
+    this file) is accepted for symmetry with dungeon.roll_drops's call site (no quest item is
     room-gated, only monster-gated)."""
     candidates = []
     for quest in QUESTS_BY_ID.values():
@@ -348,6 +383,7 @@ def _quests_for_npc(npc_id: str) -> list[dict]:
 
 async def trigger_satisfied(
     guild_id: int, user_id: int, trigger: dict, *, quest_id: str | None = None, stage: int | None = None,
+    character: dict | None = None,
 ) -> bool:
     """Whether a trigger condition currently holds. `quest_id`/`stage` are only needed for the two
     *counted* types (kill_monster/craft_item), whose progress is scoped to one quest stage's own
@@ -356,7 +392,10 @@ async def trigger_satisfied(
     instead of quests needing their own bespoke condition-checking. turn_in_item is checked
     against the player's inventory; achievement against personal_achievements; quest_complete
     against another quest's own flag; flag_at_least against an arbitrary flag key -- all four are
-    live state this function can just read, no counter needed."""
+    live state this function can just read, no counter needed. `character` is only needed for
+    "class" (a dungeon character dict, e.g. from db.get_character or a live DelveSession/
+    PartyMember) -- the one type that checks something about the caller's own build rather than
+    persistent per-player state this function can fetch itself; every other type ignores it."""
     trigger_type = trigger["type"]
     if trigger_type == "turn_in_item":
         held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
@@ -371,6 +410,12 @@ async def trigger_satisfied(
     if trigger_type == "flag_at_least":
         value = await asyncio.to_thread(db.get_flag, guild_id, user_id, trigger["key"])
         return value >= trigger["value"]
+    if trigger_type == "class":
+        return (
+            character is not None
+            and character["main_class"] == trigger["main_class"]
+            and (trigger.get("subclass") is None or character["subclass"] == trigger["subclass"])
+        )
     # Counted types (kill_monster, craft_item) -- scoped to one quest stage's own counter flag.
     count = await asyncio.to_thread(db.get_flag, guild_id, user_id, _stage_counter_key(quest_id, stage))
     return count >= trigger["count"]

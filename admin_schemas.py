@@ -26,6 +26,9 @@ Field types the generic form-builder knows how to render:
   - "text"   -- a multi-line textarea (flavor text and the like)
   - "int"    -- a number input
   - "color"  -- a text input rendered as an HTML5 color picker
+  - "bool"   -- a checkbox. Unchecked is simply absent from the submitted form (never a "false"
+    string), so _parse_field's "bool" case always writes a real True/False -- the one field type
+    here that's never conditionally omitted the way a blank optional field normally would be.
   - "enum"   -- a <select> sourced from a "choices" list. Pass a plain list for choices that are
     truly fixed (e.g. equipment slots); pass a zero-arg callable instead when the choices come from
     a hot-reloadable registry (e.g. room ids), so the list is read fresh at render time rather than
@@ -46,11 +49,37 @@ Field types the generic form-builder knows how to render:
     row's own kind select) sourced from dungeon.EQUIPMENT (quest_only items excluded -- those are
     only ever granted through a quest turn-in) or dungeon.MATERIALS; chance is a single 0-1 number
     input, rolled independently per row at kill time (dungeon.roll_drops).
-  - "delve_rooms" -- a delve's rooms: a repeatable list of rooms, in order, room count implied by
-    the list length. Each room is itself a repeatable list of monster <select> rows (each option
-    labeled "Tier N — Name" so a large roster stays scannable) -- the only nested repeatable in
-    this schema, a repeatable list inside a repeatable list. See admin_server._render_delve_room_row
-    and _dynamic_script's wireRepeatAdd for how "+ Add" wiring stays correct at that extra depth.
+  - "delve_flowchart" -- a delve's rooms, authored as a visual flowchart rather than a stack of
+    text-box rows: each room is a draggable box on an SVG-backed canvas (admin_server.py's
+    _render_delve_flowchart/_render_room_box, plus the flowchart script in _dynamic_script), and a
+    room-to-room connection (a combat room's own "next", or a choice action's on_success/on_fail)
+    is made by dragging that connection's own handle on the source room's box onto the target
+    room -- never typed, so a typo'd/dangling reference simply can't happen client-side (though
+    dungeon._load_delves's reachability pass still re-checks everything at save time, since a
+    hand-edited JSON file bypasses this UI entirely). Each room box also carries a flag icon that
+    sets the delve's start_room, which is why that's no longer its own top-level field in this
+    schema -- it's sourced from a single page-level hidden input the flowchart script owns.
+    A room's own id/type and type-specific fields (combat: a nested monster-select repeatable;
+    choice: prompt + a nested actions repeatable) live in a per-room detail panel that's shown for
+    at most one room at a time (click a box to open it) -- this, not any change to what data a
+    room can hold, is what actually replaced the old wall of always-visible text boxes. A choice
+    room's actions (see "requires"/"cost"/"check"/"on_success"/"on_fail") reuse
+    _render_trigger_inputs for requires and a real cascading item_kind->item_id select for cost,
+    same as before; each action's own connector handle is rendered on its room's box (one "success"
+    handle always, a second dashed "fail" handle only once that action has a check configured) --
+    this is deliberately what makes a choice room's multi-action, no-check-required forking
+    visible as multiple arrows, since that's the primary way a delve is meant to branch (see
+    dungeon.py's module docstring), not a side effect of a skill check. Either room type can also
+    carry one optional background image, saved as "<subdir>/<entry id>_room_<room id><ext>" (needs
+    a "subdir" key, same as "image") -- a room with none falls back to the delve's own top-level
+    background_path at render time (dungeon_view._room_background_path). A room's canvas position
+    is written into a new top-level "layout" field on the delve (dict of room id -> {x, y}, see
+    dungeon.py's module docstring) -- purely presentational, never read by game logic. Since this
+    field mixes repeatables, drag state, and image uploads, its render and parse sides are all
+    special-cased outside the usual _render_field/_parse_field dispatch (see
+    admin_server._render_delve_flowchart/_render_room_box/_render_room_detail_panel/
+    _render_action_row and _parse_delve_flowchart/_parse_actions) and _dynamic_script's
+    wireRepeatAdd for how "+ Add Room"/"+ Add action" wiring stays correct at the nested depth.
   - "image" -- a file upload with a live preview (monsters' sprite_path, delves'
     background_path). Needs a "subdir" key (e.g. "dungeon/monsters") saying where under assets/
     an upload for this field lands, saved as <subdir>/<entry id>.<ext>. Leaving the file input
@@ -94,11 +123,11 @@ An "enum" field with "required": False gets a blank leading option (selectable, 
 when no value is set) -- required ones don't, since a real select never needs to represent "no
 value" and always defaults to its first real choice.
 
-"effects", "materials", "monster_drops", "delve_rooms", and "quest_stages" all render as an
+"effects", "materials", "monster_drops", "delve_flowchart", and "quest_stages" all render as an
 add/remove-able list (a "+ Add row" button clones a <template>, each row gets its own "Remove"
 button) rather than padding the form with a fixed number of blank rows -- see admin_server.py's
 _render_repeatable and its per-type row-builder helpers (_render_effect_row, _render_material_row,
-_render_drop_row, _render_delve_room_row, _render_stage_row).
+_render_drop_row, _render_room_node, _render_stage_row).
 
 Every content type reuses its actual owning-module loader (`loader`) as the save-time validator --
 see admin_server.py's save handler, which dispatches on each entry's `module` key (`dungeon` for
@@ -125,6 +154,7 @@ TRIGGER_PARAM_KINDS = {
     "item_id": "quest_item", "drop_monster": "monster", "monster_id": "monster",
     "recipe_id": "recipe", "kind": "achievement", "quest_id": "quest",
     "count": "int", "tier": "int", "value": "int", "key": "str",
+    "main_class": "main_class", "subclass": "subclass",
 }
 # One-line explanations shown under each trigger param box -- the params themselves (tier vs
 # monster_id, drop_monster vs item_id) are easy to mix up out of context, especially since every
@@ -143,6 +173,8 @@ TRIGGER_PARAM_HINTS = {
            "Start typing to see keys already in use (e.g. \"quest:<id>\"), or type a new one if "
            "something else in the game is going to set it",
     "value": "the flag's value must be at least this",
+    "main_class": "the player's dungeon class (e.g. mage) -- required for the \"class\" trigger",
+    "subclass": "optional -- narrows to one specific subclass; blank means any subclass of main_class",
 }
 
 DUNGEON_CONTENT = "Dungeon Content"
@@ -323,16 +355,29 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "DELVES",
         "loader": dungeon._load_delves,
-        "list_columns": ["id", "name", "rooms"],
+        "list_columns": ["id", "name", "active", "rooms"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
+            {
+                "name": "active", "type": "bool", "required": False, "default": True, "group": "Identity",
+                "hint": "whether this delve is offered to players at all. Leave unchecked while "
+                        "you're still building it out -- an inactive delve can be saved even if "
+                        "some rooms aren't wired up yet or aren't reachable from the start room; "
+                        "only an active delve has to be fully connected to save. Check this once "
+                        "it's actually finished.",
+            },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
             {
-                "name": "rooms", "type": "delve_rooms", "required": True,
-                "hint": "one row per room, in order -- check off whichever monsters can show up "
-                        "there; the room's monster is picked uniformly at random from the checked "
-                        "set each time it's entered",
+                "name": "rooms", "type": "delve_flowchart", "required": True, "subdir": "dungeon/backgrounds",
+                "hint": "drag rooms to arrange them, drag a room's own handle onto another room to "
+                        "connect them, click a room to edit its fields, and click a room's flag "
+                        "icon to make it the start room -- see the tooltips throughout for what "
+                        "each control does. A combat room has one exit; a choice room's actions "
+                        "each get their own exit, so 2+ actions already fork the path by player "
+                        "choice alone -- a check (in an action's own detail fields) adds a second, "
+                        "optional fork on top of that single action, for when a roll should also "
+                        "matter.",
             },
             {"name": "background_path", "type": "image", "required": False, "subdir": "dungeon/backgrounds"},
         ],
