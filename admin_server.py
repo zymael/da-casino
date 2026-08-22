@@ -3498,35 +3498,86 @@ def _player_label(bot, guild_id: int, user_id: int) -> str:
     return f"{member.display_name} ({user_id})" if member else f"Unknown player ({user_id})"
 
 
+# Every kind SHOP_KINDS offers except horse_clothes -- horse clothing lives in its own
+# per-horse ownership table (horse_clothes.py), not the generic inventory/equipment_inventory
+# tables _grant_item below knows how to write to, so it's out of scope for this quick "give a
+# player an item" tool.
+GRANTABLE_ITEM_KINDS = [k for k in SHOP_KINDS if k != "horse_clothes"]
+
+
+def _grant_item(guild_id: int, user_id: int, kind: str, item_id: str, qty: int) -> str | None:
+    """Grants qty of item_id directly to a player -- the admin-panel equivalent of a dungeon drop
+    or quest reward, for un-sticking a player who's missing something a bug cost them, or seeding
+    test content. Equipment always lands unequipped in equipment_inventory (db.store_equipment_item,
+    same as a found piece that wasn't an upgrade) rather than auto-equipping, so a grant never
+    silently swaps out gear a player already chose to wear; material/consumable/quest_item all
+    share the generic `inventory` table (db.add_inventory_item). Returns an error message to show
+    the admin, or None on success."""
+    registry = {
+        "equipment": dungeon.EQUIPMENT, "material": dungeon.MATERIALS,
+        "consumable": dungeon.CONSUMABLES, "quest_item": quests.QUEST_ITEMS,
+    }.get(kind)
+    if registry is None or item_id not in registry:
+        return f"Unknown {kind or 'item'} id {item_id!r}."
+    if kind == "equipment":
+        db.store_equipment_item(guild_id, user_id, item_id, qty)
+    else:
+        db.add_inventory_item(guild_id, user_id, item_id, qty)
+    return None
+
+
 async def player_debug_view(request: web.Request) -> web.Response:
     """Standalone page (same "not a content edit" shape as Utilities) for directly inspecting and
     overriding one player's live balance/energy/dungeon-character state -- the manual DB-poke
     workflow an admin would otherwise need shell access for (see db.set_balance/set_energy/
-    set_character_progress). Player lookup is a two-step guild -> known-player picker instead of
-    free-typed ids: the guild list comes from the live bot's own connected guilds
+    set_character_progress/_grant_item). Player lookup is a two-step guild -> known-player picker
+    instead of free-typed ids: the guild list comes from the live bot's own connected guilds
     (request.app["bot"].guilds), and the player list comes from db.list_known_users (every user_id
     this guild's economy has ever touched -- a user with no row here has nothing to debug anyway),
     each resolved to a display name via _player_label. Each `<select>` auto-submits its own GET
     form on change (plain page reloads, no AJAX) so picking a server reveals that server's player
     list, and picking a player reveals their editable stats -- same "no bespoke JS beyond a trivial
-    onchange" bar the rest of this admin panel holds to."""
+    onchange" bar the rest of this admin panel holds to.
+
+    Two independent POST forms share this one route (stats vs. grant-item), told apart by a hidden
+    "action" field -- kept separate rather than one combined form so granting an item never also
+    re-submits (and risks zeroing) the balance/energy/character fields, and vice versa."""
     bot = request.app.get("bot")
+    grant_error = None
 
     if request.method == "POST":
         form = await request.post()
         gid, uid = int(form["guild_id"]), int(form["user_id"])
-        await asyncio.to_thread(db.set_balance, gid, uid, int(form.get("balance") or 0))
-        await asyncio.to_thread(db.set_energy, gid, uid, int(form.get("energy") or 0))
-        if "level" in form and "xp" in form and "current_hp" in form:
-            await asyncio.to_thread(
-                db.set_character_progress, gid, uid,
-                int(form["level"]), int(form["xp"]), int(form["current_hp"]),
-            )
-        raise web.HTTPFound(f"/player-debug?guild_id={gid}&user_id={uid}&saved=1")
+        if form.get("action") == "grant_item":
+            kind = form.get("grant_kind", "").strip()
+            item_id = form.get("grant_item_id", "").strip()
+            raw_qty = form.get("grant_qty", "").strip()
+            qty = int(raw_qty) if raw_qty.isdigit() and int(raw_qty) > 0 else 1
+            if not kind or not item_id:
+                grant_error = "Pick both a kind and an item."
+            else:
+                grant_error = await asyncio.to_thread(_grant_item, gid, uid, kind, item_id, qty)
+            if grant_error is None:
+                raise web.HTTPFound(f"/player-debug?guild_id={gid}&user_id={uid}&granted=1")
+            # Falls through to re-render the page with grant_error shown -- no redirect, since the
+            # error is real content to display, not just a one-word flag like "saved=1"/"granted=1".
+        else:
+            await asyncio.to_thread(db.set_balance, gid, uid, int(form.get("balance") or 0))
+            await asyncio.to_thread(db.set_energy, gid, uid, int(form.get("energy") or 0))
+            if "level" in form and "xp" in form and "current_hp" in form:
+                await asyncio.to_thread(
+                    db.set_character_progress, gid, uid,
+                    int(form["level"]), int(form["xp"]), int(form["current_hp"]),
+                )
+            raise web.HTTPFound(f"/player-debug?guild_id={gid}&user_id={uid}&saved=1")
 
-    guild_id = request.query.get("guild_id") or ""
-    user_id = request.query.get("user_id") or ""
+    # On the grant-item error fall-through above, guild_id/user_id came from the POSTed form, not
+    # the query string (there was no redirect) -- request.query has nothing for either case that
+    # didn't happen, so this picks whichever one actually did.
+    guild_id = request.query.get("guild_id") or (form.get("guild_id") if request.method == "POST" else "") or ""
+    user_id = request.query.get("user_id") or (form.get("user_id") if request.method == "POST" else "") or ""
     saved_notice = '<p class="success">Saved.</p>' if request.query.get("saved") else ""
+    granted_notice = '<p class="success">Item granted.</p>' if request.query.get("granted") else ""
 
     guild_options = "".join(
         f'<option value="{g.id}"{" selected" if str(g.id) == guild_id else ""}>{html.escape(g.name)}</option>'
@@ -3540,6 +3591,7 @@ async def player_debug_view(request: web.Request) -> web.Response:
 
     player_picker = ""
     stats_form = ""
+    grant_item_form = ""
     if guild_id and bot:
         gid = int(guild_id)
         known_ids = db.list_known_users(gid)
@@ -3575,6 +3627,7 @@ async def player_debug_view(request: web.Request) -> web.Response:
                 character_fields = "<p><em>No dungeon character yet.</em></p>"
             stats_form = (
                 f'<form method="post">'
+                f'<input type="hidden" name="action" value="save_stats">'
                 f'<input type="hidden" name="guild_id" value="{gid}">'
                 f'<input type="hidden" name="user_id" value="{uid}">'
                 f'<h2>{html.escape(_player_label(bot, gid, uid))}</h2>'
@@ -3585,14 +3638,43 @@ async def player_debug_view(request: web.Request) -> web.Response:
                 f'<button type="submit">Save</button></form>'
             )
 
+            # Preserves whatever the admin last picked across a validation error re-render (e.g. a
+            # kind chosen but no item yet) -- pure convenience, not needed on a fresh page load.
+            posted = form if request.method == "POST" else {}
+            grant_kind = posted.get("grant_kind", "")
+            kind_options = "".join(
+                f'<option value="{k}"{" selected" if k == grant_kind else ""}>{k}</option>'
+                for k in [""] + GRANTABLE_ITEM_KINDS
+            )
+            item_select = _render_cascaded_select(
+                "grant_item_id", "shop", grant_kind or None, posted.get("grant_item_id")
+            )
+            grant_qty = posted.get("grant_qty") or "1"
+            grant_error_html = f'<p class="error">{html.escape(grant_error)}</p>' if grant_error else ""
+            grant_item_form = (
+                f'<h3>Give Item</h3>'
+                f'{grant_error_html}'
+                f'<form method="post" class="row-group">'
+                f'<input type="hidden" name="action" value="grant_item">'
+                f'<input type="hidden" name="guild_id" value="{gid}">'
+                f'<input type="hidden" name="user_id" value="{uid}">'
+                f'<label>kind<select name="grant_kind" class="cascade-select" data-cascade="shop">'
+                f'{kind_options}</select></label>'
+                f'<label>item_id{item_select}</label>'
+                f'<label>qty<input type="number" min="1" name="grant_qty" value="{html.escape(grant_qty)}"></label>'
+                f'<button type="submit">Give</button></form>'
+            )
+
     body = f"""
     <h1>🐛 Player Debug</h1>
     <p>Look up one player's live economy/character state and override it directly -- for
     un-sticking a bad delve, refilling energy, or fixing a balance issue without shell access.</p>
     {saved_notice}
+    {granted_notice}
     {guild_picker}
     {player_picker}
     {stats_form}
+    {grant_item_form}
     """
     return _html_response(
         _page("Player Debug", body, active="player-debug", breadcrumbs=[("Home", "/"), ("Player Debug", None)])
