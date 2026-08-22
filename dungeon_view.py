@@ -1267,7 +1267,21 @@ async def _resolve_combat_turn(
             log_lines.append(f"**{attacker.monster['name']}** {verb} for **{monster_dmg}**.")
         session.hp -= monster_dmg
 
-    _tick_timed_effects([session] + session.living_monsters(), log_lines)
+    pre_tick_monsters = session.living_monsters()
+    _tick_timed_effects([session] + pre_tick_monsters, log_lines)
+    # A DoT tick can finish off a monster on its own (no direct hit involved) -- award its kill the
+    # same as any other, and check for a room-clear here too, mirroring the exact precedence the
+    # player's-own-attack kill above already uses (a kill clears the room before a simultaneous
+    # player death is ever considered, see that branch's own early `return True`).
+    for dead_monster in [m for m in pre_tick_monsters if m.hp <= 0]:
+        log_lines.append(f"**{dead_monster.monster['name']}** succumbs to its wounds!")
+        await _award_kill(
+            session.guild_id, dead_monster.monster, session, session.current_room_id, log_lines,
+            loot_mult=session.loot_mult * player_moon_mult, chance_mult=1.0,
+        )
+    if not session.living_monsters():
+        await _present_room_result(interaction, session, log_lines)
+        return True
 
     if session.hp <= 0:
         await _forfeit(session)
@@ -1434,7 +1448,8 @@ async def _advance_party_round(interaction: discord.Interaction | None, session:
             target.knocked_out = True
             log_lines.append(f"💀 **{target.label}** is knocked out!")
 
-    _tick_timed_effects(session.living_members() + session.living_monsters(), log_lines)
+    pre_tick_monsters = session.living_monsters()
+    _tick_timed_effects(session.living_members() + pre_tick_monsters, log_lines)
     # A DoT tick (unlike the per-hit knockout check above, which only ever looks at the one member
     # who just got attacked) can drop ANY living member's hp to 0 -- living_members() filters on
     # the knocked_out flag, not hp directly, so anyone the tick just finished off needs it set here
@@ -1443,6 +1458,27 @@ async def _advance_party_round(interaction: discord.Interaction | None, session:
         if m.hp <= 0:
             m.knocked_out = True
             log_lines.append(f"💀 **{m.label}** is knocked out!")
+
+    # A DoT tick can finish off the last monster on its own, same as it can in solo -- award the
+    # kill to every still-living member (same per-member reward loop _resolve_party_turn's own
+    # direct-hit kill already uses) and check for a room-clear here, before the party-wipe check
+    # below, mirroring solo's own kill-before-death precedence.
+    player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
+    for dead_monster in [m for m in pre_tick_monsters if m.hp <= 0]:
+        log_lines.append(f"**{dead_monster.monster['name']}** succumbs to its wounds!")
+        for m in session.living_members():
+            member_log: list[str] = []
+            loot_mult = m.loot_mult * (1.0 if m.is_leader else 0.5) * player_moon_mult
+            chance_mult = 1.0 if m.is_leader else 0.5
+            await _award_kill(
+                session.guild_id, dead_monster.monster, m, session.current_room_id, member_log,
+                loot_mult=loot_mult, chance_mult=chance_mult,
+            )
+            log_lines.append(f"**{m.label}**")
+            log_lines.extend(f"> {line}" for line in member_log)
+    if pre_tick_monsters and not session.living_monsters():
+        await _present_party_room_result(interaction, session, log_lines)
+        return
 
     if not session.living_members():
         for m in session.members:
@@ -2060,7 +2096,14 @@ class PartyRoomResultView(discord.ui.View):
             pass
 
 
-async def _present_party_room_result(interaction: discord.Interaction, session: PartyDelveSession, log_lines: list[str]):
+async def _present_party_room_result(
+    interaction: discord.Interaction | None, session: PartyDelveSession, log_lines: list[str],
+):
+    """`interaction` is optional (unlike its only call site's own real interaction used to imply)
+    now that a DoT tick can also clear a room during a timeout-skipped round (_advance_party_round,
+    called with interaction=None from _skip_party_turn) -- routes through _send_party_update, the
+    same live-interaction-or-session.message split every other timeout-reachable party response
+    already uses."""
     room = session.rooms_by_id[session.current_room_id]
     next_room = room.get("next")
     currency = db.get_currency_name(session.guild_id)
@@ -2079,12 +2122,12 @@ async def _present_party_room_result(interaction: discord.Interaction, session: 
             payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
         _cleanup(session)
         embed.description += "\n\nThe party has cleared the dungeon!\n" + "\n".join(payouts)
-        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+        await _send_party_update(interaction, session, embed, None, None)
         return
 
     embed.description += "\n\nThe party leader decides: retreat with the loot so far, or push deeper?"
     view = PartyRoomResultView(session)
-    await interaction.response.edit_message(embed=embed, attachments=[], view=view)
+    await _send_party_update(interaction, session, embed, None, view)
 
 
 def _build_lobby_embed(lobby: PartyLobby) -> discord.Embed:
