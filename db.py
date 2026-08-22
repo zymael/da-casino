@@ -180,6 +180,17 @@ def init_db():
     if "current_hp" not in character_columns:
         conn.execute("ALTER TABLE characters ADD COLUMN current_hp INTEGER")
         conn.execute("UPDATE characters SET current_hp = hp WHERE current_hp IS NULL")
+    # spatk/spdef (Special Attack/Special Defense) -- a second permanent stat pair, parallel to
+    # atk/def, used by skills flagged "special" (dungeon.py's EFFECT_PARAM_SCHEMAS/skill loading)
+    # instead of the physical pair. Same "can't be a literal ALTER DEFAULT" story as current_hp:
+    # a pre-existing character's only sane starting value is its own atk/def mirrored over, not a
+    # constant, since spatk/spdef didn't exist yet when that character was created.
+    if "spatk" not in character_columns:
+        conn.execute("ALTER TABLE characters ADD COLUMN spatk INTEGER")
+        conn.execute("UPDATE characters SET spatk = atk WHERE spatk IS NULL")
+    if "spdef" not in character_columns:
+        conn.execute("ALTER TABLE characters ADD COLUMN spdef INTEGER")
+        conn.execute("UPDATE characters SET spdef = def WHERE spdef IS NULL")
     # A character's currently equipped gear -- one row per filled slot, upserted on equip/replace.
     # No row for a slot means empty, same "absence = default state" idea as ranch_facilities.
     conn.execute(
@@ -1823,7 +1834,8 @@ def tip(guild_id: int, from_id: int, to_id: int, amount: int) -> tuple[str, floa
 
 
 def create_character(
-    guild_id: int, user_id: int, main_class: str, subclass: str, hp: int, atk: int, def_: int
+    guild_id: int, user_id: int, main_class: str, subclass: str,
+    hp: int, atk: int, def_: int, spatk: int, spdef: int,
 ) -> bool:
     """Creates this user's dungeon character if they don't already have one -- permanent and
     never overwritten once chosen, same idempotent INSERT OR IGNORE pattern as
@@ -1831,9 +1843,10 @@ def create_character(
     conn = _connect()
     try:
         cursor = conn.execute(
-            "INSERT OR IGNORE INTO characters (guild_id, user_id, main_class, subclass, hp, atk, def, current_hp) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (guild_id, user_id, main_class, subclass, hp, atk, def_, hp),
+            "INSERT OR IGNORE INTO characters "
+            "(guild_id, user_id, main_class, subclass, hp, atk, def, spatk, spdef, current_hp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (guild_id, user_id, main_class, subclass, hp, atk, def_, spatk, spdef, hp),
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -1842,24 +1855,24 @@ def create_character(
 
 
 def get_character(guild_id: int, user_id: int) -> dict | None:
-    """Returns this user's dungeon character, or None if they haven't picked one yet. hp/atk/def
-    already include all permanent level growth (see add_xp) -- equipment bonuses are separate,
-    see get_equipped_items/dungeon.compute_effective_stats. current_hp is what a fresh delve
-    starts at (see set_current_hp) -- everything from this row except that one field is a
+    """Returns this user's dungeon character, or None if they haven't picked one yet. hp/atk/def/
+    spatk/spdef already include all permanent level growth (see add_xp) -- equipment bonuses are
+    separate, see get_equipped_items/dungeon.compute_effective_stats. current_hp is what a fresh
+    delve starts at (see set_current_hp) -- everything from this row except that one field is a
     permanent stat, never healed."""
     conn = _connect()
     try:
         row = conn.execute(
-            "SELECT main_class, subclass, hp, atk, def, last_delve, level, xp, current_hp FROM characters "
-            "WHERE guild_id = ? AND user_id = ?",
+            "SELECT main_class, subclass, hp, atk, def, spatk, spdef, last_delve, level, xp, current_hp "
+            "FROM characters WHERE guild_id = ? AND user_id = ?",
             (guild_id, user_id),
         ).fetchone()
         if row is None:
             return None
-        main_class, subclass, hp, atk, def_, last_delve, level, xp, current_hp = row
+        main_class, subclass, hp, atk, def_, spatk, spdef, last_delve, level, xp, current_hp = row
         return {
             "main_class": main_class, "subclass": subclass,
-            "hp": hp, "atk": atk, "def": def_, "last_delve": last_delve,
+            "hp": hp, "atk": atk, "def": def_, "spatk": spatk, "spdef": spdef, "last_delve": last_delve,
             "level": level, "xp": xp, "current_hp": current_hp,
         }
     finally:
@@ -1899,20 +1912,22 @@ def set_character_progress(guild_id: int, user_id: int, level: int, xp: int, cur
 
 
 def add_xp(
-    guild_id: int, user_id: int, xp_gain: int, hp_gain: int, atk_gain: int, def_gain: int
+    guild_id: int, user_id: int, xp_gain: int,
+    hp_gain: int, atk_gain: int, def_gain: int, spatk_gain: int, spdef_gain: int,
 ) -> dict:
-    """Awards xp_gain, then loops applying level-ups (mutating the character's stored hp/atk/def
-    in place, same idea as train_horse growing a horse's stats) for as long as the accumulated xp
-    clears the next threshold -- so one big award can cross several levels in one call, same
-    inclusive-tiers idea used elsewhere in this codebase (e.g. achievement tiers).
+    """Awards xp_gain, then loops applying level-ups (mutating the character's stored hp/atk/def/
+    spatk/spdef in place, same idea as train_horse growing a horse's stats) for as long as the
+    accumulated xp clears the next threshold -- so one big award can cross several levels in one
+    call, same inclusive-tiers idea used elsewhere in this codebase (e.g. achievement tiers).
 
-    Returns {new_level, levels_gained, new_hp, new_atk, new_def, new_xp} so the caller can apply
-    the same deltas to a live delve session immediately rather than waiting for the next one."""
+    Returns {new_level, levels_gained, new_hp, new_atk, new_def, new_spatk, new_spdef, new_xp} so
+    the caller can apply the same deltas to a live delve session immediately rather than waiting
+    for the next one."""
     conn = _connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
-        level, xp, hp, atk, def_ = conn.execute(
-            "SELECT level, xp, hp, atk, def FROM characters WHERE guild_id = ? AND user_id = ?",
+        level, xp, hp, atk, def_, spatk, spdef = conn.execute(
+            "SELECT level, xp, hp, atk, def, spatk, spdef FROM characters WHERE guild_id = ? AND user_id = ?",
             (guild_id, user_id),
         ).fetchone()
         xp += xp_gain
@@ -1924,15 +1939,17 @@ def add_xp(
             hp += hp_gain
             atk += atk_gain
             def_ += def_gain
+            spatk += spatk_gain
+            spdef += spdef_gain
         conn.execute(
-            "UPDATE characters SET level = ?, xp = ?, hp = ?, atk = ?, def = ? "
+            "UPDATE characters SET level = ?, xp = ?, hp = ?, atk = ?, def = ?, spatk = ?, spdef = ? "
             "WHERE guild_id = ? AND user_id = ?",
-            (level, xp, hp, atk, def_, guild_id, user_id),
+            (level, xp, hp, atk, def_, spatk, spdef, guild_id, user_id),
         )
         conn.commit()
         return {
             "new_level": level, "levels_gained": levels_gained, "new_xp": xp,
-            "new_hp": hp, "new_atk": atk, "new_def": def_,
+            "new_hp": hp, "new_atk": atk, "new_def": def_, "new_spatk": spatk, "new_spdef": spdef,
         }
     finally:
         conn.close()

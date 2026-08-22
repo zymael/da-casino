@@ -2,12 +2,15 @@
 between game logic here and Discord UI in dungeon_view.py.
 
 Characters are a permanent one-time choice: a main class (face rank) x a subclass (suit) = 16
-builds. Combat is deliberately lightweight -- HP/ATK/DEF plus a per-fight Chips pool (the casino's
-on-theme name for what a JRPG would call mana), no persistent status effects. Skills cost Chips
-(dungeon_skills.json's chip_cost) rather than being limited to one use per fight -- Chips refill to
-max at the start of every fight and are never spent outside combat, so the pool is tracked only on
-the in-memory fight session (DelveSession/PartyMember), never persisted to the DB. Skills unlock
-automatically as the character levels. Each of the 16
+builds. Combat is deliberately lightweight -- HP/ATK/DEF/SpAtk/SpDef plus a per-fight Chips pool
+(the casino's on-theme name for what a JRPG would call mana), no persistent status effects. SpAtk/
+SpDef are a second, parallel combat-stat pair (Pokemon-style Physical/Special split) -- a skill
+flagged "special" (dungeon_skills.json's optional `special` field, defaulting to Physical/False)
+rolls its damage against SpAtk/SpDef instead of ATK/DEF; the plain Attack action is always
+Physical. Skills cost Chips (dungeon_skills.json's chip_cost) rather than being limited to one use
+per fight -- Chips refill to max at the start of every fight and are never spent outside combat, so
+the pool is tracked only on the in-memory fight session (DelveSession/PartyMember), never
+persisted to the DB. Skills unlock automatically as the character levels. Each of the 16
 builds has its own skill line (dungeon_skills.json, see SKILLS below) rather than sharing one
 ability per class. Monster content lives in dungeon_monsters.json (not here) specifically so new
 monsters can be added without touching this file -- see MONSTERS below.
@@ -18,16 +21,20 @@ import math
 import os
 import random
 
-# Base HP/ATK/DEF/Chips per class, before subclass modifiers. Kept to four stats total rather than
-# a full JRPG sheet. Archetypes: Fighter tanks (high HP/DEF, modest ATK, low Chips -- it leans on
-# raw stats, not repeat skill casts), Mage nukes (high ATK, fragile, highest Chips pool so its
-# nuker kit can fire more than once a fight), Rogue is balanced/quick with the second-highest Chips
-# pool, Healer leans on HP + its Heal ability (modest Chips -- enough for a couple of heals) to
-# outlast fights. Healer's ATK was originally 4, which combined with tougher monsters' DEF made
-# roll_damage floor at 1 almost every hit -- an unwinnable slog regardless of how tanky Healer
-# otherwise is. Bumped to 6 so Healer can still meaningfully damage things; simulated combat
-# confirms this fixed it without needing to touch any other class. Each class's signature skill(s)
-# now live in SKILLS below, keyed by (main_class, subclass) rather than on this dict.
+# Base HP/ATK/DEF/SpAtk/SpDef/Chips per class, before subclass modifiers. Archetypes: Fighter
+# tanks (high HP/DEF, modest ATK, low Chips -- it leans on raw stats, not repeat skill casts) and
+# is purely martial (low SpAtk, but SpDef matches its overall tankiness). Mage nukes physically
+# (high ATK, fragile, highest Chips pool) AND is the premier spellcaster -- SpAtk (14) is even
+# higher than its own ATK (10), while SpDef stays as fragile as DEF, matching its glass-cannon
+# flavor either way. Rogue is balanced/quick with the second-highest Chips pool, mostly physical/
+# martial in its skill flavor (Haymaker, Gut Strike, ...) so SpAtk/SpDef stay modest. Healer leans
+# on HP + its Heal ability (modest Chips -- enough for a couple of heals) to outlast fights, and is
+# the secondary spellcaster (solid SpAtk/SpDef, a support/caster archetype). Healer's ATK was
+# originally 4, which combined with tougher monsters' DEF made roll_damage floor at 1 almost every
+# hit -- an unwinnable slog regardless of how tanky Healer otherwise is. Bumped to 6 so Healer can
+# still meaningfully damage things; simulated combat confirms this fixed it without needing to
+# touch any other class. Each class's signature skill(s) now live in SKILLS below, keyed by
+# (main_class, subclass) rather than on this dict.
 #
 # Chips pools (here and in SUBCLASSES below) are set so that even the worst-case build (fighter +
 # clubs, whose -5 Chips modifier is the largest penalty) can still afford its own most expensive
@@ -35,27 +42,30 @@ import random
 # fight -- see _load_skills' chip_cost validation, which enforces this for every build/skill pair
 # rather than leaving it to be noticed live.
 CLASSES = {
-    "fighter": {"rank": "A", "hp": 32, "atk": 6, "def": 6, "chips": 25},
-    "healer": {"rank": "K", "hp": 26, "atk": 6, "def": 5, "chips": 30},
-    "mage": {"rank": "Q", "hp": 16, "atk": 10, "def": 2, "chips": 45},
-    "rogue": {"rank": "J", "hp": 22, "atk": 7, "def": 3, "chips": 40},
+    "fighter": {"rank": "A", "hp": 32, "atk": 6, "def": 6, "spatk": 3, "spdef": 6, "chips": 25},
+    "healer": {"rank": "K", "hp": 26, "atk": 6, "def": 5, "spatk": 9, "spdef": 7, "chips": 30},
+    "mage": {"rank": "Q", "hp": 16, "atk": 10, "def": 2, "spatk": 14, "spdef": 3, "chips": 45},
+    "rogue": {"rank": "J", "hp": 22, "atk": 7, "def": 3, "spatk": 4, "spdef": 4, "chips": 40},
 }
 RANK_TO_CLASS = {info["rank"]: name for name, info in CLASSES.items()}
 
 # Subclass (suit) modifiers layered on top of the class base -- the same attitude framework used
 # for the 16 display names: clubs (brawler) adds raw power but leans on brute force over finesse
-# (lowest Chips), spades (lethal) trades defense for offense, hearts (loyal) adds survivability and
-# the most Chips (a support-leaning suit that most wants extra casts), diamonds (greedy) trades a
-# little combat edge for meaningfully better loot and stays Chips-neutral.
+# (lowest Chips, and no SpAtk/SpDef lean either -- pure muscle, no magic flavor), spades (lethal)
+# trades defense for offense both physically and magically (SpAtk up, SpDef down, mirroring its
+# ATK/DEF trade), hearts (loyal) adds survivability and the most Chips (a support-leaning suit that
+# most wants extra casts) plus the best SpDef (protective flavor), diamonds (greedy) trades a
+# little combat edge for meaningfully better loot, stays Chips-neutral, and gets a small SpAtk
+# bump mirroring its small ATK one.
 SUBCLASSES = {
-    "clubs": {"hp": 4, "atk": 2, "def": 0, "loot_mult": 1.0, "chips": -5},
-    "spades": {"hp": 0, "atk": 3, "def": -1, "loot_mult": 1.0, "chips": 5},
-    "hearts": {"hp": 4, "atk": 0, "def": 2, "loot_mult": 1.0, "chips": 10},
+    "clubs": {"hp": 4, "atk": 2, "def": 0, "spatk": 0, "spdef": 0, "loot_mult": 1.0, "chips": -5},
+    "spades": {"hp": 0, "atk": 3, "def": -1, "spatk": 2, "spdef": -1, "loot_mult": 1.0, "chips": 5},
+    "hearts": {"hp": 4, "atk": 0, "def": 2, "spatk": 0, "spdef": 2, "loot_mult": 1.0, "chips": 10},
     # A -1 DEF here originally, on top of an already-below-average build, made a couple of
     # specific class+diamonds combos nearly unwinnable in simulation. A small +1 ATK (a
     # mercenary/treasure hunter still fights competently, just prioritizes the score) fixed that
     # without diamonds needing to be a pure stat no-op alongside its loot bonus.
-    "diamonds": {"hp": 0, "atk": 1, "def": 0, "loot_mult": 1.25, "chips": 0},
+    "diamonds": {"hp": 0, "atk": 1, "def": 0, "spatk": 1, "spdef": 0, "loot_mult": 1.25, "chips": 0},
 }
 SUIT_SYMBOLS = {"clubs": "♣", "spades": "♠", "hearts": "♥", "diamonds": "♦"}
 
@@ -86,6 +96,8 @@ def compute_stats(main_class: str, subclass: str) -> dict:
         "hp": base["hp"] + mod["hp"],
         "atk": base["atk"] + mod["atk"],
         "def": base["def"] + mod["def"],
+        "spatk": base["spatk"] + mod["spatk"],
+        "spdef": base["spdef"] + mod["spdef"],
         "chips": base["chips"] + mod["chips"],
         "loot_mult": mod["loot_mult"],
     }
@@ -104,7 +116,7 @@ def compute_stats(main_class: str, subclass: str) -> dict:
 
 _MONSTERS_PATH = os.path.join(os.path.dirname(__file__), "dungeon_monsters.json")
 _REQUIRED_MONSTER_FIELDS = {
-    "id", "name", "hp", "atk", "def", "shape", "color", "flavor", "loot_min", "loot_max",
+    "id", "name", "hp", "atk", "def", "spatk", "spdef", "shape", "color", "flavor", "loot_min", "loot_max",
 }
 DROP_KINDS = ("equipment", "material")
 
@@ -136,7 +148,7 @@ def _load_monsters(path: str = _MONSTERS_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_monsters.json: monster {entry_id!r} missing field(s): {sorted(missing)}")
         if entry_id in monsters:
             raise ValueError(f"dungeon_monsters.json: duplicate monster id {entry_id!r}")
-        for field in ("hp", "atk", "def", "loot_min", "loot_max"):
+        for field in ("hp", "atk", "def", "spatk", "spdef", "loot_min", "loot_max"):
             if entry[field] < 0:
                 raise ValueError(f"dungeon_monsters.json: monster {entry_id!r} has negative {field}")
         if entry["loot_min"] > entry["loot_max"]:
@@ -481,6 +493,7 @@ def monsters_for_room(room: dict) -> list[dict]:
 # Subclass-specific skills unlocked by level are a deferred follow-up; `level` is tracked now
 # specifically so that pass won't need a data-model change.
 LEVEL_HP_GAIN, LEVEL_ATK_GAIN, LEVEL_DEF_GAIN = 2, 1, 1
+LEVEL_SPATK_GAIN, LEVEL_SPDEF_GAIN = 1, 1  # matches ATK/DEF's growth rate
 
 
 def xp_for_monster(monster: dict) -> int:
@@ -527,6 +540,8 @@ EFFECT_PARAM_SCHEMAS = {
     "extra_attack": (set(), {"multiplier"}, set()),
     "atk_buff": ({"value"}, set(), set()),
     "def_buff": ({"value"}, set(), set()),
+    "spatk_buff": ({"value"}, set(), set()),
+    "spdef_buff": ({"value"}, set(), set()),
 }
 
 
@@ -594,6 +609,8 @@ def _validate_monster_skill(skill: dict, context: str) -> None:
             f"{context} skill {name!r} has effect type(s) monsters can't use: {sorted(bad_types)} "
             f"(monsters are limited to {sorted(MONSTER_SKILL_EFFECT_TYPES)})"
         )
+    if "special" in skill and not isinstance(skill["special"], bool):
+        raise ValueError(f"{context} skill {name!r} special must be a bool")
     _validate_effects(effects, f"{context} skill {name!r}")
 
 
@@ -623,6 +640,8 @@ def _load_skills(path: str = _SKILLS_PATH) -> dict[str, dict]:
                 f"dungeon_skills.json: skill {entry_id!r} costs {chip_cost} chips but "
                 f"{entry['main_class']}/{entry['subclass']} only has {build_chips} max chips -- would be unusable"
             )
+        if "special" in entry and not isinstance(entry["special"], bool):
+            raise ValueError(f"dungeon_skills.json: skill {entry_id!r} special must be a bool")
         _validate_effects(entry["effects"], f"dungeon_skills.json: skill {entry_id!r}")
         skills[entry_id] = entry
     return skills
@@ -669,7 +688,7 @@ def unlocked_skills(main_class: str, subclass: str, level: int) -> list[dict]:
 _EQUIPMENT_PATH = os.path.join(os.path.dirname(__file__), "dungeon_equipment.json")
 _REQUIRED_EQUIPMENT_FIELDS = {"id", "name", "slot", "rarity", "stat_bonuses", "flavor"}
 EQUIPMENT_SLOTS = ("weapon", "armor", "trinket")
-_STAT_BONUS_KEYS = {"hp", "atk", "def"}
+_STAT_BONUS_KEYS = {"hp", "atk", "def", "spatk", "spdef"}
 
 
 def _load_equipment(path: str = _EQUIPMENT_PATH) -> dict[str, dict]:
@@ -846,10 +865,11 @@ def is_upgrade(current_item_id: str | None, new_item: dict) -> bool:
 
 
 def compute_effective_stats(character: dict, equipped: dict[str, str]) -> dict:
-    """A character's stored hp/atk/def (which already include all permanent level growth) plus
-    whatever's currently equipped in each slot. `equipped` is {slot: item_id}, e.g. from
-    db.get_equipped_items."""
+    """A character's stored hp/atk/def/spatk/spdef (which already include all permanent level
+    growth) plus whatever's currently equipped in each slot. `equipped` is {slot: item_id}, e.g.
+    from db.get_equipped_items."""
     hp, atk, def_ = character["hp"], character["atk"], character["def"]
+    spatk, spdef = character["spatk"], character["spdef"]
     for item_id in equipped.values():
         item = EQUIPMENT.get(item_id)
         if item is None:
@@ -858,7 +878,9 @@ def compute_effective_stats(character: dict, equipped: dict[str, str]) -> dict:
         hp += bonuses.get("hp", 0)
         atk += bonuses.get("atk", 0)
         def_ += bonuses.get("def", 0)
-    return {"hp": hp, "atk": atk, "def": def_}
+        spatk += bonuses.get("spatk", 0)
+        spdef += bonuses.get("spdef", 0)
+    return {"hp": hp, "atk": atk, "def": def_, "spatk": spatk, "spdef": spdef}
 
 
 # --- Combat ------------------------------------------------------------------------------------
@@ -930,9 +952,9 @@ def pick_monster_action(monster: dict) -> dict | None:
 # matching generate_* function, so a freshly generated entry round-trips back to the same level.
 
 MONSTER_ARCHETYPES = {
-    "tank": {"hp": 0.55, "atk": 0.20, "def": 0.25},
-    "balanced": {"hp": 0.45, "atk": 0.30, "def": 0.25},
-    "glass_cannon": {"hp": 0.30, "atk": 0.55, "def": 0.15},
+    "tank": {"hp": 0.55, "atk": 0.20, "def": 0.25, "spatk": 0.3, "spdef": 0.7},
+    "balanced": {"hp": 0.45, "atk": 0.30, "def": 0.25, "spatk": 0.5, "spdef": 0.5},
+    "glass_cannon": {"hp": 0.30, "atk": 0.55, "def": 0.15, "spatk": 0.7, "spdef": 0.3},
 }
 
 
@@ -944,16 +966,31 @@ def _monster_power_budget(level: int) -> float:
     return 35 + 8 * level
 
 
+def _monster_special_budget(level: int) -> float:
+    """spatk/spdef's own scalar, deliberately independent of _monster_power_budget rather than
+    folded into it -- every one of the 16 real monsters was backfilled with spatk=atk/spdef=def
+    (see dungeon_monsters.json), so combining the budgets would silently double
+    estimate_monster_level's "≈ balanced for level X" hint for every one of them the moment this
+    shipped, even though their actual hp/atk/def/intended_level never changed. Kept at a similar
+    scale to _monster_power_budget on purpose (no /2 split needed -- spatk/spdef aren't
+    2x-weighted the way atk/def are here, there's no existing convention this needs to match)."""
+    return 15 + 4 * level
+
+
 def generate_monster_stats(level: int, archetype: dict | None = None) -> dict:
-    """hp/atk/def for a monster meant to feel "right" at `level`, split by `archetype`'s weights
-    (defaults to balanced -- see MONSTER_ARCHETYPES). Doesn't touch intended_level itself; callers
-    (admin_server.py's _apply_generate_level) set that alongside this."""
+    """hp/atk/def/spatk/spdef for a monster meant to feel "right" at `level`, split by
+    `archetype`'s weights (defaults to balanced -- see MONSTER_ARCHETYPES). Doesn't touch
+    intended_level itself; callers (admin_server.py's _apply_generate_level) set that alongside
+    this."""
     archetype = archetype or MONSTER_ARCHETYPES["balanced"]
     budget = _monster_power_budget(level)
+    special_budget = _monster_special_budget(level)
     return {
         "hp": max(1, round(budget * archetype["hp"])),
         "atk": max(1, round(budget * archetype["atk"] / 2)),
         "def": max(1, round(budget * archetype["def"] / 2)),
+        "spatk": max(1, round(special_budget * archetype["spatk"])),
+        "spdef": max(1, round(special_budget * archetype["spdef"])),
     }
 
 
@@ -980,22 +1017,32 @@ def estimate_group_level(monsters: list[dict]) -> float:
 
 
 _EQUIPMENT_SLOT_WEIGHTS = {
-    "weapon": {"hp": 0.0, "atk": 0.8, "def": 0.2},
-    "armor": {"hp": 0.5, "atk": 0.0, "def": 0.5},
-    "trinket": {"hp": 0.34, "atk": 0.33, "def": 0.33},
+    # weapon stays physical-only -- a "weapon" implies a martial implement, and there's no
+    # existing sub-type concept (sword vs. staff) to hang a spatk lean off of.
+    "weapon": {"hp": 0.0, "atk": 0.8, "def": 0.2, "spatk": 0.0, "spdef": 0.0},
+    # armor picks up a modest spdef share (magic-resistant armor is a normal RPG trope), shaved
+    # off hp/def evenly to keep the weights summing to 1.0.
+    "armor": {"hp": 0.4, "atk": 0.0, "def": 0.4, "spatk": 0.0, "spdef": 0.2},
+    # trinkets are already omni-stat in real content -- full even split across all five.
+    "trinket": {"hp": 0.2, "atk": 0.2, "def": 0.2, "spatk": 0.2, "spdef": 0.2},
 }
 
 
 def _item_power_budget(level: int) -> float:
-    """Same hp + 2*atk + 2*def power scalar as _monster_power_budget, scaled way down -- a piece
-    of gear is one small increment on top of a whole character's own stats, not a whole
-    combatant's total."""
+    """hp + 2*atk + 2*def + 2*spatk + 2*spdef power scalar, scaled way down from
+    _monster_power_budget -- a piece of gear is one small increment on top of a whole character's
+    own stats, not a whole combatant's total. Unlike the monster case, spatk/spdef fold into this
+    SAME budget rather than getting an independent one -- necessary, not just simpler: no
+    equipment gets backfilled with spatk/spdef (existing gear just omits the keys, worth 0 here),
+    so item_power()/is_upgrade() (which sum whatever's in stat_bonuses) stay correct for old gear,
+    and a fresh item at a given level isn't handed extra "free" power an old item of the same
+    level never had a chance to also carry."""
     return 1.5 * level
 
 
 def generate_item_stat_bonuses(level: int, slot: str) -> dict:
     """stat_bonuses for a piece of gear meant to feel "right" at `level` in `slot` -- weapon leans
-    almost entirely ATK, armor splits HP/DEF, trinket is even across all three (see
+    almost entirely ATK, armor splits HP/DEF/SpDef, trinket is even across all five (see
     _EQUIPMENT_SLOT_WEIGHTS). A weight of exactly 0 omits that stat from the result entirely
     rather than writing a 0 bonus, matching how real equipment entries only list the stats they
     actually touch."""
@@ -1008,13 +1055,20 @@ def generate_item_stat_bonuses(level: int, slot: str) -> dict:
         bonuses["atk"] = max(1, round(budget * weights["atk"] / 2))
     if weights["def"]:
         bonuses["def"] = max(1, round(budget * weights["def"] / 2))
+    if weights["spatk"]:
+        bonuses["spatk"] = max(1, round(budget * weights["spatk"] / 2))
+    if weights["spdef"]:
+        bonuses["spdef"] = max(1, round(budget * weights["spdef"] / 2))
     return bonuses
 
 
 def estimate_item_level(item: dict) -> float:
     """Inverse of generate_item_stat_bonuses/_item_power_budget."""
     bonuses = item["stat_bonuses"]
-    budget = bonuses.get("hp", 0) + 2 * bonuses.get("atk", 0) + 2 * bonuses.get("def", 0)
+    budget = (
+        bonuses.get("hp", 0) + 2 * bonuses.get("atk", 0) + 2 * bonuses.get("def", 0)
+        + 2 * bonuses.get("spatk", 0) + 2 * bonuses.get("spdef", 0)
+    )
     return max(1.0, budget / 1.5)
 
 

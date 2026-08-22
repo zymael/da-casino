@@ -73,6 +73,8 @@ class DelveSession:
         self.max_hp = effective["hp"]
         self.atk = effective["atk"]
         self.def_ = effective["def"]
+        self.spatk = effective["spatk"]
+        self.spdef = effective["spdef"]
         self.loot_mult = dungeon.SUBCLASSES[self.subclass]["loot_mult"]
         self.display_name = dungeon.display_name(self.main_class, self.subclass)
         # Level-1 skill is guaranteed to exist for every build (validated at import time in
@@ -168,6 +170,8 @@ class PartyMember:
         self.max_hp = effective["hp"]
         self.atk = effective["atk"]
         self.def_ = effective["def"]
+        self.spatk = effective["spatk"]
+        self.spdef = effective["spdef"]
         # Same "start wherever the last delve left off" rule as DelveSession -- see its own hp
         # comment for why.
         self.hp = min(character["current_hp"], self.max_hp)
@@ -846,6 +850,7 @@ async def _award_kill(
     level_result = await asyncio.to_thread(
         db.add_xp, guild_id, actor.user_id, xp_gain,
         dungeon.LEVEL_HP_GAIN, dungeon.LEVEL_ATK_GAIN, dungeon.LEVEL_DEF_GAIN,
+        dungeon.LEVEL_SPATK_GAIN, dungeon.LEVEL_SPDEF_GAIN,
     )
     log_lines.append(f"+{xp_gain} XP")
     if level_result["levels_gained"] > 0:
@@ -853,10 +858,14 @@ async def _award_kill(
         hp_delta = dungeon.LEVEL_HP_GAIN * level_result["levels_gained"]
         atk_delta = dungeon.LEVEL_ATK_GAIN * level_result["levels_gained"]
         def_delta = dungeon.LEVEL_DEF_GAIN * level_result["levels_gained"]
+        spatk_delta = dungeon.LEVEL_SPATK_GAIN * level_result["levels_gained"]
+        spdef_delta = dungeon.LEVEL_SPDEF_GAIN * level_result["levels_gained"]
         actor.max_hp += hp_delta
         actor.hp += hp_delta
         actor.atk += atk_delta
         actor.def_ += def_delta
+        actor.spatk += spatk_delta
+        actor.spdef += spdef_delta
         actor.unlocked_skills = dungeon.unlocked_skills(actor.main_class, actor.subclass, actor.level)
         plural = "s" if level_result["levels_gained"] > 1 else ""
         log_lines.append(f"🎉 Level up! Now level {actor.level} (+{level_result['levels_gained']} level{plural}).")
@@ -878,6 +887,8 @@ async def _award_kill(
             actor.hp += new_bonuses.get("hp", 0) - old_bonuses.get("hp", 0)
             actor.atk += new_bonuses.get("atk", 0) - old_bonuses.get("atk", 0)
             actor.def_ += new_bonuses.get("def", 0) - old_bonuses.get("def", 0)
+            actor.spatk += new_bonuses.get("spatk", 0) - old_bonuses.get("spatk", 0)
+            actor.spdef += new_bonuses.get("spdef", 0) - old_bonuses.get("spdef", 0)
             actor.equipped[slot] = dropped["id"]
             if current_item:
                 log_lines.append(f"⚔️ Found **{dropped['name']}**! Replaced {current_item['name']} — equipped (stored in `!equipment`).")
@@ -955,6 +966,16 @@ def _effect_def_buff(actor, monster_state, effect: dict, log_lines: list[str], m
     log_lines.append(f"Your DEF rises by **{effect['value']}** for the rest of the fight.")
 
 
+def _effect_spatk_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    actor.spatk += effect["value"]
+    log_lines.append(f"Your SpAtk rises by **{effect['value']}** for the rest of the fight.")
+
+
+def _effect_spdef_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    actor.spdef += effect["value"]
+    log_lines.append(f"Your SpDef rises by **{effect['value']}** for the rest of the fight.")
+
+
 EFFECT_HANDLERS = {
     "damage_multiplier": _effect_damage_multiplier,
     "heal_fraction": _effect_heal_fraction,
@@ -964,6 +985,8 @@ EFFECT_HANDLERS = {
     "extra_attack": _effect_extra_attack,
     "atk_buff": _effect_atk_buff,
     "def_buff": _effect_def_buff,
+    "spatk_buff": _effect_spatk_buff,
+    "spdef_buff": _effect_spdef_buff,
 }
 
 
@@ -996,9 +1019,12 @@ def _resolve_monster_attack(
     effects = skill["effects"] if skill else []
     mods = _apply_effects(attacker, attacker, effects, log_lines)
     monster_moon_mult = _moon_combat_multiplier(moon_effect, "monster")
-    dmg = dungeon.roll_damage(attacker.monster["atk"], target.def_, mods["multiplier"] * monster_moon_mult)
+    special = bool(skill.get("special")) if skill else False
+    attacker_atk = attacker.monster["spatk"] if special else attacker.monster["atk"]
+    target_def = target.spdef if special else target.def_
+    dmg = dungeon.roll_damage(attacker_atk, target_def, mods["multiplier"] * monster_moon_mult)
     for extra_multiplier in mods["extra_attack_multipliers"]:
-        dmg += dungeon.roll_damage(attacker.monster["atk"], target.def_, extra_multiplier * monster_moon_mult)
+        dmg += dungeon.roll_damage(attacker_atk, target_def, extra_multiplier * monster_moon_mult)
     if mods["lifesteal_fraction"]:
         healed = min(attacker.max_hp, attacker.hp + round(dmg * mods["lifesteal_fraction"])) - attacker.hp
         attacker.hp += healed
@@ -1017,15 +1043,18 @@ async def _build_combat_view(session: DelveSession) -> "CombatView":
 
 async def _resolve_combat_turn(
     interaction: discord.Interaction, session: DelveSession, effects: list[dict], verb: str, log_lines: list[str],
+    special: bool = False,
 ) -> bool:
     """Shared tail for every kind of combat action (plain Attack, a skill, or a consumed item):
     applies `effects` against the player's current target, rolls damage if any effect is
     damage-shaped, resolves the target's death (and, if that clears the whole group, victory) or
     else every remaining living monster's counter-attack, and renders the next view. `verb` only
     matters if a damage roll happens (e.g. "attack", "unleash **Fireball**", "use **Healing
-    Draught**") -- callers that only heal/buff never reach the line that reads it. Always returns
-    True (this always consumes the turn -- any "can't do this right now" rejection happens before
-    this is called)."""
+    Draught**") -- callers that only heal/buff never reach the line that reads it. `special`
+    (always False for a plain Attack) picks SpAtk/SpDef instead of ATK/DEF for the damage roll --
+    set by callers from the triggering skill/item's own "special" flag. Always returns True (this
+    always consumes the turn -- any "can't do this right now" rejection happens before this is
+    called)."""
     currency = db.get_currency_name(session.guild_id)
     # A plain Attack (no effects) always rolls damage; anything else rolls damage only if at
     # least one of its effects is damage-shaped -- everything else (Heal, Guard, ...) is pure
@@ -1038,10 +1067,15 @@ async def _resolve_combat_turn(
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
 
     if is_damage_action:
-        effective_monster_def = max(0, target.monster["def"] - target.def_debuff)
-        dmg = dungeon.roll_damage(session.atk, effective_monster_def, mods["multiplier"] * player_moon_mult)
+        attacker_atk = session.spatk if special else session.atk
+        # def_shred only ever debuffs the physical DEF -- there's no spdef-shred effect type yet,
+        # so a Special roll's defense isn't reduced by it. A known, minor asymmetry, not a bug.
+        effective_monster_def = (
+            target.monster["spdef"] if special else max(0, target.monster["def"] - target.def_debuff)
+        )
+        dmg = dungeon.roll_damage(attacker_atk, effective_monster_def, mods["multiplier"] * player_moon_mult)
         for extra_multiplier in mods["extra_attack_multipliers"]:
-            dmg += dungeon.roll_damage(session.atk, effective_monster_def, extra_multiplier * player_moon_mult)
+            dmg += dungeon.roll_damage(attacker_atk, effective_monster_def, extra_multiplier * player_moon_mult)
         if mods["lifesteal_fraction"]:
             healed = min(session.max_hp, session.hp + round(dmg * mods["lifesteal_fraction"])) - session.hp
             session.hp += healed
@@ -1100,10 +1134,11 @@ async def _handle_action(interaction: discord.Interaction, session: DelveSession
         return False
 
     effects = skill["effects"] if skill is not None else []
+    special = bool(skill.get("special")) if skill is not None else False
     if skill is not None:
         session.chips -= skill["chip_cost"]
     verb = f"unleash **{skill['name']}**" if skill is not None else "attack"
-    return await _resolve_combat_turn(interaction, session, effects, verb, [])
+    return await _resolve_combat_turn(interaction, session, effects, verb, [], special)
 
 
 async def _handle_use_item(interaction: discord.Interaction, session: DelveSession, item: dict) -> bool:
@@ -1116,7 +1151,7 @@ async def _handle_use_item(interaction: discord.Interaction, session: DelveSessi
         await interaction.response.send_message("You don't have that anymore.", ephemeral=True)
         return False
     verb = f"use **{item['name']}**"
-    return await _resolve_combat_turn(interaction, session, item["effects"], verb, [])
+    return await _resolve_combat_turn(interaction, session, item["effects"], verb, [], item.get("special", False))
 
 
 async def _present_room_result(interaction: discord.Interaction, session: DelveSession, log_lines: list[str]):
@@ -1256,13 +1291,14 @@ async def _advance_party_round(interaction: discord.Interaction | None, session:
 
 async def _resolve_party_turn(
     interaction: discord.Interaction, session: PartyDelveSession, member: PartyMember,
-    effects: list[dict], verb: str, log_lines: list[str],
+    effects: list[dict], verb: str, log_lines: list[str], special: bool = False,
 ) -> bool:
     """Party sibling of _resolve_combat_turn: applies `effects`, rolls `member`'s damage against
     `member`'s own current target (see PartyDelveSession.target_for), and on a kill runs the
     party's independent-per-member reward loop (leader at full rate, joiners halved -- see
     _award_kill). Unlike solo, this never rolls a monster's counter-attack itself -- that only
-    happens once the whole round is done, via _advance_party_round."""
+    happens once the whole round is done, via _advance_party_round. `special` picks SpAtk/SpDef
+    instead of ATK/DEF for the damage roll, same as _resolve_combat_turn."""
     is_damage_action = not effects or any(e["type"] in DAMAGE_EFFECT_TYPES for e in effects)
     target = session.target_for(member)
     mods = _apply_effects(member, target, effects, log_lines)
@@ -1270,10 +1306,13 @@ async def _resolve_party_turn(
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
 
     if is_damage_action:
-        effective_monster_def = max(0, target.monster["def"] - target.def_debuff)
-        dmg = dungeon.roll_damage(member.atk, effective_monster_def, mods["multiplier"] * player_moon_mult)
+        attacker_atk = member.spatk if special else member.atk
+        effective_monster_def = (
+            target.monster["spdef"] if special else max(0, target.monster["def"] - target.def_debuff)
+        )
+        dmg = dungeon.roll_damage(attacker_atk, effective_monster_def, mods["multiplier"] * player_moon_mult)
         for extra_multiplier in mods["extra_attack_multipliers"]:
-            dmg += dungeon.roll_damage(member.atk, effective_monster_def, extra_multiplier * player_moon_mult)
+            dmg += dungeon.roll_damage(attacker_atk, effective_monster_def, extra_multiplier * player_moon_mult)
         if mods["lifesteal_fraction"]:
             healed = min(member.max_hp, member.hp + round(dmg * mods["lifesteal_fraction"])) - member.hp
             member.hp += healed
@@ -1320,10 +1359,11 @@ async def _handle_party_action(
         await interaction.response.send_message("Not enough Chips to use that skill.", ephemeral=True)
         return False
     effects = skill["effects"] if skill is not None else []
+    special = bool(skill.get("special")) if skill is not None else False
     if skill is not None:
         member.chips -= skill["chip_cost"]
     verb = f"unleash **{skill['name']}**" if skill is not None else "attack"
-    return await _resolve_party_turn(interaction, session, member, effects, verb, [])
+    return await _resolve_party_turn(interaction, session, member, effects, verb, [], special)
 
 
 async def _handle_party_use_item(
@@ -1334,7 +1374,9 @@ async def _handle_party_use_item(
         await interaction.response.send_message("You don't have that anymore.", ephemeral=True)
         return False
     verb = f"use **{item['name']}**"
-    return await _resolve_party_turn(interaction, session, member, item["effects"], verb, [])
+    return await _resolve_party_turn(
+        interaction, session, member, item["effects"], verb, [], item.get("special", False)
+    )
 
 
 class PartyAttackButton(discord.ui.Button):
@@ -2214,7 +2256,8 @@ class ClassPickerView(discord.ui.View):
             skill = dungeon.unlocked_skills(self.main_class, self.subclass, 1)[0]
             embed.add_field(
                 name=f"Preview: {name}",
-                value=f"HP {stats['hp']} / ATK {stats['atk']} / DEF {stats['def']} / 🪙 Chips {stats['chips']}\n"
+                value=f"HP {stats['hp']} / ATK {stats['atk']} / DEF {stats['def']} / "
+                      f"SpAtk {stats['spatk']} / SpDef {stats['spdef']} / 🪙 Chips {stats['chips']}\n"
                       f"Skill: **{skill['name']}** — {skill['flavor']}",
                 inline=False,
             )
@@ -2235,7 +2278,7 @@ class ConfirmButton(discord.ui.Button):
         stats = dungeon.compute_stats(picker.main_class, picker.subclass)
         created = await asyncio.to_thread(
             db.create_character, picker.guild_id, picker.user_id, picker.main_class, picker.subclass,
-            stats["hp"], stats["atk"], stats["def"],
+            stats["hp"], stats["atk"], stats["def"], stats["spatk"], stats["spdef"],
         )
         if not created:
             await interaction.response.send_message("You already have a character.", ephemeral=True)
@@ -2244,7 +2287,8 @@ class ConfirmButton(discord.ui.Button):
         name = dungeon.display_name(picker.main_class, picker.subclass)
         embed = discord.Embed(
             title=f"✅ You are now a {name}!",
-            description=f"HP {stats['hp']} / ATK {stats['atk']} / DEF {stats['def']} / 🪙 Chips {stats['chips']}\n\n"
+            description=f"HP {stats['hp']} / ATK {stats['atk']} / DEF {stats['def']} / "
+                        f"SpAtk {stats['spatk']} / SpDef {stats['spdef']} / 🪙 Chips {stats['chips']}\n\n"
                         f"Use `!delve` to enter the dungeon.",
             color=discord.Color.green(),
         )

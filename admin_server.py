@@ -1473,6 +1473,8 @@ def _render_monster_skill_row(prefix: str, skill: dict) -> str:
         f'<small class="field-hint">A relative weight against this monster\'s own attack_chance '
         f'and its other skills\' chances -- not a 0-1 probability. Higher = more likely relative '
         f'to the others.</small>'
+        f'<label class="checkbox-label"><input type="checkbox" name="{prefix}_special"'
+        f'{" checked" if skill.get("special") else ""}> Special (rolls SpAtk/SpDef instead of ATK/DEF)</label>'
         f'<div>{effects_repeatable}</div>'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove skill</button></fieldset>'
     )
@@ -2130,7 +2132,7 @@ def _render_field(field: dict, value, entry: dict | None = None, problems: list[
         value = value or {}
         inputs = "".join(
             f'<label>{stat}<input type="number" name="stat_{stat}" value="{value.get(stat, 0)}"></label>'
-            for stat in ("hp", "atk", "def")
+            for stat in ("hp", "atk", "def", "spatk", "spdef")
         )
         return f'<fieldset><legend>{label}</legend><div class="row-group">{inputs}</div></fieldset>'
 
@@ -2303,7 +2305,7 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
 
     if ftype == "stat_bonuses":
         bonuses = {}
-        for stat in ("hp", "atk", "def"):
+        for stat in ("hp", "atk", "def", "spatk", "spdef"):
             raw = form.get(f"stat_{stat}", "").strip()
             if raw and int(raw) != 0:
                 bonuses[stat] = int(raw)
@@ -2328,8 +2330,9 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
             raw_chance = form.get(f"{prefix}_chance", "").strip()
             chance = (float(raw_chance) if "." in raw_chance else int(raw_chance)) if raw_chance else 0
             effects = _parse_effects_list(f"{prefix}_effects", form)
+            special = f"{prefix}_special" in form
             if effects:  # a skill with no effects yet isn't meaningful to save -- drop it silently
-                skills.append({"name": skill_name, "chance": chance, "effects": effects})
+                skills.append({"name": skill_name, "chance": chance, "effects": effects, "special": special})
         return (name, skills)
 
     if ftype == "materials":

@@ -331,7 +331,8 @@ async def stats_cmd(ctx):
         embed.add_field(
             name="🗡️ Class",
             value=f"{name} {suit_symbol} — Level {character['level']}\n"
-            f"HP {current_hp}/{effective['hp']} / ATK {effective['atk']} / DEF {effective['def']}\n"
+            f"HP {current_hp}/{effective['hp']} / ATK {effective['atk']} / DEF {effective['def']} / "
+            f"SpAtk {effective['spatk']} / SpDef {effective['spdef']}\n"
             f"Gear: {gear}",
             inline=True,
         )
@@ -785,7 +786,8 @@ async def class_cmd(ctx):
         embed.add_field(name="Level", value=f"{character['level']} ({character['xp']}/{xp_needed} XP)", inline=True)
         embed.add_field(
             name="Stats",
-            value=f"HP {current_hp}/{effective['hp']} / ATK {effective['atk']} / DEF {effective['def']}",
+            value=f"HP {current_hp}/{effective['hp']} / ATK {effective['atk']} / DEF {effective['def']} / "
+                  f"SpAtk {effective['spatk']} / SpDef {effective['spdef']}",
             inline=True,
         )
         gear_lines = []

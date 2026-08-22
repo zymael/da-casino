@@ -191,13 +191,21 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "MONSTERS",
         "loader": dungeon._load_monsters,
-        "list_columns": ["id", "name", "intended_level", "hp", "atk", "def"],
+        "list_columns": ["id", "name", "intended_level", "hp", "atk", "def", "spatk", "spdef"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
             {"name": "hp", "type": "int", "required": True, "min": 0, "group": "Stats"},
             {"name": "atk", "type": "int", "required": True, "min": 0, "group": "Stats"},
             {"name": "def", "type": "int", "required": True, "min": 0, "group": "Stats"},
+            {
+                "name": "spatk", "type": "int", "required": True, "min": 0, "group": "Stats",
+                "hint": "Special Attack -- used instead of atk when this monster's own skill is flagged special",
+            },
+            {
+                "name": "spdef", "type": "int", "required": True, "min": 0, "group": "Stats",
+                "hint": "Special Defense -- used instead of def against an attacker's special skills",
+            },
             {
                 "name": "intended_level", "type": "int", "required": False, "min": 1, "group": "Stats",
                 "hint": "optional -- the player level this monster is meant to be a fair fight for. "
@@ -368,6 +376,11 @@ CONTENT_TYPES = {
                 "name": "chip_cost", "type": "int", "required": True, "min": 1, "group": "Class",
                 "hint": "Chips spent to cast this skill -- must not exceed the build's max Chips "
                         "(dungeon.CLASSES/SUBCLASSES) or it would be permanently unusable",
+            },
+            {
+                "name": "special", "type": "bool", "required": False, "default": False, "group": "Class",
+                "hint": "Physical (unchecked) rolls damage against ATK/DEF; Special (checked) uses "
+                        "SpAtk/SpDef instead. Plain Attack is always Physical.",
             },
         ],
     },
@@ -581,6 +594,8 @@ EFFECT_TYPE_HINTS = {
     "extra_attack": "multiplier: optional damage multiplier for the bonus attack (blank = 1.0, a full extra hit)",
     "atk_buff": "value: flat ATK bonus for the rest of this fight",
     "def_buff": "value: flat DEF bonus for the rest of this fight",
+    "spatk_buff": "value: flat SpAtk bonus for the rest of this fight",
+    "spdef_buff": "value: flat SpDef bonus for the rest of this fight",
 }
 
 SHOP_KINDS = list(npcs.SHOP_KINDS.keys())

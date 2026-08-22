@@ -23,7 +23,7 @@ MAX_SELECT_OPTIONS = 25  # Discord's hard limit on a single Select's options
 def _stat_bonus_text(item: dict) -> str:
     """e.g. 'ATK +3' or 'HP +2 / DEF +1' -- the compact form used everywhere an item's power
     needs to be legible at a glance (embed lines and Select option descriptions alike)."""
-    order = ("hp", "atk", "def")
+    order = ("hp", "atk", "def", "spatk", "spdef")
     parts = [f"{stat.upper()} +{item['stat_bonuses'][stat]}" for stat in order if item["stat_bonuses"].get(stat)]
     return " / ".join(parts)
 
