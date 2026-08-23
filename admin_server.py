@@ -3745,12 +3745,13 @@ async def player_debug_view(request: web.Request) -> web.Response:
             if character:
                 equipped = db.get_equipped_items(gid, uid)
                 max_hp = dungeon.compute_effective_stats(character, equipped)["hp"]
+                current_hp = min(character["current_hp"], max_hp)
                 character_fields = (
                     f'<label>Level<input type="number" min="1" name="level" value="{character["level"]}"></label>'
                     f'<label>XP<input type="number" min="0" name="xp" value="{character["xp"]}"></label>'
                     f'<label>Current HP <small class="field-hint">max {max_hp}</small>'
                     f'<input type="number" min="0" max="{max_hp}" name="current_hp" '
-                    f'value="{character["current_hp"]}"></label>'
+                    f'value="{current_hp}"></label>'
                 )
             else:
                 character_fields = "<p><em>No dungeon character yet.</em></p>"
