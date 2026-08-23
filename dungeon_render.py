@@ -16,6 +16,7 @@ _label_font = ImageFont.truetype(_FONT_PATH, 20)
 _card_rank_font = ImageFont.truetype(_FONT_PATH, 17)
 _card_suit_font = ImageFont.truetype(_FONT_PATH, 13)
 _card_strip_label_font = ImageFont.truetype(_FONT_PATH, 14)
+_card_initial_font = ImageFont.truetype(_FONT_PATH, 13)
 
 # The dungeon-entrance banner -- a separate photo banner, not the room background above.
 # Dialogue rendering itself now lives in npc_render.py (shared by every NPC/hub); this module just
@@ -103,7 +104,8 @@ def _sprite_height_for(count: int) -> int:
 # the largest count any call site passes -- within WIDTH, so there's no dynamic per-card resizing
 # to keep in sync with font sizes.
 CARD_WIDTH, CARD_HEIGHT, CARD_GAP = 42, 58, 4
-CARD_STRIP_HEIGHT = CARD_HEIGHT + 28  # card row + a "Next up:" label row above it
+INITIAL_ROW_HEIGHT = 16  # room below each card for its combatant's name-initial letter
+CARD_STRIP_HEIGHT = CARD_HEIGHT + 28 + INITIAL_ROW_HEIGHT  # "Next up:" label row + card row + initial row
 
 _RED_SUITS = {"♥", "♦"}
 
@@ -135,9 +137,11 @@ def _draw_monster_card(draw: ImageDraw.ImageDraw, x: float, y: float, shape: str
 def _composite_turn_order_strip(img: Image.Image, turn_order: list[dict]) -> Image.Image:
     """Grows the room scene downward to fit a horizontal strip of playing-card-style icons for the
     next several turns (dungeon.preview_next_turns) -- purely cosmetic FFX flavor. Each entry is
-    `{"kind": "player", "rank": ..., "suit": ...}` or `{"kind": "monster", "shape": ..., "color":
-    ...}`; the same combatant can (and does) appear on multiple cards when they're fast enough to
-    act again before others get a turn -- intended, matches FFX's own UI. Returns a new taller
+    `{"kind": "player", "rank": ..., "suit": ..., "initial": ...}` or `{"kind": "monster", "shape":
+    ..., "color": ..., "initial": ...}`; the same combatant can (and does) appear on multiple cards
+    when they're fast enough to act again before others get a turn -- intended, matches FFX's own
+    UI. `initial` (first letter of the combatant's own name) is printed under each card so same-rank
+    party members or same-species monsters stay distinguishable at a glance. Returns a new taller
     image; doesn't mutate `img`."""
     strip = Image.new("RGBA", (WIDTH, CARD_STRIP_HEIGHT), (15, 15, 20, 255))
     draw = ImageDraw.Draw(strip)
@@ -145,13 +149,20 @@ def _composite_turn_order_strip(img: Image.Image, turn_order: list[dict]) -> Ima
     n = len(turn_order)
     total_width = n * CARD_WIDTH + max(0, n - 1) * CARD_GAP
     start_x = max(6, (WIDTH - total_width) // 2)
-    y = CARD_STRIP_HEIGHT - CARD_HEIGHT - 5
+    y = CARD_STRIP_HEIGHT - CARD_HEIGHT - 5 - INITIAL_ROW_HEIGHT
     for i, card in enumerate(turn_order):
         x = start_x + i * (CARD_WIDTH + CARD_GAP)
         if card["kind"] == "player":
             _draw_player_card(draw, x, y, card["rank"], card["suit"])
         else:
             _draw_monster_card(draw, x, y, card["shape"], card["color"])
+        initial = card.get("initial", "?")
+        ibox = draw.textbbox((0, 0), initial, font=_card_initial_font)
+        iw = ibox[2] - ibox[0]
+        draw.text(
+            (x + CARD_WIDTH / 2 - iw / 2, y + CARD_HEIGHT + 2), initial,
+            font=_card_initial_font, fill=(220, 220, 230, 255),
+        )
     combined = Image.new("RGBA", (WIDTH, HEIGHT + CARD_STRIP_HEIGHT), (0, 0, 0, 255))
     combined.alpha_composite(img, (0, 0))
     combined.alpha_composite(strip, (0, HEIGHT))

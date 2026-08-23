@@ -338,16 +338,28 @@ def _room_background_path(delve: dict, room: dict) -> str | None:
 TURN_ORDER_PREVIEW_COUNT = 8
 
 
-def _player_card(main_class: str, subclass: str) -> dict:
+def _player_card(name: str, main_class: str, subclass: str) -> dict:
     """A player/party-member's card descriptor -- reuses the existing rank letter (A/K/Q/J) and
-    suit symbol (♠♥♦♣) that already name every build, zero new content needed."""
-    return {"kind": "player", "rank": dungeon.CLASSES[main_class]["rank"], "suit": dungeon.SUIT_SYMBOLS[subclass]}
+    suit symbol (♠♥♦♣) that already name every build, zero new content needed. `initial` is the
+    first letter of the player's own name, printed under the card in the turn-order strip so
+    party members (who share ranks/suits across builds) stay distinguishable at a glance."""
+    return {
+        "kind": "player",
+        "rank": dungeon.CLASSES[main_class]["rank"],
+        "suit": dungeon.SUIT_SYMBOLS[subclass],
+        "initial": name[0].upper() if name else "?",
+    }
 
 
 def _monster_card(monster: dict) -> dict:
     """A monster's card descriptor -- reuses its existing shape/color fields, the same placeholder
     identity already used to draw it in the room scene."""
-    return {"kind": "monster", "shape": monster["shape"], "color": monster["color"]}
+    return {
+        "kind": "monster",
+        "shape": monster["shape"],
+        "color": monster["color"],
+        "initial": monster["name"][0].upper() if monster.get("name") else "?",
+    }
 
 
 def _combat_intro_text(room: dict, monsters: list[dict]) -> str:
@@ -371,7 +383,8 @@ def _solo_turn_order_cards(session: DelveSession) -> list[dict]:
     monsters_by_slot = {m.slot: m for m in living}
     order = dungeon.preview_next_turns(combatants, TURN_ORDER_PREVIEW_COUNT)
     return [
-        _player_card(session.main_class, session.subclass) if cid is None else _monster_card(monsters_by_slot[cid].monster)
+        _player_card(session.display_name, session.main_class, session.subclass)
+        if cid is None else _monster_card(monsters_by_slot[cid].monster)
         for cid in order
     ]
 
@@ -1575,7 +1588,7 @@ def _party_turn_order_cards(session: PartyDelveSession) -> list[dict]:
     for cid in order:
         if cid in member_ids:
             member = members_by_id[cid]
-            cards.append(_player_card(member.main_class, member.subclass))
+            cards.append(_player_card(member.player_name, member.main_class, member.subclass))
         else:
             cards.append(_monster_card(monsters_by_slot[cid].monster))
     return cards
