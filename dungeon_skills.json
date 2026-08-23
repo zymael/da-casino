@@ -925,5 +925,26 @@
     ],
     "chip_cost": 10,
     "special": true
+  },
+  {
+    "id": "throw_coin_copy",
+    "main_class": "healer",
+    "subclass": "spades",
+    "unlock_level": 5,
+    "name": "Royal Slap",
+    "flavor": "Disgusting!",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1.2
+      },
+      {
+        "type": "def_shred",
+        "value": 3,
+        "aoe": true
+      }
+    ],
+    "chip_cost": 7,
+    "special": true
   }
 ]
