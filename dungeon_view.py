@@ -1454,9 +1454,12 @@ def _resolve_player_action(
         `mods` for the damage roll below -- damage_multiplier/extra_attack's own "aoe" (either one)
         decides whether the damage roll below targets `current_target` alone or every monster in
         `enemy_pool`.
-      - ally-shaped effects apply to `[ally_target]`, or (per their own "aoe") `ally_pool` -- always
+      - ally-shaped effects apply to `[ally_target]`, or (per their own "aoe") `ally_pool`, or (per
+        their own "self_only") `[actor]` regardless of whatever ally is currently selected -- always
         unconditional, never gated by any monster's dodge (a self-heal was never really "the
-        attack" that could be dodged).
+        attack" that could be dodged). "self_only" and "aoe" are mutually exclusive on the same
+        effect (dungeon._validate_effects rejects the combination) -- solo/duel calls never notice
+        the difference either way, since `ally_target` already always equals `actor` there.
       - enemy-shaped effects (taunt/lower_threat folded in here like any other, now that they're
         plain EFFECT_HANDLERS entries) each apply to `[current_target]`, or (per their own "aoe")
         `enemy_pool` -- gated by dodge.
@@ -1482,7 +1485,13 @@ def _resolve_player_action(
         EFFECT_HANDLERS[e["type"]](actor, None, e, log_lines, mods)
 
     for e in ally_effects:
-        for t in (ally_pool if e.get("aoe") else [ally_target]):
+        if e.get("aoe"):
+            targets = ally_pool
+        elif e.get("self_only"):
+            targets = [actor]
+        else:
+            targets = [ally_target]
+        for t in targets:
             EFFECT_HANDLERS[e["type"]](t, None, e, log_lines, mods)
 
     attack_is_aoe = any(e.get("aoe") for e in mods_effects if e["type"] in DAMAGE_EFFECT_TYPES)

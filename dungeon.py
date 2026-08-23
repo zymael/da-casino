@@ -648,7 +648,17 @@ def _validate_effects(effects, context: str):
     from the required/optional/fraction machinery below (that's all numeric-param shaped; "aoe" is
     the first non-numeric param this function has ever needed), and excluded from `params` before
     the required/unknown-param checks so it's never treated as an unknown param on any type, nor
-    forced into any type's own required/optional list."""
+    forced into any type's own required/optional list.
+
+    "self_only" is the third option alongside plain single-target and "aoe" for an ALLY-shaped
+    effect specifically (heal/buffs/dodge_buff/hot/cleanse_dot/cleanse_cc/...) -- forces this one
+    effect to land on the caster even if the caster has a different living ally selected via
+    PartyDelveSession.ally_target_for (dungeon_view.py's ally-target picker). Meaningless on a
+    MODS_ONLY or ENEMY_TARGETED effect (neither of those is ever subject to ally-target redirection
+    in the first place -- a damage roll always targets current_target/enemy_pool, never an ally),
+    so it's rejected there rather than silently doing nothing the way an inert "aoe" on
+    lifesteal_fraction does. Also rejected alongside "aoe": true on the same effect -- "hits
+    everyone" and "caster only" are a direct contradiction, not two flags that can coexist."""
     if not effects:
         raise ValueError(f"{context} has empty effects")
     for effect in effects:
@@ -658,7 +668,18 @@ def _validate_effects(effects, context: str):
         required, optional, fraction_params = EFFECT_PARAM_SCHEMAS[effect_type]
         if "aoe" in effect and not isinstance(effect["aoe"], bool):
             raise ValueError(f"{context} effect {effect_type!r} param 'aoe' must be a bool")
-        params = effect.keys() - {"type", "aoe"}
+        if "self_only" in effect:
+            if not isinstance(effect["self_only"], bool):
+                raise ValueError(f"{context} effect {effect_type!r} param 'self_only' must be a bool")
+            if effect["self_only"]:
+                if effect_type in MODS_ONLY_EFFECT_TYPES or effect_type in ENEMY_TARGETED_EFFECT_TYPES:
+                    raise ValueError(
+                        f"{context} effect {effect_type!r} can't use 'self_only' -- it's never subject to "
+                        f"ally-target redirection in the first place"
+                    )
+                if effect.get("aoe"):
+                    raise ValueError(f"{context} effect {effect_type!r} can't set both 'aoe' and 'self_only'")
+        params = effect.keys() - {"type", "aoe", "self_only"}
         missing = required - params
         if missing:
             raise ValueError(f"{context} effect {effect_type!r} missing param(s): {sorted(missing)}")

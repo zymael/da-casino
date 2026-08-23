@@ -1556,6 +1556,20 @@ def _render_effect_row(
         f'single target (the usual behavior).">'
         f'<input type="checkbox" name="{prefix}_aoe"{aoe_checked}> aoe</label>'
     )
+    # "self_only" is ally-shaped effects' third targeting option alongside plain single-target and
+    # aoe (dungeon._validate_effects rejects it on a mods-only/enemy-targeted effect, and rejects it
+    # combined with aoe on the same effect) -- forces this effect onto the caster even when they've
+    # selected a different living ally via the in-fight ally-target picker (PartyDelveSession.
+    # ally_target_for). Shown on every row regardless of type, same "let the dropdown show
+    # everything, catch a bad combination loudly at Save" choice aoe's own tooltip note already
+    # documents for this panel.
+    self_only_checked = " checked" if effect.get("self_only") else ""
+    self_only_html = (
+        f'<label class="checkbox-label" data-tooltip="Only ally-shaped effects (heals/buffs) use '
+        f'this. Forces the effect onto the caster even if they\'ve selected a different living ally '
+        f'to target -- for a skill that should never be redirectable. Can\'t be combined with aoe.">'
+        f'<input type="checkbox" name="{prefix}_self_only"{self_only_checked}> self only</label>'
+    )
     trigger_html = ""
     if include_trigger:
         trigger_options = "".join(
@@ -1574,7 +1588,7 @@ def _render_effect_row(
         f'<label>type<select name="{prefix}_type" class="effect-type-select">{type_options}</select></label>'
         f'{trigger_html}'
         f'<small class="field-hint effect-hint"></small>'
-        f'{param_inputs}{aoe_html}<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
+        f'{param_inputs}{aoe_html}{self_only_html}<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
     )
 
 
@@ -2394,6 +2408,8 @@ def _parse_effects_list(container_prefix: str, form: dict) -> list[dict]:
         # it matches every other effect authored before "aoe" existed.
         if f"{prefix}_aoe" in form:
             effect["aoe"] = True
+        if f"{prefix}_self_only" in form:
+            effect["self_only"] = True
         effects.append(effect)
     return effects
 
@@ -2430,6 +2446,8 @@ def _parse_equipment_effects(form: dict) -> list[dict]:
                 effect[p] = float(raw) if "." in raw else int(raw)
         if f"{prefix}_aoe" in form:
             effect["aoe"] = True
+        if f"{prefix}_self_only" in form:
+            effect["self_only"] = True
         effects.append(effect)
     return effects
 
