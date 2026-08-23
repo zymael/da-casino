@@ -1113,9 +1113,11 @@ def _combatant_possessive(entity) -> str:
 
 
 def _apply_timed_effect(actor, effect_type: str, value, duration: int, log_lines: list[str], message: str) -> None:
-    """Shared by the four timed-effect handlers (dodge_buff/resist_buff/dot/hot): refreshes an
-    existing entry of this type on `actor.timed_effects` in place rather than stacking a second
-    one, or appends a fresh entry if there wasn't one."""
+    """Shared by every timed-effect handler (dodge_buff/resist_buff/dot/hot, and sap/stun): refreshes
+    an existing entry of this type on `actor.timed_effects` in place rather than stacking a second
+    one, or appends a fresh entry if there wasn't one. Despite the parameter name, `actor` here is
+    just "whichever entity this lands on" -- the ally-shaped four pass the caster, sap/stun (enemy-
+    targeted) pass `monster_state` instead."""
     existing = next((e for e in actor.timed_effects if e["type"] == effect_type), None)
     if existing is not None:
         existing["value"] = value
@@ -1281,6 +1283,38 @@ def _effect_hot(actor, monster_state, effect: dict, log_lines: list[str], mods: 
     )
 
 
+def _cc_target_subject(entity) -> str:
+    """The one case _combatant_name can't cover: a monster's own skill (unlike a player's) can
+    enemy-target the solo player it's fighting directly (monster_state there is the DelveSession
+    itself, not a MonsterInstance/duel-opponent PartyMember -- see _resolve_monster_attack), and a
+    DelveSession has no .label for _combatant_name to fall back on. "you" reads correctly there;
+    everywhere else (a MonsterInstance a player just hit, or a duel opponent) _combatant_name's
+    bolded name is what every other enemy-targeted effect (def_shred, the *_debuff family) already
+    uses, so this only special-cases the one entity type that needs it."""
+    return "You" if isinstance(entity, DelveSession) else _combatant_name(entity)
+
+
+def _effect_sap(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    # Enemy-targeted (unlike the ally-shaped dodge_buff/resist_buff/dot/hot above), so this lands on
+    # `monster_state` -- see _apply_timed_effect's own note that it only cares about a
+    # `.timed_effects` list, not which role its first arg plays.
+    subject = _cc_target_subject(monster_state)
+    verb, pronoun = ("are", "you") if subject == "You" else ("is", "they")
+    _apply_timed_effect(
+        monster_state, "sap", None, effect["duration"], log_lines,
+        f"{subject} {verb} sapped for up to **{effect['duration']}** turn(s), or until {pronoun} take a hit.",
+    )
+
+
+def _effect_stun(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    subject = _cc_target_subject(monster_state)
+    verb = "are" if subject == "You" else "is"
+    _apply_timed_effect(
+        monster_state, "stun", None, effect["duration"], log_lines,
+        f"{subject} {verb} stunned for **{effect['duration']}** turn(s).",
+    )
+
+
 EFFECT_HANDLERS = {
     "damage_multiplier": _effect_damage_multiplier,
     "heal_fraction": _effect_heal_fraction,
@@ -1304,6 +1338,8 @@ EFFECT_HANDLERS = {
     "resist_buff": _effect_resist_buff,
     "dot": _effect_dot,
     "hot": _effect_hot,
+    "sap": _effect_sap,
+    "stun": _effect_stun,
 }
 
 
@@ -1413,6 +1449,7 @@ def _resolve_player_action(
             total_dmg += dmg
             hit_monsters.append(monster)
             log_lines.append(f"{subject_label} {verb} {_combatant_name(monster)} for **{dmg}** damage.")
+            _break_sap(monster, log_lines)
             if threat_gain:
                 monster.threat[actor.user_id] = monster.threat.get(actor.user_id, 0) + dmg * dungeon.THREAT_PER_DAMAGE
             _roll_on_hit_procs(actor, monster, equipped_items, dmg, log_lines)
@@ -1449,6 +1486,7 @@ def _tick_timed_effects(entities: list, log_lines: list[str]) -> None:
                 dmg = eff["value"]
                 entity.hp -= dmg
                 log_lines.append(f"{_actor_label(entity)} {_verb(entity, 'take')} **{dmg}** damage from lingering harm.")
+                _break_sap(entity, log_lines)
             elif eff["type"] == "hot":
                 healed = min(entity.max_hp, entity.hp + round(entity.max_hp * eff["value"])) - entity.hp
                 entity.hp += healed
@@ -1457,6 +1495,33 @@ def _tick_timed_effects(entities: list, log_lines: list[str]) -> None:
         for eff in entity.timed_effects:
             eff["remaining"] -= 1
         entity.timed_effects = [e for e in entity.timed_effects if e["remaining"] > 0]
+
+
+def _break_sap(entity, log_lines: list[str]) -> None:
+    """Sap breaks the instant `entity` takes damage from any source -- called at every point damage
+    lands on any entity's hp (mirrors _consume_guard_charge's call-site pattern), including this
+    same hit if it was a Sap-and-damage combo skill (dungeon.py's own comment on the "sap"/"stun"
+    schema entries explains why that combo is a trap for a content author, not a bug here). A no-op
+    if no sap is active."""
+    before = len(entity.timed_effects)
+    entity.timed_effects = [e for e in entity.timed_effects if e["type"] != "sap"]
+    if len(entity.timed_effects) < before:
+        log_lines.append(f"{_possessive_label(entity)} sap breaks from the hit!")
+
+
+def _active_cc_type(entity) -> str | None:
+    """Whether `entity`'s own turn, about to come up, should be skipped for an active stun/sap --
+    "stun" or "sap" (for the skip line's wording) or None. Must be read BEFORE _tick_timed_effects
+    runs for this entity's turn, not after: the tick's own decrement-then-filter step would already
+    have dropped a just-expired entry by the time an after-tick check ran, silently skipping one
+    turn fewer than the effect's own duration promised."""
+    return next((e["type"] for e in entity.timed_effects if e["type"] in ("stun", "sap")), None)
+
+
+def _crowd_control_skip_line(entity, cc_type: str) -> str:
+    pronoun = "its" if isinstance(entity, MonsterInstance) else "your"
+    word = "stunned" if cc_type == "stun" else "sapped"
+    return f"{_actor_label(entity)} {_verb(entity, 'skip')} {pronoun} turn, {word}!"
 
 
 def _roll_on_hit_procs(actor, monster_state, equipped_items: list[dict], dmg: int, log_lines: list[str]) -> None:
@@ -1569,18 +1634,24 @@ async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSe
         if next_id is None:
             # The player's own turn -- tick their own timed effects right as it comes up (a DoT
             # can end the fight here, before they ever get to act) then render and hand control
-            # back.
+            # back. cc_type is read BEFORE the tick (see _active_cc_type's own docstring).
+            cc_type = _active_cc_type(session)
             _tick_timed_effects([session], log_lines)
             if session.hp <= 0:
                 embed = await _solo_death_embed(session, log_lines)
                 await interaction.response.edit_message(embed=embed, attachments=[], view=None)
                 return
+            if cc_type is not None:
+                log_lines.append(_crowd_control_skip_line(session, cc_type))
+                session.turn_clock += dungeon.turn_interval(max(1, session.speed - session.speed_debuff))
+                continue
             embed, file = _combat_embed(session, "\n".join(log_lines))
             view = await _build_combat_view(session)
             await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
             return
 
         monster = next(m for m in session.living_monsters() if m.slot == next_id)
+        monster_cc_type = _active_cc_type(monster)
         _tick_timed_effects([monster], log_lines)
         monster.turn_clock += dungeon.turn_interval(max(1, monster.speed - monster.speed_debuff))
         if monster.hp <= 0:
@@ -1590,6 +1661,9 @@ async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSe
                 loot_mult=session.loot_mult * player_moon_mult, chance_mult=1.0,
             )
             continue  # never got to act this turn -- loop re-checks living_monsters() at the top
+        if monster_cc_type is not None:
+            log_lines.append(_crowd_control_skip_line(monster, monster_cc_type))
+            continue
 
         monster_dmg, monster_skill, dodged = _resolve_monster_attack(monster, session, moon_effect, log_lines)
         verb = f"unleashes **{monster_skill['name']}**" if monster_skill else "strikes back"
@@ -1599,6 +1673,7 @@ async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSe
             monster_dmg = _consume_guard_charge(session, monster_dmg, log_lines)
             log_lines.append(f"**{monster.monster['name']}** {verb} for **{monster_dmg}**.")
             session.hp -= monster_dmg
+            _break_sap(session, log_lines)
 
         if session.hp <= 0:
             embed = await _solo_death_embed(session, log_lines)
@@ -1844,12 +1919,18 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
 
         if next_id in member_ids:
             # A living member's own turn -- tick their own timed effects right as it comes up (a
-            # DoT can knock them out here, before they ever get to act).
+            # DoT can knock them out here, before they ever get to act). cc_type is read BEFORE the
+            # tick (see _active_cc_type's own docstring).
             member = session.members_by_id[next_id]
+            cc_type = _active_cc_type(member)
             _tick_timed_effects([member], log_lines)
             if member.hp <= 0:
                 member.knocked_out = True
                 log_lines.append(f"💀 **{member.label}** is knocked out!")
+                continue
+            if cc_type is not None:
+                log_lines.append(_crowd_control_skip_line(member, cc_type))
+                member.turn_clock += dungeon.turn_interval(max(1, member.speed - member.speed_debuff))
                 continue
             embed, file = _party_combat_embed(session, "\n".join(log_lines), member)
             view = await _build_party_combat_view(session, member)
@@ -1857,6 +1938,7 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
             return
 
         monster = next(m for m in session.living_monsters() if m.slot == next_id)
+        monster_cc_type = _active_cc_type(monster)
         _tick_timed_effects([monster], log_lines)
         monster.turn_clock += dungeon.turn_interval(max(1, monster.speed - monster.speed_debuff))
         if monster.hp <= 0:
@@ -1872,6 +1954,9 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
                 log_lines.append(f"**{m.label}**")
                 log_lines.extend(f"> {line}" for line in member_log)
             continue  # never got to act this turn -- loop re-checks living_monsters() at the top
+        if monster_cc_type is not None:
+            log_lines.append(_crowd_control_skip_line(monster, monster_cc_type))
+            continue
 
         living = session.living_members()
         if not living:
@@ -1892,6 +1977,7 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
             verb = f"unleashes **{monster_skill['name']}** on" if monster_skill else "strikes"
             log_lines.append(f"**{monster.monster['name']}** {verb} **{target.label}** for **{monster_dmg}**.")
             target.hp -= monster_dmg
+            _break_sap(target, log_lines)
             if target.hp <= 0:
                 target.knocked_out = True
                 log_lines.append(f"💀 **{target.label}** is knocked out!")
@@ -2986,13 +3072,20 @@ async def _advance_duel_turns(interaction: discord.Interaction | None, session: 
 
     # Tick the incoming actor's own timed effects right as their turn comes up (a self-inflicted
     # dot could finish them here, before they ever get to act) -- same point _advance_party_turns
-    # ticks a member's/monster's own timed_effects.
+    # ticks a member's/monster's own timed_effects. cc_type is read BEFORE the tick (see
+    # _active_cc_type's own docstring).
+    cc_type = _active_cc_type(actor)
     _tick_timed_effects([actor], log_lines)
     if actor.hp <= 0 and opponent.hp <= 0:
         await _end_duel(interaction, session, None, log_lines)
         return
     if actor.hp <= 0:
         await _end_duel(interaction, session, opponent, log_lines)
+        return
+    if cc_type is not None:
+        log_lines.append(_crowd_control_skip_line(actor, cc_type))
+        actor.turn_clock += dungeon.turn_interval(max(1, actor.speed - actor.speed_debuff))
+        await _advance_duel_turns(interaction, session, log_lines)
         return
 
     embed, file = _duel_combat_embed(session, "\n".join(log_lines), actor)

@@ -595,6 +595,17 @@ EFFECT_PARAM_SCHEMAS = {
     "resist_buff": ({"value", "duration"}, set(), {"value"}),
     "dot": ({"value", "duration"}, set(), set()),
     "hot": ({"value", "duration"}, set(), {"value"}),
+    # Crowd control -- also genuinely temporary (ticked by dungeon_view._tick_timed_effects) like
+    # the four above, but ENEMY_TARGETED rather than ally-shaped (see that set below): they land on
+    # current_target/every monster, not the caster. No "value" param -- there's nothing to scale,
+    # just "skip this many of the target's own turns." Sap breaks the instant its target takes ANY
+    # damage, including from the very same action that applied it (dungeon_view._break_sap runs at
+    # every point damage lands on any entity, with no way to except "this hit doesn't count because
+    # it's the one that just inflicted Sap") -- so a skill pairing direct damage with Sap on the
+    # same cast will see the Sap broken immediately; author Sap as a pure-utility effect if it's
+    # meant to actually hold. Stun has no such condition -- it always lasts its full duration.
+    "sap": ({"duration"}, set(), set()),
+    "stun": ({"duration"}, set(), set()),
 }
 
 # Which "shape" an effect type is, for dungeon_view.py's per-effect aoe resolution (see each
@@ -613,7 +624,7 @@ EFFECT_PARAM_SCHEMAS = {
 MODS_ONLY_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "lifesteal_fraction"}
 ENEMY_TARGETED_EFFECT_TYPES = {
     "atk_debuff", "spatk_debuff", "spdef_debuff", "speed_debuff", "def_shred",
-    "taunt", "lower_threat",
+    "taunt", "lower_threat", "sap", "stun",
 }
 
 
