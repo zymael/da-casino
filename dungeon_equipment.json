@@ -544,5 +544,27 @@
     ],
     "special": false,
     "flavor": "aaaa"
+  },
+  {
+    "id": "TEST_dagger",
+    "name": "Overpowered Jinkblade",
+    "slot": "weapon",
+    "rarity": "common",
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 1
+      },
+      {
+        "type": "stun",
+        "trigger": "on_hit",
+        "chance": 1.0,
+        "duration": 2
+      }
+    ],
+    "special": false,
+    "intended_level": 1,
+    "flavor": "This thing is lame as heck"
   }
 ]
