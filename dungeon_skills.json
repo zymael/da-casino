@@ -876,6 +876,6 @@
       }
     ],
     "chip_cost": 10,
-    "special": false
+    "special": true
   }
 ]
