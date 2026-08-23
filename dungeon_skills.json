@@ -877,5 +877,28 @@
     ],
     "chip_cost": 10,
     "special": true
+  },
+  {
+    "id": "fetch_wine_diamond",
+    "main_class": "healer",
+    "subclass": "diamonds",
+    "unlock_level": 7,
+    "name": "Healing Wine",
+    "flavor": "Squire! Fetch me some (cheap) good wine!",
+    "effects": [
+      {
+        "type": "heal_fraction",
+        "value": 0.25,
+        "aoe": true
+      },
+      {
+        "type": "dodge_buff",
+        "duration": 3,
+        "value": 0.2,
+        "aoe": true
+      }
+    ],
+    "chip_cost": 10,
+    "special": true
   }
 ]
