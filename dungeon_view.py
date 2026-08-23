@@ -1094,6 +1094,24 @@ def _verb(entity, base: str) -> str:
     return base if not isinstance(entity, MonsterInstance) else base + "s"
 
 
+def _combatant_name(entity) -> str:
+    """Subject-position name for an entity in the monster_state/opponent role -- unlike
+    _actor_label, this is never "You": a MonsterInstance's bolded name (PvE, the usual case) or a
+    PartyMember's own bolded label (a duel opponent -- see the Dueling section below). Only ever
+    used for monster_state-role references (enemy-shaped effect log lines, _resolve_player_action's
+    own dodge/damage lines) -- an actor's own self-referential lines still go through
+    _actor_label/_possessive_label ("You"/"Your") unchanged, and monster_state in every one of
+    those call sites is guaranteed to be a MonsterInstance or a duel-opponent PartyMember, never a
+    solo DelveSession (which has no .label), so this never needs to handle that case."""
+    if isinstance(entity, MonsterInstance):
+        return f"**{entity.monster['name']}**"
+    return f"**{entity.label}**"
+
+
+def _combatant_possessive(entity) -> str:
+    return f"{_combatant_name(entity)}'s"
+
+
 def _apply_timed_effect(actor, effect_type: str, value, duration: int, log_lines: list[str], message: str) -> None:
     """Shared by the four timed-effect handlers (dodge_buff/resist_buff/dot/hot): refreshes an
     existing entry of this type on `actor.timed_effects` in place rather than stacking a second
@@ -1148,7 +1166,7 @@ def _effect_lifesteal_fraction(actor, monster_state, effect: dict, log_lines: li
 
 def _effect_def_shred(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     monster_state.def_debuff += effect["value"]
-    log_lines.append(f"{_possessive_label(monster_state)} defenses crumble by **{effect['value']}**.")
+    log_lines.append(f"{_combatant_possessive(monster_state)} defenses crumble by **{effect['value']}**.")
 
 
 def _effect_extra_attack(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
@@ -1188,17 +1206,17 @@ def _effect_speed_buff(actor, monster_state, effect: dict, log_lines: list[str],
 
 def _effect_atk_debuff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     monster_state.atk_debuff += effect["value"]
-    log_lines.append(f"{_possessive_label(monster_state)} ATK falls by **{effect['value']}** for the rest of the fight.")
+    log_lines.append(f"{_combatant_possessive(monster_state)} ATK falls by **{effect['value']}** for the rest of the fight.")
 
 
 def _effect_spatk_debuff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     monster_state.spatk_debuff += effect["value"]
-    log_lines.append(f"{_possessive_label(monster_state)} SpAtk falls by **{effect['value']}** for the rest of the fight.")
+    log_lines.append(f"{_combatant_possessive(monster_state)} SpAtk falls by **{effect['value']}** for the rest of the fight.")
 
 
 def _effect_spdef_debuff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     monster_state.spdef_debuff += effect["value"]
-    log_lines.append(f"{_possessive_label(monster_state)} SpDef falls by **{effect['value']}** for the rest of the fight.")
+    log_lines.append(f"{_combatant_possessive(monster_state)} SpDef falls by **{effect['value']}** for the rest of the fight.")
 
 
 def _effect_speed_debuff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
@@ -1207,21 +1225,31 @@ def _effect_speed_debuff(actor, monster_state, effect: dict, log_lines: list[str
     # the very next scheduling decision, not just "future fights."
     monster_state.speed_debuff += effect["value"]
     log_lines.append(
-        f"{_possessive_label(monster_state)} Speed falls by **{effect['value']}** for the rest of the fight."
+        f"{_combatant_possessive(monster_state)} Speed falls by **{effect['value']}** for the rest of the fight."
     )
 
 
 def _effect_taunt(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    # A duel opponent (a PartyMember, not a MonsterInstance) has no .threat table -- that's a
+    # monster-only mechanic (see dungeon_view's threat-mechanic section). Rather than crash, this
+    # just fails harmlessly: nothing to sway when the "opponent" already knows exactly who to
+    # attack (the only other player in the fight).
+    if not hasattr(monster_state, "threat"):
+        log_lines.append("Threat means nothing between two players.")
+        return
     monster_state.threat[actor.user_id] = monster_state.threat.get(actor.user_id, 0) + effect["value"]
     log_lines.append(
-        f"{_possessive_label(actor)} Threat against {_actor_label(monster_state)} rises by **{effect['value']}** for the rest of the fight."
+        f"{_possessive_label(actor)} Threat against {_combatant_name(monster_state)} rises by **{effect['value']}** for the rest of the fight."
     )
 
 
 def _effect_lower_threat(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    if not hasattr(monster_state, "threat"):
+        log_lines.append("Threat means nothing between two players.")
+        return
     monster_state.threat[actor.user_id] = monster_state.threat.get(actor.user_id, 0) - effect["value"]
     log_lines.append(
-        f"{_possessive_label(actor)} Threat against {_actor_label(monster_state)} falls by **{effect['value']}** for the rest of the fight."
+        f"{_possessive_label(actor)} Threat against {_combatant_name(monster_state)} falls by **{effect['value']}** for the rest of the fight."
     )
 
 
@@ -1298,15 +1326,20 @@ def _apply_effects(actor, monster_state, effects: list[dict], log_lines: list[st
 
 
 def _resolve_player_action(
-    actor, ally_pool: list, enemy_pool: list["MonsterInstance"], current_target: "MonsterInstance",
+    actor, ally_pool: list, enemy_pool: list, current_target,
     effects: list[dict], special: bool, verb: str, subject_label: str, possessive_label: str, drain_verb: str,
     moon_mult: float, equipped_items: list[dict], threat_gain: bool, log_lines: list[str],
-) -> list["MonsterInstance"]:
+) -> list:
     """Resolves one player-cast action (skill/consumable/equipment on-use) -- the shared core of
-    _resolve_combat_turn (solo) and _resolve_party_turn (party), which differ only in `ally_pool`
-    (solo: always just [actor], nothing else to expand an ally-aoe effect to), `threat_gain` (party
-    only), the handful of solo-vs-"{member.label}"-phrased strings passed in, and their own
-    kill-check/reward-loop shape once this returns.
+    _resolve_combat_turn (solo), _resolve_party_turn (party), and _resolve_duel_turn (PvP). Those
+    three differ only in `ally_pool` (solo/duel: always just [actor], nothing else to expand an
+    ally-aoe effect to), `threat_gain` (party only -- a duel opponent has no .threat table, see
+    _effect_taunt/_effect_lower_threat's own guard), the handful of solo/party/duel-phrased strings
+    passed in, and their own kill-check/reward-loop shape once this returns. `enemy_pool`/
+    `current_target` hold `MonsterInstance`s for solo/party (PvE) or a single-entry list containing
+    the other duelist (a `PartyMember`) for a duel -- every access to them in here goes through
+    _combatant_name (never a raw `.monster["name"]` read) specifically so this function doesn't
+    need to know or care which kind it's holding.
 
     Each effect independently decides its own target set off its own "aoe" bool (dungeon.
     MODS_ONLY_EFFECT_TYPES / ENEMY_TARGETED_EFFECT_TYPES / ally-shaped-by-omission -- see those
@@ -1367,7 +1400,7 @@ def _resolve_player_action(
         attacker_atk = (actor.spatk - actor.spatk_debuff) if special else (actor.atk - actor.atk_debuff)
         for monster in damage_targets:
             if dodged[monster]:
-                log_lines.append(f"**{monster.monster['name']}** dodges {possessive_label} {verb}!")
+                log_lines.append(f"{_combatant_name(monster)} dodges {possessive_label} {verb}!")
                 continue
             eff_def = max(0, (monster.spdef - monster.spdef_debuff) if special else (monster.def_ - monster.def_debuff))
             dmg = dungeon.roll_damage(attacker_atk, eff_def, mods["multiplier"] * moon_mult)
@@ -1379,7 +1412,7 @@ def _resolve_player_action(
             monster.hp -= dmg
             total_dmg += dmg
             hit_monsters.append(monster)
-            log_lines.append(f"{subject_label} {verb} **{monster.monster['name']}** for **{dmg}** damage.")
+            log_lines.append(f"{subject_label} {verb} {_combatant_name(monster)} for **{dmg}** damage.")
             if threat_gain:
                 monster.threat[actor.user_id] = monster.threat.get(actor.user_id, 0) + dmg * dungeon.THREAT_PER_DAMAGE
             _roll_on_hit_procs(actor, monster, equipped_items, dmg, log_lines)
@@ -2656,6 +2689,430 @@ class PartyLobbyView(discord.ui.View):
         embed = discord.Embed(title="👥 Party Cancelled", description="No energy was spent.", color=discord.Color.dark_grey())
         await interaction.response.edit_message(embed=embed, view=None)
         self.stop()
+
+
+# --- Dueling (1v1 PvP) ---------------------------------------------------------------------------
+# Player-vs-player combat reusing the same combat engine as PvE (_resolve_player_action,
+# EFFECT_HANDLERS, dungeon.preview_next_turns/turn_interval) -- each duelist is literally a
+# PartyMember (guild_id/user_id/player_name/character/equipped/is_leader -- is_leader/loot_mult/
+# loot_total go unused here, harmless), so every combat stat (atk/def_/spatk/spdef/speed + all
+# debuffs, timed_effects, guard_charge, hp/max_hp, chips/max_chips, unlocked_skills,
+# used_item_effects, .label) already exists with zero new class needed. A duel never touches either
+# player's real persisted current_hp -- both start fresh at their own full HP each duel, and
+# nothing carries over afterward except an optional currency wager (both sides stake the same
+# amount at Accept time, winner takes the pot). No energy cost, no XP/loot, no moon-effect nudge
+# (that's a player-vs-monster balance lever with no "monster side" to favor in a PvP fight).
+DUEL_CHALLENGE_TIMEOUT = 120  # 2 minutes to accept/decline -- shorter than a party lobby (only one
+# specific other person needs to respond, not "gather a group")
+
+
+class DuelChallenge:
+    """Pending state between !duel and the target accepting/declining -- a separate class from
+    DuelSession (same reasoning as PartyLobby/PartyDelveSession) so combat-only state never exists
+    half-initialized during the accept window."""
+
+    def __init__(
+        self, guild_id: int, challenger_id: int, challenger_name: str, target_id: int, target_name: str, wager: int,
+    ):
+        self.guild_id = guild_id
+        self.challenger_id = challenger_id
+        self.challenger_name = challenger_name
+        self.target_id = target_id
+        self.target_name = target_name
+        self.wager = wager
+        self.message: discord.Message | None = None
+        self.current_view: discord.ui.View | None = None
+
+    def all_user_ids(self) -> list[int]:
+        return [self.challenger_id, self.target_id]
+
+
+class DuelSession:
+    """Combat state for an active duel, built the moment the target accepts. Always exactly two
+    combatants -- no knockout-and-keep-fighting like a party; the duel ends the instant either
+    side's hp drops to 0 (see _end_duel)."""
+
+    def __init__(self, guild_id: int, challenger: PartyMember, opponent: PartyMember, wager: int):
+        self.guild_id = guild_id
+        self.challenger = challenger
+        self.opponent = opponent
+        self.wager = wager
+        self.message: discord.Message | None = None
+        self.current_view: discord.ui.View | None = None
+
+    def all_user_ids(self) -> list[int]:
+        return [self.challenger.user_id, self.opponent.user_id]
+
+    def other(self, duelist: PartyMember) -> PartyMember:
+        return self.opponent if duelist is self.challenger else self.challenger
+
+
+def build_duel_challenge_embed(challenge: DuelChallenge) -> discord.Embed:
+    wager_line = f"\n💰 Wager: **{challenge.wager}** each" if challenge.wager else ""
+    return discord.Embed(
+        title="⚔️ Duel Challenge",
+        description=f"**{challenge.challenger_name}** has challenged **{challenge.target_name}** to a duel!{wager_line}",
+        color=discord.Color.gold(),
+    )
+
+
+class DuelChallengeView(discord.ui.View):
+    def __init__(self, challenge: DuelChallenge):
+        super().__init__(timeout=DUEL_CHALLENGE_TIMEOUT)
+        self.challenge = challenge
+        challenge.current_view = self
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.challenge.target_id:
+            await interaction.response.send_message("This challenge isn't addressed to you.", ephemeral=True)
+            return False
+        return True
+
+    async def on_timeout(self):
+        challenge = self.challenge
+        if challenge.current_view is not self:
+            return  # superseded -- already accepted/declined through some other path
+        _cleanup(challenge)
+        if challenge.message is None:
+            return
+        embed = discord.Embed(
+            title="⚔️ Duel Challenge Expired",
+            description=f"**{challenge.target_name}** didn't respond in time.",
+            color=discord.Color.dark_grey(),
+        )
+        try:
+            await challenge.message.edit(embed=embed, view=None)
+        except discord.HTTPException:
+            pass
+
+    @discord.ui.button(label="Accept", style=discord.ButtonStyle.success)
+    async def accept_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        challenge = self.challenge
+        guild_id = challenge.guild_id
+
+        target_character = await asyncio.to_thread(db.get_character, guild_id, challenge.target_id)
+        if target_character is None:
+            await interaction.response.send_message(
+                "You don't have a character yet — run `!class` to pick one first.", ephemeral=True
+            )
+            return
+        challenger_character = await asyncio.to_thread(db.get_character, guild_id, challenge.challenger_id)
+        if challenger_character is None:
+            # Extremely unlikely (the challenger somehow lost their character between challenging
+            # and now) -- cancel cleanly rather than build a broken duelist.
+            _cleanup(challenge)
+            embed = discord.Embed(
+                title="⚔️ Duel Cancelled", description="The challenger no longer has a character.",
+                color=discord.Color.dark_grey(),
+            )
+            await interaction.response.edit_message(embed=embed, view=None)
+            self.stop()
+            return
+
+        wager = challenge.wager
+        if wager:
+            currency = db.get_currency_name(guild_id)
+            status, _ = await asyncio.to_thread(db.spend_currency, guild_id, challenge.challenger_id, wager)
+            if status != "ok":
+                _cleanup(challenge)
+                embed = discord.Embed(
+                    title="⚔️ Duel Cancelled",
+                    description=f"**{challenge.challenger_name}** can no longer afford the **{wager}** {currency} wager.",
+                    color=discord.Color.dark_grey(),
+                )
+                await interaction.response.edit_message(embed=embed, view=None)
+                self.stop()
+                return
+            status, _ = await asyncio.to_thread(db.spend_currency, guild_id, challenge.target_id, wager)
+            if status != "ok":
+                await asyncio.to_thread(db.update_balance, guild_id, challenge.challenger_id, wager)  # refund
+                _cleanup(challenge)
+                embed = discord.Embed(
+                    title="⚔️ Duel Cancelled",
+                    description=f"**{challenge.target_name}** can't afford the **{wager}** {currency} wager.",
+                    color=discord.Color.dark_grey(),
+                )
+                await interaction.response.edit_message(embed=embed, view=None)
+                self.stop()
+                return
+
+        challenger_equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, challenge.challenger_id)
+        target_equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, challenge.target_id)
+        challenger = PartyMember(
+            guild_id, challenge.challenger_id, challenge.challenger_name, challenger_character, challenger_equipped, True,
+        )
+        opponent = PartyMember(
+            guild_id, challenge.target_id, interaction.user.display_name, target_character, target_equipped, True,
+        )
+
+        session = DuelSession(guild_id, challenger, opponent, wager)
+        for uid in session.all_user_ids():
+            active_delves[uid] = session  # swap DuelChallenge -> DuelSession in place, ids stay reserved throughout
+        log_lines = [f"**{challenger.label}** and **{opponent.label}** step into the ring!"]
+        await _advance_duel_turns(interaction, session, log_lines)
+        session.message = await interaction.original_response()
+        self.stop()
+
+    @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger)
+    async def decline_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        challenge = self.challenge
+        _cleanup(challenge)
+        embed = discord.Embed(
+            title="⚔️ Duel Declined", description=f"**{challenge.target_name}** declined the duel.",
+            color=discord.Color.dark_grey(),
+        )
+        await interaction.response.edit_message(embed=embed, view=None)
+        self.stop()
+
+
+async def _send_duel_update(
+    interaction: discord.Interaction | None, session: DuelSession, embed: discord.Embed, view: discord.ui.View | None,
+):
+    """Duel sibling of _send_party_update -- a duel can advance from either a live interaction (a
+    duelist's own action) or a timeout (a stalled duelist's turn getting skipped)."""
+    if interaction is not None:
+        await interaction.response.edit_message(embed=embed, view=view)
+        return
+    if session.message is None:
+        return
+    try:
+        await session.message.edit(embed=embed, view=view)
+    except discord.HTTPException:
+        pass
+
+
+def _duel_combat_embed(session: DuelSession, log_text: str, current_actor: PartyMember) -> discord.Embed:
+    embed = discord.Embed(title="⚔️ Duel", description=log_text, color=discord.Color.dark_red())
+    if session.wager:
+        embed.add_field(name="💰 Wager", value=f"{session.wager} each ({session.wager * 2} to the winner)", inline=False)
+    for d in (session.challenger, session.opponent):
+        marker = " ⬅️ acting now" if d.user_id == current_actor.user_id else ""
+        embed.add_field(
+            name=d.label, value=f"❤️ HP {max(d.hp, 0)}/{d.max_hp}\n🪙 Chips {d.chips}/{d.max_chips}{marker}", inline=True,
+        )
+    return embed
+
+
+async def _end_duel(
+    interaction: discord.Interaction | None, session: DuelSession, winner: PartyMember | None, log_lines: list[str],
+) -> None:
+    """Ends the duel and pays out the wager (if any). `winner=None` is a defensive fallback for a
+    simultaneous double-KO -- not actually reachable with today's effect vocabulary (every
+    self-damaging effect is a timed dot, and a dot only ever ticks on its own caster's turn, never
+    both duelists' at once), kept rather than assumed impossible."""
+    currency = db.get_currency_name(session.guild_id)
+    if winner is None:
+        if session.wager:
+            await asyncio.to_thread(db.update_balance, session.guild_id, session.challenger.user_id, session.wager)
+            await asyncio.to_thread(db.update_balance, session.guild_id, session.opponent.user_id, session.wager)
+        title = "⚔️ Draw!"
+        refund_note = " Wagers refunded." if session.wager else ""
+        description = "\n".join(log_lines) + f"\n\nBoth duelists go down together.{refund_note}"
+    else:
+        loser = session.other(winner)
+        payout_line = ""
+        if session.wager:
+            pot = session.wager * 2
+            await asyncio.to_thread(db.update_balance, session.guild_id, winner.user_id, pot)
+            payout_line = f"\n\n💰 **{winner.label}** wins **{pot}** {currency}!"
+        title = f"⚔️ {winner.label} wins!"
+        description = "\n".join(log_lines) + f"\n\n💀 **{loser.label}** is defeated.{payout_line}"
+    embed = discord.Embed(title=title, description=description, color=discord.Color.gold())
+    _cleanup(session)
+    await _send_duel_update(interaction, session, embed, None)
+
+
+async def _advance_duel_turns(interaction: discord.Interaction | None, session: DuelSession, log_lines: list[str]) -> None:
+    """Duel sibling of _advance_party_turns -- far simpler, since both combatants are real players:
+    there's no monster branch to auto-resolve, every turn just shows whoever's turn it is next.
+    Always ends by sending exactly one response via _send_duel_update -- the next duelist's own
+    turn view, or the duel's end screen."""
+    duelists = [session.challenger, session.opponent]
+    combatants = [{"id": d.user_id, "speed": max(0, d.speed - d.speed_debuff), "clock": d.turn_clock} for d in duelists]
+    next_id = dungeon.preview_next_turns(combatants, 1)[0]
+    actor = session.challenger if next_id == session.challenger.user_id else session.opponent
+    opponent = session.other(actor)
+
+    # Tick the incoming actor's own timed effects right as their turn comes up (a self-inflicted
+    # dot could finish them here, before they ever get to act) -- same point _advance_party_turns
+    # ticks a member's/monster's own timed_effects.
+    _tick_timed_effects([actor], log_lines)
+    if actor.hp <= 0 and opponent.hp <= 0:
+        await _end_duel(interaction, session, None, log_lines)
+        return
+    if actor.hp <= 0:
+        await _end_duel(interaction, session, opponent, log_lines)
+        return
+
+    embed = _duel_combat_embed(session, "\n".join(log_lines), actor)
+    view = await _build_duel_combat_view(session, actor)
+    await _send_duel_update(interaction, session, embed, view)
+
+
+async def _resolve_duel_turn(
+    interaction: discord.Interaction, session: DuelSession, actor: PartyMember, effects: list[dict],
+    verb: str, log_lines: list[str], special: bool = False,
+) -> bool:
+    """Duel sibling of _resolve_party_turn -- always exactly one possible opponent (the other
+    duelist), no threat gain (PvP has no monster threat table), no moon multiplier."""
+    opponent = session.other(actor)
+    equipped_items = [dungeon.EQUIPMENT[iid] for iid in actor.equipped.values()]
+    _resolve_player_action(
+        actor, [actor], [opponent], opponent, effects, special, verb,
+        actor.label, f"{actor.label}'s", "drains", 1.0, equipped_items, False, log_lines,
+    )
+
+    actor.turn_clock += dungeon.turn_interval(max(1, actor.speed - actor.speed_debuff))
+
+    if opponent.hp <= 0:
+        await _end_duel(interaction, session, actor, log_lines)
+        return True
+
+    await _advance_duel_turns(interaction, session, log_lines)
+    return True
+
+
+async def _skip_duel_turn(session: DuelSession, actor: PartyMember):
+    """Mirrors _skip_party_turn -- a stalled duelist's turn just passes, no forfeit."""
+    log_lines = [f"⌛ {actor.label} takes too long and passes their turn."]
+    actor.turn_clock += dungeon.turn_interval(max(1, actor.speed - actor.speed_debuff))
+    await _advance_duel_turns(None, session, log_lines)
+
+
+async def _handle_duel_action(
+    interaction: discord.Interaction, session: DuelSession, actor: PartyMember, skill: dict | None,
+) -> bool:
+    if skill is not None and skill["chip_cost"] > actor.chips:
+        await interaction.response.send_message("Not enough Chips to use that skill.", ephemeral=True)
+        return False
+    effects = skill["effects"] if skill is not None else []
+    special = bool(skill.get("special")) if skill is not None else False
+    if skill is not None:
+        actor.chips -= skill["chip_cost"]
+    verb = f"unleash **{skill['name']}**" if skill is not None else "attack"
+    return await _resolve_duel_turn(interaction, session, actor, effects, verb, [], special)
+
+
+async def _handle_duel_use_item(
+    interaction: discord.Interaction, session: DuelSession, actor: PartyMember, item: dict,
+) -> bool:
+    consumed = await asyncio.to_thread(db.consume_inventory_item, session.guild_id, actor.user_id, item["id"], 1)
+    if not consumed:
+        await interaction.response.send_message("You don't have that anymore.", ephemeral=True)
+        return False
+    verb = f"use **{item['name']}**"
+    return await _resolve_duel_turn(interaction, session, actor, item["effects"], verb, [], item.get("special", False))
+
+
+async def _handle_duel_cast_item(
+    interaction: discord.Interaction, session: DuelSession, actor: PartyMember, item: dict,
+) -> bool:
+    if item["id"] in actor.used_item_effects:
+        await interaction.response.send_message("You've already used that this fight.", ephemeral=True)
+        return False
+    actor.used_item_effects.add(item["id"])
+    effects = [e for e in item["effects"] if e["trigger"] == "on_use"]
+    verb = f"unleash **{item['name']}**"
+    return await _resolve_duel_turn(interaction, session, actor, effects, verb, [], item.get("special", False))
+
+
+class DuelAttackButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Attack", style=discord.ButtonStyle.primary, row=0)
+
+    async def callback(self, interaction: discord.Interaction):
+        if await _handle_duel_action(interaction, self.view.session, self.view.actor, skill=None):
+            self.view.stop()
+
+
+class DuelSkillButton(discord.ui.Button):
+    def __init__(self, skill: dict, disabled: bool):
+        super().__init__(label=skill["name"], style=discord.ButtonStyle.success, disabled=disabled, row=0)
+        self.skill = skill
+
+    async def callback(self, interaction: discord.Interaction):
+        if await _handle_duel_action(interaction, self.view.session, self.view.actor, skill=self.skill):
+            self.view.stop()
+
+
+class DuelUseItemButton(discord.ui.Button):
+    def __init__(self, item: dict):
+        super().__init__(label=f"🧪 {item['name']}", style=discord.ButtonStyle.secondary, row=1)
+        self.item = item
+
+    async def callback(self, interaction: discord.Interaction):
+        if await _handle_duel_use_item(interaction, self.view.session, self.view.actor, self.item):
+            self.view.stop()
+
+
+class DuelUseItemSelect(discord.ui.Select):
+    def __init__(self, items: list[dict]):
+        options = [
+            discord.SelectOption(label=item["name"], value=item["id"], description=item["flavor"][:100])
+            for item in items[:MAX_SELECT_OPTIONS]
+        ]
+        super().__init__(placeholder="🧪 Use an item...", options=options, row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        item = dungeon.CONSUMABLES[self.values[0]]
+        if await _handle_duel_use_item(interaction, self.view.session, self.view.actor, item):
+            self.view.stop()
+
+
+class DuelCastItemButton(discord.ui.Button):
+    def __init__(self, item: dict, disabled: bool):
+        super().__init__(label=f"✨ {item['name']}", style=discord.ButtonStyle.secondary, disabled=disabled, row=3)
+        self.item = item
+
+    async def callback(self, interaction: discord.Interaction):
+        if await _handle_duel_cast_item(interaction, self.view.session, self.view.actor, self.item):
+            self.view.stop()
+
+
+async def _build_duel_combat_view(session: DuelSession, actor: PartyMember) -> "DuelCombatView":
+    return DuelCombatView(session, actor, await _usable_items_for(session, actor))
+
+
+class DuelCombatView(discord.ui.View):
+    def __init__(self, session: DuelSession, actor: PartyMember, usable_items: list[dict] | None = None):
+        super().__init__(timeout=PARTY_ACTION_TIMEOUT)
+        self.session = session
+        self.actor = actor
+        self.add_item(DuelAttackButton())
+        for skill in actor.unlocked_skills:
+            self.add_item(DuelSkillButton(skill, disabled=skill["chip_cost"] > actor.chips))
+        usable_items = usable_items or []
+        if len(usable_items) == 1:
+            self.add_item(DuelUseItemButton(usable_items[0]))
+        elif len(usable_items) > 1:
+            self.add_item(DuelUseItemSelect(usable_items))
+        for item in castable_equipment(actor.equipped):
+            self.add_item(DuelCastItemButton(item, disabled=item["id"] in actor.used_item_effects))
+        # No target-select -- there's only ever one possible opponent in a 1v1 duel.
+        session.current_view = self
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.actor.user_id:
+            await interaction.response.send_message(f"It's {self.actor.label}'s turn.", ephemeral=True)
+            return False
+        return True
+
+    async def on_timeout(self):
+        session = self.session
+        if session.current_view is not self:
+            return
+        await _skip_duel_turn(session, self.actor)
+
+
+async def start_duel(guild_id: int, challenger_id: int, challenger_name: str, target_id: int, target_name: str, wager: int) -> DuelChallenge:
+    """Registers both players (active_delves/busy_players, mirroring how opening a party lobby
+    already reserves everyone in it) and returns the pending DuelChallenge -- bot.py's !duel command
+    builds the challenge embed + DuelChallengeView around this and sends it."""
+    challenge = DuelChallenge(guild_id, challenger_id, challenger_name, target_id, target_name, wager)
+    for uid in challenge.all_user_ids():
+        active_delves[uid] = challenge
+        busy_players.add(uid)
+    return challenge
 
 
 class DelveModeChoiceView(discord.ui.View):

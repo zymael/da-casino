@@ -17,7 +17,15 @@ import db
 from blackjack_view import active_tables as active_blackjack_tables, start_blackjack_table
 import dreams
 import dungeon
-from dungeon_view import ClassPickerView, active_delves, build_delve_picker_display, build_mode_choice_display
+from dungeon_view import (
+    ClassPickerView,
+    DuelChallengeView,
+    active_delves,
+    build_delve_picker_display,
+    build_duel_challenge_embed,
+    build_mode_choice_display,
+    start_duel,
+)
 import horse_clothes_view
 from holdem_view import (
     BIG_BLIND as HOLDEM_BIG_BLIND,
@@ -883,6 +891,52 @@ async def delve_cmd(ctx, delve_id: str = None):
     # backing out never costs one.
     embed, view = await build_mode_choice_display(ctx.guild.id, ctx.author.id, character, delve)
     await ctx.send(embed=embed, view=view)
+
+
+@bot.command(name="duel")
+async def duel_cmd(ctx, member: discord.Member = None, wager: int = 0):
+    """Challenge another player to a 1v1 duel (same combat system as the dungeon, no dungeon HP/XP
+    at stake -- both start at full HP): !duel @user [wager]. They have to Accept before it starts."""
+    if await _reject_if_at_poker_table(ctx):
+        return
+    if member is None:
+        await ctx.send("Usage: `!duel @user [wager]` — e.g. `!duel @Bob 100`")
+        return
+    if member.id == ctx.author.id:
+        await ctx.send("You can't duel yourself.")
+        return
+    if member.bot:
+        await ctx.send("You can't duel a bot.")
+        return
+    if wager < 0:
+        await ctx.send("Wager can't be negative.")
+        return
+
+    challenger_character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
+    if challenger_character is None:
+        await ctx.send(f"You don't have a character yet, {ctx.author.display_name} — run `!class` to pick one first.")
+        return
+    target_character = await asyncio.to_thread(db.get_character, ctx.guild.id, member.id)
+    if target_character is None:
+        await ctx.send(f"{member.display_name} doesn't have a character yet — they need to run `!class` first.")
+        return
+    if ctx.author.id in active_delves or ctx.author.id in holdem_busy_players:
+        await ctx.send("Finish up whatever you're already doing first.")
+        return
+    if member.id in active_delves or member.id in holdem_busy_players:
+        await ctx.send(f"{member.display_name} is already tied up in something else right now.")
+        return
+
+    currency = db.get_currency_name(ctx.guild.id)
+    if wager:
+        balance = await asyncio.to_thread(db.get_balance, ctx.guild.id, ctx.author.id)
+        if balance < wager:
+            await ctx.send(f"You only have **{balance}** {currency} — you can't wager **{wager}**.")
+            return
+
+    challenge = await start_duel(ctx.guild.id, ctx.author.id, ctx.author.display_name, member.id, member.display_name, wager)
+    view = DuelChallengeView(challenge)
+    challenge.message = await ctx.send(content=member.mention, embed=build_duel_challenge_embed(challenge), view=view)
 
 
 @bot.command(name="inventory")
