@@ -835,5 +835,30 @@
     ],
     "chip_cost": 10,
     "special": true
+  },
+  {
+    "id": "commanding_voice_spades",
+    "main_class": "healer",
+    "subclass": "spades",
+    "unlock_level": 7,
+    "name": "Commanding Voice",
+    "flavor": "Let your authority flow through you!",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 0.4
+      },
+      {
+        "type": "stun",
+        "duration": 1
+      },
+      {
+        "type": "atk_buff",
+        "value": 20,
+        "aoe": true
+      }
+    ],
+    "chip_cost": 10,
+    "special": true
   }
 ]
