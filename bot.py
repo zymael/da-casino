@@ -113,6 +113,24 @@ def _in_seconds(seconds: float) -> str:
     return f"<t:{epoch}:R> (<t:{epoch}:t>)"
 
 
+def _gear_breakdown_lines(equipped: dict[str, str]) -> list[str]:
+    """One line per equipment slot (Weapon/Armor/Trinket): rarity dot, item name, and its constant
+    stat bonuses (inventory_view.stat_bonus_text -- the same formatter !inventory/!equipment use,
+    so a build's gear reads identically everywhere), or *none* if that slot is empty. Shared by
+    !stats and !class so gear reads the same way in both."""
+    lines = []
+    for slot in dungeon.EQUIPMENT_SLOTS:
+        item_id = equipped.get(slot)
+        if item_id is None:
+            lines.append(f"{slot.title()}: *none*")
+            continue
+        item = dungeon.EQUIPMENT[item_id]
+        stat_text = inventory_view.stat_bonus_text(item)
+        stat_suffix = f" ({stat_text})" if stat_text else ""
+        lines.append(f"{slot.title()}: {dungeon.RARITY_EMOJI[item['rarity']]} {item['name']}{stat_suffix}")
+    return lines
+
+
 async def _reject_if_at_poker_table(ctx) -> bool:
     """True (and sends a message) if the author is mid-hand at a poker table — their
     tracked stack there would desync from their balance if they spent money elsewhere."""
@@ -324,9 +342,6 @@ async def stats_cmd(ctx):
         suit_symbol = dungeon.SUIT_SYMBOLS[character["subclass"]]
         equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
         effective = dungeon.compute_effective_stats(character, equipped)
-        gear = ", ".join(
-            dungeon.EQUIPMENT[equipped[slot]]["name"] for slot in dungeon.EQUIPMENT_SLOTS if slot in equipped
-        ) or "none"
         current_hp = min(character["current_hp"], effective["hp"])
         dodge_pct = round(dungeon.dodge_chance(effective["def"]) * 100)
         resist_pct = round(dungeon.dodge_chance(effective["spdef"]) * 100)
@@ -335,10 +350,10 @@ async def stats_cmd(ctx):
             value=f"{name} {suit_symbol} — Level {character['level']}\n"
             f"HP {current_hp}/{effective['hp']} / ATK {effective['atk']} / DEF {effective['def']} / "
             f"SpAtk {effective['spatk']} / SpDef {effective['spdef']}\n"
-            f"Dodge {dodge_pct}% / Resist {resist_pct}%\n"
-            f"Gear: {gear}",
+            f"Dodge {dodge_pct}% / Resist {resist_pct}%",
             inline=True,
         )
+        embed.add_field(name="⚔️ Gear", value="\n".join(_gear_breakdown_lines(equipped)), inline=True)
     else:
         embed.add_field(name="🗡️ Class", value="None yet — try `!class`.", inline=True)
 
@@ -780,27 +795,25 @@ async def class_cmd(ctx):
     character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
     if character is not None:
         name = dungeon.display_name(character["main_class"], character["subclass"])
+        suit_symbol = dungeon.SUIT_SYMBOLS[character["subclass"]]
         equipped = await asyncio.to_thread(db.get_equipped_items, ctx.guild.id, ctx.author.id)
         effective = dungeon.compute_effective_stats(character, equipped)
+        max_chips = dungeon.compute_stats(character["main_class"], character["subclass"])["chips"]
         xp_needed = dungeon.xp_to_next_level(character["level"])
 
         current_hp = min(character["current_hp"], effective["hp"])
         dodge_pct = round(dungeon.dodge_chance(effective["def"]) * 100)
         resist_pct = round(dungeon.dodge_chance(effective["spdef"]) * 100)
-        embed = discord.Embed(title=name, color=discord.Color.blurple())
+        embed = discord.Embed(title=f"{name} {suit_symbol}", color=discord.Color.blurple())
         embed.add_field(name="Level", value=f"{character['level']} ({character['xp']}/{xp_needed} XP)", inline=True)
         embed.add_field(
             name="Stats",
             value=f"HP {current_hp}/{effective['hp']} / ATK {effective['atk']} / DEF {effective['def']} / "
                   f"SpAtk {effective['spatk']} / SpDef {effective['spdef']}\n"
-                  f"Dodge {dodge_pct}% / Resist {resist_pct}%",
+                  f"Dodge {dodge_pct}% / Resist {resist_pct}% / 🪙 Chips {max_chips}",
             inline=True,
         )
-        gear_lines = []
-        for slot in dungeon.EQUIPMENT_SLOTS:
-            item = dungeon.EQUIPMENT.get(equipped.get(slot))
-            gear_lines.append(f"{slot.title()}: {item['name'] if item else '*none*'}")
-        embed.add_field(name="⚔️ Equipment", value="\n".join(gear_lines), inline=False)
+        embed.add_field(name="⚔️ Equipment", value="\n".join(_gear_breakdown_lines(equipped)), inline=False)
         embed.set_footer(text="Class/subclass is permanent — gear and levels grow from delving.")
         await ctx.send(embed=embed)
         return

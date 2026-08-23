@@ -20,7 +20,7 @@ import quests
 MAX_SELECT_OPTIONS = 25  # Discord's hard limit on a single Select's options
 
 
-def _stat_bonus_text(item: dict) -> str:
+def stat_bonus_text(item: dict) -> str:
     """e.g. 'ATK +3' or 'HP +2 / DEF +1' -- the compact form used everywhere an item's constant
     power needs to be legible at a glance (embed lines and Select option descriptions alike).
     Constant-only on purpose: on_use/on_hit effects go through _dynamic_effect_lines instead,
@@ -36,7 +36,7 @@ def _equipment_summary(item: dict) -> str:
     """'ATK +3 · rare' -- used in Select option descriptions, where space is tight. An item with
     no constant effects at all (pure on_use/on_hit) just omits the stat segment rather than
     leaving a dangling '· rare' separator."""
-    stat_text = _stat_bonus_text(item)
+    stat_text = stat_bonus_text(item)
     return f"{stat_text} · {item['rarity']}" if stat_text else item["rarity"]
 
 
@@ -87,7 +87,7 @@ def _effect_phrase(effect: dict) -> str:
 
 def _dynamic_effect_lines(item: dict) -> list[str]:
     """One line per on_use/on_hit effect on `item` -- constant effects are already covered by
-    _stat_bonus_text, this is what makes the other two trigger kinds visible to a player at all."""
+    stat_bonus_text, this is what makes the other two trigger kinds visible to a player at all."""
     lines = []
     for effect in item["effects"]:
         if effect["trigger"] == "on_use":
@@ -103,7 +103,7 @@ def _equipment_line(item_id: str, qty: int | None = None) -> str:
     flavor text on its own line beneath -- used for both the Equipped and Stored sections."""
     item = dungeon.EQUIPMENT[item_id]
     qty_suffix = f" x{qty}" if qty and qty > 1 else ""
-    stat_text = _stat_bonus_text(item)
+    stat_text = stat_bonus_text(item)
     stat_suffix = f" — {stat_text}" if stat_text else ""
     rarity_dot = dungeon.RARITY_EMOJI[item["rarity"]]
     lines = [f"{rarity_dot} **{item['name']}**{qty_suffix}{stat_suffix} · *{item['rarity']}*"]
@@ -226,7 +226,7 @@ def _equipped_lines(equipped: dict[str, str]) -> str:
             item = dungeon.EQUIPMENT[item_id]
             rarity_dot = dungeon.RARITY_EMOJI[item["rarity"]]
             lines.append(
-                f"**{slot.title()}**: {rarity_dot} {item['name']} — {_stat_bonus_text(item)} · *{item['rarity']}*"
+                f"**{slot.title()}**: {rarity_dot} {item['name']} — {stat_bonus_text(item)} · *{item['rarity']}*"
                 f"\n> {item['flavor']}"
             )
     return "\n".join(lines)
