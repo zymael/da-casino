@@ -3,6 +3,7 @@ import random
 
 import discord
 
+import achievements
 import db
 import dungeon
 import dungeon_render
@@ -606,7 +607,6 @@ async def _handle_choice_action(
     if next_room is None:
         currency = db.get_currency_name(session.guild_id)
         balance = await asyncio.to_thread(db.update_balance, session.guild_id, session.user_id, session.loot_total)
-        await asyncio.to_thread(db.log_bet, session.guild_id, session.user_id, "dungeon", 0, session.loot_total)
         await asyncio.to_thread(db.set_current_hp, session.guild_id, session.user_id, session.hp)
         _cleanup(session)
         embed = discord.Embed(
@@ -742,7 +742,6 @@ def _cleanup(entity) -> None:
 async def _apply_retreat(session: DelveSession) -> discord.Embed:
     currency = db.get_currency_name(session.guild_id)
     balance = await asyncio.to_thread(db.update_balance, session.guild_id, session.user_id, session.loot_total)
-    await asyncio.to_thread(db.log_bet, session.guild_id, session.user_id, "dungeon", 0, session.loot_total)
     await asyncio.to_thread(db.set_current_hp, session.guild_id, session.user_id, session.hp)
     _cleanup(session)
     return discord.Embed(
@@ -1703,7 +1702,6 @@ async def _present_room_result(interaction: discord.Interaction, session: DelveS
 
     if next_room is None:
         balance = await asyncio.to_thread(db.update_balance, session.guild_id, session.user_id, session.loot_total)
-        await asyncio.to_thread(db.log_bet, session.guild_id, session.user_id, "dungeon", 0, session.loot_total)
         await asyncio.to_thread(db.set_current_hp, session.guild_id, session.user_id, session.hp)
         _cleanup(session)
         embed.description += f"\n\nYou've cleared the dungeon! Balance: **{balance}** {currency}."
@@ -2115,7 +2113,6 @@ async def _apply_party_retreat(session: PartyDelveSession) -> discord.Embed:
     payouts = []
     for m in session.members:
         balance = await asyncio.to_thread(db.update_balance, session.guild_id, m.user_id, m.loot_total)
-        await asyncio.to_thread(db.log_bet, session.guild_id, m.user_id, "dungeon", 0, m.loot_total)
         await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
         payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
     _cleanup(session)
@@ -2289,7 +2286,6 @@ async def _resolve_party_choice_action(
         payouts = []
         for m in session.members:
             balance = await asyncio.to_thread(db.update_balance, session.guild_id, m.user_id, m.loot_total)
-            await asyncio.to_thread(db.log_bet, session.guild_id, m.user_id, "dungeon", 0, m.loot_total)
             await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
             payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
         _cleanup(session)
@@ -2542,7 +2538,6 @@ async def _present_party_room_result(
         payouts = []
         for m in session.members:
             balance = await asyncio.to_thread(db.update_balance, session.guild_id, m.user_id, m.loot_total)
-            await asyncio.to_thread(db.log_bet, session.guild_id, m.user_id, "dungeon", 0, m.loot_total)
             await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
             payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
         _cleanup(session)
@@ -2911,15 +2906,25 @@ def _duel_combat_embed(
 async def _end_duel(
     interaction: discord.Interaction | None, session: DuelSession, winner: PartyMember | None, log_lines: list[str],
 ) -> None:
-    """Ends the duel and pays out the wager (if any). `winner=None` is a defensive fallback for a
-    simultaneous double-KO -- not actually reachable with today's effect vocabulary (every
-    self-damaging effect is a timed dot, and a dot only ever ticks on its own caster's turn, never
-    both duelists' at once), kept rather than assumed impossible."""
+    """Ends the duel, pays out the wager (if any), and logs both duelists' outcomes as bets
+    (db.log_bet, game="duel") -- same tiered win/loss achievement tracking every casino game
+    already gets (achievements.GAMES' "duel" bucket), unlike a dungeon delve's own loot, which is
+    PvE income, not a wager, and deliberately does NOT go through log_bet at all. `winner=None` is
+    a defensive fallback for a simultaneous double-KO -- not actually reachable with today's effect
+    vocabulary (every self-damaging effect is a timed dot, and a dot only ever ticks on its own
+    caster's turn, never both duelists' at once), kept rather than assumed impossible; a draw logs
+    both sides at net 0 (like a blackjack push) rather than skipping the log entirely, but nets a
+    0 never earns a win/loss achievement kind either way (same "a push doesn't count" rule)."""
     currency = db.get_currency_name(session.guild_id)
+    send = interaction.followup.send if interaction is not None else session.message.channel.send
+    win_kinds: list[str] = []
+    loss_kinds: list[str] = []
     if winner is None:
         if session.wager:
             await asyncio.to_thread(db.update_balance, session.guild_id, session.challenger.user_id, session.wager)
             await asyncio.to_thread(db.update_balance, session.guild_id, session.opponent.user_id, session.wager)
+        await asyncio.to_thread(db.log_bet, session.guild_id, session.challenger.user_id, "duel", session.wager, 0)
+        await asyncio.to_thread(db.log_bet, session.guild_id, session.opponent.user_id, "duel", session.wager, 0)
         title = "⚔️ Draw!"
         refund_note = " Wagers refunded." if session.wager else ""
         description = "\n".join(log_lines) + f"\n\nBoth duelists go down together.{refund_note}"
@@ -2930,11 +2935,22 @@ async def _end_duel(
             pot = session.wager * 2
             await asyncio.to_thread(db.update_balance, session.guild_id, winner.user_id, pot)
             payout_line = f"\n\n💰 **{winner.label}** wins **{pot}** {currency}!"
+        await asyncio.to_thread(db.log_bet, session.guild_id, winner.user_id, "duel", session.wager, session.wager)
+        await asyncio.to_thread(db.log_bet, session.guild_id, loser.user_id, "duel", session.wager, -session.wager)
+        win_kinds = achievements.kinds_for_bet("duel", session.wager)
+        win_kinds += await achievements.record_and_check(session.guild_id, winner.user_id, "duel", session.wager)
+        loss_kinds = achievements.kinds_for_bet("duel", -session.wager)
+        loss_kinds += await achievements.record_and_check(session.guild_id, loser.user_id, "duel", -session.wager)
         title = f"⚔️ {winner.label} wins!"
         description = "\n".join(log_lines) + f"\n\n💀 **{loser.label}** is defeated.{payout_line}"
     embed = discord.Embed(title=title, description=description, color=discord.Color.gold())
     _cleanup(session)
     await _send_duel_update(interaction, session, embed, None, None)
+
+    if win_kinds:
+        await achievements.try_award_many(send, session.guild_id, winner.user_id, winner.player_name, win_kinds)
+    if loss_kinds:
+        await achievements.try_award_many(send, session.guild_id, loser.user_id, loser.player_name, loss_kinds)
 
 
 async def _advance_duel_turns(interaction: discord.Interaction | None, session: DuelSession, log_lines: list[str]) -> None:

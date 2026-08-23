@@ -156,6 +156,14 @@ ACHIEVEMENTS = [
         "description": "Receive your first dream.",
         "reward": 25,
     },
+    {
+        "kind": "win_duel",
+        "scope": "personal",
+        "emoji": "⚔️",
+        "name": "Duelist",
+        "description": "Win a 1v1 duel against another player.",
+        "reward": 25,
+    },
 ]
 
 # Maps each game bucket to its emoji/title and the db.log_bet() `game` string(s) that feed it
@@ -170,6 +178,10 @@ GAMES = {
         "emoji": "🎴", "title": "Video Poker", "log_keys": ["jacks_or_better", "deuces_wild"],
         "first_win_kind": "win_video_poker",
     },
+    # Wagerless duels (net == 0, the default) never reach kinds_for_bet/record_and_check's win/loss
+    # branches -- same "a push doesn't count" treatment blackjack's own net==0 hands already get,
+    # not a duel-specific special case. A duel needs an actual wager for its outcome to move these.
+    "duel": {"emoji": "⚔️", "title": "Duels", "log_keys": ["duel"], "first_win_kind": "win_duel"},
 }
 
 # Win/loss count tiers -- reaching a tier claims that tier's kind ({bucket}_wins_{tier} /
