@@ -165,8 +165,8 @@
     ]
   },
   {
-    "id": "elven_night_market",
-    "name": "\ud83e\udddd Elven Night Market",
+    "id": "gnomish_night_market",
+    "name": "\ud83c\udf44Gnomish Night Market",
     "description": "A bustling, if not shady, night market.  It's open in the day too, of course.",
     "background_path": "assets/rooms/elven_night_market.jpg",
     "exits": [
