@@ -361,12 +361,8 @@ async def stats_cmd(ctx):
         equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
         effective = dungeon.compute_effective_stats(character, equipped)
         max_chips = dungeon.compute_stats(character["main_class"], character["subclass"])["chips"]
-        embed.add_field(
-            name="🗡️ Class",
-            value=f"{name} {suit_symbol} — Level {character['level']}\n"
-            + _character_sheet_stats(character, effective, max_chips),
-            inline=True,
-        )
+        embed.add_field(name="🗡️ Class", value=f"{name} {suit_symbol}\nLevel {character['level']}", inline=True)
+        embed.add_field(name="📊 Stats", value=_character_sheet_stats(character, effective, max_chips), inline=True)
         embed.add_field(name="⚔️ Gear", value="\n".join(_gear_breakdown_lines(equipped)), inline=True)
     else:
         embed.add_field(name="🗡️ Class", value="None yet — try `!class`.", inline=True)
