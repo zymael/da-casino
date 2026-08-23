@@ -923,5 +923,27 @@
     ],
     "chip_cost": 10,
     "special": true
+  },
+  {
+    "id": "fetch_wine_clubs",
+    "main_class": "healer",
+    "subclass": "clubs",
+    "unlock_level": 7,
+    "name": "Healing Wine",
+    "flavor": "Squire! Fetch me some tasty wine!",
+    "effects": [
+      {
+        "type": "heal_fraction",
+        "value": 0.3,
+        "aoe": true
+      },
+      {
+        "type": "def_buff",
+        "value": 4,
+        "aoe": true
+      }
+    ],
+    "chip_cost": 10,
+    "special": true
   }
 ]
