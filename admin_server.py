@@ -1537,6 +1537,18 @@ def _render_effect_row(
         f'<label data-param="{p}">{p}<input type="number" step="any" name="{prefix}_{p}" value="{effect.get(p, "")}"></label>'
         for p in EFFECT_PARAM_NAMES
     )
+    # "aoe" is universal across every effect type (dungeon._validate_effects validates it
+    # separately from the numeric EFFECT_PARAM_NAMES loop above) -- always shown, never hidden by
+    # wireEffectSelects' per-type EFFECT_PARAMS_BY_TYPE logic the way value/reduction/multiplier/
+    # duration are, since it isn't part of that per-type schema at all.
+    aoe_checked = " checked" if effect.get("aoe") else ""
+    aoe_html = (
+        f'<label class="checkbox-label" data-tooltip="Ally-shaped effects (heals/buffs) hit the '
+        f'whole party instead of just the caster; enemy-shaped effects (debuffs/damage/taunt/'
+        f'lower_threat) hit every living monster instead of just the current target. Unchecked = '
+        f'single target (the usual behavior).">'
+        f'<input type="checkbox" name="{prefix}_aoe"{aoe_checked}> aoe</label>'
+    )
     trigger_html = ""
     if include_trigger:
         trigger_options = "".join(
@@ -1555,7 +1567,7 @@ def _render_effect_row(
         f'<label>type<select name="{prefix}_type" class="effect-type-select">{type_options}</select></label>'
         f'{trigger_html}'
         f'<small class="field-hint effect-hint"></small>'
-        f'{param_inputs}<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
+        f'{param_inputs}{aoe_html}<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
     )
 
 
@@ -2369,6 +2381,11 @@ def _parse_effects_list(container_prefix: str, form: dict) -> list[dict]:
             raw = form.get(f"{prefix}_{p}", "").strip()
             if raw:
                 effect[p] = float(raw) if "." in raw else int(raw)
+        # A checkbox's presence in the submitted form IS "checked" -- same convention _parse_field's
+        # own "bool" case uses (see its comment there). Omitted (not just False) when unchecked, so
+        # it matches every other effect authored before "aoe" existed.
+        if f"{prefix}_aoe" in form:
+            effect["aoe"] = True
         effects.append(effect)
     return effects
 
@@ -2403,6 +2420,8 @@ def _parse_equipment_effects(form: dict) -> list[dict]:
             raw = form.get(f"{prefix}_{p}", "").strip()
             if raw:
                 effect[p] = float(raw) if "." in raw else int(raw)
+        if f"{prefix}_aoe" in form:
+            effect["aoe"] = True
         effects.append(effect)
     return effects
 

@@ -1211,6 +1211,20 @@ def _effect_speed_debuff(actor, monster_state, effect: dict, log_lines: list[str
     )
 
 
+def _effect_taunt(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    monster_state.threat[actor.user_id] = monster_state.threat.get(actor.user_id, 0) + effect["value"]
+    log_lines.append(
+        f"{_possessive_label(actor)} Threat against {_actor_label(monster_state)} rises by **{effect['value']}** for the rest of the fight."
+    )
+
+
+def _effect_lower_threat(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    monster_state.threat[actor.user_id] = monster_state.threat.get(actor.user_id, 0) - effect["value"]
+    log_lines.append(
+        f"{_possessive_label(actor)} Threat against {_actor_label(monster_state)} falls by **{effect['value']}** for the rest of the fight."
+    )
+
+
 def _effect_dodge_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     _apply_timed_effect(
         actor, "dodge_buff", effect["value"], effect["duration"], log_lines,
@@ -1239,34 +1253,6 @@ def _effect_hot(actor, monster_state, effect: dict, log_lines: list[str], mods: 
     )
 
 
-# taunt/lower_threat are NOT in EFFECT_HANDLERS below -- unlike every other effect type, they need
-# to touch every monster in the current fight at once (a taunt draws the whole pack's attention,
-# not just whichever one the actor happens to be attacking right now), not just monster_state's own
-# single current target, so they don't fit EFFECT_HANDLERS' fixed (actor, monster_state, effect,
-# log_lines, mods) signature. Special-cased in _apply_effects instead -- same precedent as
-# _effect_guard's persistent field / lifesteal_fraction's _roll_on_hit_procs special-case, just
-# broadcast-shaped rather than single-target-shaped. Never reachable from _roll_on_hit_procs
-# (equipment on-hit) since dungeon.ON_HIT_EQUIPMENT_EFFECT_TYPES excludes both, so there's no path
-# that would ever do EFFECT_HANDLERS["taunt"] and KeyError.
-_THREAT_EFFECT_TYPES = {"taunt", "lower_threat"}
-
-
-def _apply_threat_effect(actor, all_monsters: list["MonsterInstance"], effect: dict, log_lines: list[str]) -> None:
-    """taunt raises, lower_threat lowers, `actor`'s own threat in every one of `all_monsters`' own
-    threat tables at once (dungeon.pick_target_by_threat is what later reads a single monster's own
-    table back -- see _advance_party_turns). Only ever reached with a real actor.user_id: both
-    types are player-only (dungeon._validate_monster_skill rejects them on a monster's own skill),
-    so `actor` is always a DelveSession or PartyMember here, never a MonsterInstance."""
-    delta = effect["value"] if effect["type"] == "taunt" else -effect["value"]
-    for monster in all_monsters:
-        monster.threat[actor.user_id] = monster.threat.get(actor.user_id, 0) + delta
-    verb = "rises" if delta > 0 else "falls"
-    log_lines.append(
-        f"{_possessive_label(actor)} Threat {verb} by **{abs(effect['value'])}** against every monster here, "
-        f"for the rest of the fight."
-    )
-
-
 EFFECT_HANDLERS = {
     "damage_multiplier": _effect_damage_multiplier,
     "heal_fraction": _effect_heal_fraction,
@@ -1284,6 +1270,8 @@ EFFECT_HANDLERS = {
     "spatk_debuff": _effect_spatk_debuff,
     "spdef_debuff": _effect_spdef_debuff,
     "speed_debuff": _effect_speed_debuff,
+    "taunt": _effect_taunt,
+    "lower_threat": _effect_lower_threat,
     "dodge_buff": _effect_dodge_buff,
     "resist_buff": _effect_resist_buff,
     "dot": _effect_dot,
@@ -1291,29 +1279,118 @@ EFFECT_HANDLERS = {
 }
 
 
-def _apply_effects(
-    actor, monster_state, effects: list[dict], log_lines: list[str], all_monsters: list | None = None,
-) -> dict:
-    """Runs every effect in order, mutating actor (HP/ATK/DEF/Speed/timed_effects/guard_charge)
-    and/or monster_state (the opponent's DEF/ATK/SpAtk/SpDef/Speed debuffs -- see the module
-    comment above DAMAGE_EFFECT_TYPES for which handlers touch which param), and appending log
-    lines as it goes. taunt/lower_threat (_THREAT_EFFECT_TYPES) are dispatched separately from
-    EFFECT_HANDLERS -- see the comment above that set -- against `all_monsters` (every monster in
-    the actor's current fight), defaulting to just [monster_state] for callers with only one
-    monster in play (a monster's own skill, which can never actually reach these two types anyway;
-    solo, where threat is inert since there's only one player to ever target).
+def _apply_effects(actor, monster_state, effects: list[dict], log_lines: list[str]) -> dict:
+    """Simple single-target dispatch: every effect in `effects` runs once against this one
+    `actor`/`monster_state` pair via EFFECT_HANDLERS. Used only by _resolve_monster_attack -- a
+    monster's own skill never needs the multi-target per-effect "aoe" resolution
+    _resolve_player_action implements below (taunt/lower_threat, the one type that used to need
+    broadcasting to every monster, are validation-rejected on monster skills --
+    dungeon._MONSTER_SKILL_EXCLUDED_EFFECT_TYPES -- so every monster-skill effect really is
+    single-target by construction; this dispatch never needs to know about "aoe" at all).
     Returns this-action modifiers the caller still needs for the damage roll: multiplier,
     lifesteal_fraction (None if no lifesteal), and extra_attack_multipliers (one roll_damage call
     per entry, on top of the primary hit). Guard is NOT in this dict -- see _effect_guard/
     _consume_guard_charge for why it's a persistent per-entity field instead."""
-    all_monsters = all_monsters if all_monsters is not None else [monster_state]
     mods = _default_mods()
     for effect in effects:
-        if effect["type"] in _THREAT_EFFECT_TYPES:
-            _apply_threat_effect(actor, all_monsters, effect, log_lines)
-        else:
-            EFFECT_HANDLERS[effect["type"]](actor, monster_state, effect, log_lines, mods)
+        EFFECT_HANDLERS[effect["type"]](actor, monster_state, effect, log_lines, mods)
     return mods
+
+
+def _resolve_player_action(
+    actor, ally_pool: list, enemy_pool: list["MonsterInstance"], current_target: "MonsterInstance",
+    effects: list[dict], special: bool, verb: str, subject_label: str, possessive_label: str, drain_verb: str,
+    moon_mult: float, equipped_items: list[dict], threat_gain: bool, log_lines: list[str],
+) -> list["MonsterInstance"]:
+    """Resolves one player-cast action (skill/consumable/equipment on-use) -- the shared core of
+    _resolve_combat_turn (solo) and _resolve_party_turn (party), which differ only in `ally_pool`
+    (solo: always just [actor], nothing else to expand an ally-aoe effect to), `threat_gain` (party
+    only), the handful of solo-vs-"{member.label}"-phrased strings passed in, and their own
+    kill-check/reward-loop shape once this returns.
+
+    Each effect independently decides its own target set off its own "aoe" bool (dungeon.
+    MODS_ONLY_EFFECT_TYPES / ENEMY_TARGETED_EFFECT_TYPES / ally-shaped-by-omission -- see those
+    comments in dungeon.py):
+      - mods-only effects (damage_multiplier/extra_attack/lifesteal_fraction) run once, configuring
+        `mods` for the damage roll below -- damage_multiplier/extra_attack's own "aoe" (either one)
+        decides whether the damage roll below targets `current_target` alone or every monster in
+        `enemy_pool`.
+      - ally-shaped effects apply to `[actor]`, or (per their own "aoe") `ally_pool` -- always
+        unconditional, never gated by any monster's dodge (a self-heal was never really "the
+        attack" that could be dodged).
+      - enemy-shaped effects (taunt/lower_threat folded in here like any other, now that they're
+        plain EFFECT_HANDLERS entries) each apply to `[current_target]`, or (per their own "aoe")
+        `enemy_pool` -- gated by dodge.
+      - dodge is rolled ONCE per monster touched by anything enemy-shaped or the damage roll this
+        action (not once per effect) -- a dodging monster skips everything aimed at it this action;
+        a different monster touched by a different, independently-"aoe"-flagged effect in the same
+        action rolls its own dodge separately.
+
+    Returns every monster that actually took damage this action (dodged/undamaged monsters
+    excluded) -- the caller runs its own kill-check/reward loop against exactly that list."""
+    mods_effects = [e for e in effects if e["type"] in dungeon.MODS_ONLY_EFFECT_TYPES]
+    ally_effects = [
+        e for e in effects
+        if e["type"] not in dungeon.MODS_ONLY_EFFECT_TYPES and e["type"] not in dungeon.ENEMY_TARGETED_EFFECT_TYPES
+    ]
+    enemy_effects = [e for e in effects if e["type"] in dungeon.ENEMY_TARGETED_EFFECT_TYPES]
+    is_damage_action = not effects or any(e["type"] in DAMAGE_EFFECT_TYPES for e in effects)
+
+    mods = _default_mods()
+    for e in mods_effects:
+        EFFECT_HANDLERS[e["type"]](actor, None, e, log_lines, mods)
+
+    for e in ally_effects:
+        for t in (ally_pool if e.get("aoe") else [actor]):
+            EFFECT_HANDLERS[e["type"]](t, None, e, log_lines, mods)
+
+    attack_is_aoe = any(e.get("aoe") for e in mods_effects if e["type"] in DAMAGE_EFFECT_TYPES)
+    damage_targets = (enemy_pool if attack_is_aoe else [current_target]) if is_damage_action else []
+    enemy_effect_targets = {id(e): (enemy_pool if e.get("aoe") else [current_target]) for e in enemy_effects}
+
+    touched = set(damage_targets)
+    for t_list in enemy_effect_targets.values():
+        touched.update(t_list)
+    dodged = {}
+    for monster in touched:
+        eff_def = max(0, (monster.spdef - monster.spdef_debuff) if special else (monster.def_ - monster.def_debuff))
+        dodged[monster] = random.random() < _defended_dodge_chance(monster, eff_def, special)
+
+    for e in enemy_effects:
+        for monster in enemy_effect_targets[id(e)]:
+            if not dodged[monster]:
+                EFFECT_HANDLERS[e["type"]](actor, monster, e, log_lines, mods)
+
+    hit_monsters: list["MonsterInstance"] = []
+    total_dmg = 0
+    if is_damage_action:
+        attacker_atk = (actor.spatk - actor.spatk_debuff) if special else (actor.atk - actor.atk_debuff)
+        for monster in damage_targets:
+            if dodged[monster]:
+                log_lines.append(f"**{monster.monster['name']}** dodges {possessive_label} {verb}!")
+                continue
+            eff_def = max(0, (monster.spdef - monster.spdef_debuff) if special else (monster.def_ - monster.def_debuff))
+            dmg = dungeon.roll_damage(attacker_atk, eff_def, mods["multiplier"] * moon_mult)
+            for extra_multiplier in mods["extra_attack_multipliers"]:
+                dmg += dungeon.roll_damage(attacker_atk, eff_def, extra_multiplier * moon_mult)
+            # Guard reduction is consumed here (against the TARGET's own charge, if any -- a
+            # monster can guard itself too, full parity) before lifesteal/on-hit procs read `dmg`.
+            dmg = _consume_guard_charge(monster, dmg, log_lines)
+            monster.hp -= dmg
+            total_dmg += dmg
+            hit_monsters.append(monster)
+            log_lines.append(f"{subject_label} {verb} **{monster.monster['name']}** for **{dmg}** damage.")
+            if threat_gain:
+                monster.threat[actor.user_id] = monster.threat.get(actor.user_id, 0) + dmg * dungeon.THREAT_PER_DAMAGE
+            _roll_on_hit_procs(actor, monster, equipped_items, dmg, log_lines)
+
+    if mods["lifesteal_fraction"] and total_dmg:
+        healed = min(actor.max_hp, actor.hp + round(total_dmg * mods["lifesteal_fraction"])) - actor.hp
+        actor.hp += healed
+        if healed:
+            log_lines.append(f"{subject_label} {drain_verb} **{healed}** HP from the strike.")
+
+    return hit_monsters
 
 
 def _defended_dodge_chance(defender, defense: int, special: bool) -> float:
@@ -1500,65 +1577,38 @@ async def _resolve_combat_turn(
     interaction: discord.Interaction, session: DelveSession, effects: list[dict], verb: str, log_lines: list[str],
     special: bool = False,
 ) -> bool:
-    """Resolves the player's own chosen action (plain Attack, a skill, or a consumed item) against
-    their current target -- applies `effects`, rolls damage if any effect is damage-shaped, checks
-    for a kill/room-clear -- then hands off to _advance_solo_turns for whatever happens next
-    (automatic monster turns, in speed order, until the player's own turn comes back around).
-    `verb` only matters if a damage roll happens (e.g. "attack", "unleash **Fireball**", "use
-    **Healing Draught**") -- callers that only heal/buff never reach the line that reads it.
-    `special` (always False for a plain Attack) picks SpAtk/SpDef instead of ATK/DEF for the
-    damage roll -- set by callers from the triggering skill/item's own "special" flag. Always
-    returns True (this always consumes the turn -- any "can't do this right now" rejection happens
-    before this is called)."""
-    # A plain Attack (no effects) always rolls damage; anything else rolls damage only if at
-    # least one of its effects is damage-shaped -- everything else (Heal, Guard, ...) is pure
-    # utility and skips the roll_damage call below entirely, same branch shape as the old
-    # class-name ladder this replaced.
-    is_damage_action = not effects or any(e["type"] in DAMAGE_EFFECT_TYPES for e in effects)
-    target = session.current_target()
+    """Resolves the player's own chosen action (plain Attack, a skill, or a consumed item) --
+    applies `effects` via _resolve_player_action (each effect independently single-target or AOE
+    per its own "aoe" flag -- solo's `ally_pool` is always just [session], nothing else to expand
+    an ally-aoe effect to, but an enemy-aoe effect/attack still meaningfully hits every monster in
+    a multi-monster solo room), then checks for a kill/room-clear per monster that took damage --
+    then hands off to _advance_solo_turns for whatever happens next (automatic monster turns, in
+    speed order, until the player's own turn comes back around). `verb` only matters if a damage
+    roll happens (e.g. "attack", "unleash **Fireball**", "use **Healing Draught**") -- callers that
+    only heal/buff never reach the line that reads it. `special` (always False for a plain Attack)
+    picks SpAtk/SpDef instead of ATK/DEF for the damage roll -- set by callers from the triggering
+    skill/item's own "special" flag. Always returns True (this always consumes the turn -- any
+    "can't do this right now" rejection happens before this is called)."""
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
-
-    effective_monster_def = max(0, (target.spdef - target.spdef_debuff) if special else (target.def_ - target.def_debuff))
-    # Dodge is rolled once for the whole action, before any effect applies -- a dodge negates
-    # everything this action would have done (no damage, no debuff, no self-heal/buff/lifesteal),
-    # not just the damage number, matching "completely dodge" literally. Never rolled for a
-    # non-damage action (Heal, Guard, ...) -- there's nothing on the monster's side to dodge.
-    dodged = is_damage_action and random.random() < _defended_dodge_chance(target, effective_monster_def, special)
-    if dodged:
-        log_lines.append(f"**{target.monster['name']}** dodges your {verb}!")
-    else:
-        mods = _apply_effects(session, target, effects, log_lines)
-        if is_damage_action:
-            attacker_atk = (session.spatk - session.spatk_debuff) if special else (session.atk - session.atk_debuff)
-            dmg = dungeon.roll_damage(attacker_atk, effective_monster_def, mods["multiplier"] * player_moon_mult)
-            for extra_multiplier in mods["extra_attack_multipliers"]:
-                dmg += dungeon.roll_damage(attacker_atk, effective_monster_def, extra_multiplier * player_moon_mult)
-            # Guard reduction is consumed here (against the TARGET's own charge, if any -- a
-            # monster can guard itself too, full parity) before lifesteal/on-hit procs read `dmg`,
-            # so both scale off what was actually dealt, not the pre-guard theoretical number.
-            dmg = _consume_guard_charge(target, dmg, log_lines)
-            if mods["lifesteal_fraction"]:
-                healed = min(session.max_hp, session.hp + round(dmg * mods["lifesteal_fraction"])) - session.hp
-                session.hp += healed
-                if healed:
-                    log_lines.append(f"You drain **{healed}** HP from the strike.")
-            target.hp -= dmg
-            log_lines.append(f"You {verb} for **{dmg}** damage.")
-            equipped_items = [dungeon.EQUIPMENT[iid] for iid in session.equipped.values()]
-            _roll_on_hit_procs(session, target, equipped_items, dmg, log_lines)
+    equipped_items = [dungeon.EQUIPMENT[iid] for iid in session.equipped.values()]
+    hit_monsters = _resolve_player_action(
+        session, [session], session.living_monsters(), session.current_target(), effects, special, verb,
+        "You", "your", "drain", player_moon_mult, equipped_items, False, log_lines,
+    )
 
     session.turn_clock += dungeon.turn_interval(max(1, session.speed - session.speed_debuff))
 
-    if target.hp <= 0:
-        log_lines.append(f"**{target.monster['name']} is defeated!**")
-        await _award_kill(
-            session.guild_id, target.monster, session, session.current_room_id, log_lines,
-            loot_mult=session.loot_mult * player_moon_mult, chance_mult=1.0,
-        )
-        if not session.living_monsters():
-            await _present_room_result(interaction, session, log_lines)
-            return True
+    for target in hit_monsters:
+        if target.hp <= 0:
+            log_lines.append(f"**{target.monster['name']} is defeated!**")
+            await _award_kill(
+                session.guild_id, target.monster, session, session.current_room_id, log_lines,
+                loot_mult=session.loot_mult * player_moon_mult, chance_mult=1.0,
+            )
+    if hit_monsters and not session.living_monsters():
+        await _present_room_result(interaction, session, log_lines)
+        return True
 
     await _advance_solo_turns(interaction, session, log_lines)
     return True
@@ -1819,64 +1869,41 @@ async def _resolve_party_turn(
     interaction: discord.Interaction, session: PartyDelveSession, member: PartyMember,
     effects: list[dict], verb: str, log_lines: list[str], special: bool = False,
 ) -> bool:
-    """Party sibling of _resolve_combat_turn: applies `effects`, rolls `member`'s damage against
-    `member`'s own current target (see PartyDelveSession.target_for), and on a kill runs the
-    party's independent-per-member reward loop (leader at full rate, joiners halved -- see
+    """Party sibling of _resolve_combat_turn: applies `effects` via _resolve_player_action (each
+    effect independently single-target or AOE per its own "aoe" flag -- ally-aoe expands to
+    `session.living_members()`, enemy-aoe expands to `session.living_monsters()`), and on each kill
+    runs the party's independent-per-member reward loop (leader at full rate, joiners halved -- see
     _award_kill). Advances `member`'s own turn_clock, then hands off to _advance_party_turns for
     whatever happens next (automatic member/monster turns, in speed order, until some living
     member's own turn comes back around). `special` picks SpAtk/SpDef instead of ATK/DEF for the
     damage roll, same as _resolve_combat_turn."""
-    is_damage_action = not effects or any(e["type"] in DAMAGE_EFFECT_TYPES for e in effects)
     target = session.target_for(member)
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
-
-    effective_monster_def = max(0, (target.spdef - target.spdef_debuff) if special else (target.def_ - target.def_debuff))
-    dodged = is_damage_action and random.random() < _defended_dodge_chance(target, effective_monster_def, special)
-    if dodged:
-        log_lines.append(f"**{target.monster['name']}** dodges {member.label}'s {verb}!")
-    else:
-        mods = _apply_effects(member, target, effects, log_lines, all_monsters=session.living_monsters())
-        if is_damage_action:
-            attacker_atk = (member.spatk - member.spatk_debuff) if special else (member.atk - member.atk_debuff)
-            dmg = dungeon.roll_damage(attacker_atk, effective_monster_def, mods["multiplier"] * player_moon_mult)
-            for extra_multiplier in mods["extra_attack_multipliers"]:
-                dmg += dungeon.roll_damage(attacker_atk, effective_monster_def, extra_multiplier * player_moon_mult)
-            # Guard reduction is consumed here (against the TARGET's own charge, if any -- a
-            # monster can guard itself too, full parity) before lifesteal/on-hit procs read `dmg`,
-            # same ordering _resolve_combat_turn uses.
-            dmg = _consume_guard_charge(target, dmg, log_lines)
-            if mods["lifesteal_fraction"]:
-                healed = min(member.max_hp, member.hp + round(dmg * mods["lifesteal_fraction"])) - member.hp
-                member.hp += healed
-                if healed:
-                    log_lines.append(f"{member.label} drains **{healed}** HP from the strike.")
-            target.hp -= dmg
-            # Damage generates threat against THIS monster specifically (dungeon.THREAT_PER_DAMAGE)
-            # -- taunt/lower_threat (above, broadcast to every monster) are how a player counteracts
-            # the natural pull this creates, RPG-style.
-            target.threat[member.user_id] = target.threat.get(member.user_id, 0) + dmg * dungeon.THREAT_PER_DAMAGE
-            log_lines.append(f"{member.label} {verb} for **{dmg}** damage.")
-            equipped_items = [dungeon.EQUIPMENT[iid] for iid in member.equipped.values()]
-            _roll_on_hit_procs(member, target, equipped_items, dmg, log_lines)
+    equipped_items = [dungeon.EQUIPMENT[iid] for iid in member.equipped.values()]
+    hit_monsters = _resolve_player_action(
+        member, session.living_members(), session.living_monsters(), target, effects, special, verb,
+        member.label, f"{member.label}'s", "drains", player_moon_mult, equipped_items, True, log_lines,
+    )
 
     member.turn_clock += dungeon.turn_interval(max(1, member.speed - member.speed_debuff))
 
-    if target.hp <= 0:
-        log_lines.append(f"**{target.monster['name']} is defeated!**")
-        for m in session.living_members():
-            member_log: list[str] = []
-            loot_mult = m.loot_mult * (1.0 if m.is_leader else 0.5) * player_moon_mult
-            chance_mult = 1.0 if m.is_leader else 0.5
-            await _award_kill(
-                session.guild_id, target.monster, m, session.current_room_id, member_log,
-                loot_mult=loot_mult, chance_mult=chance_mult,
-            )
-            log_lines.append(f"**{m.label}**")
-            log_lines.extend(f"> {line}" for line in member_log)
-        if not session.living_monsters():
-            await _present_party_room_result(interaction, session, log_lines)
-            return True
+    for target in hit_monsters:
+        if target.hp <= 0:
+            log_lines.append(f"**{target.monster['name']} is defeated!**")
+            for m in session.living_members():
+                member_log: list[str] = []
+                loot_mult = m.loot_mult * (1.0 if m.is_leader else 0.5) * player_moon_mult
+                chance_mult = 1.0 if m.is_leader else 0.5
+                await _award_kill(
+                    session.guild_id, target.monster, m, session.current_room_id, member_log,
+                    loot_mult=loot_mult, chance_mult=chance_mult,
+                )
+                log_lines.append(f"**{m.label}**")
+                log_lines.extend(f"> {line}" for line in member_log)
+    if hit_monsters and not session.living_monsters():
+        await _present_party_room_result(interaction, session, log_lines)
+        return True
 
     await _advance_party_turns(interaction, session, log_lines)
     return True

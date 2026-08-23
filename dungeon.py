@@ -577,13 +577,15 @@ EFFECT_PARAM_SCHEMAS = {
     # speed_debuff field and every turn-order/turn-interval call site already reads
     # speed - speed_debuff; this type was the only thing missing to ever actually set it).
     "speed_debuff": ({"value"}, set(), set()),
-    # Self-targeted, party-only threat manipulation (see the "Party threat" section below and
-    # dungeon_view._apply_threat_effect) -- raises/lowers the actor's own standing in every
-    # monster's individual threat table at once, not just whichever one they're currently
-    # attacking. Player-only: dungeon._validate_monster_skill explicitly rejects both on a
-    # monster's own skill (players already pick their own attack target directly, so there's no
-    # equivalent "who do I attack" ambiguity for a monster to need swaying), and both are excluded
-    # from ON_HIT_EQUIPMENT_EFFECT_TYPES below (skills/consumables only, no equipment support).
+    # Threat manipulation (see the "Party threat" section below) -- raises/lowers the actor's own
+    # standing in a monster's threat table (dungeon_view.MonsterInstance.threat). Enemy-targeted
+    # like atk_debuff/def_shred (ENEMY_TARGETED_EFFECT_TYPES below) -- single-target by default
+    # (only current_target's table), "aoe": true hits every living monster's table at once.
+    # Player-only: dungeon._validate_monster_skill explicitly rejects both on a monster's own skill
+    # (players already pick their own attack target directly, so there's no equivalent "who do I
+    # attack" ambiguity for a monster to need swaying), and both are excluded from equipment
+    # entirely (ON_HIT_EQUIPMENT_EFFECT_TYPES and _validate_equipment_effects' on_use check below)
+    # -- skills/consumables only.
     "taunt": ({"value"}, set(), set()),
     "lower_threat": ({"value"}, set(), set()),
     # Genuinely temporary effects (N rounds, ticked by dungeon_view._tick_timed_effects) rather
@@ -595,11 +597,39 @@ EFFECT_PARAM_SCHEMAS = {
     "hot": ({"value", "duration"}, set(), {"value"}),
 }
 
+# Which "shape" an effect type is, for dungeon_view.py's per-effect aoe resolution (see each
+# effect's own "aoe" bool, validated below) -- three buckets, not two:
+#   - MODS_ONLY: configures the attack itself (a multiplier, an extra hit, a lifesteal fraction of
+#     whatever damage ends up dealt) -- never independently targeted. damage_multiplier/
+#     extra_attack's own "aoe" decides whether the resulting damage roll hits current_target alone
+#     or every living monster; lifesteal_fraction's "aoe" has no effect (it already scales off
+#     however much total damage got dealt this action, AOE or not, with no flag of its own needed).
+#   - ENEMY_TARGETED: mutates monster_state -- current_target alone, or (per its own "aoe") every
+#     living monster.
+#   - everything else (not in either set below) is ally-shaped: mutates actor -- the caster alone,
+#     or (party only, per its own "aoe") every living party member. Unconditional -- never gated by
+#     a monster's dodge roll, unlike the two buckets above (a self-heal was never really "the
+#     attack").
+MODS_ONLY_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "lifesteal_fraction"}
+ENEMY_TARGETED_EFFECT_TYPES = {
+    "atk_debuff", "spatk_debuff", "spdef_debuff", "speed_debuff", "def_shred",
+    "taunt", "lower_threat",
+}
+
 
 def _validate_effects(effects, context: str):
     """Shared by skill and consumable loading -- `context` is a f-string-ready label (e.g.
     "dungeon_skills.json: skill 'foo'") prefixed onto every error so a bad JSON edit points
-    straight at the offending entry."""
+    straight at the offending entry.
+
+    "aoe" is a universal optional bool on every effect entry, of every type -- whether THIS effect
+    targets its usual single target (current_target monster, or the caster) or every living
+    monster/party member instead (see dungeon_view.py's per-effect-shape resolution: MODS_ONLY_
+    EFFECT_TYPES/ENEMY_TARGETED_EFFECT_TYPES/ally-shaped-by-omission). Validated here, separately
+    from the required/optional/fraction machinery below (that's all numeric-param shaped; "aoe" is
+    the first non-numeric param this function has ever needed), and excluded from `params` before
+    the required/unknown-param checks so it's never treated as an unknown param on any type, nor
+    forced into any type's own required/optional list."""
     if not effects:
         raise ValueError(f"{context} has empty effects")
     for effect in effects:
@@ -607,7 +637,9 @@ def _validate_effects(effects, context: str):
         if effect_type not in EFFECT_PARAM_SCHEMAS:
             raise ValueError(f"{context} has unknown effect type {effect_type!r}")
         required, optional, fraction_params = EFFECT_PARAM_SCHEMAS[effect_type]
-        params = effect.keys() - {"type"}
+        if "aoe" in effect and not isinstance(effect["aoe"], bool):
+            raise ValueError(f"{context} effect {effect_type!r} param 'aoe' must be a bool")
+        params = effect.keys() - {"type", "aoe"}
         missing = required - params
         if missing:
             raise ValueError(f"{context} effect {effect_type!r} missing param(s): {sorted(missing)}")
@@ -787,6 +819,11 @@ CONSTANT_EQUIPMENT_EFFECT_TYPES = {"atk_buff", "def_buff", "spatk_buff", "spdef_
 ON_HIT_EQUIPMENT_EFFECT_TYPES = set(EFFECT_PARAM_SCHEMAS) - {
     "damage_multiplier", "guard", "extra_attack", "taunt", "lower_threat",
 }
+# taunt/lower_threat are excluded from equipment everywhere, not just on_hit above -- "constant" is
+# already covered by CONSTANT_EQUIPMENT_EFFECT_TYPES not listing them, but "on_use" has no other
+# type restriction at all (see _validate_equipment_effects' else branch), so it needs this explicit
+# check of its own.
+_ON_USE_EQUIPMENT_EXCLUDED_EFFECT_TYPES = {"taunt", "lower_threat"}
 # type -> which stat constant_stat_bonuses folds it into -- the inverse of generate_item_constant_effects'
 # own mapping below.
 _CONSTANT_EFFECT_STAT = {
@@ -820,6 +857,8 @@ def _validate_equipment_effects(effects, context: str) -> None:
                 raise ValueError(f"{effect_context} (trigger {trigger!r}) must not set chance")
             if trigger == "constant" and effect_type not in CONSTANT_EQUIPMENT_EFFECT_TYPES:
                 raise ValueError(f"{effect_context} type {effect_type!r} can't be used with trigger 'constant'")
+            if trigger == "on_use" and effect_type in _ON_USE_EQUIPMENT_EXCLUDED_EFFECT_TYPES:
+                raise ValueError(f"{effect_context} type {effect_type!r} can't be used with trigger 'on_use' (player-only threat effect, skills/consumables only)")
     _validate_effects(
         [{k: v for k, v in e.items() if k not in ("trigger", "chance")} for e in effects], context
     )
