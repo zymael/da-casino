@@ -1614,25 +1614,28 @@ def _render_effect_row(
     # duration are, since it isn't part of that per-type schema at all.
     aoe_checked = " checked" if effect.get("aoe") else ""
     aoe_html = (
-        f'<label class="checkbox-label" data-tooltip="Ally-shaped effects (heals/buffs) hit the '
-        f'whole party instead of just the caster; enemy-shaped effects (debuffs/damage/taunt/'
-        f'lower_threat) hit every living monster instead of just the current target. Unchecked = '
-        f'single target (the usual behavior).">'
+        f'<label class="checkbox-label" data-tooltip="Hits every living entity in whichever pool '
+        f'this effect\'s own target resolves to, instead of just one: the whole party if target is '
+        f'ally, every living monster if target is enemy. Has no effect when target is self (there\'s '
+        f'only ever one caster). Unchecked = single target (the usual behavior).">'
         f'<input type="checkbox" name="{prefix}_aoe"{aoe_checked}> aoe</label>'
     )
-    # "self_only" is ally-shaped effects' third targeting option alongside plain single-target and
-    # aoe (dungeon._validate_effects rejects it on a mods-only/enemy-targeted effect, and rejects it
-    # combined with aoe on the same effect) -- forces this effect onto the caster even when they've
-    # selected a different living ally via the in-fight ally-target picker (PartyDelveSession.
-    # ally_target_for). Shown on every row regardless of type, same "let the dropdown show
-    # everything, catch a bad combination loudly at Save" choice aoe's own tooltip note already
-    # documents for this panel.
-    self_only_checked = " checked" if effect.get("self_only") else ""
-    self_only_html = (
-        f'<label class="checkbox-label" data-tooltip="Only ally-shaped effects (heals/buffs) use '
-        f'this. Forces the effect onto the caster even if they\'ve selected a different living ally '
-        f'to target -- for a skill that should never be redirectable. Can\'t be combined with aoe.">'
-        f'<input type="checkbox" name="{prefix}_self_only"{self_only_checked}> self only</label>'
+    # "target" (self/ally/enemy, dungeon.EFFECT_TARGETS) picks WHO this effect lands on, fully
+    # decoupled from its type -- no restriction on which type can use which target. Blank means
+    # dungeon.default_effect_target(type)'s type-based default (whatever this type always did
+    # before "target" existed), so leaving it blank never changes existing content's behavior.
+    # Shown on every row regardless of type, same "let the dropdown show everything, catch a bad
+    # combination loudly at Save" choice aoe's own tooltip note already documents for this panel.
+    target_options = "".join(
+        f'<option value="{t}"{" selected" if t == effect.get("target") else ""}>{t}</option>'
+        for t in [""] + list(dungeon.EFFECT_TARGETS)
+    )
+    target_html = (
+        f'<label data-tooltip="Who this effect lands on: self (the caster), ally (a chosen/every '
+        f'living ally), or enemy (the current/every living target) -- independent of the effect\'s '
+        f'own type, so e.g. a stun or damage_multiplier can target self or ally just as freely as '
+        f'enemy. Blank = this type\'s usual default (heals/buffs -> ally, damage/debuffs/CC -> '
+        f'enemy).">target<select name="{prefix}_target">{target_options}</select></label>'
     )
     trigger_html = ""
     chance_html = ""
@@ -1668,7 +1671,7 @@ def _render_effect_row(
         f'<label>type<select name="{prefix}_type" class="effect-type-select">{type_options}</select></label>'
         f'{trigger_html}'
         f'<small class="field-hint effect-hint"></small>'
-        f'{param_inputs}{aoe_html}{self_only_html}{chance_html}'
+        f'{param_inputs}{aoe_html}{target_html}{chance_html}'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
     )
 
@@ -2584,8 +2587,9 @@ def _parse_effects_list(container_prefix: str, form: dict) -> list[dict]:
         # it matches every other effect authored before "aoe" existed.
         if f"{prefix}_aoe" in form:
             effect["aoe"] = True
-        if f"{prefix}_self_only" in form:
-            effect["self_only"] = True
+        target = form.get(f"{prefix}_target", "").strip()
+        if target:
+            effect["target"] = target
         # The universal independent per-effect fire probability (dungeon.resolve_cast_effects) --
         # blank means "always fires" (dungeon._validate_effects' own default), same "absent, not a
         # 0" convention as every other optional numeric field here. This is the one place
@@ -2656,8 +2660,9 @@ def _parse_equipment_effects(form: dict) -> list[dict]:
                 effect[p] = float(raw) if "." in raw else int(raw)
         if f"{prefix}_aoe" in form:
             effect["aoe"] = True
-        if f"{prefix}_self_only" in form:
-            effect["self_only"] = True
+        target = form.get(f"{prefix}_target", "").strip()
+        if target:
+            effect["target"] = target
         effects.append(effect)
     return effects
 

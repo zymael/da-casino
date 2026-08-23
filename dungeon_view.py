@@ -1148,20 +1148,26 @@ def _possessive_pronoun(entity) -> str:
 
 
 def _combatant_name(entity) -> str:
-    """Subject-position name for an entity in the monster_state/opponent role -- unlike
-    _actor_label, this is never "You": a MonsterInstance's bolded name (PvE, the usual case) or a
-    PartyMember's own bolded label (a duel opponent -- see the Dueling section below). Only ever
-    used for monster_state-role references (enemy-shaped effect log lines, _resolve_player_action's
-    own dodge/damage lines) -- an actor's own self-referential lines still go through
-    _actor_label/_possessive_label ("You"/"Your") unchanged, and monster_state in every one of
-    those call sites is guaranteed to be a MonsterInstance or a duel-opponent PartyMember, never a
-    solo DelveSession (which has no .label), so this never needs to handle that case."""
+    """Subject-position name for an entity in the monster_state/opponent role -- a MonsterInstance's
+    bolded name (PvE, the usual case), a PartyMember's own bolded label (a duel opponent, or a
+    living ally now that "target" can aim any effect at one), or (lowercase, mid-sentence) "you" for
+    a solo DelveSession -- possible now that an effect's own "target": "self"/"ally" can land
+    damage/enemy-shaped effects on the solo player themselves, something a solo DelveSession was
+    never on the receiving end of before "target" existed. An actor's own SUBJECT-position
+    self-referential lines still go through _actor_label/_possessive_label ("You"/"Your", capitalized,
+    sentence-initial) unchanged -- this is only for naming whoever an effect landed ON, from the
+    caster's own point of view, which reads naturally lowercase mid-sentence even when that
+    happens to be the caster themselves ("you attack yourself for 5 damage")."""
     if isinstance(entity, MonsterInstance):
         return f"**{entity.monster['name']}**"
+    if isinstance(entity, DelveSession):
+        return "you"
     return f"**{entity.label}**"
 
 
 def _combatant_possessive(entity) -> str:
+    if isinstance(entity, DelveSession):
+        return "your"
     return f"{_combatant_name(entity)}'s"
 
 
@@ -1410,20 +1416,32 @@ EFFECT_HANDLERS = {
 
 
 def _apply_effects(actor, monster_state, effects: list[dict], log_lines: list[str]) -> dict:
-    """Simple single-target dispatch: every effect in `effects` runs once against this one
-    `actor`/`monster_state` pair via EFFECT_HANDLERS. Used only by _resolve_monster_attack -- a
-    monster's own skill never needs the multi-target per-effect "aoe" resolution
-    _resolve_player_action implements below (taunt/lower_threat, the one type that used to need
-    broadcasting to every monster, are validation-rejected on monster skills --
-    dungeon._MONSTER_SKILL_EXCLUDED_EFFECT_TYPES -- so every monster-skill effect really is
-    single-target by construction; this dispatch never needs to know about "aoe" at all).
+    """Simple single-target dispatch: every effect in `effects` runs once, against whichever of
+    `actor` (the monster) / `monster_state` (the player being fought) its own "target" (self/ally/
+    enemy, defaulting per type same as dungeon_view._resolve_player_action) resolves to -- "ally"
+    collapses to "self" here, since a monster has no ally pool of its own (no inter-monster
+    targeting exists in this game). Used only by _resolve_monster_attack -- a monster's own skill
+    never needs the multi-target per-effect "aoe" resolution _resolve_player_action implements
+    below (taunt/lower_threat, the one type that used to need broadcasting to every monster, are
+    validation-rejected on monster skills -- dungeon._MONSTER_SKILL_EXCLUDED_EFFECT_TYPES -- so
+    every monster-skill effect really is single-target by construction; this dispatch never needs
+    to know about "aoe" at all). Which positional argument a resolved entity fills is still fixed
+    by the effect's own TYPE (second argument for dungeon.ENEMY_TARGETED_EFFECT_TYPES, first for
+    everything else), exactly like _resolve_player_action -- "target" only changes WHICH entity
+    fills that slot, e.g. a monster's own heal_fraction with target: "enemy" heals the player
+    instead of the monster itself, same "no restrictions" freedom a player skill now has.
     Returns this-action modifiers the caller still needs for the damage roll: multiplier,
     lifesteal_fraction (None if no lifesteal), and extra_attack_multipliers (one roll_damage call
     per entry, on top of the primary hit). Guard is NOT in this dict -- see _effect_guard/
     _consume_guard_charge for why it's a persistent per-entity field instead."""
     mods = _default_mods()
     for effect in effects:
-        EFFECT_HANDLERS[effect["type"]](actor, monster_state, effect, log_lines, mods)
+        target = effect.get("target") or dungeon.default_effect_target(effect["type"])
+        entity = monster_state if target == "enemy" else actor
+        if effect["type"] in dungeon.ENEMY_TARGETED_EFFECT_TYPES:
+            EFFECT_HANDLERS[effect["type"]](actor, entity, effect, log_lines, mods)
+        else:
+            EFFECT_HANDLERS[effect["type"]](entity, None, effect, log_lines, mods)
     return mods
 
 
@@ -1449,37 +1467,51 @@ def _resolve_player_action(
     is only ever True for a skill-less Attack -- see the `is_damage_action` line below for why this
     can't just be inferred from `effects` being empty anymore.
 
-    Each effect independently decides its own target set off its own "aoe" bool (dungeon.
-    MODS_ONLY_EFFECT_TYPES / ENEMY_TARGETED_EFFECT_TYPES / ally-shaped-by-omission -- see those
-    comments in dungeon.py):
+    Every effect independently resolves WHO it lands on from its own "target" (self/ally/enemy,
+    dungeon.EFFECT_TARGETS -- defaulting per type via dungeon.default_effect_target so untouched
+    content behaves exactly as before) and "aoe" bool -- fully decoupled from the effect's TYPE,
+    which now only decides the *calling convention* (dungeon.MODS_ONLY_EFFECT_TYPES/
+    ENEMY_TARGETED_EFFECT_TYPES/first-argument-shaped-by-omission, see those comments in
+    dungeon.py) and, for a damage-shaped type, that it participates in the roll below at all:
       - mods-only effects (damage_multiplier/extra_attack/lifesteal_fraction) run once, configuring
-        `mods` for the damage roll below -- damage_multiplier/extra_attack's own "aoe" (either one)
-        decides whether the damage roll below targets `current_target` alone or every monster in
-        `enemy_pool`.
-      - ally-shaped effects apply to `[ally_target]`, or (per their own "aoe") `ally_pool`, or (per
-        their own "self_only") `[actor]` regardless of whatever ally is currently selected -- always
-        unconditional, never gated by any monster's dodge (a self-heal was never really "the
-        attack" that could be dodged). "self_only" and "aoe" are mutually exclusive on the same
-        effect (dungeon._validate_effects rejects the combination) -- solo/duel calls never notice
-        the difference either way, since `ally_target` already always equals `actor` there.
-      - enemy-shaped effects (taunt/lower_threat folded in here like any other, now that they're
-        plain EFFECT_HANDLERS entries) each apply to `[current_target]`, or (per their own "aoe")
-        `enemy_pool` -- gated by dodge.
-      - dodge is rolled ONCE per monster touched by anything enemy-shaped or the damage roll this
-        action (not once per effect) -- a dodging monster skips everything aimed at it this action;
-        a different monster touched by a different, independently-"aoe"-flagged effect in the same
-        action rolls its own dodge separately.
+        `mods` for the damage roll below. The roll's own target set comes from whichever
+        damage-shaped mods effect is present (damage_multiplier if there is one, else the first
+        extra_attack) resolving ITS OWN "target"/"aoe" -- self, a chosen ally (or every living
+        ally), or the enemy (or every living enemy), same three-way choice everything else gets.
+        `is_plain_attack` (no skill at all) has no effect to read, so it always resolves to
+        `[current_target]`, matching its pre-"target" behavior exactly.
+      - every other effect resolves to `[actor]` (self), `[ally_target]` or `ally_pool` (per its
+        own "aoe"), or `[current_target]` or `enemy_pool` (per its own "aoe") -- whichever "target"
+        says. Which positional argument EFFECT_HANDLERS[type] actually receives the resolved
+        entity in is still fixed by TYPE (second argument for ENEMY_TARGETED_EFFECT_TYPES, first
+        for everything else) -- "target" only ever changes WHICH entity fills that slot, never
+        which slot gets filled.
+      - dodge is rolled ONCE per entity resolved to "enemy" by anything this action touches
+        (mods-driven damage or any other effect) -- not once per effect -- and gates every one of
+        those enemy-resolved effects for that entity, exactly as it always gated every
+        enemy-shaped effect before "target" existed. An effect resolved to "self"/"ally" is never
+        dodge-gated, regardless of its type -- a self-inflicted stun was never really "the attack"
+        its caster could evade any more than a self-heal was.
 
-    Returns every monster that actually took damage this action (dodged/undamaged monsters
-    excluded) -- the caller runs its own kill-check/reward loop against exactly that list."""
+    Returns every entity (of any kind -- self/ally included, not just a `MonsterInstance`, now that
+    damage can land anywhere) that actually took damage this action (dodged/undamaged entities
+    excluded) -- the caller runs its own kill-check/reward loop against exactly that list, and must
+    itself guard for a non-monster entity in it (see _resolve_combat_turn's own comment on why)."""
     if ally_target is None:
         ally_target = actor
+
+    def resolve_targets(effect: dict) -> tuple[list, bool]:
+        """(entities, is_enemy) for one effect -- is_enemy is what drives dodge-gating below,
+        regardless of the effect's own type."""
+        target = effect.get("target") or dungeon.default_effect_target(effect["type"])
+        if target == "self":
+            return [actor], False
+        if target == "ally":
+            return (ally_pool if effect.get("aoe") else [ally_target]), False
+        return (enemy_pool if effect.get("aoe") else [current_target]), True
+
     mods_effects = [e for e in effects if e["type"] in dungeon.MODS_ONLY_EFFECT_TYPES]
-    ally_effects = [
-        e for e in effects
-        if e["type"] not in dungeon.MODS_ONLY_EFFECT_TYPES and e["type"] not in dungeon.ENEMY_TARGETED_EFFECT_TYPES
-    ]
-    enemy_effects = [e for e in effects if e["type"] in dungeon.ENEMY_TARGETED_EFFECT_TYPES]
+    handler_effects = [e for e in effects if e["type"] not in dungeon.MODS_ONLY_EFFECT_TYPES]
     # `is_plain_attack` (true only for a skill-less Attack, which always passes effects=[] on
     # purpose) is what still makes an unconditional damage roll happen with an empty effects list --
     # deliberately NOT "not effects" alone, now that dungeon.resolve_cast_effects can hand a REAL
@@ -1492,56 +1524,62 @@ def _resolve_player_action(
     for e in mods_effects:
         EFFECT_HANDLERS[e["type"]](actor, None, e, log_lines, mods)
 
-    for e in ally_effects:
-        if e.get("aoe"):
-            targets = ally_pool
-        elif e.get("self_only"):
-            targets = [actor]
+    handler_resolved = [(e, *resolve_targets(e)) for e in handler_effects]
+
+    damage_targets: list = []
+    damage_is_enemy = True
+    if is_damage_action:
+        damage_effect = next((e for e in mods_effects if e["type"] in DAMAGE_EFFECT_TYPES), None)
+        if damage_effect is not None:
+            damage_targets, damage_is_enemy = resolve_targets(damage_effect)
         else:
-            targets = [ally_target]
-        for t in targets:
-            EFFECT_HANDLERS[e["type"]](t, None, e, log_lines, mods)
+            damage_targets = [current_target]  # plain Attack, or a skill with no damage effect of its own
 
-    attack_is_aoe = any(e.get("aoe") for e in mods_effects if e["type"] in DAMAGE_EFFECT_TYPES)
-    damage_targets = (enemy_pool if attack_is_aoe else [current_target]) if is_damage_action else []
-    enemy_effect_targets = {id(e): (enemy_pool if e.get("aoe") else [current_target]) for e in enemy_effects}
-
-    touched = set(damage_targets)
-    for t_list in enemy_effect_targets.values():
-        touched.update(t_list)
+    # Dodge is rolled once for every entity reached via an "enemy"-resolved path this action --
+    # self/ally-resolved effects never touch this at all.
+    touched = set(damage_targets) if damage_is_enemy else set()
+    for e, entities, is_enemy in handler_resolved:
+        if is_enemy:
+            touched.update(entities)
     dodged = {}
-    for monster in touched:
-        eff_def = max(0, (monster.spdef - monster.spdef_debuff) if special else (monster.def_ - monster.def_debuff))
-        dodged[monster] = random.random() < _defended_dodge_chance(monster, eff_def, special)
+    for entity in touched:
+        eff_def = max(0, (entity.spdef - entity.spdef_debuff) if special else (entity.def_ - entity.def_debuff))
+        dodged[entity] = random.random() < _defended_dodge_chance(entity, eff_def, special)
 
-    for e in enemy_effects:
-        for monster in enemy_effect_targets[id(e)]:
-            if not dodged[monster]:
-                EFFECT_HANDLERS[e["type"]](actor, monster, e, log_lines, mods)
+    for e, entities, is_enemy in handler_resolved:
+        for entity in entities:
+            if is_enemy and dodged[entity]:
+                continue
+            if e["type"] in dungeon.ENEMY_TARGETED_EFFECT_TYPES:
+                EFFECT_HANDLERS[e["type"]](actor, entity, e, log_lines, mods)
+            else:
+                EFFECT_HANDLERS[e["type"]](entity, None, e, log_lines, mods)
 
-    hit_monsters: list["MonsterInstance"] = []
+    hit_entities: list = []
     total_dmg = 0
     if is_damage_action:
         attacker_atk = (actor.spatk - actor.spatk_debuff) if special else (actor.atk - actor.atk_debuff)
-        for monster in damage_targets:
-            if dodged[monster]:
-                log_lines.append(f"{_combatant_name(monster)} dodges {possessive_label} {verb}!")
+        for entity in damage_targets:
+            if damage_is_enemy and dodged[entity]:
+                log_lines.append(f"{_combatant_name(entity)} dodges {possessive_label} {verb}!")
                 continue
-            eff_def = max(0, (monster.spdef - monster.spdef_debuff) if special else (monster.def_ - monster.def_debuff))
+            eff_def = max(0, (entity.spdef - entity.spdef_debuff) if special else (entity.def_ - entity.def_debuff))
             dmg = dungeon.roll_damage(attacker_atk, eff_def, mods["multiplier"] * moon_mult)
             for extra_multiplier in mods["extra_attack_multipliers"]:
                 dmg += dungeon.roll_damage(attacker_atk, eff_def, extra_multiplier * moon_mult)
-            # Guard reduction is consumed here (against the TARGET's own charge, if any -- a
-            # monster can guard itself too, full parity) before lifesteal/on-hit procs read `dmg`.
-            dmg = _consume_guard_charge(monster, dmg, log_lines)
-            monster.hp -= dmg
+            # Guard reduction is consumed here (against the TARGET's own charge, if any -- any
+            # entity can guard itself, full parity) before lifesteal/on-hit procs read `dmg`.
+            dmg = _consume_guard_charge(entity, dmg, log_lines)
+            entity.hp -= dmg
             total_dmg += dmg
-            hit_monsters.append(monster)
-            log_lines.append(f"{subject_label} {verb} {_combatant_name(monster)} for **{dmg}** damage.")
-            _break_sap(monster, log_lines)
-            if threat_gain:
-                monster.threat[actor.user_id] = monster.threat.get(actor.user_id, 0) + dmg * dungeon.THREAT_PER_DAMAGE
-            _roll_on_hit_procs(actor, monster, equipped_items, dmg, log_lines)
+            hit_entities.append(entity)
+            log_lines.append(f"{subject_label} {verb} {_combatant_name(entity)} for **{dmg}** damage.")
+            _break_sap(entity, log_lines)
+            # Threat only exists on a MonsterInstance -- damage that landed on self/an ally instead
+            # (now possible with an unrestricted "target") has no threat table to update.
+            if threat_gain and isinstance(entity, MonsterInstance):
+                entity.threat[actor.user_id] = entity.threat.get(actor.user_id, 0) + dmg * dungeon.THREAT_PER_DAMAGE
+            _roll_on_hit_procs(actor, entity, equipped_items, dmg, log_lines)
 
     if mods["lifesteal_fraction"] and total_dmg:
         healed = min(actor.max_hp, actor.hp + round(total_dmg * mods["lifesteal_fraction"])) - actor.hp
@@ -1549,7 +1587,7 @@ def _resolve_player_action(
         if healed:
             log_lines.append(f"{subject_label} {drain_verb} **{healed}** HP from the strike.")
 
-    return hit_monsters
+    return hit_entities
 
 
 def _defended_dodge_chance(defender, defense: int, special: bool) -> float:
@@ -1790,7 +1828,7 @@ async def _resolve_combat_turn(
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
     equipped_items = [dungeon.EQUIPMENT[iid] for iid in session.equipped.values()]
-    hit_monsters = _resolve_player_action(
+    hit = _resolve_player_action(
         session, [session], session.living_monsters(), session.current_target(), effects, special, verb,
         "You", "your", "drain", player_moon_mult, equipped_items, False, log_lines,
         is_plain_attack=is_plain_attack,
@@ -1798,6 +1836,17 @@ async def _resolve_combat_turn(
 
     session.turn_clock += dungeon.turn_interval(max(1, session.speed - session.speed_debuff))
 
+    # An unrestricted "target" means the player's own action can now damage themselves (a
+    # self/ally-targeted damage_multiplier) -- checked BEFORE the monster-kill loop below (which
+    # assumes every entry in `hit` is a MonsterInstance) and skips the rest of this turn entirely
+    # if it happened, same "you're down" handling _advance_solo_turns already gives a
+    # monster-inflicted death, just reached from this side instead.
+    if session.hp <= 0:
+        embed = await _solo_death_embed(session, log_lines)
+        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+        return True
+
+    hit_monsters = [target for target in hit if isinstance(target, MonsterInstance)]
     for target in hit_monsters:
         if target.hp <= 0:
             log_lines.append(f"**{target.monster['name']} is defeated!**")
@@ -2095,7 +2144,7 @@ async def _resolve_party_turn(
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
     equipped_items = [dungeon.EQUIPMENT[iid] for iid in member.equipped.values()]
-    hit_monsters = _resolve_player_action(
+    hit = _resolve_player_action(
         member, session.living_members(), session.living_monsters(), target, effects, special, verb,
         member.label, f"{member.label}'s", "drains", player_moon_mult, equipped_items, True, log_lines,
         ally_target=ally_target, is_plain_attack=is_plain_attack,
@@ -2103,6 +2152,16 @@ async def _resolve_party_turn(
 
     member.turn_clock += dungeon.turn_interval(max(1, member.speed - member.speed_debuff))
 
+    # An unrestricted "target" means this action could have damaged the caster or a living ally
+    # instead of/alongside a monster -- knock out anyone that dropped to 0 the same way a monster's
+    # own attack already would (_advance_party_turns' own living_members() filter picks this up on
+    # its very next iteration, called at this function's tail regardless).
+    for hit_member in hit:
+        if isinstance(hit_member, PartyMember) and hit_member.hp <= 0 and not hit_member.knocked_out:
+            hit_member.knocked_out = True
+            log_lines.append(f"💀 **{hit_member.label}** is knocked out!")
+
+    hit_monsters = [target for target in hit if isinstance(target, MonsterInstance)]
     for target in hit_monsters:
         if target.hp <= 0:
             log_lines.append(f"**{target.monster['name']} is defeated!**")
@@ -3142,12 +3201,12 @@ async def _end_duel(
     (db.log_bet, game="duel") -- same tiered win/loss achievement tracking every casino game
     already gets (achievements.GAMES' "duel" bucket), unlike a dungeon delve's own loot, which is
     PvE income, not a wager, and deliberately does NOT go through log_bet at all. `winner=None` is
-    a defensive fallback for a simultaneous double-KO -- not actually reachable with today's effect
-    vocabulary (every self-damaging effect is a timed dot, and a dot only ever ticks on its own
-    caster's turn, never both duelists' at once), kept rather than assumed impossible; a draw logs
-    both sides at net 0 (like a blackjack push) rather than skipping the log entirely, and (unlike
-    a decisive win/loss below) genuinely earns no win/loss achievement kind either way, since a
-    draw really has no winner."""
+    for a simultaneous double-KO -- genuinely reachable now that an effect's own "target" can aim
+    damage at the caster themselves with no restriction (a skill that hurts both the caster and the
+    opponent in one cast can drop both to 0 in the same turn -- see _resolve_duel_turn's own
+    actor.hp/opponent.hp check order); a draw logs both sides at net 0 (like a blackjack push)
+    rather than skipping the log entirely, and (unlike a decisive win/loss below) genuinely earns no
+    win/loss achievement kind either way, since a draw really has no winner."""
     currency = db.get_currency_name(session.guild_id)
     send = interaction.followup.send if interaction is not None else session.message.channel.send
     win_kinds: list[str] = []
@@ -3228,7 +3287,11 @@ async def _resolve_duel_turn(
     verb: str, log_lines: list[str], special: bool = False, is_plain_attack: bool = False,
 ) -> bool:
     """Duel sibling of _resolve_party_turn -- always exactly one possible opponent (the other
-    duelist), no threat gain (PvP has no monster threat table), no moon multiplier."""
+    duelist), no threat gain (PvP has no monster threat table), no moon multiplier. Never needs to
+    inspect _resolve_player_action's own return value (no loot/kill-award loop the way PvE has) --
+    an unrestricted "target" only ever means `actor` could now damage themselves instead of/besides
+    `opponent` (a duel's own "ally" is always just the caster, nothing else to redirect to), and
+    both duelists' hp is checked directly below regardless of who dealt the damage."""
     opponent = session.other(actor)
     equipped_items = [dungeon.EQUIPMENT[iid] for iid in actor.equipped.values()]
     _resolve_player_action(
@@ -3239,6 +3302,12 @@ async def _resolve_duel_turn(
 
     actor.turn_clock += dungeon.turn_interval(max(1, actor.speed - actor.speed_debuff))
 
+    if actor.hp <= 0 and opponent.hp <= 0:
+        await _end_duel(interaction, session, None, log_lines)
+        return True
+    if actor.hp <= 0:
+        await _end_duel(interaction, session, opponent, log_lines)
+        return True
     if opponent.hp <= 0:
         await _end_duel(interaction, session, actor, log_lines)
         return True

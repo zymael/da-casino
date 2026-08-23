@@ -982,7 +982,7 @@
       {
         "type": "atk_buff",
         "value": 13,
-        "self_only": true
+        "target": "self"
       }
     ],
     "chip_cost": 10,
@@ -1076,24 +1076,24 @@
     "effects": [
       {
         "type": "cleanse_dot",
-        "self_only": true
+        "target": "self"
       },
       {
         "type": "dodge_buff",
         "duration": 3,
         "value": 0.5,
-        "self_only": true
+        "target": "self"
       },
       {
         "type": "resist_buff",
         "duration": 3,
         "value": 0.5,
-        "self_only": true
+        "target": "self"
       },
       {
         "type": "spatk_buff",
         "value": 10,
-        "self_only": true
+        "target": "self"
       }
     ],
     "chip_cost": 5,
@@ -1164,13 +1164,13 @@
         "type": "dodge_buff",
         "duration": 3,
         "value": 0.5,
-        "self_only": true
+        "target": "self"
       },
       {
         "type": "resist_buff",
         "duration": 3,
         "value": 0.5,
-        "self_only": true
+        "target": "self"
       }
     ],
     "chip_cost": 8,

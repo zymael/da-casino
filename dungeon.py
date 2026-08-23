@@ -654,24 +654,52 @@ EFFECT_PARAM_SCHEMAS = {
     "cleanse_cc": (set(), set(), set()),
 }
 
-# Which "shape" an effect type is, for dungeon_view.py's per-effect aoe resolution (see each
-# effect's own "aoe" bool, validated below) -- three buckets, not two:
+# Which handler-calling-convention an effect type uses, for dungeon_view.py's dispatch -- three
+# buckets, not two. This USED to also be what decided *who* an effect could ever hit (a stun could
+# only ever land on an enemy, a heal only ever on an ally) -- that restriction is gone (see "target"
+# below, and dungeon_view._resolve_player_action); these sets now only decide *how* an effect is
+# invoked and, for MODS_ONLY specifically, that it participates in the damage roll at all:
 #   - MODS_ONLY: configures the attack itself (a multiplier, an extra hit, a lifesteal fraction of
-#     whatever damage ends up dealt) -- never independently targeted. damage_multiplier/
-#     extra_attack's own "aoe" decides whether the resulting damage roll hits current_target alone
-#     or every living monster; lifesteal_fraction's "aoe" has no effect (it already scales off
-#     however much total damage got dealt this action, AOE or not, with no flag of its own needed).
-#   - ENEMY_TARGETED: mutates monster_state -- current_target alone, or (per its own "aoe") every
-#     living monster.
-#   - everything else (not in either set below) is ally-shaped: mutates actor -- the caster alone,
-#     or (party only, per its own "aoe") every living party member. Unconditional -- never gated by
-#     a monster's dodge roll, unlike the two buckets above (a self-heal was never really "the
-#     attack").
+#     whatever damage ends up dealt) rather than being applied to an entity directly -- the damage
+#     roll it configures now targets whichever entity/entities its own "target" (defaulting to
+#     "enemy") resolves to, self and allies fully included.
+#   - ENEMY_TARGETED: EFFECT_HANDLERS[type] is called as (actor, entity, ...) -- `entity` is
+#     whichever this effect's own "target" (defaulting to "enemy") resolves to. The name is legacy
+#     (every type in this set used to be enemy-only); it's really "second-argument-shaped" now.
+#   - everything else (not in either set above) is "first-argument-shaped": EFFECT_HANDLERS[type] is
+#     called as (entity, None, ...), `entity` again resolved from this effect's own "target"
+#     (defaulting to "ally").
+# "aoe" (validated below) still means "every living entity in whichever pool 'target' resolved to"
+# regardless of bucket. Dodge-gating now follows resolved target, not bucket: anything resolving to
+# "enemy" is dodge-gated (matching every enemy-shaped effect's existing behavior); "self"/"ally"
+# never are (a self-heal, or now a self-inflicted stun, was never really "the attack" that could be
+# dodged) -- see dungeon_view._resolve_player_action.
 MODS_ONLY_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "lifesteal_fraction"}
 ENEMY_TARGETED_EFFECT_TYPES = {
     "atk_debuff", "spatk_debuff", "spdef_debuff", "speed_debuff", "def_shred",
     "taunt", "lower_threat", "sap", "stun",
 }
+
+# Who an effect lands on -- fully decoupled from its type (dungeon_view._resolve_player_action):
+# "self" (the caster, always singular, "aoe" is a no-op), "ally" (whichever living ally the caster
+# currently has selected, dungeon_view.PartyDelveSession.ally_target_for -- defaults to the caster
+# themselves outside a party -- or every living ally with "aoe"), "enemy" (current_target, or every
+# living enemy with "aoe"). Every effect type can use every target -- a self-inflicted stun, a heal
+# aimed at the enemy, a damage_multiplier that hurts an ally, all equally legal now. Optional per
+# effect; absent means default_effect_target's type-based default, which reproduces every existing
+# skill/consumable/monster-skill's behavior exactly as authored before "target" existed.
+EFFECT_TARGETS = ("self", "ally", "enemy")
+
+
+def default_effect_target(effect_type: str) -> str:
+    """The target an effect resolves to when it doesn't set "target" explicitly -- reproduces
+    exactly what every effect type already did before targeting became an explicit per-effect
+    choice, so no existing content needs touching. MODS_ONLY/ENEMY_TARGETED types default to
+    "enemy" (their old exclusive target); everything else defaults to "ally" (its old exclusive
+    target -- "ally" alone, non-aoe, already means "self" via ally_target_for's own default)."""
+    if effect_type in MODS_ONLY_EFFECT_TYPES or effect_type in ENEMY_TARGETED_EFFECT_TYPES:
+        return "enemy"
+    return "ally"
 
 
 def _validate_effects(effects, context: str):
@@ -680,23 +708,19 @@ def _validate_effects(effects, context: str):
     straight at the offending entry.
 
     "aoe" is a universal optional bool on every effect entry, of every type -- whether THIS effect
-    targets its usual single target (current_target monster, or the caster) or every living
-    monster/party member instead (see dungeon_view.py's per-effect-shape resolution: MODS_ONLY_
-    EFFECT_TYPES/ENEMY_TARGETED_EFFECT_TYPES/ally-shaped-by-omission). Validated here, separately
-    from the required/optional/fraction machinery below (that's all numeric-param shaped; "aoe" is
-    the first non-numeric param this function has ever needed), and excluded from `params` before
-    the required/unknown-param checks so it's never treated as an unknown param on any type, nor
-    forced into any type's own required/optional list.
+    hits its usual single target or every living entity in whichever pool "target" (see below)
+    resolved to instead. Validated here, separately from the required/optional/fraction machinery
+    below (that's all numeric-param shaped; "aoe" is the first non-numeric param this function ever
+    needed), and excluded from `params` before the required/unknown-param checks so it's never
+    treated as an unknown param on any type, nor forced into any type's own required/optional list.
 
-    "self_only" is the third option alongside plain single-target and "aoe" for an ALLY-shaped
-    effect specifically (heal/buffs/dodge_buff/hot/cleanse_dot/cleanse_cc/...) -- forces this one
-    effect to land on the caster even if the caster has a different living ally selected via
-    PartyDelveSession.ally_target_for (dungeon_view.py's ally-target picker). Meaningless on a
-    MODS_ONLY or ENEMY_TARGETED effect (neither of those is ever subject to ally-target redirection
-    in the first place -- a damage roll always targets current_target/enemy_pool, never an ally),
-    so it's rejected there rather than silently doing nothing the way an inert "aoe" on
-    lifesteal_fraction does. Also rejected alongside "aoe": true on the same effect -- "hits
-    everyone" and "caster only" are a direct contradiction, not two flags that can coexist.
+    "target" is a universal optional enum ("self"/"ally"/"enemy", EFFECT_TARGETS) picking WHO this
+    effect lands on, fully decoupled from its type -- no restriction of any kind on which type can
+    use which target, unlike the "self_only" flag this replaced (which only ever worked on an
+    ally-shaped effect). Absent means default_effect_target(effect_type)'s type-based default,
+    which reproduces exactly what every effect type already did before "target" existed, so no
+    existing content needs touching. See dungeon_view._resolve_player_action for how a resolved
+    "enemy" target is dodge-gated and "self"/"ally" never are, regardless of the effect's own type.
 
     "chance" is a universal optional 0-1 probability, independently rolled per effect at cast time
     (dungeon_view.resolve_cast_effects) -- absent means "always fires" (probability 1), same as
@@ -723,18 +747,9 @@ def _validate_effects(effects, context: str):
             chance = effect["chance"]
             if not isinstance(chance, (int, float)) or not (0 < chance <= 1):
                 raise ValueError(f"{context} effect {effect_type!r} param 'chance' must be in (0, 1]")
-        if "self_only" in effect:
-            if not isinstance(effect["self_only"], bool):
-                raise ValueError(f"{context} effect {effect_type!r} param 'self_only' must be a bool")
-            if effect["self_only"]:
-                if effect_type in MODS_ONLY_EFFECT_TYPES or effect_type in ENEMY_TARGETED_EFFECT_TYPES:
-                    raise ValueError(
-                        f"{context} effect {effect_type!r} can't use 'self_only' -- it's never subject to "
-                        f"ally-target redirection in the first place"
-                    )
-                if effect.get("aoe"):
-                    raise ValueError(f"{context} effect {effect_type!r} can't set both 'aoe' and 'self_only'")
-        params = effect.keys() - {"type", "aoe", "self_only", "chance"}
+        if "target" in effect and effect["target"] not in EFFECT_TARGETS:
+            raise ValueError(f"{context} effect {effect_type!r} param 'target' must be one of {EFFECT_TARGETS}")
+        params = effect.keys() - {"type", "aoe", "target", "chance"}
         missing = required - params
         if missing:
             raise ValueError(f"{context} effect {effect_type!r} missing param(s): {sorted(missing)}")
@@ -824,7 +839,7 @@ def resolve_cast_effects(entry: dict) -> list[dict]:
     Called once per actual cast, right where a skill/item's raw "effects" used to be read directly
     (dungeon_view.py's _resolve_combat_turn/_resolve_party_turn/_resolve_duel_turn/
     _resolve_monster_attack and their own _handle_*_action/_handle_*_use_item callers) --
-    everything downstream of this point (aoe/self_only resolution, dodge, damage rolls, ...) stays
+    everything downstream of this point (aoe/target resolution, dodge, damage rolls, ...) stays
     completely unaware any of this happened; it just sees a shorter effects list than what was
     authored. Can return an empty list (every effect whiffed its own roll, or a chosen group had
     nothing left) -- callers already treat "no damage_multiplier/extra_attack present" as "this
