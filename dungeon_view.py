@@ -2840,6 +2840,11 @@ class DuelChallengeView(discord.ui.View):
         opponent = PartyMember(
             guild_id, challenge.target_id, interaction.user.display_name, target_character, target_equipped, True,
         )
+        # PartyMember.__init__ defaults hp to wherever the last dungeon delve left off (the right
+        # rule for a party delve) -- override it here so both duelists start fresh at full HP, per
+        # this module's own "Dueling" design comment above.
+        challenger.hp = challenger.max_hp
+        opponent.hp = opponent.max_hp
 
         session = DuelSession(guild_id, challenger, opponent, wager)
         for uid in session.all_user_ids():
