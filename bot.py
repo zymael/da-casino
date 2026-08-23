@@ -73,6 +73,7 @@ BROKE_GIFS = [
 ]
 PIZZA_CHAMPION_EMOJI = "🍕"
 MONEY_CHAMPION_EMOJI = "👑"
+LUCK_CHAMPION_EMOJI = "🍀"
 
 PIZZA_GIFS = [
     "https://media.giphy.com/media/10kxE34bJPaUO4/giphy.gif",
@@ -593,6 +594,7 @@ async def rub_cmd(ctx):
     await ctx.send(
         f"{ctx.author.display_name} rubs their belly for good luck 🍀... {mention} feels less lucky.\n{RUB_GIF}"
     )
+    await _update_luck_champion(ctx.guild)
 
 
 @bot.command(name="roy")
@@ -1292,7 +1294,7 @@ async def _fetch_member(guild: discord.Guild, user_id: int) -> discord.Member | 
 
 
 # Badge prefix order when a member holds more than one crown at once, e.g. "💰 🍕 Alice".
-BADGES = [("money", MONEY_CHAMPION_EMOJI), ("pizza", PIZZA_CHAMPION_EMOJI)]
+BADGES = [("money", MONEY_CHAMPION_EMOJI), ("pizza", PIZZA_CHAMPION_EMOJI), ("luck", LUCK_CHAMPION_EMOJI)]
 
 
 def _strip_badge_prefix(nick: str | None) -> str | None:
@@ -1396,11 +1398,19 @@ async def _update_money_champion(guild: discord.Guild | None):
     await _sync_champion(guild, "money", rows[0][0] if rows else None)
 
 
+async def _update_luck_champion(guild: discord.Guild | None):
+    if guild is None:
+        return
+    rows = await asyncio.to_thread(db.get_luck_leaderboard, guild.id, 1)
+    await _sync_champion(guild, "luck", rows[0][0] if rows else None)
+
+
 @tasks.loop(seconds=60)
 async def sync_champions_loop():
     for guild in bot.guilds:
         await _update_pizza_champion(guild)
         await _update_money_champion(guild)
+        await _update_luck_champion(guild)
 
 
 @bot.command(name="pizza")
