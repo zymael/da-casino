@@ -16,10 +16,6 @@
       {
         "room_id": "dungeon",
         "label": "\ud83d\udde1\ufe0f Dungeon"
-      },
-      {
-        "room_id": "elven_night_market",
-        "label": "\ud83e\udddd Elven Night Market"
       }
     ],
     "commands": []
