@@ -211,7 +211,7 @@
   {
     "id": "slug_dome",
     "name": "\ud83d\udc1b The Slug Dome",
-    "description": "You step into an arena.",
+    "description": "You step into an arena.  The crowd roars in approval.  The floor is covered in trails of blood and... what appears to be slug slime.",
     "background_path": "assets/rooms/slug_dome.jpg",
     "exits": [
       {
