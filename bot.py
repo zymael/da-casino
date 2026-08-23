@@ -374,11 +374,12 @@ async def stats_cmd(ctx):
 
     if character is not None:
         name = dungeon.display_name(character["main_class"], character["subclass"])
+        rank = dungeon.CLASSES[character["main_class"]]["rank"]
         suit_symbol = dungeon.SUIT_SYMBOLS[character["subclass"]]
         equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
         effective = dungeon.compute_effective_stats(character, equipped)
         max_chips = dungeon.compute_stats(character["main_class"], character["subclass"])["chips"]
-        embed.add_field(name="🗡️ Class", value=f"{name} {suit_symbol}\nLevel {character['level']}", inline=True)
+        embed.add_field(name="🗡️ Class", value=f"{name} {rank}{suit_symbol}\nLevel {character['level']}", inline=True)
         embed.add_field(name="📊 Stats", value=_character_sheet_stats(character, effective, max_chips), inline=True)
         embed.add_field(name="⚔️ Gear", value="\n".join(_gear_breakdown_lines(equipped)), inline=False)
     else:
@@ -832,13 +833,14 @@ async def class_cmd(ctx):
     character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
     if character is not None:
         name = dungeon.display_name(character["main_class"], character["subclass"])
+        rank = dungeon.CLASSES[character["main_class"]]["rank"]
         suit_symbol = dungeon.SUIT_SYMBOLS[character["subclass"]]
         equipped = await asyncio.to_thread(db.get_equipped_items, ctx.guild.id, ctx.author.id)
         effective = dungeon.compute_effective_stats(character, equipped)
         max_chips = dungeon.compute_stats(character["main_class"], character["subclass"])["chips"]
         xp_needed = dungeon.xp_to_next_level(character["level"])
 
-        embed = discord.Embed(title=f"{name} {suit_symbol}", color=discord.Color.blurple())
+        embed = discord.Embed(title=f"{name} {rank}{suit_symbol}", color=discord.Color.blurple())
         embed.add_field(name="Level", value=f"{character['level']} ({character['xp']}/{xp_needed} XP)", inline=True)
         embed.add_field(name="Stats", value=_character_sheet_stats(character, effective, max_chips), inline=True)
         embed.add_field(name="⚔️ Equipment", value="\n".join(_gear_breakdown_lines(equipped)), inline=False)
