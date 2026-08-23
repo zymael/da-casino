@@ -282,6 +282,8 @@ def _cascade_options() -> dict:
         "recipe_output": {
             "equipment": _choices(dungeon.EQUIPMENT),
             "consumable": _choices(dungeon.CONSUMABLES),
+            "quest_item": _choices(quests.QUEST_ITEMS),
+            "horse_clothes": _choices(horse_clothes.HORSE_CLOTHES),
         },
         "shop": {
             "equipment": _choices(dungeon.EQUIPMENT),

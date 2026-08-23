@@ -341,6 +341,10 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "RECIPES",
         "loader": dungeon._load_recipes,
+        # dungeon._load_recipes can't check a "quest_item"-output recipe's output_id itself (see
+        # its own comment for why) -- deferred here as an extra save-time check, same "rooms"
+        # pattern above.
+        "extra_validators": [lambda new_registry: quests.validate_recipe_quest_items(new_registry)],
         "list_columns": ["id", "name", "output_kind", "output_id"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
@@ -353,8 +357,7 @@ CONTENT_TYPES = {
             {
                 "name": "output_id", "type": "cascaded_id", "required": True, "group": "Output",
                 "cascade": "recipe_output", "cascade_from": "output_kind",
-                "hint": "the equipment or consumable this recipe produces -- options populate once "
-                        "output_kind (above) is chosen",
+                "hint": "the item this recipe produces -- options populate once output_kind (above) is chosen",
             },
             {"name": "materials", "type": "materials", "required": True},
             {

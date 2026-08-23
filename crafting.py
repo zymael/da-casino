@@ -1,16 +1,28 @@
 """Crafting orchestration: turns a dungeon.RECIPES entry into the material/currency consumption
-(db.craft_item, atomic) plus the resulting item grant (equip-if-upgrade or store, same as ordinary
-loot, or add to inventory for a consumable). Mirrors quests.py's turn_in -- composes several
-separately-atomic db calls rather than one all-encompassing transaction, since the consumption
-step and the grant step touch different tables (inventory vs. character_equipment/
-equipment_inventory) that can't safely share one open connection/transaction.
+(db.craft_item, atomic) plus the resulting item grant -- equip-if-upgrade or store for equipment
+(same as ordinary loot), or add to the generic `inventory` table for every other output_kind
+(consumable, quest_item, horse_clothes -- see _INVENTORY_REGISTRIES). Mirrors quests.py's turn_in
+and shop.py's buy -- composes several separately-atomic db calls rather than one
+all-encompassing transaction, since the consumption step and the grant step touch different
+tables (inventory vs. character_equipment/equipment_inventory) that can't safely share one open
+connection/transaction.
 """
 
 import asyncio
 
 import db
 import dungeon
+import horse_clothes
 import quests
+
+# Every non-equipment output_kind just adds one to the generic `inventory` table by item_id --
+# equipment is the only kind with an equip-or-store decision (see craft() below). Mirrors shop.py's
+# own REGISTRIES.
+_INVENTORY_REGISTRIES = {
+    "consumable": dungeon.CONSUMABLES,
+    "quest_item": quests.QUEST_ITEMS,
+    "horse_clothes": horse_clothes.HORSE_CLOTHES,
+}
 
 
 async def craft(guild_id: int, user_id: int, recipe_id: str) -> dict:
@@ -38,7 +50,7 @@ async def craft(guild_id: int, user_id: int, recipe_id: str) -> dict:
             await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, item["id"])
             equipped = False
     else:
-        item = dungeon.CONSUMABLES[recipe["output_id"]]
+        item = _INVENTORY_REGISTRIES[recipe["output_kind"]][recipe["output_id"]]
         await asyncio.to_thread(db.add_inventory_item, guild_id, user_id, item["id"], 1)
         equipped = False
 

@@ -298,6 +298,22 @@ for _delve in dungeon.DELVES.values():
                 raise ValueError(f"{_context} cost references unknown quest item {_cost.get('item_id')!r}")
 
 
+def validate_recipe_quest_items(recipes: dict[str, dict]):
+    """dungeon._load_recipes can't check a "quest_item"-output recipe's output_id against
+    QUEST_ITEMS itself (dungeon.py can't import this module -- circular), so it's deferred here,
+    same story as visible_trigger/shop above. Run once at import time (right below, against the
+    live dungeon.RECIPES) and again as a "recipes" save-time extra_validator (admin_schemas.py) so
+    a bad edit through the admin panel is rejected before it ever reaches a player."""
+    for recipe_id, entry in recipes.items():
+        if entry["output_kind"] == "quest_item" and entry["output_id"] not in QUEST_ITEMS:
+            raise ValueError(
+                f"dungeon_recipes.json: recipe {recipe_id!r} output_id {entry['output_id']!r} not found in QUEST_ITEMS"
+            )
+
+
+validate_recipe_quest_items(dungeon.RECIPES)
+
+
 async def npcs_present_in_room(guild_id: int, user_id: int, room_id: str) -> list[str]:
     """Every npcs.json id whose "room" matches `room_id` and whose optional "visible_trigger" (if
     any) is currently satisfied for this player. This is the generic "which NPCs does this room's

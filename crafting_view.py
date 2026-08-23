@@ -15,6 +15,16 @@ import dungeon
 
 MAX_SELECT_OPTIONS = 25  # Discord's hard limit on a single Select's options
 
+# output_kind -> emoji shown in the "Crafted X" status message for non-equipment kinds, same icon
+# each kind already uses elsewhere (inventory_view.py's per-kind listing) -- quest_item is the one
+# kind with a per-item icon (quest_items.json's own "emoji" field) rather than one fixed for the
+# whole kind.
+_INVENTORY_KIND_EMOJI = {
+    "consumable": lambda item: "🧪",
+    "quest_item": lambda item: item["emoji"],
+    "horse_clothes": lambda item: "👒",
+}
+
 
 def _material_option(material_id: str, held_qty: int) -> discord.SelectOption:
     material = dungeon.MATERIALS[material_id]
@@ -125,7 +135,8 @@ class CombineView(discord.ui.View):
             gear_note = "equipped!" if result["equipped"] else "stored in `!equipment` (your current gear's better)."
             status_text = f"⚔️ Crafted **{item['name']}** — {gear_note}"
         else:
-            status_text = f"🧪 Crafted **{item['name']}** — check `!inventory`."
+            emoji = _INVENTORY_KIND_EMOJI[result["output_kind"]](item)
+            status_text = f"{emoji} Crafted **{item['name']}** — check `!inventory`."
         if result["newly_discovered"]:
             status_text = f"🎉 New recipe discovered!\n{status_text}"
 

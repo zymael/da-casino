@@ -24,6 +24,8 @@ import math
 import os
 import random
 
+import horse_clothes
+
 # Base HP/ATK/DEF/SpAtk/SpDef/Chips per class, before subclass modifiers. Archetypes: Fighter
 # tanks (high HP/DEF, modest ATK, low Chips -- it leans on raw stats, not repeat skill casts) and
 # is purely martial (low SpAtk, but SpDef matches its overall tankiness). Mage nukes physically
@@ -907,17 +909,31 @@ DELVES = _load_delves()
 
 
 # --- Recipes -------------------------------------------------------------------------------
-# Crafting turns materials (+ optional currency) into either an EQUIPMENT item or a CONSUMABLES
-# item -- see crafting.py for the orchestration and db.craft_item for the atomic consumption
-# transaction. Loaded last among the four registries above since a recipe's output_id is
-# cross-validated against whichever of EQUIPMENT/CONSUMABLES it points into.
-
+# Crafting turns materials (+ optional currency) into an item of any output_kind in
+# RECIPE_OUTPUT_KINDS -- see crafting.py for the orchestration and db.craft_item for the atomic
+# consumption transaction. Loaded last among the registries above since a recipe's output_id is
+# cross-validated against whichever registry its output_kind points into.
+#
+# "quest_item" is a valid output_kind (quest items and horse cosmetics are craftable the same as
+# any equipment/consumable -- this is a general capability of the recipe system, not tied to any
+# specific quest item or cosmetic actually having a recipe) but this module can't validate a
+# quest_item output_id itself: quests.py imports dungeon.py, so the reverse would be circular.
+# That check is deferred to quests.validate_recipe_quest_items, run right after both registries
+# are loaded (see the bottom of quests.py) and wired as a save-time extra_validator for the
+# "recipes" content type (admin_schemas.py). horse_clothes.py has no such problem -- it doesn't
+# import dungeon.py -- so "horse_clothes" is validated directly below, same as equipment/consumable.
 _RECIPES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_recipes.json")
 _REQUIRED_RECIPE_FIELDS = {"id", "name", "output_kind", "output_id", "materials"}
-RECIPE_OUTPUT_KINDS = ("equipment", "consumable")
+RECIPE_OUTPUT_KINDS = ("equipment", "consumable", "horse_clothes", "quest_item")
 
 
 def _load_recipes(path: str = _RECIPES_PATH) -> dict[str, dict]:
+    # output_kind -> the registry its output_id is checked against here, or None if it has to be
+    # checked elsewhere (see "quest_item" note above).
+    output_registries = {
+        "equipment": EQUIPMENT, "consumable": CONSUMABLES, "horse_clothes": horse_clothes.HORSE_CLOTHES,
+        "quest_item": None,
+    }
     with open(path) as f:
         raw = json.load(f)
     recipes: dict[str, dict] = {}
@@ -941,11 +957,11 @@ def _load_recipes(path: str = _RECIPES_PATH) -> dict[str, dict]:
         currency_cost = entry.get("currency_cost", 0)
         if currency_cost < 0:
             raise ValueError(f"dungeon_recipes.json: recipe {entry_id!r} has negative currency_cost")
-        registry = EQUIPMENT if entry["output_kind"] == "equipment" else CONSUMABLES
-        if entry["output_id"] not in registry:
+        registry = output_registries[entry["output_kind"]]
+        if registry is not None and entry["output_id"] not in registry:
             raise ValueError(
                 f"dungeon_recipes.json: recipe {entry_id!r} output_id {entry['output_id']!r} not found in "
-                f"{'EQUIPMENT' if entry['output_kind'] == 'equipment' else 'CONSUMABLES'}"
+                f"{entry['output_kind'].upper()} registry"
             )
         recipes[entry_id] = entry
     return recipes
