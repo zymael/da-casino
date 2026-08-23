@@ -962,5 +962,26 @@
     ],
     "chip_cost": 14,
     "special": true
+  },
+  {
+    "id": "royal_clubbing",
+    "main_class": "healer",
+    "subclass": "clubs",
+    "unlock_level": 5,
+    "name": "Royal Clubbing",
+    "flavor": "*BONK*",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1
+      },
+      {
+        "type": "atk_buff",
+        "value": 13,
+        "self_only": true
+      }
+    ],
+    "chip_cost": 10,
+    "special": true
   }
 ]
