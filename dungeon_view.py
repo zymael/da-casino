@@ -1431,7 +1431,7 @@ def _resolve_player_action(
     actor, ally_pool: list, enemy_pool: list, current_target,
     effects: list[dict], special: bool, verb: str, subject_label: str, possessive_label: str, drain_verb: str,
     moon_mult: float, equipped_items: list[dict], threat_gain: bool, log_lines: list[str],
-    ally_target=None,
+    ally_target=None, is_plain_attack: bool = False,
 ) -> list:
     """Resolves one player-cast action (skill/consumable/equipment on-use) -- the shared core of
     _resolve_combat_turn (solo), _resolve_party_turn (party), and _resolve_duel_turn (PvP). Those
@@ -1445,7 +1445,9 @@ def _resolve_player_action(
     need to know or care which kind it's holding. `ally_target` defaults to `actor` (self-cast, the
     only option before party ally-targeting existed) -- party passes whichever living ally the
     acting member has currently selected (PartyDelveSession.ally_target_for); solo/duel have no one
-    else to pick, so they never need to pass anything different from the default.
+    else to pick, so they never need to pass anything different from the default. `is_plain_attack`
+    is only ever True for a skill-less Attack -- see the `is_damage_action` line below for why this
+    can't just be inferred from `effects` being empty anymore.
 
     Each effect independently decides its own target set off its own "aoe" bool (dungeon.
     MODS_ONLY_EFFECT_TYPES / ENEMY_TARGETED_EFFECT_TYPES / ally-shaped-by-omission -- see those
@@ -1478,7 +1480,13 @@ def _resolve_player_action(
         if e["type"] not in dungeon.MODS_ONLY_EFFECT_TYPES and e["type"] not in dungeon.ENEMY_TARGETED_EFFECT_TYPES
     ]
     enemy_effects = [e for e in effects if e["type"] in dungeon.ENEMY_TARGETED_EFFECT_TYPES]
-    is_damage_action = not effects or any(e["type"] in DAMAGE_EFFECT_TYPES for e in effects)
+    # `is_plain_attack` (true only for a skill-less Attack, which always passes effects=[] on
+    # purpose) is what still makes an unconditional damage roll happen with an empty effects list --
+    # deliberately NOT "not effects" alone, now that dungeon.resolve_cast_effects can hand a REAL
+    # skill/item an empty list too (every effect whiffed its own independent "chance" roll). A skill
+    # whose damage_multiplier itself missed its roll must deal no damage this turn, not silently
+    # fall back to a guaranteed plain hit.
+    is_damage_action = is_plain_attack or any(e["type"] in DAMAGE_EFFECT_TYPES for e in effects)
 
     mods = _default_mods()
     for e in mods_effects:
@@ -1649,7 +1657,7 @@ def _resolve_monster_attack(
     target_def = max(0, (target.spdef - target.spdef_debuff) if special else (target.def_ - target.def_debuff))
     if random.random() < _defended_dodge_chance(target, target_def, special):
         return 0, skill, True
-    effects = skill["effects"] if skill else []
+    effects = dungeon.resolve_cast_effects(skill) if skill else []
     mods = _apply_effects(attacker, target, effects, log_lines)
     monster_moon_mult = _moon_combat_multiplier(moon_effect, "monster")
     attacker_atk = (attacker.spatk - attacker.spatk_debuff) if special else (attacker.atk - attacker.atk_debuff)
@@ -1763,7 +1771,7 @@ async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSe
 
 async def _resolve_combat_turn(
     interaction: discord.Interaction, session: DelveSession, effects: list[dict], verb: str, log_lines: list[str],
-    special: bool = False,
+    special: bool = False, is_plain_attack: bool = False,
 ) -> bool:
     """Resolves the player's own chosen action (plain Attack, a skill, or a consumed item) --
     applies `effects` via _resolve_player_action (each effect independently single-target or AOE
@@ -1775,14 +1783,17 @@ async def _resolve_combat_turn(
     roll happens (e.g. "attack", "unleash **Fireball**", "use **Healing Draught**") -- callers that
     only heal/buff never reach the line that reads it. `special` (always False for a plain Attack)
     picks SpAtk/SpDef instead of ATK/DEF for the damage roll -- set by callers from the triggering
-    skill/item's own "special" flag. Always returns True (this always consumes the turn -- any
-    "can't do this right now" rejection happens before this is called)."""
+    skill/item's own "special" flag. `is_plain_attack` (only ever True for a skill-less Attack) is
+    forwarded straight to _resolve_player_action -- see its own note on why. Always returns True
+    (this always consumes the turn -- any "can't do this right now" rejection happens before this
+    is called)."""
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
     equipped_items = [dungeon.EQUIPMENT[iid] for iid in session.equipped.values()]
     hit_monsters = _resolve_player_action(
         session, [session], session.living_monsters(), session.current_target(), effects, special, verb,
         "You", "your", "drain", player_moon_mult, equipped_items, False, log_lines,
+        is_plain_attack=is_plain_attack,
     )
 
     session.turn_clock += dungeon.turn_interval(max(1, session.speed - session.speed_debuff))
@@ -1811,12 +1822,12 @@ async def _handle_action(interaction: discord.Interaction, session: DelveSession
         await interaction.response.send_message("Not enough Chips to use that skill.", ephemeral=True)
         return False
 
-    effects = skill["effects"] if skill is not None else []
+    effects = dungeon.resolve_cast_effects(skill) if skill is not None else []
     special = bool(skill.get("special")) if skill is not None else False
     if skill is not None:
         session.chips -= skill["chip_cost"]
     verb = f"unleash **{skill['name']}**" if skill is not None else "attack"
-    return await _resolve_combat_turn(interaction, session, effects, verb, [], special)
+    return await _resolve_combat_turn(interaction, session, effects, verb, [], special, is_plain_attack=skill is None)
 
 
 async def _handle_use_item(interaction: discord.Interaction, session: DelveSession, item: dict) -> bool:
@@ -1829,7 +1840,8 @@ async def _handle_use_item(interaction: discord.Interaction, session: DelveSessi
         await interaction.response.send_message("You don't have that anymore.", ephemeral=True)
         return False
     verb = f"use **{item['name']}**"
-    return await _resolve_combat_turn(interaction, session, item["effects"], verb, [], item.get("special", False))
+    effects = dungeon.resolve_cast_effects(item)
+    return await _resolve_combat_turn(interaction, session, effects, verb, [], item.get("special", False))
 
 
 async def _handle_cast_item(interaction: discord.Interaction, session: DelveSession, item: dict) -> bool:
@@ -2065,7 +2077,7 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
 
 async def _resolve_party_turn(
     interaction: discord.Interaction, session: PartyDelveSession, member: PartyMember,
-    effects: list[dict], verb: str, log_lines: list[str], special: bool = False,
+    effects: list[dict], verb: str, log_lines: list[str], special: bool = False, is_plain_attack: bool = False,
 ) -> bool:
     """Party sibling of _resolve_combat_turn: applies `effects` via _resolve_player_action (each
     effect independently single-target or AOE per its own "aoe" flag -- ally-aoe expands to
@@ -2076,7 +2088,8 @@ async def _resolve_party_turn(
     halved -- see _award_kill). Advances `member`'s own turn_clock, then hands off to
     _advance_party_turns for whatever happens next (automatic member/monster turns, in speed order,
     until some living member's own turn comes back around). `special` picks SpAtk/SpDef instead of
-    ATK/DEF for the damage roll, same as _resolve_combat_turn."""
+    ATK/DEF for the damage roll, same as _resolve_combat_turn; `is_plain_attack` forwards the same
+    way too."""
     target = session.target_for(member)
     ally_target = session.ally_target_for(member)
     moon_effect = moon.effect_for("dungeon")
@@ -2085,7 +2098,7 @@ async def _resolve_party_turn(
     hit_monsters = _resolve_player_action(
         member, session.living_members(), session.living_monsters(), target, effects, special, verb,
         member.label, f"{member.label}'s", "drains", player_moon_mult, equipped_items, True, log_lines,
-        ally_target=ally_target,
+        ally_target=ally_target, is_plain_attack=is_plain_attack,
     )
 
     member.turn_clock += dungeon.turn_interval(max(1, member.speed - member.speed_debuff))
@@ -2129,12 +2142,12 @@ async def _handle_party_action(
     if skill is not None and skill["chip_cost"] > member.chips:
         await interaction.response.send_message("Not enough Chips to use that skill.", ephemeral=True)
         return False
-    effects = skill["effects"] if skill is not None else []
+    effects = dungeon.resolve_cast_effects(skill) if skill is not None else []
     special = bool(skill.get("special")) if skill is not None else False
     if skill is not None:
         member.chips -= skill["chip_cost"]
     verb = f"unleash **{skill['name']}**" if skill is not None else "attack"
-    return await _resolve_party_turn(interaction, session, member, effects, verb, [], special)
+    return await _resolve_party_turn(interaction, session, member, effects, verb, [], special, is_plain_attack=skill is None)
 
 
 async def _handle_party_use_item(
@@ -2145,8 +2158,9 @@ async def _handle_party_use_item(
         await interaction.response.send_message("You don't have that anymore.", ephemeral=True)
         return False
     verb = f"use **{item['name']}**"
+    effects = dungeon.resolve_cast_effects(item)
     return await _resolve_party_turn(
-        interaction, session, member, item["effects"], verb, [], item.get("special", False)
+        interaction, session, member, effects, verb, [], item.get("special", False)
     )
 
 
@@ -3211,7 +3225,7 @@ async def _advance_duel_turns(interaction: discord.Interaction | None, session: 
 
 async def _resolve_duel_turn(
     interaction: discord.Interaction, session: DuelSession, actor: PartyMember, effects: list[dict],
-    verb: str, log_lines: list[str], special: bool = False,
+    verb: str, log_lines: list[str], special: bool = False, is_plain_attack: bool = False,
 ) -> bool:
     """Duel sibling of _resolve_party_turn -- always exactly one possible opponent (the other
     duelist), no threat gain (PvP has no monster threat table), no moon multiplier."""
@@ -3220,6 +3234,7 @@ async def _resolve_duel_turn(
     _resolve_player_action(
         actor, [actor], [opponent], opponent, effects, special, verb,
         actor.label, f"{actor.label}'s", "drains", 1.0, equipped_items, False, log_lines,
+        is_plain_attack=is_plain_attack,
     )
 
     actor.turn_clock += dungeon.turn_interval(max(1, actor.speed - actor.speed_debuff))
@@ -3245,12 +3260,12 @@ async def _handle_duel_action(
     if skill is not None and skill["chip_cost"] > actor.chips:
         await interaction.response.send_message("Not enough Chips to use that skill.", ephemeral=True)
         return False
-    effects = skill["effects"] if skill is not None else []
+    effects = dungeon.resolve_cast_effects(skill) if skill is not None else []
     special = bool(skill.get("special")) if skill is not None else False
     if skill is not None:
         actor.chips -= skill["chip_cost"]
     verb = f"unleash **{skill['name']}**" if skill is not None else "attack"
-    return await _resolve_duel_turn(interaction, session, actor, effects, verb, [], special)
+    return await _resolve_duel_turn(interaction, session, actor, effects, verb, [], special, is_plain_attack=skill is None)
 
 
 async def _handle_duel_use_item(
@@ -3261,7 +3276,8 @@ async def _handle_duel_use_item(
         await interaction.response.send_message("You don't have that anymore.", ephemeral=True)
         return False
     verb = f"use **{item['name']}**"
-    return await _resolve_duel_turn(interaction, session, actor, item["effects"], verb, [], item.get("special", False))
+    effects = dungeon.resolve_cast_effects(item)
+    return await _resolve_duel_turn(interaction, session, actor, effects, verb, [], item.get("special", False))
 
 
 async def _handle_duel_cast_item(

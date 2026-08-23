@@ -43,7 +43,20 @@ Field types the generic form-builder knows how to render:
     dungeon.EFFECT_PARAM_SCHEMAS only ever uses one of a handful of param names
     (value/reduction/multiplier/duration), so each row shows all of them as optional inputs rather
     than needing per-type dynamic fields -- dungeon._validate_effects (run at save time via the
-    real loader) is what actually enforces which params a given type needs.
+    real loader) is what actually enforces which params a given type needs. Each row also carries
+    an independent "chance" (0-1, blank = always fires) -- dungeon.resolve_cast_effects rolls it
+    separately per effect at cast time, so two effects each with their own chance can both land,
+    either one, or neither.
+  - "effect_groups" -- skills/consumables' alternative to plain "effects", for choosing between
+    MUTUALLY EXCLUSIVE alternatives ("50% this OR 50% that") rather than independent per-effect
+    rolls. A repeatable list of groups, each a "chance" (a relative WEIGHT against sibling groups --
+    NOT the same 0-1 probability an individual effect's own "chance" means, see
+    dungeon._validate_effect_groups) plus its own nested "effects" repeatable. Exactly one group is
+    picked (weighted) each cast (dungeon.resolve_cast_effects); a skill/consumable authors EITHER
+    "effects" OR "effect_groups", never both -- dungeon._validate_effects_or_groups enforces this at
+    save time. Shares the exact same live-odds-percentage display each group's weight already gets
+    for a monster's own skills / a combat room's monster_groups (admin_server._render_effect_group_
+    row reuses the generic updateGroupOdds, scoped to this field's own [data-group-odds] fieldset).
   - "equipment_effects" -- equipment's own effects list, one level richer than plain "effects":
     each row also carries a `trigger` (constant/on_use/on_hit) and, only when trigger is on_hit, a
     `chance` (0-1) -- see admin_server.py's _render_effect_row(include_trigger=True) and
@@ -335,7 +348,19 @@ CONTENT_TYPES = {
                         "explicit field rather than hardcoded for when a second kind of item exists.",
             },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
-            {"name": "effects", "type": "effects", "required": True},
+            {
+                "name": "effects", "type": "effects", "required": False,
+                "hint": "fill in EITHER this OR effect_groups below, never both -- see effect_groups' "
+                        "own hint for when you need that instead",
+            },
+            {
+                "name": "effect_groups", "type": "effect_groups", "required": False,
+                "hint": "use INSTEAD of effects above for a \"50% this OR 50% that\" skill -- exactly "
+                        "one group is chosen (weighted by its own chance) each cast. For \"50% chance "
+                        "of X, independently also 75% chance of Y\" (could land both, either, or "
+                        "neither), that's just two effects each with their own chance inside the plain "
+                        "effects field above -- no effect_groups needed for that.",
+            },
         ],
     },
     "recipes": {
@@ -401,7 +426,19 @@ CONTENT_TYPES = {
             },
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
-            {"name": "effects", "type": "effects", "required": True},
+            {
+                "name": "effects", "type": "effects", "required": False,
+                "hint": "fill in EITHER this OR effect_groups below, never both -- see effect_groups' "
+                        "own hint for when you need that instead",
+            },
+            {
+                "name": "effect_groups", "type": "effect_groups", "required": False,
+                "hint": "use INSTEAD of effects above for a \"50% this OR 50% that\" skill -- exactly "
+                        "one group is chosen (weighted by its own chance) each cast. For \"50% chance "
+                        "of X, independently also 75% chance of Y\" (could land both, either, or "
+                        "neither), that's just two effects each with their own chance inside the plain "
+                        "effects field above -- no effect_groups needed for that.",
+            },
             {
                 "name": "chip_cost", "type": "int", "required": True, "min": 1, "group": "Class",
                 "hint": "Chips spent to cast this skill -- must not exceed the build's max Chips "

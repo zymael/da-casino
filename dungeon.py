@@ -579,7 +579,7 @@ def xp_to_next_level(level: int) -> int:
 # is what actually interprets these during combat; this module only validates their shape.
 
 _SKILLS_PATH = os.path.join(os.path.dirname(__file__), "dungeon_skills.json")
-_REQUIRED_SKILL_FIELDS = {"id", "main_class", "subclass", "unlock_level", "name", "flavor", "effects", "chip_cost"}
+_REQUIRED_SKILL_FIELDS = {"id", "main_class", "subclass", "unlock_level", "name", "flavor", "chip_cost"}
 
 # type -> (required param names, optional param names, fraction param names). Fraction params
 # must be in (0, 1] (they scale a max-HP heal, a damage reduction, etc); every other numeric
@@ -696,7 +696,20 @@ def _validate_effects(effects, context: str):
     in the first place -- a damage roll always targets current_target/enemy_pool, never an ally),
     so it's rejected there rather than silently doing nothing the way an inert "aoe" on
     lifesteal_fraction does. Also rejected alongside "aoe": true on the same effect -- "hits
-    everyone" and "caster only" are a direct contradiction, not two flags that can coexist."""
+    everyone" and "caster only" are a direct contradiction, not two flags that can coexist.
+
+    "chance" is a universal optional 0-1 probability, independently rolled per effect at cast time
+    (dungeon_view.resolve_cast_effects) -- absent means "always fires" (probability 1), same as
+    every effect authored before this existed. Two effects on the same skill each with their own
+    "chance" are independent Bernoulli trials, not alternatives -- a 50%-stun + 75%-damage skill can
+    land both, either, or neither. This is deliberately the same param name equipment's own on_hit
+    trigger already uses for an identical concept (an independent per-effect fire probability) --
+    equipment strips its own "chance" out of each effect dict before ever reaching this function
+    (see _validate_equipment_effects), so the two never collide despite sharing a name. For
+    choosing between mutually-exclusive alternatives ("50% this OR 50% that") see effect_groups
+    instead (_validate_effect_groups) -- a different mechanism, relative weights instead of
+    independent probabilities, same distinction dungeon_view.monsters_for_room's group "chance"
+    (relative weight) already draws against this same param name."""
     if not effects:
         raise ValueError(f"{context} has empty effects")
     for effect in effects:
@@ -706,6 +719,10 @@ def _validate_effects(effects, context: str):
         required, optional, fraction_params = EFFECT_PARAM_SCHEMAS[effect_type]
         if "aoe" in effect and not isinstance(effect["aoe"], bool):
             raise ValueError(f"{context} effect {effect_type!r} param 'aoe' must be a bool")
+        if "chance" in effect:
+            chance = effect["chance"]
+            if not isinstance(chance, (int, float)) or not (0 < chance <= 1):
+                raise ValueError(f"{context} effect {effect_type!r} param 'chance' must be in (0, 1]")
         if "self_only" in effect:
             if not isinstance(effect["self_only"], bool):
                 raise ValueError(f"{context} effect {effect_type!r} param 'self_only' must be a bool")
@@ -717,7 +734,7 @@ def _validate_effects(effects, context: str):
                     )
                 if effect.get("aoe"):
                     raise ValueError(f"{context} effect {effect_type!r} can't set both 'aoe' and 'self_only'")
-        params = effect.keys() - {"type", "aoe", "self_only"}
+        params = effect.keys() - {"type", "aoe", "self_only", "chance"}
         missing = required - params
         if missing:
             raise ValueError(f"{context} effect {effect_type!r} missing param(s): {sorted(missing)}")
@@ -735,6 +752,94 @@ def _validate_effects(effects, context: str):
                 raise ValueError(f"{context} effect {effect_type!r} param {param!r} must be > 0")
 
 
+def _validate_effect_groups(effect_groups, context: str) -> None:
+    """The alternative to a flat "effects" list -- a list of {"chance"?, "effects"} groups, exactly
+    ONE of which is chosen at cast time via a weighted random pick (dungeon_view.
+    resolve_cast_effects) -- the group's own "chance" is a relative WEIGHT against its sibling
+    groups, the same convention monsters_for_room's own monster_groups and a monster's own "skills"
+    list already use (NOT the independent per-effect probability _validate_effects' "chance"
+    means -- see that function's own docstring for the full distinction). This is how a "50% this
+    OR 50% that" skill is authored. It is NOT how "50% chance of X, independently also 75% chance
+    of Y" is authored -- that's just two effects each carrying their own "chance" inside one group
+    (or the plain flat "effects" list, a single implicit group) -- no effect_groups needed at all
+    for independent per-effect rolls, only for mutually-exclusive alternatives."""
+    if not effect_groups:
+        raise ValueError(f"{context} has empty effect_groups")
+    for i, group in enumerate(effect_groups):
+        group_context = f"{context} effect_groups[{i}]"
+        if not isinstance(group, dict):
+            raise ValueError(f"{group_context} must be an object")
+        if "chance" in group:
+            chance = group["chance"]
+            if not isinstance(chance, (int, float)) or chance < 0:
+                raise ValueError(f"{group_context} chance must be a number >= 0")
+        unknown = group.keys() - {"chance", "effects"}
+        if unknown:
+            raise ValueError(f"{group_context} has unknown key(s): {sorted(unknown)}")
+        if "effects" not in group:
+            raise ValueError(f"{group_context} has no effects")
+        _validate_effects(group["effects"], group_context)
+
+
+def _validate_effects_or_groups(entry: dict, context: str) -> None:
+    """Every skill/consumable/monster-skill authors EXACTLY ONE of "effects" (the common case, a
+    flat list -- see _validate_effects) or "effect_groups" (the mutually-exclusive-alternatives
+    case -- see _validate_effect_groups), never both, never neither. Centralized here since all
+    three loaders need the identical XOR check."""
+    has_effects = "effects" in entry
+    has_groups = "effect_groups" in entry
+    if has_effects == has_groups:
+        raise ValueError(f"{context} must have exactly one of 'effects' or 'effect_groups'")
+    if has_effects:
+        _validate_effects(entry["effects"], context)
+    else:
+        _validate_effect_groups(entry["effect_groups"], context)
+
+
+def _effect_lists(entry: dict) -> list[list[dict]]:
+    """Every flat effects list `entry` could possibly apply, regardless of which of the two shapes
+    _validate_effects_or_groups accepted -- one list for plain "effects", one per group for
+    "effect_groups". For code that needs to scan every effect an entry could ever produce without
+    caring which shape authored it (e.g. _validate_monster_skill's player-only-effect-type check)."""
+    if "effect_groups" in entry:
+        return [g["effects"] for g in entry["effect_groups"]]
+    return [entry.get("effects", [])]
+
+
+DEFAULT_EFFECT_GROUP_CHANCE = 1.0
+
+
+def resolve_cast_effects(entry: dict) -> list[dict]:
+    """The actual effects list one cast of `entry` (a skill/consumable/monster-skill dict) applies
+    THIS time -- two independent randomization layers, matching _validate_effect_groups/
+    _validate_effects' own docstrings:
+      1. If `entry` authored "effect_groups" (mutually-exclusive alternatives), pick exactly ONE
+         group via a weighted random choice on each group's own "chance" (a relative weight,
+         defaulting to DEFAULT_EFFECT_GROUP_CHANCE -- same convention monsters_for_room's own
+         monster_groups already uses). A plain "effects" list is just the one implicit group,
+         always "chosen" since there's nothing to pick between.
+      2. Independently roll each effect *within* whichever list step 1 produced against its own
+         optional "chance" (a true 0-1 probability, defaulting to 1 -- always fires) -- so a
+         50%-stun + 75%-damage skill can land both, either, or neither this cast.
+    Called once per actual cast, right where a skill/item's raw "effects" used to be read directly
+    (dungeon_view.py's _resolve_combat_turn/_resolve_party_turn/_resolve_duel_turn/
+    _resolve_monster_attack and their own _handle_*_action/_handle_*_use_item callers) --
+    everything downstream of this point (aoe/self_only resolution, dodge, damage rolls, ...) stays
+    completely unaware any of this happened; it just sees a shorter effects list than what was
+    authored. Can return an empty list (every effect whiffed its own roll, or a chosen group had
+    nothing left) -- callers already treat "no damage_multiplier/extra_attack present" as "this
+    cast dealt no damage" for a genuine skill (dungeon_view._resolve_player_action's
+    `is_plain_attack` param is what still lets a skill-less plain Attack always hit unconditionally,
+    a case this function is never even called for)."""
+    if "effect_groups" in entry:
+        groups = entry["effect_groups"]
+        weights = [g.get("chance", DEFAULT_EFFECT_GROUP_CHANCE) for g in groups]
+        effects = random.choices(groups, weights=weights, k=1)[0]["effects"]
+    else:
+        effects = entry.get("effects", [])
+    return [e for e in effects if random.random() < e.get("chance", 1.0)]
+
+
 # A monster's own skill can use almost the exact same effect vocabulary a player skill can -- this
 # used to be a narrower subset (monsters had no mutable combat stats to buff/debuff, and several
 # handlers hardcoded "You"-phrased log text that would misread coming from a monster);
@@ -748,12 +853,12 @@ _MONSTER_SKILL_EXCLUDED_EFFECT_TYPES = {"taunt", "lower_threat"}
 
 
 def _validate_monster_skill(skill: dict, context: str) -> None:
-    """One entry in a monster's own optional "skills" list -- {name, chance, effects}. `chance` is
-    a relative WEIGHT, not a strict probability -- see pick_monster_action, which weighs it against
-    the monster's own attack_chance and every other skill's chance via random.choices (so weights
-    never need to be balanced to sum to anything in particular, and a weight of exactly 0 is a
-    legal "this skill is currently disabled" rather than an error). `effects` reuses the same
-    {type, ...params} vocabulary skills/consumables already validate via _validate_effects -- full
+    """One entry in a monster's own optional "skills" list -- {name, chance, effects|effect_groups}.
+    `chance` is a relative WEIGHT, not a strict probability -- see pick_monster_action, which weighs
+    it against the monster's own attack_chance and every other skill's chance via random.choices (so
+    weights never need to be balanced to sum to anything in particular, and a weight of exactly 0 is
+    a legal "this skill is currently disabled" rather than an error). effects/effect_groups reuses
+    the same vocabulary skills/consumables already validate via _validate_effects_or_groups -- full
     parity with a player skill's own effect vocabulary except _MONSTER_SKILL_EXCLUDED_EFFECT_TYPES,
     see the comment above this function."""
     name = skill.get("name")
@@ -762,17 +867,16 @@ def _validate_monster_skill(skill: dict, context: str) -> None:
     chance = skill.get("chance")
     if not isinstance(chance, (int, float)) or chance < 0:
         raise ValueError(f"{context} skill {name!r} chance must be a number >= 0")
-    effects = skill.get("effects")
-    if not effects:
-        raise ValueError(f"{context} skill {name!r} has no effects")
     if "special" in skill and not isinstance(skill["special"], bool):
         raise ValueError(f"{context} skill {name!r} special must be a bool")
-    for effect in effects:
-        if effect["type"] in _MONSTER_SKILL_EXCLUDED_EFFECT_TYPES:
-            raise ValueError(
-                f"{context} skill {name!r} effect {effect['type']!r} is player-only, not valid on a monster skill"
-            )
-    _validate_effects(effects, f"{context} skill {name!r}")
+    skill_context = f"{context} skill {name!r}"
+    _validate_effects_or_groups(skill, skill_context)
+    for effects in _effect_lists(skill):
+        for effect in effects:
+            if effect["type"] in _MONSTER_SKILL_EXCLUDED_EFFECT_TYPES:
+                raise ValueError(
+                    f"{skill_context} effect {effect['type']!r} is player-only, not valid on a monster skill"
+                )
 
 
 def _load_skills(path: str = _SKILLS_PATH) -> dict[str, dict]:
@@ -803,7 +907,7 @@ def _load_skills(path: str = _SKILLS_PATH) -> dict[str, dict]:
             )
         if "special" in entry and not isinstance(entry["special"], bool):
             raise ValueError(f"dungeon_skills.json: skill {entry_id!r} special must be a bool")
-        _validate_effects(entry["effects"], f"dungeon_skills.json: skill {entry_id!r}")
+        _validate_effects_or_groups(entry, f"dungeon_skills.json: skill {entry_id!r}")
         skills[entry_id] = entry
     return skills
 
@@ -1039,7 +1143,7 @@ MONSTERS = _load_monsters()
 # the same generic `inventory` table as quest items and materials.
 
 _CONSUMABLES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_consumables.json")
-_REQUIRED_CONSUMABLE_FIELDS = {"id", "name", "kind", "flavor", "effects"}
+_REQUIRED_CONSUMABLE_FIELDS = {"id", "name", "kind", "flavor"}
 
 
 def _load_consumables(path: str = _CONSUMABLES_PATH) -> dict[str, dict]:
@@ -1055,7 +1159,7 @@ def _load_consumables(path: str = _CONSUMABLES_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_consumables.json: duplicate item id {entry_id!r}")
         if entry["kind"] != "consumable":
             raise ValueError(f"dungeon_consumables.json: item {entry_id!r} has kind {entry['kind']!r}, expected 'consumable'")
-        _validate_effects(entry["effects"], f"dungeon_consumables.json: item {entry_id!r}")
+        _validate_effects_or_groups(entry, f"dungeon_consumables.json: item {entry_id!r}")
         consumables[entry_id] = entry
     return consumables
 

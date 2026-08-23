@@ -1635,6 +1635,7 @@ def _render_effect_row(
         f'<input type="checkbox" name="{prefix}_self_only"{self_only_checked}> self only</label>'
     )
     trigger_html = ""
+    chance_html = ""
     if include_trigger:
         trigger_options = "".join(
             f'<option value="{t}"{" selected" if t == effect.get("trigger") else ""}>{t}</option>'
@@ -1647,12 +1648,59 @@ def _render_effect_row(
             f'<input type="number" step="any" min="0" max="1" name="{prefix}_chance" value="{effect.get("chance", "")}">'
             f'</label>'
         )
+    else:
+        # The universal independent per-effect fire probability (dungeon.resolve_cast_effects) --
+        # rolled separately for EACH effect on a skill/consumable/monster-skill, so e.g. a 50%-stun
+        # + 75%-damage skill can land both, either, or neither. Blank = always fires (probability
+        # 1), same as every effect authored before this existed. Equipment's own effects
+        # (include_trigger=True) already have an equivalent chance input of their own, scoped to
+        # the on_hit trigger only -- see the branch above -- so this only ever appears here instead.
+        chance_html = (
+            f'<label data-tooltip="Independent chance THIS effect fires, rolled separately from '
+            f'every other effect on the same skill/item. Blank = always fires. Two effects each '
+            f'with their own chance can both land, either one, or neither -- for choosing between '
+            f'mutually exclusive alternatives instead, use effect_groups.">chance (0-1)'
+            f'<input type="number" step="any" min="0" max="1" name="{prefix}_chance" value="{effect.get("chance", "")}">'
+            f'</label>'
+        )
     return (
         f'<div class="row-group">'
         f'<label>type<select name="{prefix}_type" class="effect-type-select">{type_options}</select></label>'
         f'{trigger_html}'
         f'<small class="field-hint effect-hint"></small>'
-        f'{param_inputs}{aoe_html}{self_only_html}<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
+        f'{param_inputs}{aoe_html}{self_only_html}{chance_html}'
+        f'<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
+    )
+
+
+def _render_effect_group_row(prefix: str, group: dict) -> str:
+    """One group within a skill/consumable's own "effect_groups" repeatable (the alternative to
+    plain "effects", for MUTUALLY EXCLUSIVE alternatives) -- a weight ("chance", relative to sibling
+    groups, exactly the monster_groups/monster-skill convention -- NOT the same thing as an
+    individual effect's own 0-1 "chance" a few lines down) plus a nested "effects" repeatable.
+    dungeon.resolve_cast_effects picks exactly ONE group (weighted) each cast, then applies whatever
+    that group's own effects list rolls (each still independently, via its own per-effect chance --
+    see _render_effect_row). Reuses the exact same data-group-row/data-group-chance/data-group-pct
+    markup a combat room's own monster_groups already established, so the page script's existing
+    updateGroupOdds needs zero changes to also drive this field's live-odds display -- it already
+    scopes itself per [data-group-odds] fieldset, not to any one specific content type."""
+    effects_container = f"{prefix}_effects"
+    effects = list(group.get("effects") or [])
+    effect_rows_html = [_render_effect_row(f"{effects_container}_{i}", e) for i, e in enumerate(effects)]
+    effect_template_html = _render_effect_row(f"{effects_container}_ROWIDX", {})
+    effects_repeatable = _render_repeatable(effects_container, effect_rows_html, effect_template_html, "+ Add effect")
+    return (
+        f'<fieldset class="row-group monster-group" data-monster-group data-group-row>'
+        f'<legend>Group</legend>'
+        f'<label data-tooltip="A relative weight against this skill/item\'s OTHER groups -- NOT a '
+        f'0-1 probability. Blank defaults to 1 (equal footing with every other untouched group). '
+        f'The badge to the right shows this group\'s actual live odds given every weight currently '
+        f'filled in.">chance (weight)'
+        f'<input type="number" step="any" min="0" name="{prefix}_chance" '
+        f'value="{group.get("chance", "")}" data-group-chance></label>'
+        f'<span class="skill-odds-pct" data-group-pct>—</span>'
+        f'{effects_repeatable}'
+        f'<button type="button" class="remove-row" data-remove-row>✕ Remove group</button></fieldset>'
     )
 
 
@@ -1660,13 +1708,16 @@ def _render_monster_skill_row(prefix: str, skill: dict) -> str:
     """One entry in a monster's own "skills" repeatable -- name + chance (a relative WEIGHT
     against the monster's own attack_chance and every other skill's own chance, see
     dungeon.pick_monster_action -- NOT a 0-1 probability, so e.g. two skills both at chance=1 with
-    attack_chance=1 split evenly three ways) plus its own nested effects repeatable, one level
-    deeper than the monster's top-level "drops"/"groups"-shaped fields -- same nesting-depth-
-    agnostic wireRepeatAdd/ROWIDX machinery every other nested repeatable in this admin panel
-    already relies on (rooms -> room -> groups -> group -> monster is the deepest existing
-    precedent). Effects here have full parity with a player skill/consumable's own effect
-    vocabulary (dungeon.py's module comment above _validate_monster_skill), so this reuses
-    _render_effect_row with its default (unrestricted) allowed_types."""
+    attack_chance=1 split evenly three ways) plus EITHER its own nested "effects" repeatable OR (for
+    a "50% this OR 50% that" monster skill) a nested "effect_groups" repeatable, one level deeper
+    than the monster's top-level "drops"/"groups"-shaped fields -- same nesting-depth-agnostic
+    wireRepeatAdd/ROWIDX machinery every other nested repeatable in this admin panel already relies
+    on (rooms -> room -> groups -> group -> monster is the deepest existing precedent, matched here
+    by skill -> effect_groups -> group -> effects -> effect). Effects here have full parity with a
+    player skill/consumable's own effect vocabulary (dungeon.py's module comment above
+    _validate_monster_skill), so this reuses _render_effect_row/_render_effect_group_row directly --
+    exactly one of the two fields should be filled in, same XOR dungeon._validate_effects_or_groups
+    enforces for a player skill/consumable."""
     effects_container = f"{prefix}_effects"
     effects = list(skill.get("effects") or [])
     effect_rows_html = [
@@ -1674,6 +1725,17 @@ def _render_monster_skill_row(prefix: str, skill: dict) -> str:
     ]
     effect_template_html = _render_effect_row(f"{effects_container}_ROWIDX", {})
     effects_repeatable = _render_repeatable(effects_container, effect_rows_html, effect_template_html, "+ Add effect")
+
+    groups_container = f"{prefix}_effectgroup"
+    groups = list(skill.get("effect_groups") or [])
+    group_rows_html = [_render_effect_group_row(f"{groups_container}_{i}", g) for i, g in enumerate(groups)]
+    group_template_html = _render_effect_group_row(f"{groups_container}_ROWIDX", {})
+    groups_repeatable = _render_repeatable(groups_container, group_rows_html, group_template_html, "+ Add group")
+    groups_odds_summary = (
+        '<div class="skill-odds-summary" data-group-odds-summary>'
+        "Live odds appear here once groups are filled in.</div>"
+    )
+
     return (
         f'<fieldset class="row-group" data-skill-row><legend>Skill</legend>'
         f'<label>name<input type="text" name="{prefix}_name" value="{html.escape(skill.get("name", ""))}" '
@@ -1687,7 +1749,11 @@ def _render_monster_skill_row(prefix: str, skill: dict) -> str:
         f'<span class="skill-odds-pct" data-skill-pct>—</span>'
         f'<label class="checkbox-label"><input type="checkbox" name="{prefix}_special"'
         f'{" checked" if skill.get("special") else ""}> Special (rolls SpAtk/SpDef instead of ATK/DEF)</label>'
+        f'<div data-tooltip="Fill in EITHER Effects OR Effect Groups below, never both.">'
+        f'<p class="field-hint">Effects (independent per-effect chance) OR Effect Groups '
+        f'(mutually-exclusive 50/50-style alternatives) -- fill in exactly one.</p></div>'
         f'<div>{effects_repeatable}</div>'
+        f'<fieldset data-group-odds>{groups_odds_summary}{groups_repeatable}</fieldset>'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove skill</button></fieldset>'
     )
 
@@ -2389,6 +2455,20 @@ def _render_field(field: dict, value, entry: dict | None = None, problems: list[
         repeatable = _render_repeatable(f"{name}-rows", rows_html, template_html, "+ Add effect")
         return f'<fieldset><legend>{label}</legend>{repeatable}</fieldset>'
 
+    if ftype == "effect_groups":
+        groups = list(value or [])
+        rows_html = [_render_effect_group_row(f"effectgroup_{i}", g) for i, g in enumerate(groups)]
+        template_html = _render_effect_group_row("effectgroup_ROWIDX", {})
+        repeatable = _render_repeatable(f"{name}-rows", rows_html, template_html, "+ Add group")
+        # data-group-odds/data-group-odds-summary reuse the exact same generic updateGroupOdds
+        # (_dynamic_script) a combat room's own monster_groups already drives -- it scopes itself
+        # per fieldset, not per content type, so this field's live-odds display needed zero new JS.
+        odds_summary = (
+            '<div class="skill-odds-summary" data-group-odds-summary>'
+            "Live odds appear here once groups are filled in.</div>"
+        )
+        return f'<fieldset data-group-odds><legend>{label}</legend>{odds_summary}{repeatable}</fieldset>'
+
     if ftype == "monster_skills":
         skills = list(value or [])
         rows_html = [_render_monster_skill_row(f"skill_{i}", s) for i, s in enumerate(skills)]
@@ -2506,8 +2586,42 @@ def _parse_effects_list(container_prefix: str, form: dict) -> list[dict]:
             effect["aoe"] = True
         if f"{prefix}_self_only" in form:
             effect["self_only"] = True
+        # The universal independent per-effect fire probability (dungeon.resolve_cast_effects) --
+        # blank means "always fires" (dungeon._validate_effects' own default), same "absent, not a
+        # 0" convention as every other optional numeric field here. This is the one place
+        # _render_effect_row's chance input is NOT trigger-gated (that's equipment's own on_hit-only
+        # chance, a different field on the very same row when include_trigger=True -- see that
+        # function's own comment on why the two never collide despite sharing a name).
+        raw_chance = form.get(f"{prefix}_chance", "").strip()
+        if raw_chance:
+            effect["chance"] = float(raw_chance)
         effects.append(effect)
     return effects
+
+
+def _parse_effect_groups(container_prefix: str, form: dict) -> list[dict]:
+    """Parses one "effect_groups" repeatable's submitted rows -- skills/consumables' alternative to
+    plain "effects" (see _render_effect_group_row), nested one level deeper (group -> its own
+    "effects" sub-repeatable). Group index is discovered by presence of its own nested
+    "<prefix>_<i>_effects_<k>_type" key -- the same "index discovered by a nested key's presence"
+    approach _parse_delve_flowchart's own monster groups already use -- rather than the group's own
+    "chance" key, since a group can legitimately have a blank/default chance and still be real, but
+    can't have zero effects. A group whose nested effects all ended up blank is dropped entirely,
+    same reasoning an empty monster group already gets dropped for."""
+    pattern = re.compile(rf"{re.escape(container_prefix)}_(\d+)_effects_\d+_type")
+    indices = sorted({int(m.group(1)) for k in form if (m := pattern.fullmatch(k))})
+    groups = []
+    for i in indices:
+        prefix = f"{container_prefix}_{i}"
+        effects = _parse_effects_list(f"{prefix}_effects", form)
+        if not effects:
+            continue
+        group: dict = {"effects": effects}
+        raw_chance = form.get(f"{prefix}_chance", "").strip()
+        if raw_chance:
+            group["chance"] = float(raw_chance) if "." in raw_chance else int(raw_chance)
+        groups.append(group)
+    return groups
 
 
 def _parse_equipment_effects(form: dict) -> list[dict]:
@@ -2602,7 +2716,17 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
         return (name, _parse_equipment_effects(form))
 
     if ftype == "effects":
-        return (name, _parse_effects_list("effect", form))
+        # Omitted entirely (not an empty list) when blank -- unlike every other "effects" field
+        # before effect_groups existed, this one can legitimately be left blank on purpose (the
+        # skill/consumable uses effect_groups instead), and dungeon._validate_effects_or_groups
+        # tells the two apart by key PRESENCE, not by whether the list happens to be empty. A
+        # skill/consumable that's genuinely missing both still fails loudly at save time either way.
+        effects = _parse_effects_list("effect", form)
+        return (name, effects) if effects else None
+
+    if ftype == "effect_groups":
+        groups = _parse_effect_groups("effectgroup", form)
+        return (name, groups) if groups else None
 
     if ftype == "monster_skills":
         # A skill row is discovered by its own "_name" key being non-blank -- same "not yet filled
@@ -2620,9 +2744,19 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
             raw_chance = form.get(f"{prefix}_chance", "").strip()
             chance = (float(raw_chance) if "." in raw_chance else int(raw_chance)) if raw_chance else 0
             effects = _parse_effects_list(f"{prefix}_effects", form)
+            groups = _parse_effect_groups(f"{prefix}_effectgroup", form)
             special = f"{prefix}_special" in form
-            if effects:  # a skill with no effects yet isn't meaningful to save -- drop it silently
-                skills.append({"name": skill_name, "chance": chance, "effects": effects, "special": special})
+            if not effects and not groups:
+                continue  # a skill with neither effects nor effect_groups yet isn't meaningful to save
+            skill: dict = {"name": skill_name, "chance": chance, "special": special}
+            # Exactly one of the two, same XOR dungeon._validate_effects_or_groups enforces at save
+            # time -- if an author somehow filled in both, both land here and the real loader
+            # rejects it loudly rather than this silently picking one.
+            if effects:
+                skill["effects"] = effects
+            if groups:
+                skill["effect_groups"] = groups
+            skills.append(skill)
         return (name, skills)
 
     if ftype == "materials":
