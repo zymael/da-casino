@@ -1098,5 +1098,33 @@
     ],
     "chip_cost": 5,
     "special": true
+  },
+  {
+    "id": "knight_strike",
+    "main_class": "mage",
+    "subclass": "diamonds",
+    "unlock_level": 5,
+    "name": "Knight's Strike",
+    "flavor": "Men(and woman)! To me!",
+    "effects": [
+      {
+        "type": "extra_attack",
+        "multiplier": 0.7
+      },
+      {
+        "type": "extra_attack",
+        "multiplier": 0.6
+      },
+      {
+        "type": "extra_attack",
+        "multiplier": 0.6
+      },
+      {
+        "type": "guard",
+        "reduction": 0.5
+      }
+    ],
+    "chip_cost": 10,
+    "special": true
   }
 ]
