@@ -105,7 +105,8 @@ def _equipment_line(item_id: str, qty: int | None = None) -> str:
     qty_suffix = f" x{qty}" if qty and qty > 1 else ""
     stat_text = _stat_bonus_text(item)
     stat_suffix = f" — {stat_text}" if stat_text else ""
-    lines = [f"**{item['name']}**{qty_suffix}{stat_suffix} · *{item['rarity']}*"]
+    rarity_dot = dungeon.RARITY_EMOJI[item["rarity"]]
+    lines = [f"{rarity_dot} **{item['name']}**{qty_suffix}{stat_suffix} · *{item['rarity']}*"]
     lines.extend(_dynamic_effect_lines(item))
     lines.append(f"> {item['flavor']}")
     return "\n".join(lines)
@@ -223,8 +224,10 @@ def _equipped_lines(equipped: dict[str, str]) -> str:
             lines.append(f"**{slot.title()}**: *empty*")
         else:
             item = dungeon.EQUIPMENT[item_id]
+            rarity_dot = dungeon.RARITY_EMOJI[item["rarity"]]
             lines.append(
-                f"**{slot.title()}**: {item['name']} — {_stat_bonus_text(item)} · *{item['rarity']}*\n> {item['flavor']}"
+                f"**{slot.title()}**: {rarity_dot} {item['name']} — {_stat_bonus_text(item)} · *{item['rarity']}*"
+                f"\n> {item['flavor']}"
             )
     return "\n".join(lines)
 
@@ -272,11 +275,14 @@ class EquipmentSlotSelect(discord.ui.Select):
             item = dungeon.EQUIPMENT[equipped_id]
             options.append(discord.SelectOption(
                 label=f"{item['name']} (equipped)", value=equipped_id, default=True,
-                description=_equipment_summary(item),
+                description=_equipment_summary(item), emoji=dungeon.RARITY_EMOJI[item["rarity"]],
             ))
         for item_id in stored_ids[: MAX_SELECT_OPTIONS - len(options)]:
             item = dungeon.EQUIPMENT[item_id]
-            options.append(discord.SelectOption(label=item["name"], value=item_id, description=_equipment_summary(item)))
+            options.append(discord.SelectOption(
+                label=item["name"], value=item_id, description=_equipment_summary(item),
+                emoji=dungeon.RARITY_EMOJI[item["rarity"]],
+            ))
         super().__init__(placeholder=f"{slot.title()}...", options=options, row=row)
 
     async def callback(self, interaction: discord.Interaction):

@@ -717,6 +717,19 @@ def unlocked_skills(main_class: str, subclass: str, level: int) -> list[dict]:
 # ATK/DEF for an on_use damage roll -- mirrors a skill/consumable's own optional `special` field
 # exactly; only meaningful if the item has a damage-shaped on_use effect.
 
+# A fixed tier ladder -- "rarity" used to be flavor-only free text, unvalidated and never read by
+# game logic (real content had already drifted to both "epic" and "Epic"). Now does two real
+# things: RARITY_EMOJI gives every item a colored-dot prefix wherever it's displayed
+# (inventory_view.py), and RARITY_STAT_MULTIPLIERS scales generate_item_constant_effects' budget,
+# so a higher tier is authored to hit meaningfully better stats at the same level rather than
+# rarity being purely cosmetic. The multiplier curve is a hand-picked, not-evenly-spaced pass (the
+# epic->legendary jump is the biggest, so "legendary" reads as a rare standout rather than just one
+# more even step) -- same "reasonable pass, not physics" spirit as every other generation constant
+# in this section (_item_power_budget etc).
+EQUIPMENT_RARITIES = ("common", "uncommon", "rare", "epic", "legendary")
+RARITY_EMOJI = {"common": "⚪", "uncommon": "🟢", "rare": "🔵", "epic": "🟣", "legendary": "🟠"}
+RARITY_STAT_MULTIPLIERS = {"common": 1.0, "uncommon": 1.25, "rare": 1.6, "epic": 2.1, "legendary": 3.0}
+
 _EQUIPMENT_PATH = os.path.join(os.path.dirname(__file__), "dungeon_equipment.json")
 _REQUIRED_EQUIPMENT_FIELDS = {"id", "name", "slot", "rarity", "effects", "flavor"}
 EQUIPMENT_SLOTS = ("weapon", "armor", "trinket")
@@ -787,6 +800,8 @@ def _load_equipment(path: str = _EQUIPMENT_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_equipment.json: duplicate item id {entry_id!r}")
         if entry["slot"] not in EQUIPMENT_SLOTS:
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has unknown slot {entry['slot']!r}")
+        if entry["rarity"] not in EQUIPMENT_RARITIES:
+            raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has unknown rarity {entry['rarity']!r}")
         if "special" in entry and not isinstance(entry["special"], bool):
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} special must be a bool")
         _validate_equipment_effects(entry["effects"], f"dungeon_equipment.json: item {entry_id!r}")
@@ -1144,16 +1159,18 @@ def _item_power_budget(level: int) -> float:
 _STAT_TO_CONSTANT_EFFECT_TYPE = {"hp": "hp_buff", "atk": "atk_buff", "def": "def_buff", "spatk": "spatk_buff", "spdef": "spdef_buff"}
 
 
-def generate_item_constant_effects(level: int, slot: str) -> list[dict]:
-    """Constant-trigger effects for a piece of gear meant to feel "right" at `level` in `slot` --
-    weapon leans almost entirely ATK, armor splits HP/DEF/SpDef, trinket is even across all five
-    (see _EQUIPMENT_SLOT_WEIGHTS). A weight of exactly 0 omits that stat entirely rather than
-    writing a 0-value effect, matching how real equipment entries only list the stats they
-    actually touch. Renamed from the pre-effects-system generate_item_stat_bonuses now that the
-    return shape is an effects list, not a flat stat_bonuses dict -- stays scoped to constant-only,
-    on_use/on_hit effects are always hand-authored, never auto-rolled."""
+def generate_item_constant_effects(level: int, slot: str, rarity: str = "common") -> list[dict]:
+    """Constant-trigger effects for a piece of gear meant to feel "right" at `level` in `slot` and
+    `rarity` -- weapon leans almost entirely ATK, armor splits HP/DEF/SpDef, trinket is even across
+    all five (see _EQUIPMENT_SLOT_WEIGHTS), then the whole budget is scaled by
+    RARITY_STAT_MULTIPLIERS so a higher tier is authored to meaningfully outclass a lower one at
+    the same level. A weight of exactly 0 omits that stat entirely rather than writing a 0-value
+    effect, matching how real equipment entries only list the stats they actually touch. Renamed
+    from the pre-effects-system generate_item_stat_bonuses now that the return shape is an effects
+    list, not a flat stat_bonuses dict -- stays scoped to constant-only, on_use/on_hit effects are
+    always hand-authored, never auto-rolled."""
     weights = _EQUIPMENT_SLOT_WEIGHTS.get(slot, _EQUIPMENT_SLOT_WEIGHTS["trinket"])
-    budget = _item_power_budget(level)
+    budget = _item_power_budget(level) * RARITY_STAT_MULTIPLIERS.get(rarity, 1.0)
     divisors = {"hp": 1, "atk": 2, "def": 2, "spatk": 2, "spdef": 2}
     effects = []
     for stat, weight in weights.items():
@@ -1164,13 +1181,17 @@ def generate_item_constant_effects(level: int, slot: str) -> list[dict]:
 
 
 def estimate_item_level(item: dict) -> float:
-    """Inverse of generate_item_constant_effects/_item_power_budget."""
+    """Inverse of generate_item_constant_effects/_item_power_budget -- divides back out the same
+    rarity multiplier generation scaled up by, so a legendary item's stats read as "balanced for
+    level X" against the actual level it was generated for, not an inflated one just because
+    rarity made its raw numbers bigger."""
     bonuses = constant_stat_bonuses(item)
     budget = (
         bonuses.get("hp", 0) + 2 * bonuses.get("atk", 0) + 2 * bonuses.get("def", 0)
         + 2 * bonuses.get("spatk", 0) + 2 * bonuses.get("spdef", 0)
     )
-    return max(1.0, budget / 1.5)
+    rarity_mult = RARITY_STAT_MULTIPLIERS.get(item.get("rarity"), 1.0)
+    return max(1.0, budget / 1.5 / rarity_mult)
 
 
 # --- Delve drafts ----------------------------------------------------------------------------

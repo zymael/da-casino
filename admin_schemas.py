@@ -16,9 +16,11 @@ Any field entry can also carry:
     color/image) -- compound field types (effects, materials, trigger, ...) already render inside
     their own labeled <fieldset>, which is grouping enough on its own.
   - "hint" -- a one-line explanation shown as small print under that field's input, for a box
-    whose meaning isn't obvious from its name alone (e.g. "rarity" is flavor-only and never read
-    by game logic). Trigger params get their own per-param hints instead (TRIGGER_PARAM_HINTS),
-    since the same flattened param row is reused across every trigger type.
+    whose meaning isn't obvious from its name alone (e.g. materials' "rarity" is flavor-only and
+    never read by game logic, unlike equipment's own "rarity", which is a fixed tier that scales
+    stat generation -- see dungeon.EQUIPMENT_RARITIES). Trigger params get their own per-param
+    hints instead (TRIGGER_PARAM_HINTS), since the same flattened param row is reused across every
+    trigger type.
 
 Field types the generic form-builder knows how to render:
   - "str"    -- a single-line text input
@@ -270,8 +272,10 @@ CONTENT_TYPES = {
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
             {"name": "slot", "type": "enum", "required": True, "choices": list(dungeon.EQUIPMENT_SLOTS), "group": "Identity"},
             {
-                "name": "rarity", "type": "str", "required": True, "group": "Drop Info",
-                "hint": "flavor label only (e.g. \"common\", \"legendary\") -- not read by any game logic",
+                "name": "rarity", "type": "enum", "required": True, "choices": list(dungeon.EQUIPMENT_RARITIES),
+                "group": "Drop Info",
+                "hint": "scales \"Generate stats for level\" above (dungeon.RARITY_STAT_MULTIPLIERS) and "
+                        "picks this item's colored-dot prefix everywhere it's displayed (dungeon.RARITY_EMOJI)",
             },
             {"name": "effects", "type": "equipment_effects", "required": True},
             {

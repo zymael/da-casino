@@ -3030,9 +3030,10 @@ async def list_view(request: web.Request) -> web.Response:
 
 def _apply_generate_level(content_type: str, entry: dict, query) -> dict:
     """If the monster/equipment edit page's "Generate stats for level" sub-form was just
-    submitted (?generate_level=N, for monsters also ?archetype=tank/balanced/glass_cannon, and
-    for equipment also ?slot=...), returns a NEW dict with hp/atk/def (monsters) or a regenerated
-    set of constant effects (equipment) plus intended_level overridden by
+    submitted (?generate_level=N, for monsters also ?archetype=tank/balanced/glass_cannon, and for
+    equipment also ?slot=... and ?rarity=...), returns a NEW dict with hp/atk/def (monsters) or a
+    regenerated set of constant effects (equipment, scaled by rarity -- see
+    dungeon.RARITY_STAT_MULTIPLIERS) plus intended_level overridden by
     dungeon.generate_monster_stats/generate_item_constant_effects. Equipment's own on_use/on_hit
     effects (if any were hand-authored) are preserved as-is -- only the constant ones get replaced
     -- so re-rolling an item's passive stats for a new level can't silently wipe out its "ring of
@@ -3059,9 +3060,11 @@ def _apply_generate_level(content_type: str, entry: dict, query) -> dict:
         entry.update(dungeon.generate_monster_stats(level, archetype=archetype))
     else:
         slot = query.get("slot") or entry.get("slot") or "weapon"
+        rarity = query.get("rarity") or entry.get("rarity") or "common"
         entry["slot"] = slot
+        entry["rarity"] = rarity
         non_constant = [e for e in entry.get("effects", []) if e.get("trigger") != "constant"]
-        entry["effects"] = dungeon.generate_item_constant_effects(level, slot) + non_constant
+        entry["effects"] = dungeon.generate_item_constant_effects(level, slot, rarity) + non_constant
     return entry
 
 
@@ -3182,7 +3185,15 @@ async def edit_view(request: web.Request) -> web.Response:
                 f'<option value="{s}"{" selected" if s == entry.get("slot") else ""}>{s}</option>'
                 for s in dungeon.EQUIPMENT_SLOTS
             )
-            slot_input = f'<label>slot<select name="slot">{slot_options}</select></label>'
+            rarity_options = "".join(
+                f'<option value="{r}"{" selected" if r == entry.get("rarity") else ""}>'
+                f'{dungeon.RARITY_EMOJI[r]} {r}</option>'
+                for r in dungeon.EQUIPMENT_RARITIES
+            )
+            slot_input = (
+                f'<label>slot<select name="slot">{slot_options}</select></label>'
+                f'<label>rarity<select name="rarity">{rarity_options}</select></label>'
+            )
         default_level = entry.get("intended_level") or 1
         # Each archetype button submits the SAME form with its own name="archetype" value -- plain
         # HTML multi-submit-button behavior (whichever button was actually clicked is the only one
