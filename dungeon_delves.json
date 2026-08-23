@@ -10,12 +10,16 @@
         "type": "combat",
         "next": "room2",
         "monster_groups": [
-          [
-            "goblin_grunt"
-          ],
-          [
-            "goblin_scavenger"
-          ]
+          {
+            "monsters": [
+              "goblin_grunt"
+            ]
+          },
+          {
+            "monsters": [
+              "goblin_scavenger"
+            ]
+          }
         ]
       },
       {
@@ -23,24 +27,32 @@
         "type": "combat",
         "next": "room3",
         "monster_groups": [
-          [
-            "goblin_skirmisher"
-          ],
-          [
-            "goblin_archer"
-          ]
+          {
+            "monsters": [
+              "goblin_skirmisher"
+            ]
+          },
+          {
+            "monsters": [
+              "goblin_archer"
+            ]
+          }
         ]
       },
       {
         "id": "room3",
         "type": "combat",
         "monster_groups": [
-          [
-            "goblin_chief"
-          ],
-          [
-            "goblin_warlord"
-          ]
+          {
+            "monsters": [
+              "goblin_chief"
+            ]
+          },
+          {
+            "monsters": [
+              "goblin_warlord"
+            ]
+          }
         ]
       }
     ],
@@ -71,10 +83,12 @@
         "id": "The Sewer",
         "type": "combat",
         "monster_groups": [
-          [
-            "goblin_warlord",
-            "goblin_chief"
-          ]
+          {
+            "monsters": [
+              "goblin_warlord",
+              "goblin_chief"
+            ]
+          }
         ],
         "next": "The Doorman"
       },
@@ -127,23 +141,29 @@
         "id": "The Bathhouse",
         "type": "combat",
         "monster_groups": [
-          [
-            "enchanted_comb",
-            "enchanted_soap",
-            "enchanted_towel"
-          ],
-          [
-            "enchanted_comb",
-            "enchanted_soap",
-            "enchanted_soap",
-            "enchanted_towel"
-          ],
-          [
-            "enchanted_comb",
-            "enchanted_soap",
-            "enchanted_towel",
-            "enchanted_towel"
-          ]
+          {
+            "monsters": [
+              "enchanted_comb",
+              "enchanted_soap",
+              "enchanted_towel"
+            ]
+          },
+          {
+            "monsters": [
+              "enchanted_comb",
+              "enchanted_soap",
+              "enchanted_soap",
+              "enchanted_towel"
+            ]
+          },
+          {
+            "monsters": [
+              "enchanted_comb",
+              "enchanted_soap",
+              "enchanted_towel",
+              "enchanted_towel"
+            ]
+          }
         ],
         "next": "A Private Bath",
         "prompt": "As you enter the Bathhouse proper, the furniture awakens to attack you.\r\nDefend yourself!"
@@ -152,9 +172,11 @@
         "id": "Fight the Doorman",
         "type": "combat",
         "monster_groups": [
-          [
-            "goblin_grunt"
-          ]
+          {
+            "monsters": [
+              "goblin_grunt"
+            ]
+          }
         ],
         "next": "The Bathhouse"
       },
@@ -185,34 +207,42 @@
         "id": "The Bog of Z'Goolok",
         "type": "combat",
         "monster_groups": [
-          [
-            "goblin_grunt"
-          ]
+          {
+            "monsters": [
+              "goblin_grunt"
+            ]
+          }
         ]
       },
       {
         "id": "The Leather Daddy's Private Room",
         "type": "combat",
         "monster_groups": [
-          [
-            "goblin_grunt"
-          ]
+          {
+            "monsters": [
+              "goblin_grunt"
+            ]
+          }
         ]
       },
       {
         "id": "A Private Bath",
         "type": "combat",
         "monster_groups": [
-          [
-            "nakedgnome_1",
-            "nakedgnome_3",
-            "nakedgnome_2"
-          ],
-          [
-            "enchanted_towel",
-            "enchanted_comb",
-            "bath_witch"
-          ]
+          {
+            "monsters": [
+              "nakedgnome_1",
+              "nakedgnome_3",
+              "nakedgnome_2"
+            ]
+          },
+          {
+            "monsters": [
+              "enchanted_towel",
+              "enchanted_comb",
+              "bath_witch"
+            ]
+          }
         ],
         "next": "A desperate choice!",
         "prompt": "As you remove the curtains to enter in what you think is the main room, it turns out you stumble into a private bath!"
@@ -264,9 +294,11 @@
         "id": "test",
         "type": "combat",
         "monster_groups": [
-          [
-            "gnome_leather_daddy"
-          ]
+          {
+            "monsters": [
+              "gnome_leather_daddy"
+            ]
+          }
         ],
         "next": "Test"
       },
@@ -274,9 +306,11 @@
         "id": "Test",
         "type": "combat",
         "monster_groups": [
-          [
-            "nakedgnome_1"
-          ]
+          {
+            "monsters": [
+              "nakedgnome_1"
+            ]
+          }
         ]
       }
     ],

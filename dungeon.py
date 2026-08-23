@@ -211,10 +211,16 @@ def roll_drops(monster: dict, chance_mult: float = 1.0) -> list[dict]:
 # room id a session begins at, since room order is no longer implicit.
 #
 # Two room types:
-#   "combat": {"id", "type": "combat", "monster_groups": [[...], ...], "background_path"?, "next"?, "prompt"?}
-#     monster_groups is a list of possible monster groups for this room -- one group (a list of
-#     monster ids, all of which spawn together) is picked at random each visit, see
-#     monsters_for_room. RECONSTRUCTION NOTE: this list-of-groups shape (vs. a single flat list of
+#   "combat": {"id", "type": "combat", "monster_groups": [{"monsters": [...], "chance"?}, ...],
+#              "background_path"?, "next"?, "prompt"?}
+#     monster_groups is a list of possible monster groups for this room -- one group ("monsters", a
+#     list of monster ids, all of which spawn together) is picked each visit via a weighted random
+#     choice, see monsters_for_room. "chance" is the exact same relative-weight convention a
+#     monster's own "skills" list already uses (dungeon.pick_monster_action) -- NOT a 0-1
+#     probability, optional per group and defaulting to DEFAULT_MONSTER_GROUP_CHANCE (so an
+#     untouched group is on equal footing with every other untouched group, same as today's uniform
+#     random.choice used to be); lower it on one group to make it a rare encounter relative to the
+#     room's other groups. RECONSTRUCTION NOTE: this list-of-groups shape (vs. a single flat list of
 #     monster-id alternatives) is inferred from the live dungeon_monsters.json/dungeon_view.py
 #     call site after an accidental truncation of this file -- the original wording/comment here
 #     was not recovered, only the JSON shape and the one call site. next is another room's id, or
@@ -409,13 +415,26 @@ def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
                 if not monster_groups:
                     raise ValueError(f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} has no monster_groups")
                 for group in monster_groups:
-                    if not group:
+                    if not isinstance(group, dict) or "monsters" not in group:
+                        raise ValueError(
+                            f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} has a monster group "
+                            f"that isn't a {{monsters, chance?}} object"
+                        )
+                    monsters = group["monsters"]
+                    if not monsters:
                         raise ValueError(f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} has an empty monster group")
-                    for monster_id in group:
+                    for monster_id in monsters:
                         if monster_id not in MONSTERS:
                             raise ValueError(
                                 f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} "
                                 f"references unknown monster {monster_id!r}"
+                            )
+                    if "chance" in group:
+                        chance = group["chance"]
+                        if not isinstance(chance, (int, float)) or chance < 0:
+                            raise ValueError(
+                                f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} "
+                                f"has a monster group chance that must be a number >= 0"
                             )
                 next_room = room.get("next")
                 if next_room is not None:
@@ -493,12 +512,20 @@ def rooms_by_id(delve: dict) -> dict[str, dict]:
     return {room["id"]: room for room in delve["rooms"]}
 
 
+DEFAULT_MONSTER_GROUP_CHANCE = 1.0
+
+
 def monsters_for_room(room: dict) -> list[dict]:
-    """Picks one of this room's monster_groups at random and resolves it to full monster dicts --
-    the whole group spawns together. RECONSTRUCTION NOTE: rebuilt after an accidental truncation
-    of this file, inferred from dungeon_view.py's call site and dungeon_monsters.json's shape."""
-    group = random.choice(room["monster_groups"])
-    return [MONSTERS[monster_id] for monster_id in group]
+    """Picks one of this room's monster_groups (weighted by each group's own "chance", defaulting
+    to DEFAULT_MONSTER_GROUP_CHANCE -- same relative-weight convention as pick_monster_action's own
+    weights, so a "rare encounter" group is just a smaller number next to the room's other groups)
+    and resolves it to full monster dicts -- the whole group spawns together. RECONSTRUCTION NOTE:
+    the underlying list-of-groups shape was rebuilt after an accidental truncation of this file,
+    inferred from dungeon_view.py's call site and dungeon_monsters.json's shape; weighting was added
+    later, on top of that reconstruction."""
+    weights = [g.get("chance", DEFAULT_MONSTER_GROUP_CHANCE) for g in room["monster_groups"]]
+    group = random.choices(room["monster_groups"], weights=weights, k=1)[0]
+    return [MONSTERS[monster_id] for monster_id in group["monsters"]]
 
 
 # --- Leveling ------------------------------------------------------------------------------
@@ -1519,7 +1546,7 @@ def check_delve_problems(entry: dict, other_ids: set[str]) -> list[dict]:
             add(f"missing field(s): {sorted(missing_room)}", room_id=room_id)
         if room_type == "combat":
             for group in room.get("monster_groups") or []:
-                for monster_id in group:
+                for monster_id in (group.get("monsters") or []) if isinstance(group, dict) else []:
                     if monster_id not in MONSTERS:
                         add(f"references unknown monster {monster_id!r}", room_id=room_id)
         else:

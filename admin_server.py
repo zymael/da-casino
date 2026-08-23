@@ -521,6 +521,47 @@ function updateSkillOdds() {
     }).join('');
 }
 
+// Group sibling of updateSkillOdds -- a combat room's own monster_groups (dungeon.
+// monsters_for_room) picks one group via the exact same weighted-random shape a monster's own
+// skills use, so this mirrors updateSkillOdds almost exactly. The one real difference: a monster's
+// skills are ONE fieldset per whole page, but a delve's flowchart canvas can have MANY combat
+// rooms at once, each with its own independent set of groups -- so this scopes itself to every
+// [data-group-odds] fieldset separately (one per room) rather than assuming a single page-wide
+// summary element. Blank chance defaults to 1 here (unlike a skill's blank chance, which has no
+// server-side default and just reads as weight 0) -- see dungeon.DEFAULT_MONSTER_GROUP_CHANCE.
+// No-op wherever there's no such fieldset (a non-delve page, or a delve with no combat rooms yet),
+// so it's safe to call unconditionally alongside updateSkillOdds everywhere that already runs.
+function updateGroupOdds() {
+    document.querySelectorAll('[data-group-odds]').forEach(function (fieldset) {
+        var summary = fieldset.querySelector('[data-group-odds-summary]');
+        if (!summary) return;
+        var entries = [];
+        fieldset.querySelectorAll('[data-group-row]').forEach(function (row, idx) {
+            var chanceInput = row.querySelector('[data-group-chance]');
+            var raw = chanceInput ? chanceInput.value.trim() : '';
+            var weight = raw === '' ? 1 : parseFloat(raw);
+            if (isNaN(weight) || weight < 0) weight = 0;
+            entries.push({label: 'Group ' + (idx + 1), weight: weight, pctEl: row.querySelector('[data-group-pct]')});
+        });
+
+        var total = entries.reduce(function (sum, e) { return sum + e.weight; }, 0);
+        entries.forEach(function (e) {
+            if (e.pctEl) e.pctEl.textContent = total > 0 ? (e.weight / total * 100).toFixed(1) + '%' : '—';
+        });
+
+        if (entries.length === 0) {
+            summary.textContent = 'Live odds appear here once groups are filled in.';
+        } else if (total <= 0) {
+            summary.textContent = 'Every weight is 0 -- this room could never pick a group at all.';
+        } else {
+            summary.innerHTML = entries.map(function (e) {
+                var pct = (e.weight / total * 100).toFixed(1);
+                return '<span class="skill-odds-item"><b>' + pct + '%</b> ' + e.label + '</span>';
+            }).join('');
+        }
+    });
+}
+
 // Wires every [data-repeat-add] button under `root` that isn't already wired -- called once at
 // page load (root=document) and again on every freshly-cloned row (root=that row), since a clone
 // can itself introduce a new "+ Add" button one level down (a delve room's own "+ Add monster"/
@@ -568,6 +609,7 @@ function wireRepeatAdd(root) {
             if (window.refreshRoomBoxIfNested) window.refreshRoomBoxIfNested(container.lastElementChild);
             if (window.__scheduleDelveAutosave) window.__scheduleDelveAutosave();
             updateSkillOdds();
+            updateGroupOdds();
             nextIndex++;
         });
     });
@@ -581,9 +623,12 @@ wireRoomTypeSelects(document);
 wireCascadingSelects(document);
 wireRepeatAdd(document);
 updateSkillOdds();
-// Cheap enough to just run on every keystroke anywhere on the page -- updateSkillOdds itself
-// no-ops immediately (see its own comment) on any page without a monster's skills fieldset.
+updateGroupOdds();
+// Cheap enough to just run on every keystroke anywhere on the page -- updateSkillOdds/
+// updateGroupOdds both no-op immediately (see their own comments) on any page without their
+// respective fieldset.
 document.addEventListener('input', updateSkillOdds);
+document.addEventListener('input', updateGroupOdds);
 
 document.addEventListener('click', function (event) {
     if (event.target.matches('[data-remove-row]')) {
@@ -593,6 +638,7 @@ document.addEventListener('click', function (event) {
         if (wrapper && window.refreshRoomBoxIfNested) window.refreshRoomBoxIfNested(wrapper);
         if (window.__scheduleDelveAutosave) window.__scheduleDelveAutosave();
         updateSkillOdds();
+        updateGroupOdds();
     } else if (event.target.matches('[data-remove-room]')) {
         event.target.closest('.room-wrapper').remove();
         if (window.__redrawDelveArrows) window.__redrawDelveArrows();
@@ -1710,25 +1756,39 @@ def _render_room_monster_row(name: str, monster_id: str | None) -> str:
     )
 
 
-def _render_room_monster_group_row(prefix: str, group: list[str]) -> str:
+def _render_room_monster_group_row(prefix: str, group: dict) -> str:
     """One monster GROUP within a combat room's own repeatable "groups" list -- a group is every
     monster that spawns simultaneously as one encounter (a group of one is an ordinary
-    single-monster fight; see dungeon.py's module docstring). Nests _render_room_monster_row's own
-    repeatable one level deeper than before (room -> groups -> group -> monster), reusing the exact
-    same wireRepeatAdd/ROWIDX machinery already proven nesting-depth-agnostic by _render_action_row
-    (rooms -> room -> actions) -- no JS changes needed. Also carries "row-group" so the page's
-    generic remove-row handler (`event.target.closest('.row-group')`) removes the whole group when
-    its own remove button is clicked, same as it already removes just one nested monster row when
-    *that* row's own remove button is clicked instead -- DOM proximity alone disambiguates which
-    level a given remove click means, no extra JS needed here either. See
-    _render_room_detail_panel below and _parse_delve_flowchart's matching parse side."""
+    single-monster fight; see dungeon.py's module docstring), plus its own "chance" -- a relative
+    weight against this room's OTHER groups (dungeon.monsters_for_room), the exact same convention
+    _render_monster_skill_row's own chance already uses, right down to the live odds badge (see
+    updateGroupOdds in _dynamic_script, the group sibling of updateSkillOdds). Nests
+    _render_room_monster_row's own repeatable one level deeper than before (room -> groups -> group
+    -> monster), reusing the exact same wireRepeatAdd/ROWIDX machinery already proven
+    nesting-depth-agnostic by _render_action_row (rooms -> room -> actions) -- no JS changes needed
+    for the nesting itself. Also carries "row-group" so the page's generic remove-row handler
+    (`event.target.closest('.row-group')`) removes the whole group when its own remove button is
+    clicked, same as it already removes just one nested monster row when *that* row's own remove
+    button is clicked instead -- DOM proximity alone disambiguates which level a given remove click
+    means, no extra JS needed here either. See _render_room_detail_panel below and
+    _parse_delve_flowchart's matching parse side."""
+    monsters = group.get("monsters", [])
     monsters_container = f"{prefix}_monsters"
-    monster_rows_html = [_render_room_monster_row(f"{monsters_container}_{j}", mid) for j, mid in enumerate(group)]
+    monster_rows_html = [_render_room_monster_row(f"{monsters_container}_{j}", mid) for j, mid in enumerate(monsters)]
     monster_template_html = _render_room_monster_row(f"{monsters_container}_ROWIDX", None)
     monsters_repeatable = _render_repeatable(monsters_container, monster_rows_html, monster_template_html, "+ Add monster")
     return (
-        f'<fieldset class="row-group monster-group" data-monster-group>'
-        f'<legend>Group</legend>{monsters_repeatable}'
+        f'<fieldset class="row-group monster-group" data-monster-group data-group-row>'
+        f'<legend>Group</legend>'
+        f'<label data-tooltip="A relative weight against this room\'s OTHER groups -- NOT a 0-1 '
+        f'probability. Blank defaults to 1 (equal footing with every other untouched group); lower '
+        f'this for a rare encounter (e.g. 0.1 next to two groups left blank makes it roughly '
+        f'1-in-21 instead of 1-in-3). The badge to the right shows this group\'s actual live odds '
+        f'given every weight currently filled in for this room.">chance (weight)'
+        f'<input type="number" step="any" min="0" name="{prefix}_chance" '
+        f'value="{group.get("chance", "")}" data-group-chance></label>'
+        f'<span class="skill-odds-pct" data-group-pct>—</span>'
+        f'{monsters_repeatable}'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove group</button></fieldset>'
     )
 
@@ -1899,13 +1959,15 @@ def _render_room_box(prefix: str, room: dict, pos: dict, is_start: bool, error_m
     icon = "⚔️" if room_type == "combat" else "💬"
     if room_type == "combat":
         groups = room.get("monster_groups", [])
-        monster_count = sum(len(g) for g in groups)
+        monster_count = sum(len(g.get("monsters", [])) for g in groups)
         # Best-effort level-equivalent range across the room's candidate groups (see
         # dungeon.estimate_group_level) -- skips any not-yet-known monster id (an in-progress,
         # unsaved edit can reference one) rather than erroring, same "display, don't validate"
         # spirit as the rest of this box.
         group_levels = [
-            dungeon.estimate_group_level([dungeon.MONSTERS[mid] for mid in g if mid in dungeon.MONSTERS])
+            dungeon.estimate_group_level(
+                [dungeon.MONSTERS[mid] for mid in g.get("monsters", []) if mid in dungeon.MONSTERS]
+            )
             for g in groups
         ]
         group_levels = [lvl for lvl in group_levels if lvl > 0]
@@ -1972,8 +2034,16 @@ def _render_room_detail_panel(prefix: str, room: dict) -> str:
     groups_container = f"{prefix}_groups"
     groups = room.get("monster_groups", [])
     group_rows_html = [_render_room_monster_group_row(f"{groups_container}_{j}", g) for j, g in enumerate(groups)]
-    group_template_html = _render_room_monster_group_row(f"{groups_container}_ROWIDX", [])
+    group_template_html = _render_room_monster_group_row(f"{groups_container}_ROWIDX", {})
     groups_repeatable = _render_repeatable(groups_container, group_rows_html, group_template_html, "+ Add group")
+    # data-group-odds scopes updateGroupOdds (_dynamic_script) to just this room's own groups --
+    # unlike a monster's single page-wide skill-odds fieldset, a delve can have many combat rooms
+    # on the same canvas, each needing its own independent live-odds summary.
+    groups_odds_summary = (
+        '<div class="skill-odds-summary" data-group-odds-summary>'
+        "Live odds appear here once groups are filled in.</div>"
+    )
+    groups_field_html = f'<fieldset data-group-odds>{groups_odds_summary}{groups_repeatable}</fieldset>'
 
     actions_container = f"{prefix}_actions"
     actions = room.get("actions", [])
@@ -1999,9 +2069,9 @@ def _render_room_detail_panel(prefix: str, room: dict) -> str:
         f'plus player-picked actions, each with its own destination -- this is where branching '
         f'paths are authored.</small></label>'
         f'<div data-room-field="groups"><label>monster groups<small class="field-hint">One group is '
-        f'picked at random each visit; every monster within a group spawns together as one '
-        f'simultaneous encounter. A group of one monster is an ordinary single-monster '
-        f'fight.</small></label>{groups_repeatable}</div>'
+        f'picked each visit, weighted by each group\'s own chance below (blank = 1, equal footing); '
+        f'every monster within a group spawns together as one simultaneous encounter. A group of '
+        f'one monster is an ordinary single-monster fight.</small></label>{groups_field_html}</div>'
         f'<div data-room-field="prompt"><label>prompt'
         f'<small class="field-hint">Required for a choice room -- the menu text shown alongside '
         f'its actions. Optional for a combat room: shown once, right as the room is entered, ahead '
@@ -2894,8 +2964,10 @@ def _parse_delve_flowchart(form: dict, entry_id_for_upload: str, existing_entry:
     further levels of index -- "room_<i>_groups_<j>_monsters_<k>" -- group index j discovered from
     key *presence* the same way _parse_actions discovers action indices, monster index k within
     each group discovered by "non-blank" the same way a bare monster row already was; a group with
-    no non-blank monster left in it is dropped entirely rather than saved as an empty group), its
-    own "next" (written by the flowchart script's drag-to-connect, not typed -- see
+    no non-blank monster left in it is dropped entirely rather than saved as an empty group; a
+    surviving group's own "room_<i>_groups_<j>_chance" is kept only if non-blank, same "absent
+    means use dungeon.DEFAULT_MONSTER_GROUP_CHANCE" convention as every other optional numeric
+    field here), its own "next" (written by the flowchart script's drag-to-connect, not typed -- see
     _render_room_box), and its own optional "prompt" (shown once at room-entry, ahead of the
     monsters' own flavor text -- see dungeon_view._combat_intro_text); choice parses its own
     required prompt plus its own nested actions repeatable (_parse_actions, whose on_success/
@@ -2950,7 +3022,11 @@ def _parse_delve_flowchart(form: dict, entry_id_for_upload: str, existing_entry:
                 )
                 monsters = [form[f"{gp}_monsters_{k}"].strip() for k in monster_indices]
                 if monsters:
-                    groups.append(monsters)
+                    group: dict = {"monsters": monsters}
+                    raw_chance = form.get(f"{gp}_chance", "").strip()
+                    if raw_chance:
+                        group["chance"] = float(raw_chance) if "." in raw_chance else int(raw_chance)
+                    groups.append(group)
             if groups:
                 room["monster_groups"] = groups
             next_room = form.get(f"{p}_next", "").strip()
@@ -3552,7 +3628,7 @@ def _delete_blockers(content_type: str, item_id: str) -> list[str]:
         return [
             d["name"] for d in dungeon.DELVES.values()
             if any(
-                group == [item_id]
+                group.get("monsters") == [item_id]
                 for room in d["rooms"] if room.get("type") == "combat"
                 for group in room.get("monster_groups", [])
             )
