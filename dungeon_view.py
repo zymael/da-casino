@@ -278,6 +278,11 @@ class PartyDelveSession:
         # session-wide field, since each party member picks their own target independently. See
         # target_for's self-healing fallback, same idea as solo DelveSession.current_target.
         self.member_target_slots: dict[int, int] = {}
+        # user_id -> the user_id of the living ally that member's own ally-shaped, non-aoe effects
+        # (heal, buffs, cleanse, ...) currently resolve against -- defaults to the member themselves
+        # (self-cast, the only option before this existed). See ally_target_for's self-healing
+        # fallback, same "per-member independent choice" shape as member_target_slots above.
+        self.member_ally_target_ids: dict[int, int] = {}
         self.rooms_visited = 1
         self._enter_room(delve["start_room"])
 
@@ -308,6 +313,20 @@ class PartyDelveSession:
         self.member_target_slots[member.user_id] = living[0].slot
         return living[0]
 
+    def ally_target_for(self, member: PartyMember) -> PartyMember:
+        """Ally sibling of target_for -- self-healing per-member lookup for which living ally
+        `member`'s own ally-shaped, non-aoe effects currently resolve against. Falls back to (and
+        records) `member` themselves -- the pre-existing self-cast-only behavior -- if nothing was
+        ever chosen, or the previously-chosen ally is no longer living (knocked out, or this is a
+        fresh fight -- see _enter_room's reset)."""
+        living = self.living_members()
+        target_id = self.member_ally_target_ids.get(member.user_id, member.user_id)
+        for m in living:
+            if m.user_id == target_id:
+                return m
+        self.member_ally_target_ids[member.user_id] = member.user_id
+        return member
+
     def _enter_room(self, room_id: str):
         """Moves into room_id -- rolls a fresh monster group and resets each member's turn_clock if
         it's a combat room (called on session init and on Push Deeper), or clears combat state if
@@ -321,6 +340,7 @@ class PartyDelveSession:
         self.current_room_id = room_id
         room = self.rooms_by_id[room_id]
         self.member_target_slots = {}
+        self.member_ally_target_ids = {}
         if room["type"] == "combat":
             mult = dungeon.party_hp_multiplier(len(self.living_members()))
             self.monsters = []
@@ -1074,24 +1094,57 @@ def _default_mods() -> dict:
 
 
 def _actor_label(entity) -> str:
-    """Subject-position label for a self-referring log line -- 'You' for the player's own
-    session/member, or the monster's bolded name for a MonsterInstance. Grammatically this only
-    ever precedes a base-form verb ('You attack') or a monster's own third-person one ('**Goblin**
-    attacks') -- see _verb for picking the right form."""
-    return "You" if not isinstance(entity, MonsterInstance) else f"**{entity.monster['name']}**"
+    """Subject-position label for a self-referring log line -- 'You' ONLY for a solo DelveSession
+    (the one case where the reader is unambiguously the only possible subject), the monster's
+    bolded name for a MonsterInstance, or a PartyMember's own bolded label otherwise. PartyMember
+    used to also get 'You' unconditionally -- correct back when every ally-shaped effect (heal,
+    buffs, dot/hot ticks, cleanse, sap's break line, ...) could only ever land on the caster
+    themselves, but wrong the moment a party skill can be aimed at a DIFFERENT living ally (see
+    PartyDelveSession.ally_target_for): "You recover 8 HP" reads as "the acting player healed
+    themselves" even when they redirected the heal at a teammate. Naming a PartyMember explicitly
+    here (matching how a damage line already names the acting member via subject_label, never
+    "You") fixes that ambiguity for every effect that reaches this at once, in both party AND
+    duels (DuelSession's combatants are PartyMembers too, and were equally ambiguous already).
+    Solo is unaffected -- there's only ever one possible subject there. Grammatically this only
+    ever precedes a base-form verb ('You attack') or a third-person one ('**Goblin** attacks' /
+    '**Bob** attacks') -- see _verb for picking the right form."""
+    if isinstance(entity, MonsterInstance):
+        return f"**{entity.monster['name']}**"
+    if isinstance(entity, DelveSession):
+        return "You"
+    return f"**{entity.label}**"
 
 
 def _possessive_label(entity) -> str:
-    """Possessive-position label -- 'Your' / "**Goblin**'s" -- for log lines like "Your ATK rises"
-    where the grammatical subject is the stat, not the entity itself, so no verb conjugation is
-    needed regardless of which label this resolves to."""
-    return "Your" if not isinstance(entity, MonsterInstance) else f"**{entity.monster['name']}**'s"
+    """Possessive-position label -- 'Your' / "**Goblin**'s" / "**Bob**'s" -- for log lines like
+    "Your ATK rises" where the grammatical subject is the stat, not the entity itself, so no verb
+    conjugation is needed regardless of which label this resolves to. See _actor_label for why a
+    PartyMember gets their own bolded label rather than 'Your'."""
+    if isinstance(entity, MonsterInstance):
+        return f"**{entity.monster['name']}**'s"
+    if isinstance(entity, DelveSession):
+        return "Your"
+    return f"**{entity.label}**'s"
 
 
 def _verb(entity, base: str) -> str:
-    """Base form ('recover') for 'You', third-person -s form ('recovers') for a monster -- the
-    one piece of English _actor_label alone can't paper over."""
-    return base if not isinstance(entity, MonsterInstance) else base + "s"
+    """Base form ('recover') for 'You' (a solo DelveSession), third-person -s form ('recovers') for
+    everything else -- a MonsterInstance or a named PartyMember alike, now that both are named in
+    the third person by _actor_label. The one piece of English _actor_label alone can't paper
+    over."""
+    return base if isinstance(entity, DelveSession) else base + "s"
+
+
+def _possessive_pronoun(entity) -> str:
+    """'its' for a monster, 'your' for the one-and-only solo player, 'their' for a named
+    PartyMember -- the pronoun equivalent of _actor_label's three-way split, needed wherever a log
+    line refers back to the entity mid-sentence instead of at the start (e.g. "raises their
+    guard") rather than restarting with _possessive_label."""
+    if isinstance(entity, MonsterInstance):
+        return "its"
+    if isinstance(entity, DelveSession):
+        return "your"
+    return "their"
 
 
 def _combatant_name(entity) -> str:
@@ -1144,8 +1197,9 @@ def _effect_guard(actor, monster_state, effect: dict, log_lines: list[str], mods
     # same-call mods dict) to stash this in. Consumed by _consume_guard_charge, called wherever
     # damage is next applied to this entity, whoever that ends up being.
     actor.guard_charge = effect["reduction"]
-    pronoun = "its" if isinstance(actor, MonsterInstance) else "your"
-    log_lines.append(f"{_actor_label(actor)} {_verb(actor, 'raise')} {pronoun} guard, ready to blunt the next blow.")
+    log_lines.append(
+        f"{_actor_label(actor)} {_verb(actor, 'raise')} {_possessive_pronoun(actor)} guard, ready to blunt the next blow."
+    )
 
 
 def _consume_guard_charge(defender, dmg: int, log_lines: list[str]) -> int:
@@ -1283,23 +1337,15 @@ def _effect_hot(actor, monster_state, effect: dict, log_lines: list[str], mods: 
     )
 
 
-def _cc_target_subject(entity) -> str:
-    """The one case _combatant_name can't cover: a monster's own skill (unlike a player's) can
-    enemy-target the solo player it's fighting directly (monster_state there is the DelveSession
-    itself, not a MonsterInstance/duel-opponent PartyMember -- see _resolve_monster_attack), and a
-    DelveSession has no .label for _combatant_name to fall back on. "you" reads correctly there;
-    everywhere else (a MonsterInstance a player just hit, or a duel opponent) _combatant_name's
-    bolded name is what every other enemy-targeted effect (def_shred, the *_debuff family) already
-    uses, so this only special-cases the one entity type that needs it."""
-    return "You" if isinstance(entity, DelveSession) else _combatant_name(entity)
-
-
 def _effect_sap(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     # Enemy-targeted (unlike the ally-shaped dodge_buff/resist_buff/dot/hot above), so this lands on
     # `monster_state` -- see _apply_timed_effect's own note that it only cares about a
-    # `.timed_effects` list, not which role its first arg plays.
-    subject = _cc_target_subject(monster_state)
-    verb, pronoun = ("are", "you") if subject == "You" else ("is", "they")
+    # `.timed_effects` list, not which role its first arg plays. _actor_label now safely names any
+    # of the three entity shapes (DelveSession/PartyMember/MonsterInstance) monster_state could be
+    # here, so no separate helper is needed for this -- just the irregular "to be" conjugation
+    # _verb's regular "+s" suffixing can't produce.
+    subject = _actor_label(monster_state)
+    verb, pronoun = ("are", "you") if isinstance(monster_state, DelveSession) else ("is", "they")
     _apply_timed_effect(
         monster_state, "sap", None, effect["duration"], log_lines,
         f"{subject} {verb} sapped for up to **{effect['duration']}** turn(s), or until {pronoun} take a hit.",
@@ -1307,8 +1353,8 @@ def _effect_sap(actor, monster_state, effect: dict, log_lines: list[str], mods: 
 
 
 def _effect_stun(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
-    subject = _cc_target_subject(monster_state)
-    verb = "are" if subject == "You" else "is"
+    subject = _actor_label(monster_state)
+    verb = "are" if isinstance(monster_state, DelveSession) else "is"
     _apply_timed_effect(
         monster_state, "stun", None, effect["duration"], log_lines,
         f"{subject} {verb} stunned for **{effect['duration']}** turn(s).",
@@ -1385,6 +1431,7 @@ def _resolve_player_action(
     actor, ally_pool: list, enemy_pool: list, current_target,
     effects: list[dict], special: bool, verb: str, subject_label: str, possessive_label: str, drain_verb: str,
     moon_mult: float, equipped_items: list[dict], threat_gain: bool, log_lines: list[str],
+    ally_target=None,
 ) -> list:
     """Resolves one player-cast action (skill/consumable/equipment on-use) -- the shared core of
     _resolve_combat_turn (solo), _resolve_party_turn (party), and _resolve_duel_turn (PvP). Those
@@ -1395,7 +1442,10 @@ def _resolve_player_action(
     `current_target` hold `MonsterInstance`s for solo/party (PvE) or a single-entry list containing
     the other duelist (a `PartyMember`) for a duel -- every access to them in here goes through
     _combatant_name (never a raw `.monster["name"]` read) specifically so this function doesn't
-    need to know or care which kind it's holding.
+    need to know or care which kind it's holding. `ally_target` defaults to `actor` (self-cast, the
+    only option before party ally-targeting existed) -- party passes whichever living ally the
+    acting member has currently selected (PartyDelveSession.ally_target_for); solo/duel have no one
+    else to pick, so they never need to pass anything different from the default.
 
     Each effect independently decides its own target set off its own "aoe" bool (dungeon.
     MODS_ONLY_EFFECT_TYPES / ENEMY_TARGETED_EFFECT_TYPES / ally-shaped-by-omission -- see those
@@ -1404,7 +1454,7 @@ def _resolve_player_action(
         `mods` for the damage roll below -- damage_multiplier/extra_attack's own "aoe" (either one)
         decides whether the damage roll below targets `current_target` alone or every monster in
         `enemy_pool`.
-      - ally-shaped effects apply to `[actor]`, or (per their own "aoe") `ally_pool` -- always
+      - ally-shaped effects apply to `[ally_target]`, or (per their own "aoe") `ally_pool` -- always
         unconditional, never gated by any monster's dodge (a self-heal was never really "the
         attack" that could be dodged).
       - enemy-shaped effects (taunt/lower_threat folded in here like any other, now that they're
@@ -1417,6 +1467,8 @@ def _resolve_player_action(
 
     Returns every monster that actually took damage this action (dodged/undamaged monsters
     excluded) -- the caller runs its own kill-check/reward loop against exactly that list."""
+    if ally_target is None:
+        ally_target = actor
     mods_effects = [e for e in effects if e["type"] in dungeon.MODS_ONLY_EFFECT_TYPES]
     ally_effects = [
         e for e in effects
@@ -1430,7 +1482,7 @@ def _resolve_player_action(
         EFFECT_HANDLERS[e["type"]](actor, None, e, log_lines, mods)
 
     for e in ally_effects:
-        for t in (ally_pool if e.get("aoe") else [actor]):
+        for t in (ally_pool if e.get("aoe") else [ally_target]):
             EFFECT_HANDLERS[e["type"]](t, None, e, log_lines, mods)
 
     attack_is_aoe = any(e.get("aoe") for e in mods_effects if e["type"] in DAMAGE_EFFECT_TYPES)
@@ -1539,9 +1591,8 @@ def _active_cc_type(entity) -> str | None:
 
 
 def _crowd_control_skip_line(entity, cc_type: str) -> str:
-    pronoun = "its" if isinstance(entity, MonsterInstance) else "your"
     word = "stunned" if cc_type == "stun" else "sapped"
-    return f"{_actor_label(entity)} {_verb(entity, 'skip')} {pronoun} turn, {word}!"
+    return f"{_actor_label(entity)} {_verb(entity, 'skip')} {_possessive_pronoun(entity)} turn, {word}!"
 
 
 def _roll_on_hit_procs(actor, monster_state, equipped_items: list[dict], dmg: int, log_lines: list[str]) -> None:
@@ -2009,19 +2060,23 @@ async def _resolve_party_turn(
 ) -> bool:
     """Party sibling of _resolve_combat_turn: applies `effects` via _resolve_player_action (each
     effect independently single-target or AOE per its own "aoe" flag -- ally-aoe expands to
-    `session.living_members()`, enemy-aoe expands to `session.living_monsters()`), and on each kill
-    runs the party's independent-per-member reward loop (leader at full rate, joiners halved -- see
-    _award_kill). Advances `member`'s own turn_clock, then hands off to _advance_party_turns for
-    whatever happens next (automatic member/monster turns, in speed order, until some living
-    member's own turn comes back around). `special` picks SpAtk/SpDef instead of ATK/DEF for the
-    damage roll, same as _resolve_combat_turn."""
+    `session.living_members()`, enemy-aoe expands to `session.living_monsters()`; a non-aoe
+    ally-shaped effect lands on whichever living ally `member` currently has selected --
+    session.ally_target_for, defaulting to themselves -- rather than always themselves), and on
+    each kill runs the party's independent-per-member reward loop (leader at full rate, joiners
+    halved -- see _award_kill). Advances `member`'s own turn_clock, then hands off to
+    _advance_party_turns for whatever happens next (automatic member/monster turns, in speed order,
+    until some living member's own turn comes back around). `special` picks SpAtk/SpDef instead of
+    ATK/DEF for the damage roll, same as _resolve_combat_turn."""
     target = session.target_for(member)
+    ally_target = session.ally_target_for(member)
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
     equipped_items = [dungeon.EQUIPMENT[iid] for iid in member.equipped.values()]
     hit_monsters = _resolve_player_action(
         member, session.living_members(), session.living_monsters(), target, effects, special, verb,
         member.label, f"{member.label}'s", "drains", player_moon_mult, equipped_items, True, log_lines,
+        ally_target=ally_target,
     )
 
     member.turn_clock += dungeon.turn_interval(max(1, member.speed - member.speed_debuff))
@@ -2182,6 +2237,36 @@ class PartyTargetSelect(discord.ui.Select):
         self.view.stop()
 
 
+class PartyAllyTargetSelect(discord.ui.Select):
+    """Lets the acting member choose which living ally (including themselves) their own
+    ally-shaped, non-aoe effects (heal, buffs, cleanse, ...) resolve against next -- see
+    PartyDelveSession.ally_target_for. Only shown when more than one living member exists (a solo
+    player, or the last survivor of a thinned-out party, has no one else to pick). Same "picking an
+    option costs no turn, just rebuilds this view in place" shape as PartyTargetSelect -- it only
+    changes what a LATER Attack/Skill/Item click resolves against, so there's nothing to advance a
+    turn_clock for yet."""
+
+    def __init__(self, session: PartyDelveSession, actor: PartyMember):
+        target = session.ally_target_for(actor)
+        options = [
+            discord.SelectOption(
+                label=f"{m.label}{' (you)' if m.user_id == actor.user_id else ''} ({m.hp}/{m.max_hp} HP)",
+                value=str(m.user_id), default=m.user_id == target.user_id,
+            )
+            for m in session.living_members()
+        ]
+        super().__init__(placeholder="💚 Choose an ally...", options=options, row=4)
+
+    async def callback(self, interaction: discord.Interaction):
+        session: PartyDelveSession = self.view.session
+        session.member_ally_target_ids[self.view.actor.user_id] = int(self.values[0])
+        log_text = interaction.message.embeds[0].description or ""
+        embed, file = _party_combat_embed(session, log_text, self.view.actor)
+        view = await _build_party_combat_view(session, self.view.actor)
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+        self.view.stop()
+
+
 class PartyCombatView(discord.ui.View):
     def __init__(self, session: PartyDelveSession, actor: PartyMember, usable_items: list[dict] | None = None):
         super().__init__(timeout=PARTY_ACTION_TIMEOUT)
@@ -2199,6 +2284,8 @@ class PartyCombatView(discord.ui.View):
             self.add_item(PartyCastItemButton(item, disabled=item["id"] in actor.used_item_effects))
         if len(session.living_monsters()) > 1:
             self.add_item(PartyTargetSelect(session, actor))
+        if len(session.living_members()) > 1:
+            self.add_item(PartyAllyTargetSelect(session, actor))
         session.current_view = self
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
