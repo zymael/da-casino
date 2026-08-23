@@ -617,6 +617,7 @@ EFFECT_TYPE_HINTS = {
     "atk_debuff": "value: flat amount the target's ATK is lowered by, for the rest of this fight",
     "spatk_debuff": "value: flat amount the target's SpAtk is lowered by, for the rest of this fight",
     "spdef_debuff": "value: flat amount the target's SpDef is lowered by, for the rest of this fight",
+    "speed_debuff": "value: flat amount the target's Speed is lowered by, for the rest of this fight -- slower turn order",
     "dodge_buff": "value: bonus chance (0-1) to fully avoid a Physical hit; duration: how many rounds it lasts",
     "resist_buff": "value: bonus chance (0-1) to fully avoid a Special hit; duration: how many rounds it lasts",
     "dot": "value: flat damage taken each round; duration: how many rounds it lasts",

@@ -1172,6 +1172,11 @@ def _effect_hp_buff(actor, monster_state, effect: dict, log_lines: list[str], mo
     log_lines.append(f"{_possessive_label(actor)} max HP rises by **{effect['value']}** for the rest of the fight.")
 
 
+def _effect_speed_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    actor.speed += effect["value"]
+    log_lines.append(f"{_possessive_label(actor)} Speed rises by **{effect['value']}** for the rest of the fight.")
+
+
 def _effect_atk_debuff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     monster_state.atk_debuff += effect["value"]
     log_lines.append(f"{_possessive_label(monster_state)} ATK falls by **{effect['value']}** for the rest of the fight.")
@@ -1185,6 +1190,16 @@ def _effect_spatk_debuff(actor, monster_state, effect: dict, log_lines: list[str
 def _effect_spdef_debuff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     monster_state.spdef_debuff += effect["value"]
     log_lines.append(f"{_possessive_label(monster_state)} SpDef falls by **{effect['value']}** for the rest of the fight.")
+
+
+def _effect_speed_debuff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    # speed_debuff is read live at every turn-order scheduling point (dungeon.preview_next_turns/
+    # turn_interval, called wherever a combatants list is built) -- never cached, so this lands on
+    # the very next scheduling decision, not just "future fights."
+    monster_state.speed_debuff += effect["value"]
+    log_lines.append(
+        f"{_possessive_label(monster_state)} Speed falls by **{effect['value']}** for the rest of the fight."
+    )
 
 
 def _effect_dodge_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
@@ -1227,9 +1242,11 @@ EFFECT_HANDLERS = {
     "spatk_buff": _effect_spatk_buff,
     "spdef_buff": _effect_spdef_buff,
     "hp_buff": _effect_hp_buff,
+    "speed_buff": _effect_speed_buff,
     "atk_debuff": _effect_atk_debuff,
     "spatk_debuff": _effect_spatk_debuff,
     "spdef_debuff": _effect_spdef_debuff,
+    "speed_debuff": _effect_speed_debuff,
     "dodge_buff": _effect_dodge_buff,
     "resist_buff": _effect_resist_buff,
     "dot": _effect_dot,
@@ -1238,9 +1255,10 @@ EFFECT_HANDLERS = {
 
 
 def _apply_effects(actor, monster_state, effects: list[dict], log_lines: list[str]) -> dict:
-    """Runs every effect in order, mutating actor (HP/ATK/DEF/timed_effects/guard_charge) and/or
-    monster_state (the opponent's DEF/ATK/SpAtk/SpDef debuffs -- see the module comment above
-    DAMAGE_EFFECT_TYPES for which handlers touch which param), and appending log lines as it goes.
+    """Runs every effect in order, mutating actor (HP/ATK/DEF/Speed/timed_effects/guard_charge)
+    and/or monster_state (the opponent's DEF/ATK/SpAtk/SpDef/Speed debuffs -- see the module
+    comment above DAMAGE_EFFECT_TYPES for which handlers touch which param), and appending log
+    lines as it goes.
     Returns this-action modifiers the caller still needs for the damage roll: multiplier,
     lifesteal_fraction (None if no lifesteal), and extra_attack_multipliers (one roll_damage call
     per entry, on top of the primary hit). Guard is NOT in this dict -- see _effect_guard/

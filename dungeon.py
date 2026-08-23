@@ -572,6 +572,11 @@ EFFECT_PARAM_SCHEMAS = {
     "atk_debuff": ({"value"}, set(), set()),
     "spatk_debuff": ({"value"}, set(), set()),
     "spdef_debuff": ({"value"}, set(), set()),
+    # Lowers speed for the rest of the fight -- same "read live, never cached" story as speed_buff
+    # above, just subtracted (DelveSession/PartyMember/MonsterInstance already carry a
+    # speed_debuff field and every turn-order/turn-interval call site already reads
+    # speed - speed_debuff; this type was the only thing missing to ever actually set it).
+    "speed_debuff": ({"value"}, set(), set()),
     # Genuinely temporary effects (N rounds, ticked by dungeon_view._tick_timed_effects) rather
     # than permanent-for-fight -- "duration" is validated as a positive int by _validate_effects
     # below (turns can't be fractional, unlike every other numeric param here).
