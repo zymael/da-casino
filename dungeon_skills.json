@@ -1146,5 +1146,34 @@
     ],
     "chip_cost": 10,
     "special": true
+  },
+  {
+    "id": "queen_aoe_buff",
+    "main_class": "mage",
+    "subclass": "hearts",
+    "unlock_level": 5,
+    "name": "Reassuring Voice",
+    "flavor": "Your Queen is here.",
+    "effects": [
+      {
+        "type": "atk_buff",
+        "value": 4,
+        "aoe": true
+      },
+      {
+        "type": "dodge_buff",
+        "duration": 3,
+        "value": 0.5,
+        "self_only": true
+      },
+      {
+        "type": "resist_buff",
+        "duration": 3,
+        "value": 0.5,
+        "self_only": true
+      }
+    ],
+    "chip_cost": 8,
+    "special": true
   }
 ]
