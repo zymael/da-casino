@@ -15,6 +15,7 @@ import admin_server
 import crafting_view
 import db
 from blackjack_view import active_tables as active_blackjack_tables, start_blackjack_table
+import dreams
 import dungeon
 from dungeon_view import ClassPickerView, active_delves, build_delve_picker_display, build_mode_choice_display
 import horse_clothes_view
@@ -483,6 +484,15 @@ async def rest_cmd(ctx):
         f"**{db.ENERGY_MAX}** ⚡ energy. Balance: **{value}**\n"
         f"{moon_emoji} Tonight's moon: **{moon_label}**"
     )
+
+    # Dream delivery: whatever dream is currently active (admin panel), DM'd once ever per
+    # (guild, dream) -- a no-op if no dream is active or this player already claimed the active
+    # one. See dreams.try_deliver_dream for the claim-then-send-then-rollback-on-Forbidden shape.
+    delivered = await dreams.try_deliver_dream(ctx.author.send, ctx.guild.id, ctx.author.id)
+    if delivered:
+        await achievements.try_award_many(
+            ctx.send, ctx.guild.id, ctx.author.id, ctx.author.display_name, ["first_dream"]
+        )
 
 
 @bot.command(name="mine")

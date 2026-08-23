@@ -148,6 +148,14 @@ ACHIEVEMENTS = [
         "description": "Get your roulette winnings stolen by a Lady of the evening (or a Classy Escort).",
         "reward": 50,
     },
+    {
+        "kind": "first_dream",
+        "scope": "personal",
+        "emoji": "💭",
+        "name": "Sweet Dreams",
+        "description": "Receive your first dream.",
+        "reward": 25,
+    },
 ]
 
 # Maps each game bucket to its emoji/title and the db.log_bet() `game` string(s) that feed it

@@ -146,6 +146,7 @@ from this editor.
 """
 
 import achievements
+import dreams
 import dungeon
 import horse_clothes
 import npcs
@@ -491,6 +492,35 @@ CONTENT_TYPES = {
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
             {"name": "emoji", "type": "str", "required": True, "group": "Identity"},
             {"name": "description", "type": "text", "required": True, "group": "Flavor Text"},
+        ],
+    },
+    "dreams": {
+        "label": "Dreams",
+        "category": STORY_CONTENT,
+        "icon": "💭",
+        "json_path": "dreams.json",
+        "module": dreams,
+        "registry_attr": "DREAMS",
+        "loader": dreams._load_dreams,
+        # The loader itself is the whole "only one dream active at once" check -- see dreams.py's
+        # module docstring for why this is self-contained (no extra_validators needed) unlike
+        # rooms.json's command-key check.
+        "list_columns": ["id", "name", "active"],
+        "fields": [
+            {"name": "id", "type": "str", "required": True, "group": "Identity"},
+            {
+                "name": "name", "type": "str", "required": True, "group": "Identity",
+                "hint": "admin-facing label only -- never shown to players",
+            },
+            {
+                "name": "message", "type": "text", "required": True, "group": "Content",
+                "hint": "DM'd to a player the next time they !rest, while this dream is active",
+            },
+            {
+                "name": "active", "type": "bool", "required": False, "default": False, "group": "Content",
+                "hint": "at most one dream may be active at a time -- saving a second active dream "
+                        "is rejected. Deactivate the current one first, then activate the new one.",
+            },
         ],
     },
     "npcs": {
