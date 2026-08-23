@@ -62,6 +62,17 @@ CLASSES = {
 }
 RANK_TO_CLASS = {info["rank"]: name for name, info in CLASSES.items()}
 
+# Casino-flavored display names for the four main classes themselves (distinct from NAMES' 16
+# subclass-combo names below, e.g. "The Muscle" -- this is the class alone, before a subclass is
+# even chosen). Single source of truth for dungeon_view.CLASS_OPTIONS (the character-creation
+# picker) and admin_schemas.py's "skills" main_class dropdown, so the two surfaces can't drift.
+MAIN_CLASS_DISPLAY = {
+    "fighter": "The Enforcer (Ace)",
+    "healer": "The Pit Boss (King)",
+    "mage": "The Oracle (Queen)",
+    "rogue": "The Hustler (Jack)",
+}
+
 # Subclass (suit) modifiers layered on top of the class base -- the same attitude framework used
 # for the 16 display names: clubs (brawler) adds raw power but leans on brute force over finesse
 # (lowest Chips, and no SpAtk/SpDef lean either -- pure muscle, no magic flavor, and the slowest

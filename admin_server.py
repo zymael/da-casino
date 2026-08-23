@@ -282,7 +282,8 @@ def _cascade_options() -> dict:
     """id -> "id — name" choices for every cascaded_id-shaped select, one sub-dict per sibling
     kind value, grouped by cascade name (matches admin_schemas.py fields' "cascades_to"/"cascade"
     and _render_shop_row's hardcoded "shop"). "recipe_output" backs recipes' output_id (keyed by
-    output_kind); "shop" backs an npc's shop row item_id (keyed by kind)."""
+    output_kind); "shop" backs an npc's shop row item_id (keyed by kind); "skill_subclass" backs a
+    skill's own subclass select (keyed by main_class)."""
     def _choices(registry: dict) -> list[list[str]]:
         return [[item_id, f"{item_id} — {item['name']}"] for item_id, item in sorted(registry.items())]
 
@@ -321,6 +322,22 @@ def _cascade_options() -> dict:
             "material": _choices(dungeon.MATERIALS),
             "consumable": _choices(dungeon.CONSUMABLES),
             "quest_item": _choices(quests.QUEST_ITEMS),
+        },
+        # A skill's own subclass options depend on its main_class -- keyed by main_class the same
+        # way every other cascade here is keyed by a sibling "kind" select, just backing a fixed
+        # 4-item registry (dungeon.SUBCLASSES) instead of a dynamic content one. Each option shows
+        # the actual 16-name-grid build name plus its card (rank letter + suit symbol) rather than
+        # the bare suit id, e.g. "The Muscle (A♣)" instead of "clubs".
+        "skill_subclass": {
+            main_class: [
+                [
+                    subclass,
+                    f"{dungeon.display_name(main_class, subclass)} "
+                    f"({dungeon.CLASSES[main_class]['rank']}{dungeon.SUIT_SYMBOLS[subclass]})",
+                ]
+                for subclass in dungeon.SUBCLASSES
+            ]
+            for main_class in dungeon.CLASSES
         },
     }
 
@@ -2316,12 +2333,20 @@ def _render_field(field: dict, value, entry: dict | None = None, problems: list[
         # An optional enum gets a blank leading option (a real <select> otherwise always defaults
         # to its first choice, which would silently pick one for a value that was actually never
         # set) -- a required one doesn't, since it never needs to represent "no value".
+        #
+        # Each choice is either a bare string (the stored value doubles as its own displayed
+        # label -- every choices list before this one) or a (value, label) pair, for a dropdown
+        # that needs to show something richer than the raw stored value itself (a skill's
+        # main_class showing "The Enforcer (Ace)" while still storing "fighter"). Normalized to
+        # pairs uniformly here so the rendering loop below never needs to care which shape a given
+        # field's choices came in as.
         raw_choices = field["choices"]() if callable(field["choices"]) else field["choices"]
-        choices = raw_choices if field.get("required", True) else [""] + list(raw_choices)
+        pairs = [c if isinstance(c, (tuple, list)) else (c, c) for c in raw_choices]
+        if not field.get("required", True):
+            pairs = [("", "—")] + pairs
         options = "".join(
-            f'<option value="{html.escape(c)}"{" selected" if c == (value or "") else ""}>'
-            f'{html.escape(c) if c else "—"}</option>'
-            for c in choices
+            f'<option value="{html.escape(v)}"{" selected" if v == (value or "") else ""}>{html.escape(lbl)}</option>'
+            for v, lbl in pairs
         )
         # "cascades_to" (e.g. recipes' output_kind) names a CASCADE_OPTIONS entry a sibling
         # "cascaded_id" field's <select> repopulates from when this one changes -- see

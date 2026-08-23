@@ -32,10 +32,10 @@ def _moon_combat_multiplier(effect: str | None, favors: str) -> float:
 active_delves: dict[int, "DelveSession | PartyLobby | PartyDelveSession"] = {}
 
 CLASS_OPTIONS = [
-    ("fighter", "The Enforcer (Ace)", "Tank — high HP/DEF. Skill varies by subclass."),
-    ("healer", "The Pit Boss (King)", "Support — balanced spread. Skill varies by subclass."),
-    ("mage", "The Oracle (Queen)", "High ATK, fragile. Skill varies by subclass."),
-    ("rogue", "The Hustler (Jack)", "Balanced/quick. Skill varies by subclass."),
+    ("fighter", dungeon.MAIN_CLASS_DISPLAY["fighter"], "Tank — high HP/DEF. Skill varies by subclass."),
+    ("healer", dungeon.MAIN_CLASS_DISPLAY["healer"], "Support — balanced spread. Skill varies by subclass."),
+    ("mage", dungeon.MAIN_CLASS_DISPLAY["mage"], "High ATK, fragile. Skill varies by subclass."),
+    ("rogue", dungeon.MAIN_CLASS_DISPLAY["rogue"], "Balanced/quick. Skill varies by subclass."),
 ]
 SUBCLASS_OPTIONS = [
     ("clubs", "♣ Brawler", "More HP/ATK."),

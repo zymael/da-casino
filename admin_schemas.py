@@ -35,6 +35,10 @@ Field types the generic form-builder knows how to render:
     a hot-reloadable registry (e.g. room ids), so the list is read fresh at render time rather than
     frozen at admin_schemas.py's own import time -- a plain list of a mutable registry's keys goes
     stale the moment content is added after import, same class of bug as the room dropdown once had.
+    Each entry in `choices` is normally a bare string (the stored value doubles as its own displayed
+    label); pass a `(value, label)` pair instead where the raw stored value alone wouldn't mean
+    anything to whoever's editing (a skill's main_class showing "The Enforcer (Ace)" while still
+    storing "fighter" -- see admin_server._render_field's "enum" case).
   - "effects"   -- a repeatable list of {type, ...params}. Every effect type across
     dungeon.EFFECT_PARAM_SCHEMAS only ever uses one of a handful of param names
     (value/reduction/multiplier/duration), so each row shows all of them as optional inputs rather
@@ -380,12 +384,16 @@ CONTENT_TYPES = {
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {
-                "name": "main_class", "type": "str", "required": True, "group": "Class",
-                "hint": "a character's broad class (e.g. \"warrior\") -- must match how characters are built elsewhere",
+                "name": "main_class", "type": "enum", "required": True, "group": "Class",
+                "choices": list(dungeon.MAIN_CLASS_DISPLAY.items()),
+                "cascades_to": "skill_subclass",
+                "hint": "a character's broad class -- must match how characters are built elsewhere",
             },
             {
-                "name": "subclass", "type": "str", "required": True, "group": "Class",
-                "hint": "the specific build within main_class this skill belongs to",
+                "name": "subclass", "type": "cascaded_id", "required": True, "group": "Class",
+                "cascade": "skill_subclass", "cascade_from": "main_class",
+                "hint": "the specific build (suit) within main_class this skill belongs to -- shown "
+                        "as that build's actual name and card (rank + suit), e.g. \"The Muscle (A♣)\"",
             },
             {
                 "name": "unlock_level", "type": "int", "required": True, "min": 1, "group": "Class",
