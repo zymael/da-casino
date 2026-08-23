@@ -512,7 +512,7 @@
     "id": "test_Sword",
     "name": "Zymi Test Sword",
     "slot": "weapon",
-    "rarity": "epic",
+    "rarity": "legendary",
     "effects": [
       {
         "type": "atk_buff",
