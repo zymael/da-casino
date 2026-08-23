@@ -93,7 +93,7 @@ NAMES = {
     ("mage", "clubs"): "War Mage", ("mage", "spades"): "Nightweaver",
     ("mage", "hearts"): "Enchanter", ("mage", "diamonds"): "Artificer",
     ("rogue", "clubs"): "Bar Fighter", ("rogue", "spades"): "Assassin",
-    ("rogue", "hearts"): "Con Artist", ("rogue", "diamonds"): "Treasure Hunter",
+    ("rogue", "hearts"): "Heartbreaker", ("rogue", "diamonds"): "Treasure Hunter",
 }
 
 
