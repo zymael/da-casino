@@ -900,5 +900,28 @@
     ],
     "chip_cost": 10,
     "special": true
+  },
+  {
+    "id": "fetch_wine_heart",
+    "main_class": "healer",
+    "subclass": "hearts",
+    "unlock_level": 7,
+    "name": "Healing Wine",
+    "flavor": "Squire! Fetch me some very good wine!",
+    "effects": [
+      {
+        "type": "heal_fraction",
+        "value": 0.35,
+        "aoe": true
+      },
+      {
+        "type": "hot",
+        "duration": 3,
+        "value": 0.15,
+        "aoe": true
+      }
+    ],
+    "chip_cost": 10,
+    "special": true
   }
 ]
