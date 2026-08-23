@@ -2184,9 +2184,10 @@ def _render_room_command_row(prefix: str, command: dict) -> str:
     checked = " checked" if command.get("closes_hub") else ""
     return (
         f'<div class="row-group">'
-        f'<label>key<select name="{prefix}_key">{key_options}</select></label>'
+        f'<label>key<select name="{prefix}_key" required>{key_options}</select></label>'
         f'<label>kind<select name="{prefix}_kind" class="command-kind-select">{kind_options}</select></label>'
-        f'<label>label<input type="text" name="{prefix}_label" value="{html.escape(command.get("label", ""))}"></label>'
+        f'<label>label<input type="text" name="{prefix}_label" required '
+        f'value="{html.escape(command.get("label", ""))}"></label>'
         f'<label>const_args<input type="text" name="{prefix}_const_args" value="{html.escape(const_args)}" '
         f'placeholder="comma-separated, e.g. speed"></label>'
         f'<label data-amount-only>modal_title<input type="text" name="{prefix}_modal_title" '
@@ -2604,8 +2605,18 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
             key = form.get(f"{prefix}_key", "").strip()
             kind = form.get(f"{prefix}_kind", "").strip()
             command_label = form.get(f"{prefix}_label", "").strip()
-            if not (key and kind and command_label):
+            if not (key or command_label):
+                # A genuinely untouched row (e.g. "+ Add command" then never filled in) -- `kind`
+                # deliberately has no blank option (it's a required field, always defaulting to
+                # its first real choice, same "required enum" convention as everywhere else in
+                # this schema), so it alone is never a signal that a row's actually been filled in.
                 continue
+            # A row with SOME but not all of key/kind/label filled in is still included (rather
+            # than silently dropped) -- rooms._validate_command (run via the real loader in
+            # _write_and_validate) is what rejects it loudly, same "let a bad combination surface
+            # at Save, not disappear before validation even sees it" story as every other field
+            # here. Previously this silently discarded the whole row on any one blank field, which
+            # looked like "Save succeeded" while quietly not saving the command at all.
             command = {"key": key, "kind": kind, "label": command_label}
             const_args = [a.strip() for a in form.get(f"{prefix}_const_args", "").split(",") if a.strip()]
             if const_args:

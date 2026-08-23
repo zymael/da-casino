@@ -37,6 +37,12 @@ def _validate_command(command: dict, context: str):
     missing = _REQUIRED_COMMAND_FIELDS - command.keys()
     if missing:
         raise ValueError(f"{context} command missing field(s): {sorted(missing)}")
+    # Present-but-blank (an admin-panel row with e.g. key set but label left empty) is just as
+    # invalid as genuinely missing -- catches it as loudly as the check above, rather than saving
+    # a command with an empty key/kind/label that would only surface as a broken button later.
+    blank = [f for f in ("key", "kind", "label") if not command[f]]
+    if blank:
+        raise ValueError(f"{context} command has blank required field(s): {sorted(blank)}")
     kind = command["kind"]
     if kind not in _COMMAND_KINDS:
         raise ValueError(f"{context} command {command['key']!r} has unknown kind {kind!r}")
