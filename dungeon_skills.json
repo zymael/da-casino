@@ -987,5 +987,21 @@
     ],
     "chip_cost": 10,
     "special": true
+  },
+  {
+    "id": "fireball_base",
+    "main_class": "mage",
+    "subclass": "diamonds",
+    "unlock_level": 5,
+    "name": "Fireball",
+    "flavor": "BIG BOOM",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1.7
+      }
+    ],
+    "chip_cost": 8,
+    "special": true
   }
 ]
