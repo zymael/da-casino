@@ -382,13 +382,13 @@ def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.Embed, 
     embed = discord.Embed(title=title, description=log_text, color=discord.Color.dark_red())
     embed.add_field(
         name=f"{session.display_name} (You)",
-        value=f"HP {max(session.hp, 0)}/{session.max_hp}\n🪙 Chips {session.chips}/{session.max_chips}",
+        value=f"❤️ HP {max(session.hp, 0)}/{session.max_hp}\n🪙 Chips {session.chips}/{session.max_chips}",
         inline=True,
     )
     target_slot = session.current_target().slot if living else None
     for m in living:
         marker = " ⬅️ target" if len(living) > 1 and m.slot == target_slot else ""
-        embed.add_field(name=m.monster["name"], value=f"HP {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
+        embed.add_field(name=m.monster["name"], value=f"❤️ HP {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
     room = session.rooms_by_id[session.current_room_id]
     buf = dungeon_render.render_room(
         session.rooms_visited, [m.monster for m in living], _room_background_path(session.delve, room),
@@ -451,7 +451,7 @@ def _action_summary_lines(action: dict, currency_name: str) -> list[str]:
 def _choice_embed(session: DelveSession, room: dict, description: str) -> tuple[discord.Embed, discord.File]:
     currency = db.get_currency_name(session.guild_id)
     embed = discord.Embed(title="🚪 A Choice", description=description, color=discord.Color.blurple())
-    embed.add_field(name=f"{session.display_name} (You)", value=f"HP {max(session.hp, 0)}/{session.max_hp}", inline=False)
+    embed.add_field(name=f"{session.display_name} (You)", value=f"❤️ HP {max(session.hp, 0)}/{session.max_hp}", inline=False)
     for action in room["actions"]:
         lines = _action_summary_lines(action, currency)
         embed.add_field(name=action["label"], value="\n".join(lines) if lines else "—", inline=True)
@@ -702,7 +702,7 @@ async def _present_choice_outcome(
     interaction: discord.Interaction, session: DelveSession, next_room_id: str, log_lines: list[str],
 ):
     embed = discord.Embed(title="🚪 Onward", description="\n".join(log_lines), color=discord.Color.blurple())
-    embed.add_field(name=f"{session.display_name} (You)", value=f"HP {max(session.hp, 0)}/{session.max_hp}", inline=True)
+    embed.add_field(name=f"{session.display_name} (You)", value=f"❤️ HP {max(session.hp, 0)}/{session.max_hp}", inline=True)
     view = ChoiceOutcomeView(session, next_room_id)
     await interaction.response.edit_message(embed=embed, attachments=[], view=view)
 
@@ -1591,16 +1591,16 @@ def _party_combat_embed(
         if m.knocked_out:
             status = "💀 Knocked out"
         elif m.user_id == current_actor.user_id:
-            status = f"HP {max(m.hp, 0)}/{m.max_hp} 🪙 {m.chips}/{m.max_chips} ⬅️ acting now"
+            status = f"❤️ HP {max(m.hp, 0)}/{m.max_hp}\n🪙 Chips {m.chips}/{m.max_chips} ⬅️ acting now"
         else:
-            status = f"HP {max(m.hp, 0)}/{m.max_hp} 🪙 {m.chips}/{m.max_chips}"
+            status = f"❤️ HP {max(m.hp, 0)}/{m.max_hp}\n🪙 Chips {m.chips}/{m.max_chips}"
         embed.add_field(name=m.label, value=status, inline=True)
     # Only the currently-acting member's target is shown -- every other member's independent
     # target choice isn't relevant to the embed until it's their own turn.
     target_slot = session.target_for(current_actor).slot if living_monsters else None
     for m in living_monsters:
         marker = " ⬅️ target" if len(living_monsters) > 1 and m.slot == target_slot else ""
-        embed.add_field(name=m.monster["name"], value=f"HP {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
+        embed.add_field(name=m.monster["name"], value=f"❤️ HP {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
     room = session.rooms_by_id[session.current_room_id]
     buf = dungeon_render.render_room(
         session.rooms_visited, [m.monster for m in living_monsters], _room_background_path(session.delve, room),
@@ -1983,7 +1983,7 @@ def _party_choice_embed(session: PartyDelveSession, room: dict, description: str
     currency = db.get_currency_name(session.guild_id)
     embed = discord.Embed(title="🚪 A Choice", description=description, color=discord.Color.blurple())
     for m in session.members:
-        status = "💀 Knocked out" if m.knocked_out else f"HP {max(m.hp, 0)}/{m.max_hp}"
+        status = "💀 Knocked out" if m.knocked_out else f"❤️ HP {max(m.hp, 0)}/{m.max_hp}"
         embed.add_field(name=m.label, value=status, inline=True)
     for action in room["actions"]:
         lines = _action_summary_lines(action, currency)
@@ -2317,7 +2317,7 @@ async def _present_party_choice_outcome(
     currency = db.get_currency_name(session.guild_id)
     embed = discord.Embed(title="🚪 Onward", description="\n".join(log_lines), color=discord.Color.blurple())
     for m in session.members:
-        status = "💀 Knocked out" if m.knocked_out else f"HP {max(m.hp, 0)}/{m.max_hp}"
+        status = "💀 Knocked out" if m.knocked_out else f"❤️ HP {max(m.hp, 0)}/{m.max_hp}"
         embed.add_field(name=m.label, value=f"{status} — {m.loot_total} {currency} so far", inline=True)
     view = PartyChoiceOutcomeView(session, next_room_id)
     await interaction.response.edit_message(embed=embed, attachments=[], view=view)
@@ -2385,7 +2385,7 @@ async def _present_party_room_result(
 
     embed = discord.Embed(title="🏆 Room Cleared!", description="\n".join(log_lines), color=discord.Color.gold())
     for m in session.members:
-        status = "💀 Knocked out" if m.knocked_out else f"HP {max(m.hp, 0)}/{m.max_hp}"
+        status = "💀 Knocked out" if m.knocked_out else f"❤️ HP {max(m.hp, 0)}/{m.max_hp}"
         embed.add_field(name=m.label, value=f"{status} — {m.loot_total} {currency} so far", inline=True)
 
     if next_room is None:
