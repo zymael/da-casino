@@ -1,14 +1,20 @@
 [
-    {
-        "id": "wooden_horse_carving",
-        "name": "Wooden Horse Carving",
-        "emoji": "🐴",
-        "description": "A beautiful, hand-whittled horse. Kel would probably like this."
-    },
-    {
-        "id": "three_rats_in_a_trenchcoat",
-        "name": "Three Rats In a Trenchcoat",
-        "emoji": "🐀",
-        "description": "This is a princess?"
-    }
+  {
+    "id": "wooden_horse_carving",
+    "name": "Wooden Horse Carving",
+    "emoji": "\ud83d\udc34",
+    "description": "A beautiful, hand-whittled horse. Kel would probably like this."
+  },
+  {
+    "id": "three_rats_in_a_trenchcoat",
+    "name": "Three Rats In a Trenchcoat",
+    "emoji": "\ud83d\udc00",
+    "description": "This is a princess?"
+  },
+  {
+    "id": "lucky_coin",
+    "name": "Lucky Coin",
+    "emoji": "\ud83e\ude99",
+    "description": "Though it should be impossible, flipping the coin shows either a Heart, Spade, Diamond or Club symbol, despite the coin only being two sided."
+  }
 ]
