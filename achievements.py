@@ -178,9 +178,6 @@ GAMES = {
         "emoji": "🎴", "title": "Video Poker", "log_keys": ["jacks_or_better", "deuces_wild"],
         "first_win_kind": "win_video_poker",
     },
-    # Wagerless duels (net == 0, the default) never reach kinds_for_bet/record_and_check's win/loss
-    # branches -- same "a push doesn't count" treatment blackjack's own net==0 hands already get,
-    # not a duel-specific special case. A duel needs an actual wager for its outcome to move these.
     "duel": {"emoji": "⚔️", "title": "Duels", "log_keys": ["duel"], "first_win_kind": "win_duel"},
 }
 
@@ -226,40 +223,49 @@ for _bucket, _info in GAMES.items():
         STAT_BUCKET[_log_key] = _bucket
 
 
-def kinds_for_bet(game: str, net: int) -> list[str]:
+def kinds_for_bet(game: str, net: int, is_win: bool | None = None) -> list[str]:
     """Every achievement kind a single resolved bet's net profit/loss newly qualifies for.
     Inclusive on the tiers -- a bet that wins 15,000 in one shot qualifies for both big_win_1
-    and big_win_2, not just the higher one, since both thresholds are genuinely met."""
+    and big_win_2, not just the higher one, since both thresholds are genuinely met.
+
+    `is_win`, when given, overrides net's sign for deciding win vs. loss (but not the big_win/
+    big_loss money-tier checks below, which always look at the real net) -- duels need this
+    since a duel always has a winner/loser regardless of wager, unlike every other game here
+    where net == 0 genuinely means "no result" (a push)."""
     kinds = []
-    if net > 0:
+    win = (net > 0) if is_win is None else is_win
+    if win:
         win_kind = WIN_GAME_KIND.get(game)
         if win_kind:
             kinds.append(win_kind)
-        if net >= BIG_WIN_TIER_1:
-            kinds.append("big_win_1")
-        if net >= BIG_WIN_TIER_2:
-            kinds.append("big_win_2")
-    elif net < 0:
-        if net <= BIG_LOSS_TIER_1:
-            kinds.append("big_loss_1")
-        if net <= BIG_LOSS_TIER_2:
-            kinds.append("big_loss_2")
+    if net >= BIG_WIN_TIER_1:
+        kinds.append("big_win_1")
+    if net >= BIG_WIN_TIER_2:
+        kinds.append("big_win_2")
+    if net <= BIG_LOSS_TIER_1:
+        kinds.append("big_loss_1")
+    if net <= BIG_LOSS_TIER_2:
+        kinds.append("big_loss_2")
     return kinds
 
 
-async def record_and_check(guild_id: int, user_id: int, game: str, net: int) -> list[str]:
+async def record_and_check(guild_id: int, user_id: int, game: str, net: int, is_win: bool | None = None) -> list[str]:
     """Records this bet's outcome in the user's per-game win/loss counts (a no-op for `game`
-    buckets not in GAMES, and for a push where net == 0) and returns every tier-achievement kind
-    now satisfied by the updated count. Inclusive like kinds_for_bet -- a count that jumps past
-    several tiers at once (or already-claimed tiers) is fine, since try_award_many is idempotent
-    per kind."""
-    if net == 0:
+    buckets not in GAMES, and -- absent an `is_win` override -- for a push where net == 0) and
+    returns every tier-achievement kind now satisfied by the updated count. Inclusive like
+    kinds_for_bet -- a count that jumps past several tiers at once (or already-claimed tiers) is
+    fine, since try_award_many is idempotent per kind.
+
+    `is_win`, when given, overrides net's sign for win/loss (see kinds_for_bet) -- pass it for
+    duels, which always have a winner/loser even at net == 0 (the default, wagerless case)."""
+    win = (net > 0) if is_win is None else is_win
+    if is_win is None and net == 0:
         return []
     bucket = STAT_BUCKET.get(game)
     if bucket is None:
         return []
-    wins, losses = await asyncio.to_thread(db.record_game_outcome, guild_id, user_id, bucket, net)
-    count, direction = (wins, "wins") if net > 0 else (losses, "losses")
+    wins, losses = await asyncio.to_thread(db.record_game_outcome, guild_id, user_id, bucket, net, force_win=is_win)
+    count, direction = (wins, "wins") if win else (losses, "losses")
     return [f"{bucket}_{direction}_{tier}" for tier in TIERS if count >= tier]
 
 

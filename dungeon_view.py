@@ -2929,8 +2929,9 @@ async def _end_duel(
     a defensive fallback for a simultaneous double-KO -- not actually reachable with today's effect
     vocabulary (every self-damaging effect is a timed dot, and a dot only ever ticks on its own
     caster's turn, never both duelists' at once), kept rather than assumed impossible; a draw logs
-    both sides at net 0 (like a blackjack push) rather than skipping the log entirely, but nets a
-    0 never earns a win/loss achievement kind either way (same "a push doesn't count" rule)."""
+    both sides at net 0 (like a blackjack push) rather than skipping the log entirely, and (unlike
+    a decisive win/loss below) genuinely earns no win/loss achievement kind either way, since a
+    draw really has no winner."""
     currency = db.get_currency_name(session.guild_id)
     send = interaction.followup.send if interaction is not None else session.message.channel.send
     win_kinds: list[str] = []
@@ -2953,10 +2954,13 @@ async def _end_duel(
             payout_line = f"\n\n💰 **{winner.label}** wins **{pot}** {currency}!"
         await asyncio.to_thread(db.log_bet, session.guild_id, winner.user_id, "duel", session.wager, session.wager)
         await asyncio.to_thread(db.log_bet, session.guild_id, loser.user_id, "duel", session.wager, -session.wager)
-        win_kinds = achievements.kinds_for_bet("duel", session.wager)
-        win_kinds += await achievements.record_and_check(session.guild_id, winner.user_id, "duel", session.wager)
-        loss_kinds = achievements.kinds_for_bet("duel", -session.wager)
-        loss_kinds += await achievements.record_and_check(session.guild_id, loser.user_id, "duel", -session.wager)
+        # A duel always has a winner/loser, wagered or not -- pass is_win explicitly so win/loss
+        # counting and the win_duel/tiered achievements fire even at net == 0 (the default,
+        # wagerless case), unlike every other game's push-at-net-0 semantics.
+        win_kinds = achievements.kinds_for_bet("duel", session.wager, is_win=True)
+        win_kinds += await achievements.record_and_check(session.guild_id, winner.user_id, "duel", session.wager, is_win=True)
+        loss_kinds = achievements.kinds_for_bet("duel", -session.wager, is_win=False)
+        loss_kinds += await achievements.record_and_check(session.guild_id, loser.user_id, "duel", -session.wager, is_win=False)
         title = f"⚔️ {winner.label} wins!"
         description = "\n".join(log_lines) + f"\n\n💀 **{loser.label}** is defeated.{payout_line}"
     embed = discord.Embed(title=title, description=description, color=discord.Color.gold())

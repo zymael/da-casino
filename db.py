@@ -915,11 +915,12 @@ def get_discovered_recipes(guild_id: int, user_id: int) -> set[str]:
         conn.close()
 
 
-def record_game_outcome(guild_id: int, user_id: int, game: str, net: int) -> tuple[int, int]:
+def record_game_outcome(guild_id: int, user_id: int, game: str, net: int, force_win: bool | None = None) -> tuple[int, int]:
     """Increments this user's win or loss count for `game` in this guild based on the sign of
-    `net` (net == 0, e.g. a blackjack push, is a caller error -- don't call this for it). Returns
-    (wins, losses) after the update."""
-    column = "wins" if net > 0 else "losses"
+    `net` (net == 0, e.g. a blackjack push, is a caller error -- don't call this for it), unless
+    `force_win` is given, in which case it overrides net's sign (duels always have a winner/loser
+    even at net == 0, the default wagerless case). Returns (wins, losses) after the update."""
+    column = "wins" if (net > 0 if force_win is None else force_win) else "losses"
     conn = _connect()
     try:
         conn.execute(
