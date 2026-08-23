@@ -15,6 +15,7 @@ working, and there is exactly one place each content type's rules live either wa
 """
 
 import asyncio
+import copy
 import datetime
 import hashlib
 import hmac
@@ -3116,6 +3117,10 @@ async def list_view(request: web.Request) -> web.Response:
     # dungeon.load_delve_drafts. No other content type has this two-tier draft/publish split.
     header = "".join(f"<th>{html.escape(c)}</th>" for c in columns) + ("<th></th>" if is_delve else "")
     drafts = dungeon.load_delve_drafts() if is_delve else {}
+    dup_link = lambda item_id: (
+        f'<td><a class="row-link" data-tooltip="Duplicate -- opens a new entry pre-filled from this '
+        f'one" href="/edit/{content_type}/new?duplicate_from={item_id}">📋</a></td>'
+    )
     rows = []
     for item_id, entry in getattr(spec["module"], spec["registry_attr"]).items():
         cells = "".join(f"<td>{html.escape(str(entry.get(c, '')))}</td>" for c in columns)
@@ -3126,7 +3131,10 @@ async def list_view(request: web.Request) -> web.Response:
                 if has_unpublished else ""
             )
             cells += f"<td>{status}</td>"
-        rows.append(f'<tr><td><a class="row-link" href="/edit/{content_type}/{item_id}">✏️</a></td>{cells}</tr>')
+        rows.append(
+            f'<tr><td><a class="row-link" href="/edit/{content_type}/{item_id}">✏️</a></td>'
+            f'{dup_link(item_id)}{cells}</tr>'
+        )
     if is_delve:
         live_ids = set(getattr(spec["module"], spec["registry_attr"]).keys())
         for draft_id, draft_entry in drafts.items():
@@ -3134,7 +3142,10 @@ async def list_view(request: web.Request) -> web.Response:
                 continue
             cells = "".join(f"<td>{html.escape(str(draft_entry.get(c, '')))}</td>" for c in columns)
             cells += '<td><span class="draft-tag" data-tooltip="Never published -- only exists as a draft.">Draft</span></td>'
-            rows.append(f'<tr><td><a class="row-link" href="/edit/{content_type}/{draft_id}">✏️</a></td>{cells}</tr>')
+            rows.append(
+                f'<tr><td><a class="row-link" href="/edit/{content_type}/{draft_id}">✏️</a></td>'
+                f'{dup_link(draft_id)}{cells}</tr>'
+            )
 
     singular = spec["label"][:-1] if spec["label"].endswith("s") else spec["label"]
     # Every non-delve content type's save redirects here (see edit_view's "?saved=1") -- a delve
@@ -3147,7 +3158,7 @@ async def list_view(request: web.Request) -> web.Response:
         f'{saved_notice}'
         f'<p><a class="row-link" href="/edit/{content_type}/new">+ New {html.escape(singular)}</a></p>'
         f'<input id="list-filter" type="text" placeholder="Filter {html.escape(spec["label"].lower())}...">'
-        f'<table id="list-table"><thead><tr><th></th>{header}</tr></thead><tbody>{"".join(rows)}</tbody></table>'
+        f'<table id="list-table"><thead><tr><th></th><th></th>{header}</tr></thead><tbody>{"".join(rows)}</tbody></table>'
     )
     breadcrumbs = [("Home", "/"), (spec["label"], None)]
     return _html_response(_page(spec["label"], body, active=content_type, breadcrumbs=breadcrumbs))
@@ -3193,6 +3204,44 @@ def _apply_generate_level(content_type: str, entry: dict, query) -> dict:
     return entry
 
 
+def _resolve_duplicate_source(spec: dict, content_type: str, source_id: str) -> dict | None:
+    """Looks up `source_id` the same way edit_view resolves an existing item to display for editing
+    (a delve's own unpublished draft wins over its published version, otherwise the live registry)
+    -- so Duplicate always clones whatever the admin is currently looking at, not a stale published
+    copy behind an open draft. None if `source_id` doesn't exist (a stale link)."""
+    is_delve = content_type == "delves"
+    draft_entry = dungeon.load_delve_drafts().get(source_id) if is_delve else None
+    if draft_entry is not None:
+        return draft_entry
+    registry = getattr(spec["module"], spec["registry_attr"])
+    return registry.get(source_id)
+
+
+def _duplicate_entry(spec: dict, content_type: str, source_id: str) -> dict | None:
+    """A deep copy of `source_id`'s entry with a fresh, not-yet-taken id (`<source_id>_copy`, then
+    `_copy2`, `_copy3`, ... on collision against every id currently on disk) -- everything else
+    left exactly as the source had it, since the whole point of Duplicate is "start from a working
+    template" rather than a blank form. Never writes anything itself -- this only pre-fills
+    edit_view's "new" form (same "GET query param reshapes the blank/existing entry, nothing is
+    saved until the real Save button" convention _apply_generate_level already uses); the admin
+    still reviews it (renaming it, most importantly) and clicks Save like any other new entry, so a
+    duplicate that's never renamed just fails loudly at Save time with the same "duplicate id"
+    error every hand-typed collision already gets -- no new validation needed here. Returns None if
+    `source_id` doesn't exist."""
+    source = _resolve_duplicate_source(spec, content_type, source_id)
+    if source is None:
+        return None
+    existing_ids = {e.get("id") for e in _load_raw_entries(spec)}
+    new_id = f"{source_id}_copy"
+    suffix = 2
+    while new_id in existing_ids:
+        new_id = f"{source_id}_copy{suffix}"
+        suffix += 1
+    duplicated = copy.deepcopy(source)
+    duplicated["id"] = new_id
+    return duplicated
+
+
 async def edit_view(request: web.Request) -> web.Response:
     content_type = request.match_info["content_type"]
     item_id = request.match_info["item_id"]
@@ -3212,6 +3261,13 @@ async def edit_view(request: web.Request) -> web.Response:
     entry = draft_entry if draft_entry is not None else ({} if is_new else registry.get(item_id))
     if entry is None and not is_new:
         raise web.HTTPNotFound()
+    # "+ New X" on the list page links straight here; "Duplicate" (list_view's row action, and the
+    # button next to Delete below) instead links to /edit/<type>/new?duplicate_from=<id> -- a dead
+    # link (source since deleted) just falls through to the ordinary blank-new-entry form.
+    if is_new and not entry and request.query.get("duplicate_from"):
+        duplicated = _duplicate_entry(spec, content_type, request.query["duplicate_from"])
+        if duplicated is not None:
+            entry = duplicated
     entry = _apply_generate_level(content_type, entry, request.query)
 
     error = ""
@@ -3282,6 +3338,13 @@ async def edit_view(request: web.Request) -> web.Response:
     fields_html = _render_fields(spec["fields"], entry, problems)
     delete_button = (
         f'<button type="submit" form="delete-form" class="danger">Delete</button>' if not is_new else ""
+    )
+    # Same /edit/<type>/new?duplicate_from=<id> link list_view's per-row 📋 icon uses -- offered
+    # here too since an admin already reviewing one item is a natural moment to clone it, without
+    # backtracking to the list first.
+    duplicate_link = (
+        f'<a class="row-link" href="/edit/{content_type}/new?duplicate_from={item_id}">📋 Duplicate</a>'
+        if not is_new else ""
     )
     crumb_label = "New" if is_new else f"Edit: {item_id}"
     # A delve's flowchart canvas needs real width to be usable, unlike every other content type's
@@ -3370,6 +3433,7 @@ async def edit_view(request: web.Request) -> web.Response:
     {level_tools_html}
     {form_html}
     {f'<form id="delete-form" method="post" action="/delete/{content_type}/{item_id}"></form>' if not is_new else ""}
+    {duplicate_link}
     {delete_button}
     """
     breadcrumbs = [("Home", "/"), (spec["label"], f"/edit/{content_type}"), (crumb_label, None)]
