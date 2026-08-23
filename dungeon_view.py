@@ -6,6 +6,7 @@ import discord
 import db
 import dungeon
 import dungeon_render
+import hub_ui
 import moon
 import quests
 from holdem_view import busy_players
@@ -3127,6 +3128,63 @@ async def start_duel(guild_id: int, challenger_id: int, challenger_name: str, ta
         active_delves[uid] = challenge
         busy_players.add(uid)
     return challenge
+
+
+class DuelWagerModal(discord.ui.Modal):
+    """Collects the (optional) wager once a target's already picked (DuelTargetSelect) -- a
+    second step, since unlike ranch_view.HorsePickerSelect's one-argument case, !duel needs two
+    collected values (who + how much) and a Select's own callback can only hand back the one
+    value it collected itself. Blank means no wager, matching !duel's own default of 0 when typed
+    out in full."""
+
+    def __init__(self, on_pick, target: discord.Member):
+        super().__init__(title=f"Duel {target.display_name}"[:45])  # Discord's modal title cap
+        self.on_pick = on_pick
+        self.target = target
+        self.wager_input = discord.ui.TextInput(
+            label="Wager (optional)", placeholder="e.g. 100 — leave blank for none", required=False,
+        )
+        self.add_item(self.wager_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        raw = self.wager_input.value.strip()
+        if not raw:
+            wager = 0
+        else:
+            try:
+                wager = int(raw)
+            except ValueError:
+                await interaction.response.send_message("Enter a whole number.", ephemeral=True)
+                return
+        await interaction.response.defer()
+        await self.on_pick(hub_ui.InteractionContext(interaction), self.target, wager)
+
+
+class DuelTargetSelect(discord.ui.UserSelect):
+    """Presented by !duel's own response when called with no target (see bot.py's duel_cmd) --
+    NOT constructed by room_view.py, same reasoning as ranch_view.HorsePickerSelect: an Arena
+    room's Duel button stays a plain zero-arg command wrapper like every other room button, and
+    !duel's own response is what supplies the richer picker UI, not the room. Uses Discord's
+    native user-picker component (discord.ui.UserSelect) rather than an enumerated dropdown --
+    unlike a horse roster, "any other player in the server" has no fixed short list to enumerate.
+    Picking someone opens DuelWagerModal for the second (wager) argument."""
+
+    def __init__(self, on_pick):
+        super().__init__(placeholder="Choose who to duel...")
+        self.on_pick = on_pick
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(DuelWagerModal(self.on_pick, self.values[0]))
+
+
+def build_duel_target_picker(on_pick) -> discord.ui.View:
+    """A one-off View wrapping DuelTargetSelect -- what !duel sends back when called with no
+    target (bare !duel, or an Arena room's Duel button, which can only ever invoke a command with
+    zero collected args). Lives here, not bot.py, same "view modules build UI, bot.py only
+    invokes commands" boundary ranch_view.build_horse_picker already established."""
+    view = discord.ui.View(timeout=120)
+    view.add_item(DuelTargetSelect(on_pick))
+    return view
 
 
 class DelveModeChoiceView(discord.ui.View):

@@ -23,6 +23,7 @@ from dungeon_view import (
     active_delves,
     build_delve_picker_display,
     build_duel_challenge_embed,
+    build_duel_target_picker,
     build_mode_choice_display,
     start_duel,
 )
@@ -893,15 +894,11 @@ async def delve_cmd(ctx, delve_id: str = None):
     await ctx.send(embed=embed, view=view)
 
 
-@bot.command(name="duel")
-async def duel_cmd(ctx, member: discord.Member = None, wager: int = 0):
-    """Challenge another player to a 1v1 duel (same combat system as the dungeon, no dungeon HP/XP
-    at stake -- both start at full HP): !duel @user [wager]. They have to Accept before it starts."""
-    if await _reject_if_at_poker_table(ctx):
-        return
-    if member is None:
-        await ctx.send("Usage: `!duel @user [wager]` — e.g. `!duel @Bob 100`")
-        return
+async def _duel_challenge(ctx, member: discord.Member, wager: int) -> None:
+    """The actual challenge-creation logic for a resolved (member, wager) pair -- shared by
+    duel_cmd's typed invocation and the duel picker's Select->Modal flow (dungeon_view.
+    build_duel_target_picker), so there's exactly one place this logic lives regardless of how the
+    target/wager got collected (same shape as _train_horse above)."""
     if member.id == ctx.author.id:
         await ctx.send("You can't duel yourself.")
         return
@@ -937,6 +934,21 @@ async def duel_cmd(ctx, member: discord.Member = None, wager: int = 0):
     challenge = await start_duel(ctx.guild.id, ctx.author.id, ctx.author.display_name, member.id, member.display_name, wager)
     view = DuelChallengeView(challenge)
     challenge.message = await ctx.send(content=member.mention, embed=build_duel_challenge_embed(challenge), view=view)
+
+
+@bot.command(name="duel")
+async def duel_cmd(ctx, member: discord.Member = None, wager: int = 0):
+    """Challenge another player to a 1v1 duel (same combat system as the dungeon, no dungeon HP/XP
+    at stake -- both start at full HP): !duel @user [wager], or plain !duel to pick a target from a
+    dropdown instead (an Arena room's Duel button always resolves this way, same as !train's own
+    horse-picker fallback). They have to Accept before it starts."""
+    if await _reject_if_at_poker_table(ctx):
+        return
+    if member is None:
+        view = build_duel_target_picker(_duel_challenge)
+        await ctx.send("Pick who you want to duel:", view=view)
+        return
+    await _duel_challenge(ctx, member, wager)
 
 
 @bot.command(name="inventory")
@@ -1448,6 +1460,7 @@ room_commands.COMMANDS.update({
     "achievements": achievements_cmd.callback,
     "class": class_cmd.callback,
     "delve": delve_cmd.callback,
+    "duel": duel_cmd.callback,
     "craft": craft_cmd.callback,
     "train": train_cmd.callback,
     "boost": boost_cmd.callback,
