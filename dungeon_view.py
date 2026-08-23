@@ -2866,22 +2866,33 @@ class DuelChallengeView(discord.ui.View):
 
 
 async def _send_duel_update(
-    interaction: discord.Interaction | None, session: DuelSession, embed: discord.Embed, view: discord.ui.View | None,
+    interaction: discord.Interaction | None, session: DuelSession, embed: discord.Embed,
+    file: discord.File | None, view: discord.ui.View | None,
 ):
     """Duel sibling of _send_party_update -- a duel can advance from either a live interaction (a
     duelist's own action) or a timeout (a stalled duelist's turn getting skipped)."""
+    attachments = [file] if file else []
     if interaction is not None:
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.response.edit_message(embed=embed, attachments=attachments, view=view)
         return
     if session.message is None:
         return
     try:
-        await session.message.edit(embed=embed, view=view)
+        await session.message.edit(embed=embed, attachments=attachments, view=view)
     except discord.HTTPException:
         pass
 
 
-def _duel_combat_embed(session: DuelSession, log_text: str, current_actor: PartyMember) -> discord.Embed:
+# The duel arena's background -- reuses the "Slug Dome" room's own art (rooms.json's slug_dome
+# entry), an arena that already exists for exactly this look. Fixed for now rather than admin-
+# configurable (unlike a real room's background_path) -- easy to promote to a setting later if a
+# second arena backdrop is ever wanted.
+DUEL_ARENA_BACKGROUND = "assets/rooms/slug_dome.jpg"
+
+
+def _duel_combat_embed(
+    session: DuelSession, log_text: str, current_actor: PartyMember,
+) -> tuple[discord.Embed, discord.File]:
     embed = discord.Embed(title="⚔️ Duel", description=log_text, color=discord.Color.dark_red())
     if session.wager:
         embed.add_field(name="💰 Wager", value=f"{session.wager} each ({session.wager * 2} to the winner)", inline=False)
@@ -2890,7 +2901,10 @@ def _duel_combat_embed(session: DuelSession, log_text: str, current_actor: Party
         embed.add_field(
             name=d.label, value=f"❤️ HP {max(d.hp, 0)}/{d.max_hp}\n🪙 Chips {d.chips}/{d.max_chips}{marker}", inline=True,
         )
-    return embed
+    buf = dungeon_render.render_room(1, [], DUEL_ARENA_BACKGROUND, label="Duel")
+    file = discord.File(buf, filename="duel.png")
+    embed.set_image(url="attachment://duel.png")
+    return embed, file
 
 
 async def _end_duel(
@@ -2919,7 +2933,7 @@ async def _end_duel(
         description = "\n".join(log_lines) + f"\n\n💀 **{loser.label}** is defeated.{payout_line}"
     embed = discord.Embed(title=title, description=description, color=discord.Color.gold())
     _cleanup(session)
-    await _send_duel_update(interaction, session, embed, None)
+    await _send_duel_update(interaction, session, embed, None, None)
 
 
 async def _advance_duel_turns(interaction: discord.Interaction | None, session: DuelSession, log_lines: list[str]) -> None:
@@ -2944,9 +2958,9 @@ async def _advance_duel_turns(interaction: discord.Interaction | None, session: 
         await _end_duel(interaction, session, opponent, log_lines)
         return
 
-    embed = _duel_combat_embed(session, "\n".join(log_lines), actor)
+    embed, file = _duel_combat_embed(session, "\n".join(log_lines), actor)
     view = await _build_duel_combat_view(session, actor)
-    await _send_duel_update(interaction, session, embed, view)
+    await _send_duel_update(interaction, session, embed, file, view)
 
 
 async def _resolve_duel_turn(

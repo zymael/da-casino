@@ -171,7 +171,7 @@ def _composite_turn_order_strip(img: Image.Image, turn_order: list[dict]) -> Ima
 
 def render_room(
     visited_count: int, monsters: list[dict], background_path: str | None = None,
-    turn_order: list[dict] | None = None,
+    turn_order: list[dict] | None = None, label: str | None = None,
 ) -> io.BytesIO:
     """Renders the corridor view for one dungeon room -- with its living monster(s) standing at the
     far end if there are any (combat rooms), or just the empty scene if not (choice rooms, or a
@@ -179,10 +179,12 @@ def render_room(
     as embed text by the caller, not baked into this image -- this only draws the scene.
     `visited_count` labels the room ("Room N") with no denominator, since a branching delve graph
     has no single well-defined total room count the way a flat list did -- a fork's two paths can
-    have different lengths, and a room can even be revisited via a dead-end self-loop. `turn_order`
-    (optional, only ever passed for combat rooms with someone still alive to schedule) grows the
-    image downward to add the FFX-style turn-order card strip -- see _composite_turn_order_strip
-    for its shape. Returns a ready-to-attach BytesIO."""
+    have different lengths, and a room can even be revisited via a dead-end self-loop. `label`
+    overrides that bottom-left text entirely (e.g. dueling's own "Duel" -- `visited_count` means
+    nothing there) -- defaults to the usual "Room N" when not given. `turn_order` (optional, only
+    ever passed for combat rooms with someone still alive to schedule) grows the image downward to
+    add the FFX-style turn-order card strip -- see _composite_turn_order_strip for its shape.
+    Returns a ready-to-attach BytesIO."""
     img = _load_background(background_path)
 
     cx, cy = WIDTH / 2, HEIGHT / 2 - 10
@@ -201,7 +203,7 @@ def render_room(
             _draw_monster_shape(draw, mx, cy, radius, monster["shape"], _parse_color(monster["color"]))
 
     draw = ImageDraw.Draw(img)
-    draw.text((16, HEIGHT - 32), f"Room {visited_count}", font=_label_font, fill=(200, 200, 210, 255))
+    draw.text((16, HEIGHT - 32), label or f"Room {visited_count}", font=_label_font, fill=(200, 200, 210, 255))
 
     if turn_order:
         img = _composite_turn_order_strip(img, turn_order)
