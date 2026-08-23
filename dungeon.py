@@ -86,14 +86,14 @@ SUIT_SYMBOLS = {"clubs": "♣", "spades": "♠", "hearts": "♥", "diamonds": "�
 
 # The 16-name grid, worked out with the product owner: (class, subclass) -> display name.
 NAMES = {
-    ("fighter", "clubs"): "The Muscle", ("fighter", "spades"): "Duelist",
-    ("fighter", "hearts"): "The Minder", ("fighter", "diamonds"): "Mercenary",
+    ("fighter", "clubs"): "The Muscle", ("fighter", "spades"): "The Duelist",
+    ("fighter", "hearts"): "The Minder", ("fighter", "diamonds"): "The Mercenary",
     ("healer", "clubs"): "The Cutman", ("healer", "spades"): "The Fixer",
-    ("healer", "hearts"): "The Chaplain", ("healer", "diamonds"): "Charlatan",
+    ("healer", "hearts"): "The Chaplain", ("healer", "diamonds"): "The Charlatan",
     ("mage", "clubs"): "The Wildcard", ("mage", "spades"): "The Jinx",
-    ("mage", "hearts"): "Enchanter", ("mage", "diamonds"): "The Mechanic",
-    ("rogue", "clubs"): "Bar Fighter", ("rogue", "spades"): "The Hitman",
-    ("rogue", "hearts"): "Heartbreaker", ("rogue", "diamonds"): "Treasure Hunter",
+    ("mage", "hearts"): "The Enchanter", ("mage", "diamonds"): "The Mechanic",
+    ("rogue", "clubs"): "The Bar Fighter", ("rogue", "spades"): "The Hitman",
+    ("rogue", "hearts"): "The Heartbreaker", ("rogue", "diamonds"): "The Treasure Hunter",
 }
 
 
