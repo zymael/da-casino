@@ -78,6 +78,15 @@ class MonsterInstance:
         self.turn_clock = 0.0
         self.guard_charge: float | None = None
         self.slot = slot
+        # Party-only threat table: {user_id: accumulated threat}, this monster's own view of who
+        # it's most likely to attack (dungeon.pick_target_by_threat, used by _advance_party_turns).
+        # A missing entry means "hasn't drawn any of this monster's aggro yet" (implicit 0), not an
+        # error -- see dungeon.THREAT_PER_DAMAGE/taunt/lower_threat for what raises it. Freshly
+        # empty every time a MonsterInstance is built (every combat room is a fresh fight), so
+        # there's no separate per-room reset needed the way chips/turn_clock get elsewhere. Solo
+        # never reads this (a monster always attacks the sole player directly there), so it just
+        # sits inert for a solo MonsterInstance.
+        self.threat: dict[int, float] = {}
 
 
 def _roll_monster_instances(room: dict) -> list[MonsterInstance]:
@@ -1230,6 +1239,34 @@ def _effect_hot(actor, monster_state, effect: dict, log_lines: list[str], mods: 
     )
 
 
+# taunt/lower_threat are NOT in EFFECT_HANDLERS below -- unlike every other effect type, they need
+# to touch every monster in the current fight at once (a taunt draws the whole pack's attention,
+# not just whichever one the actor happens to be attacking right now), not just monster_state's own
+# single current target, so they don't fit EFFECT_HANDLERS' fixed (actor, monster_state, effect,
+# log_lines, mods) signature. Special-cased in _apply_effects instead -- same precedent as
+# _effect_guard's persistent field / lifesteal_fraction's _roll_on_hit_procs special-case, just
+# broadcast-shaped rather than single-target-shaped. Never reachable from _roll_on_hit_procs
+# (equipment on-hit) since dungeon.ON_HIT_EQUIPMENT_EFFECT_TYPES excludes both, so there's no path
+# that would ever do EFFECT_HANDLERS["taunt"] and KeyError.
+_THREAT_EFFECT_TYPES = {"taunt", "lower_threat"}
+
+
+def _apply_threat_effect(actor, all_monsters: list["MonsterInstance"], effect: dict, log_lines: list[str]) -> None:
+    """taunt raises, lower_threat lowers, `actor`'s own threat in every one of `all_monsters`' own
+    threat tables at once (dungeon.pick_target_by_threat is what later reads a single monster's own
+    table back -- see _advance_party_turns). Only ever reached with a real actor.user_id: both
+    types are player-only (dungeon._validate_monster_skill rejects them on a monster's own skill),
+    so `actor` is always a DelveSession or PartyMember here, never a MonsterInstance."""
+    delta = effect["value"] if effect["type"] == "taunt" else -effect["value"]
+    for monster in all_monsters:
+        monster.threat[actor.user_id] = monster.threat.get(actor.user_id, 0) + delta
+    verb = "rises" if delta > 0 else "falls"
+    log_lines.append(
+        f"{_possessive_label(actor)} Threat {verb} by **{abs(effect['value'])}** against every monster here, "
+        f"for the rest of the fight."
+    )
+
+
 EFFECT_HANDLERS = {
     "damage_multiplier": _effect_damage_multiplier,
     "heal_fraction": _effect_heal_fraction,
@@ -1254,18 +1291,28 @@ EFFECT_HANDLERS = {
 }
 
 
-def _apply_effects(actor, monster_state, effects: list[dict], log_lines: list[str]) -> dict:
+def _apply_effects(
+    actor, monster_state, effects: list[dict], log_lines: list[str], all_monsters: list | None = None,
+) -> dict:
     """Runs every effect in order, mutating actor (HP/ATK/DEF/Speed/timed_effects/guard_charge)
     and/or monster_state (the opponent's DEF/ATK/SpAtk/SpDef/Speed debuffs -- see the module
     comment above DAMAGE_EFFECT_TYPES for which handlers touch which param), and appending log
-    lines as it goes.
+    lines as it goes. taunt/lower_threat (_THREAT_EFFECT_TYPES) are dispatched separately from
+    EFFECT_HANDLERS -- see the comment above that set -- against `all_monsters` (every monster in
+    the actor's current fight), defaulting to just [monster_state] for callers with only one
+    monster in play (a monster's own skill, which can never actually reach these two types anyway;
+    solo, where threat is inert since there's only one player to ever target).
     Returns this-action modifiers the caller still needs for the damage roll: multiplier,
     lifesteal_fraction (None if no lifesteal), and extra_attack_multipliers (one roll_damage call
     per entry, on top of the primary hit). Guard is NOT in this dict -- see _effect_guard/
     _consume_guard_charge for why it's a persistent per-entity field instead."""
+    all_monsters = all_monsters if all_monsters is not None else [monster_state]
     mods = _default_mods()
     for effect in effects:
-        EFFECT_HANDLERS[effect["type"]](actor, monster_state, effect, log_lines, mods)
+        if effect["type"] in _THREAT_EFFECT_TYPES:
+            _apply_threat_effect(actor, all_monsters, effect, log_lines)
+        else:
+            EFFECT_HANDLERS[effect["type"]](actor, monster_state, effect, log_lines, mods)
     return mods
 
 
@@ -1747,7 +1794,14 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
         living = session.living_members()
         if not living:
             continue  # loop re-checks at the top and hits the party-wipe branch
-        target = random.choice(living)
+        # Weighted by THIS monster's own threat table (dungeon.pick_target_by_threat), not a flat
+        # coin flip -- who it's most likely to go after is a function of damage dealt against it
+        # specifically and any taunt/lower_threat used, read live so a mid-fight swing changes the
+        # very next pick.
+        target_id = dungeon.pick_target_by_threat(
+            [{"id": m.user_id, "threat": monster.threat.get(m.user_id, 0)} for m in living]
+        )
+        target = session.members_by_id[target_id]
         monster_dmg, monster_skill, dodged = _resolve_monster_attack(monster, target, moon_effect, log_lines)
         if dodged:
             log_lines.append(f"**{target.label}** dodges **{monster.monster['name']}**'s attack!")
@@ -1782,7 +1836,7 @@ async def _resolve_party_turn(
     if dodged:
         log_lines.append(f"**{target.monster['name']}** dodges {member.label}'s {verb}!")
     else:
-        mods = _apply_effects(member, target, effects, log_lines)
+        mods = _apply_effects(member, target, effects, log_lines, all_monsters=session.living_monsters())
         if is_damage_action:
             attacker_atk = (member.spatk - member.spatk_debuff) if special else (member.atk - member.atk_debuff)
             dmg = dungeon.roll_damage(attacker_atk, effective_monster_def, mods["multiplier"] * player_moon_mult)
@@ -1798,6 +1852,10 @@ async def _resolve_party_turn(
                 if healed:
                     log_lines.append(f"{member.label} drains **{healed}** HP from the strike.")
             target.hp -= dmg
+            # Damage generates threat against THIS monster specifically (dungeon.THREAT_PER_DAMAGE)
+            # -- taunt/lower_threat (above, broadcast to every monster) are how a player counteracts
+            # the natural pull this creates, RPG-style.
+            target.threat[member.user_id] = target.threat.get(member.user_id, 0) + dmg * dungeon.THREAT_PER_DAMAGE
             log_lines.append(f"{member.label} {verb} for **{dmg}** damage.")
             equipped_items = [dungeon.EQUIPMENT[iid] for iid in member.equipped.values()]
             _roll_on_hit_procs(member, target, equipped_items, dmg, log_lines)

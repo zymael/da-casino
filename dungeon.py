@@ -577,6 +577,15 @@ EFFECT_PARAM_SCHEMAS = {
     # speed_debuff field and every turn-order/turn-interval call site already reads
     # speed - speed_debuff; this type was the only thing missing to ever actually set it).
     "speed_debuff": ({"value"}, set(), set()),
+    # Self-targeted, party-only threat manipulation (see the "Party threat" section below and
+    # dungeon_view._apply_threat_effect) -- raises/lowers the actor's own standing in every
+    # monster's individual threat table at once, not just whichever one they're currently
+    # attacking. Player-only: dungeon._validate_monster_skill explicitly rejects both on a
+    # monster's own skill (players already pick their own attack target directly, so there's no
+    # equivalent "who do I attack" ambiguity for a monster to need swaying), and both are excluded
+    # from ON_HIT_EQUIPMENT_EFFECT_TYPES below (skills/consumables only, no equipment support).
+    "taunt": ({"value"}, set(), set()),
+    "lower_threat": ({"value"}, set(), set()),
     # Genuinely temporary effects (N rounds, ticked by dungeon_view._tick_timed_effects) rather
     # than permanent-for-fight -- "duration" is validated as a positive int by _validate_effects
     # below (turns can't be fractional, unlike every other numeric param here).
@@ -616,12 +625,16 @@ def _validate_effects(effects, context: str):
                 raise ValueError(f"{context} effect {effect_type!r} param {param!r} must be > 0")
 
 
-# A monster's own skill can use the exact same effect vocabulary a player skill can -- full
-# parity, nothing monster-specific to restrict. This used to be a narrower subset (monsters had no
-# mutable combat stats to buff/debuff, and several handlers hardcoded "You"-phrased log text that
-# would misread coming from a monster); MonsterInstance now carries real per-instance atk/def_/
-# spatk/spdef/debuff fields and timed_effects (dungeon_view.py), and every handler's log line goes
-# through an actor-aware helper, so there's nothing left that only works for a player actor.
+# A monster's own skill can use almost the exact same effect vocabulary a player skill can -- this
+# used to be a narrower subset (monsters had no mutable combat stats to buff/debuff, and several
+# handlers hardcoded "You"-phrased log text that would misread coming from a monster);
+# MonsterInstance now carries real per-instance atk/def_/spatk/spdef/debuff fields and
+# timed_effects (dungeon_view.py), and every handler's log line goes through an actor-aware helper,
+# so there's nothing left that only works for a player actor -- except taunt/lower_threat
+# (_MONSTER_SKILL_EXCLUDED_EFFECT_TYPES below), which are meaningless for a monster's own skill: a
+# player already picks their own attack target directly, so there's no "who do I attack" choice for
+# a monster to sway on a player's behalf the way taunt/lower_threat sway a monster's own choice.
+_MONSTER_SKILL_EXCLUDED_EFFECT_TYPES = {"taunt", "lower_threat"}
 
 
 def _validate_monster_skill(skill: dict, context: str) -> None:
@@ -631,7 +644,8 @@ def _validate_monster_skill(skill: dict, context: str) -> None:
     never need to be balanced to sum to anything in particular, and a weight of exactly 0 is a
     legal "this skill is currently disabled" rather than an error). `effects` reuses the same
     {type, ...params} vocabulary skills/consumables already validate via _validate_effects -- full
-    parity with a player skill's own effect vocabulary, see the comment above this function."""
+    parity with a player skill's own effect vocabulary except _MONSTER_SKILL_EXCLUDED_EFFECT_TYPES,
+    see the comment above this function."""
     name = skill.get("name")
     if not name:
         raise ValueError(f"{context} has a skill with no name")
@@ -643,6 +657,11 @@ def _validate_monster_skill(skill: dict, context: str) -> None:
         raise ValueError(f"{context} skill {name!r} has no effects")
     if "special" in skill and not isinstance(skill["special"], bool):
         raise ValueError(f"{context} skill {name!r} special must be a bool")
+    for effect in effects:
+        if effect["type"] in _MONSTER_SKILL_EXCLUDED_EFFECT_TYPES:
+            raise ValueError(
+                f"{context} skill {name!r} effect {effect['type']!r} is player-only, not valid on a monster skill"
+            )
     _validate_effects(effects, f"{context} skill {name!r}")
 
 
@@ -763,7 +782,11 @@ EQUIPMENT_EFFECT_TRIGGERS = ("constant", "on_use", "on_hit")
 CONSTANT_EQUIPMENT_EFFECT_TYPES = {"atk_buff", "def_buff", "spatk_buff", "spdef_buff", "hp_buff", "speed_buff"}
 # speed_buff is allowed here on purpose ("haste on hit") -- it's self-contained (only ever touches
 # `actor`, same as the other *_buff types already allowed on_hit), no reason to special-case it out.
-ON_HIT_EQUIPMENT_EFFECT_TYPES = set(EFFECT_PARAM_SCHEMAS) - {"damage_multiplier", "guard", "extra_attack"}
+# taunt/lower_threat ARE excluded on purpose -- player-only threat manipulation stays scoped to
+# skills/consumables, no equipment support (see EFFECT_PARAM_SCHEMAS' own comment on them).
+ON_HIT_EQUIPMENT_EFFECT_TYPES = set(EFFECT_PARAM_SCHEMAS) - {
+    "damage_multiplier", "guard", "extra_attack", "taunt", "lower_threat",
+}
 # type -> which stat constant_stat_bonuses folds it into -- the inverse of generate_item_constant_effects'
 # own mapping below.
 _CONSTANT_EFFECT_STAT = {
@@ -1145,6 +1168,29 @@ def preview_next_turns(combatants: list[dict], count: int) -> list[str]:
         order.append(next_id)
         clocks[next_id] += intervals[next_id]
     return order
+
+
+# --- Party threat (which member a monster attacks) -----------------------------------------
+# Party-only: solo has one player, so a monster always attacks them directly, no selection needed.
+# Each monster tracks its OWN threat per party member (dungeon_view.MonsterInstance.threat, a
+# {user_id: threat} dict) rather than one shared pool, so an arbitrary number of monsters can each
+# independently be most annoyed at a different member. Damage dealt to a monster raises the
+# attacker's threat against THAT monster (THREAT_PER_DAMAGE, applied in dungeon_view.py right where
+# damage lands) -- taunt/lower_threat (EFFECT_PARAM_SCHEMAS below) are how a player counteracts
+# that pull, RPG-style.
+THREAT_PER_DAMAGE = 1.0  # 1:1 baseline -- the one knob to retune the whole system's balance
+THREAT_FLOOR = 0.01  # correctness floor for pick_target_by_threat's weights (random.choices needs
+# a positive weight) -- NOT a balance lever, real damage/taunt values dwarf it at any level range.
+
+
+def pick_target_by_threat(candidates: list[dict]) -> int:
+    """Weighted-random pick among `candidates` (`[{"id": ..., "threat": ...}]`, one entry per
+    living party member) by relative threat against ONE specific monster -- mirrors
+    preview_next_turns' own "dungeon_view builds plain dicts, dungeon.py does the pure math" split.
+    Read fresh every time a monster's turn comes up (never cached), so a taunt/lower_threat used
+    mid-fight changes who that monster goes after starting on its very next turn."""
+    weights = [max(THREAT_FLOOR, c["threat"]) for c in candidates]
+    return random.choices(candidates, weights=weights, k=1)[0]["id"]
 
 
 # --- Monster/equipment stat generation & level estimation ------------------------------------
