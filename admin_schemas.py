@@ -667,6 +667,8 @@ EFFECT_TYPE_HINTS = {
     "hot": "value: fraction of max HP restored each round (0-1); duration: how many rounds it lasts",
     "sap": "duration: how many of the target's own turns it skips -- broken early the instant they take any damage (including from this same hit)",
     "stun": "duration: how many of the target's own turns it skips -- damage does NOT break it",
+    "cleanse_dot": "No params -- removes any active damage-over-time from the caster (or the whole party with aoe)",
+    "cleanse_cc": "No params -- removes any active Sap/Stun from the caster (or the whole party with aoe)",
 }
 
 EQUIPMENT_EFFECT_TRIGGERS = list(dungeon.EQUIPMENT_EFFECT_TRIGGERS)

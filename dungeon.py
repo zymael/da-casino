@@ -606,6 +606,14 @@ EFFECT_PARAM_SCHEMAS = {
     # meant to actually hold. Stun has no such condition -- it always lasts its full duration.
     "sap": ({"duration"}, set(), set()),
     "stun": ({"duration"}, set(), set()),
+    # Ally-shaped (unlike sap/stun above) -- a cleanse targets the caster, or (per its own "aoe")
+    # every living party member, same as heal_fraction/the *_buff family. No params at all -- there's
+    # nothing to scale, it's a pure "remove this category of active timed effect" toggle. Two
+    # separate types rather than one "cleanse everything bad" effect so a skill/consumable can be
+    # authored as DoT-cleanse-only or CC-cleanse-only (e.g. a cheap early-game antidote that can't
+    # also break a Stun) instead of always doing both.
+    "cleanse_dot": (set(), set(), set()),
+    "cleanse_cc": (set(), set(), set()),
 }
 
 # Which "shape" an effect type is, for dungeon_view.py's per-effect aoe resolution (see each

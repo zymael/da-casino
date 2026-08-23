@@ -1315,6 +1315,24 @@ def _effect_stun(actor, monster_state, effect: dict, log_lines: list[str], mods:
     )
 
 
+def _effect_cleanse_dot(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    before = len(actor.timed_effects)
+    actor.timed_effects = [e for e in actor.timed_effects if e["type"] != "dot"]
+    if len(actor.timed_effects) < before:
+        log_lines.append(f"{_possessive_label(actor)} wounds stop festering.")
+    else:
+        log_lines.append(f"{_actor_label(actor)} {_verb(actor, 'find')} no lingering harm to cleanse.")
+
+
+def _effect_cleanse_cc(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    before = len(actor.timed_effects)
+    actor.timed_effects = [e for e in actor.timed_effects if e["type"] not in ("sap", "stun")]
+    if len(actor.timed_effects) < before:
+        log_lines.append(f"{_possessive_label(actor)} head clears -- free to act again.")
+    else:
+        log_lines.append(f"{_actor_label(actor)} {_verb(actor, 'find')} no crowd control to cleanse.")
+
+
 EFFECT_HANDLERS = {
     "damage_multiplier": _effect_damage_multiplier,
     "heal_fraction": _effect_heal_fraction,
@@ -1340,6 +1358,8 @@ EFFECT_HANDLERS = {
     "hot": _effect_hot,
     "sap": _effect_sap,
     "stun": _effect_stun,
+    "cleanse_dot": _effect_cleanse_dot,
+    "cleanse_cc": _effect_cleanse_cc,
 }
 
 
