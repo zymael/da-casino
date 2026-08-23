@@ -150,6 +150,7 @@ def _character_sheet_stats(character: dict, effective: dict, max_chips: int) -> 
         f"❤️ HP {current_hp}/{effective['hp']} — 🪙 Chips {max_chips}\n"
         f"⚔️ ATK {effective['atk']} — 🛡️ DEF {effective['def']}\n"
         f"✨ SpAtk {effective['spatk']} — 🔮 SpDef {effective['spdef']}\n"
+        f"🏃 Speed {effective['speed']}\n"
         f"💨 Dodge {dodge_pct}% — 🌀 Resist {resist_pct}%"
     )
 

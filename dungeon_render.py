@@ -13,6 +13,9 @@ ROOM_BG_PATH = "assets/dungeon/dungeon1.png"
 
 _FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 _label_font = ImageFont.truetype(_FONT_PATH, 20)
+_card_rank_font = ImageFont.truetype(_FONT_PATH, 17)
+_card_suit_font = ImageFont.truetype(_FONT_PATH, 13)
+_card_strip_label_font = ImageFont.truetype(_FONT_PATH, 14)
 
 # The dungeon-entrance banner -- a separate photo banner, not the room background above.
 # Dialogue rendering itself now lives in npc_render.py (shared by every NPC/hub); this module just
@@ -95,15 +98,80 @@ def _sprite_height_for(count: int) -> int:
     return SPRITE_HEIGHT if count <= 2 else round(SPRITE_HEIGHT * 0.75)
 
 
-def render_room(visited_count: int, monsters: list[dict], background_path: str | None = None) -> io.BytesIO:
+# FFX-style turn-order card strip, composited below the room scene (see dungeon.preview_next_turns
+# for the schedule these cards visualize). Fixed at a size that comfortably fits up to 10 cards --
+# the largest count any call site passes -- within WIDTH, so there's no dynamic per-card resizing
+# to keep in sync with font sizes.
+CARD_WIDTH, CARD_HEIGHT, CARD_GAP = 42, 58, 4
+CARD_STRIP_HEIGHT = CARD_HEIGHT + 28  # card row + a "Next up:" label row above it
+
+_RED_SUITS = {"♥", "♦"}
+
+
+def _draw_player_card(draw: ImageDraw.ImageDraw, x: float, y: float, rank: str, suit: str) -> None:
+    """A player/party-member card: existing rank letter (A/K/Q/J, dungeon.CLASSES[...]["rank"]) +
+    suit symbol (♠♥♦♣, dungeon.SUIT_SYMBOLS[...]), suit-colored red/black per standard card
+    convention -- zero new art, reuses the exact pairing that already names every build."""
+    color = (190, 25, 25, 255) if suit in _RED_SUITS else (20, 20, 20, 255)
+    draw.rounded_rectangle(
+        [x, y, x + CARD_WIDTH, y + CARD_HEIGHT], radius=5, fill=(245, 242, 230, 255), outline=(0, 0, 0, 255), width=2
+    )
+    draw.text((x + 5, y + 3), rank, font=_card_rank_font, fill=color)
+    suit_box = draw.textbbox((0, 0), suit, font=_card_suit_font)
+    sw, sh = suit_box[2] - suit_box[0], suit_box[3] - suit_box[1]
+    draw.text((x + CARD_WIDTH - sw - 6, y + CARD_HEIGHT - sh - 7), suit, font=_card_suit_font, fill=color)
+
+
+def _draw_monster_card(draw: ImageDraw.ImageDraw, x: float, y: float, shape: str, color_hex: str) -> None:
+    """A monster card: reuses _draw_monster_shape's own shape/color, drawn small and centered on a
+    dark card outline -- the same placeholder identity already used for the room scene itself."""
+    draw.rounded_rectangle(
+        [x, y, x + CARD_WIDTH, y + CARD_HEIGHT], radius=5, fill=(35, 18, 18, 255), outline=(0, 0, 0, 255), width=2
+    )
+    cx, cy = x + CARD_WIDTH / 2, y + CARD_HEIGHT / 2 + 2
+    _draw_monster_shape(draw, cx, cy, CARD_WIDTH * 0.34, shape, _parse_color(color_hex))
+
+
+def _composite_turn_order_strip(img: Image.Image, turn_order: list[dict]) -> Image.Image:
+    """Grows the room scene downward to fit a horizontal strip of playing-card-style icons for the
+    next several turns (dungeon.preview_next_turns) -- purely cosmetic FFX flavor. Each entry is
+    `{"kind": "player", "rank": ..., "suit": ...}` or `{"kind": "monster", "shape": ..., "color":
+    ...}`; the same combatant can (and does) appear on multiple cards when they're fast enough to
+    act again before others get a turn -- intended, matches FFX's own UI. Returns a new taller
+    image; doesn't mutate `img`."""
+    strip = Image.new("RGBA", (WIDTH, CARD_STRIP_HEIGHT), (15, 15, 20, 255))
+    draw = ImageDraw.Draw(strip)
+    draw.text((8, 3), "Next up:", font=_card_strip_label_font, fill=(190, 190, 200, 255))
+    n = len(turn_order)
+    total_width = n * CARD_WIDTH + max(0, n - 1) * CARD_GAP
+    start_x = max(6, (WIDTH - total_width) // 2)
+    y = CARD_STRIP_HEIGHT - CARD_HEIGHT - 5
+    for i, card in enumerate(turn_order):
+        x = start_x + i * (CARD_WIDTH + CARD_GAP)
+        if card["kind"] == "player":
+            _draw_player_card(draw, x, y, card["rank"], card["suit"])
+        else:
+            _draw_monster_card(draw, x, y, card["shape"], card["color"])
+    combined = Image.new("RGBA", (WIDTH, HEIGHT + CARD_STRIP_HEIGHT), (0, 0, 0, 255))
+    combined.alpha_composite(img, (0, 0))
+    combined.alpha_composite(strip, (0, HEIGHT))
+    return combined
+
+
+def render_room(
+    visited_count: int, monsters: list[dict], background_path: str | None = None,
+    turn_order: list[dict] | None = None,
+) -> io.BytesIO:
     """Renders the corridor view for one dungeon room -- with its living monster(s) standing at the
     far end if there are any (combat rooms), or just the empty scene if not (choice rooms, or a
     combat room whose group has been fully cleared, pass an empty list). Combat HP/stats are shown
     as embed text by the caller, not baked into this image -- this only draws the scene.
     `visited_count` labels the room ("Room N") with no denominator, since a branching delve graph
     has no single well-defined total room count the way a flat list did -- a fork's two paths can
-    have different lengths, and a room can even be revisited via a dead-end self-loop. Returns a
-    ready-to-attach BytesIO."""
+    have different lengths, and a room can even be revisited via a dead-end self-loop. `turn_order`
+    (optional, only ever passed for combat rooms with someone still alive to schedule) grows the
+    image downward to add the FFX-style turn-order card strip -- see _composite_turn_order_strip
+    for its shape. Returns a ready-to-attach BytesIO."""
     img = _load_background(background_path)
 
     cx, cy = WIDTH / 2, HEIGHT / 2 - 10
@@ -123,6 +191,9 @@ def render_room(visited_count: int, monsters: list[dict], background_path: str |
 
     draw = ImageDraw.Draw(img)
     draw.text((16, HEIGHT - 32), f"Room {visited_count}", font=_label_font, fill=(200, 200, 210, 255))
+
+    if turn_order:
+        img = _composite_turn_order_strip(img, turn_order)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")

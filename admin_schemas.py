@@ -610,6 +610,7 @@ EFFECT_TYPE_HINTS = {
     "spatk_buff": "value: flat SpAtk bonus for the rest of this fight",
     "spdef_buff": "value: flat SpDef bonus for the rest of this fight",
     "hp_buff": "value: flat max HP bonus (current HP rises by the same amount) for the rest of this fight",
+    "speed_buff": "value: flat Speed bonus for the rest of this fight -- faster turn order",
     "atk_debuff": "value: flat amount the target's ATK is lowered by, for the rest of this fight",
     "spatk_debuff": "value: flat amount the target's SpAtk is lowered by, for the rest of this fight",
     "spdef_debuff": "value: flat amount the target's SpDef is lowered by, for the rest of this fight",

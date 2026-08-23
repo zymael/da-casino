@@ -63,12 +63,20 @@ class MonsterInstance:
         self.def_ = monster["def"]
         self.spatk = monster["spatk"]
         self.spdef = monster["spdef"]
-        self.atk_debuff = self.def_debuff = self.spatk_debuff = self.spdef_debuff = 0
+        self.speed = monster["spd"]
+        self.atk_debuff = self.def_debuff = self.spatk_debuff = self.spdef_debuff = self.speed_debuff = 0
         # Temporary (N-round) effects -- dodge_buff/resist_buff/dot/hot -- each a
         # {"type", "value", "remaining"} dict, ticked by _tick_timed_effects. Unlike the debuffs
         # above (permanent for the fight), these expire and are refreshed-not-stacked (see
         # _apply_timed_effect).
         self.timed_effects: list[dict] = []
+        # Turn-order scheduling state (dungeon.preview_next_turns) -- reset to 0 at the same point
+        # Chips/used_item_effects already reset (fight start). guard_charge is a one-shot "absorb
+        # the next hit" charge (set by _effect_guard, consumed and cleared wherever damage is next
+        # applied to this entity) -- NOT a timed_effects duration entry, since Guard has no
+        # duration, just "until the next hit lands."
+        self.turn_clock = 0.0
+        self.guard_charge: float | None = None
         self.slot = slot
 
 
@@ -90,11 +98,16 @@ class DelveSession:
         self.def_ = effective["def"]
         self.spatk = effective["spatk"]
         self.spdef = effective["spdef"]
+        self.speed = effective["speed"]
         # Symmetric to MonsterInstance's own debuff/timed_effects fields -- a player never had a
         # debuff before (only a monster's def_debuff existed), needed now that a monster's own
         # skill can weaken the player, same full parity as the buff side already had.
-        self.atk_debuff = self.def_debuff = self.spatk_debuff = self.spdef_debuff = 0
+        self.atk_debuff = self.def_debuff = self.spatk_debuff = self.spdef_debuff = self.speed_debuff = 0
         self.timed_effects: list[dict] = []
+        # Turn-order scheduling state -- see MonsterInstance's own fields for what these mean;
+        # reset at the same points Chips/used_item_effects already reset.
+        self.turn_clock = 0.0
+        self.guard_charge: float | None = None
         # Equipped item ids whose on_use effect has already been cast this fight -- reset
         # alongside chips at every combat-room entry (see _goto_room), same "once per fight"
         # reset point.
@@ -196,8 +209,11 @@ class PartyMember:
         self.def_ = effective["def"]
         self.spatk = effective["spatk"]
         self.spdef = effective["spdef"]
-        self.atk_debuff = self.def_debuff = self.spatk_debuff = self.spdef_debuff = 0
+        self.speed = effective["speed"]
+        self.atk_debuff = self.def_debuff = self.spatk_debuff = self.spdef_debuff = self.speed_debuff = 0
         self.timed_effects: list[dict] = []
+        self.turn_clock = 0.0
+        self.guard_charge: float | None = None
         self.used_item_effects: set[str] = set()
         # Same "start wherever the last delve left off" rule as DelveSession -- see its own hp
         # comment for why.
@@ -219,7 +235,7 @@ class PartyMember:
 class PartyLobby:
     """Pre-combat party-forming state, shown after the leader picks "Start Party" from
     DelveModeChoiceView. Deliberately a separate class from PartyDelveSession (rather than a
-    started flag on one combined class) so combat-only fields (monster, turn_queue, ...) never
+    started flag on one combined class) so combat-only fields (monster, turn_clock, ...) never
     exist in a half-initialized state during the join phase."""
 
     def __init__(self, guild_id: int, leader_id: int, leader_name: str, leader_character: dict, delve: dict):
@@ -251,7 +267,6 @@ class PartyDelveSession:
         # session-wide field, since each party member picks their own target independently. See
         # target_for's self-healing fallback, same idea as solo DelveSession.current_target.
         self.member_target_slots: dict[int, int] = {}
-        self.turn_queue: list[int] = []
         self.rooms_visited = 1
         self._enter_room(delve["start_room"])
 
@@ -283,13 +298,13 @@ class PartyDelveSession:
         return living[0]
 
     def _enter_room(self, room_id: str):
-        """Moves into room_id -- rolls a fresh monster group and rebuilds the round's turn queue if
+        """Moves into room_id -- rolls a fresh monster group and resets each member's turn_clock if
         it's a combat room (called on session init and on Push Deeper), or clears combat state if
         not. Each monster's HP is scaled by however many members are alive RIGHT NOW
         (party_hp_multiplier), not the party's original size, so a roster thinned by earlier
         knockouts faces a fight scaled to its current strength; the multiplier applies per monster,
-        not again on top of a group's already-higher aggregate danger from every member fully
-        counter-attacking each round (see _advance_party_round). Doesn't touch rooms_visited --
+        not again on top of a group's already-higher aggregate danger from every monster getting
+        its own turn in the CTB schedule (see _advance_party_turns). Doesn't touch rooms_visited --
         callers bump that themselves, since __init__'s first call shouldn't double-count the
         starting room."""
         self.current_room_id = room_id
@@ -306,16 +321,33 @@ class PartyDelveSession:
             for m in self.members:
                 m.chips = m.max_chips
                 m.used_item_effects = set()
-            self.turn_queue = [m.user_id for m in self.living_members()]
+                m.turn_clock = 0.0  # fresh fight -- same reset point as chips/used_item_effects
         else:
             self.monsters = []
-            self.turn_queue = []
 
 
 def _room_background_path(delve: dict, room: dict) -> str | None:
     """A room's own background_path if it set one, else the delve's top-level default -- lets
     different rooms in the same delve look different without requiring every room to set one."""
     return room.get("background_path") or delve.get("background_path")
+
+
+# Card-strip flavor for dungeon_render.render_room's turn_order param -- see dungeon.preview_next_turns
+# for the schedule these visualize. TURN_ORDER_PREVIEW_COUNT of 8 comfortably fits the fixed card
+# width dungeon_render.py sizes itself for (up to 10).
+TURN_ORDER_PREVIEW_COUNT = 8
+
+
+def _player_card(main_class: str, subclass: str) -> dict:
+    """A player/party-member's card descriptor -- reuses the existing rank letter (A/K/Q/J) and
+    suit symbol (♠♥♦♣) that already name every build, zero new content needed."""
+    return {"kind": "player", "rank": dungeon.CLASSES[main_class]["rank"], "suit": dungeon.SUIT_SYMBOLS[subclass]}
+
+
+def _monster_card(monster: dict) -> dict:
+    """A monster's card descriptor -- reuses its existing shape/color fields, the same placeholder
+    identity already used to draw it in the room scene."""
+    return {"kind": "monster", "shape": monster["shape"], "color": monster["color"]}
 
 
 def _combat_intro_text(room: dict, monsters: list[dict]) -> str:
@@ -328,6 +360,20 @@ def _combat_intro_text(room: dict, monsters: list[dict]) -> str:
     parts = [f"*{room['prompt']}*"] if room.get("prompt") else []
     parts.extend(f"*{m['flavor']}*" for m in monsters)
     return "\n\n".join(parts)
+
+
+def _solo_turn_order_cards(session: DelveSession) -> list[dict]:
+    living = session.living_monsters()
+    combatants = [{"id": None, "speed": max(0, session.speed - session.speed_debuff), "clock": session.turn_clock}]
+    combatants += [
+        {"id": m.slot, "speed": max(0, m.speed - m.speed_debuff), "clock": m.turn_clock} for m in living
+    ]
+    monsters_by_slot = {m.slot: m for m in living}
+    order = dungeon.preview_next_turns(combatants, TURN_ORDER_PREVIEW_COUNT)
+    return [
+        _player_card(session.main_class, session.subclass) if cid is None else _monster_card(monsters_by_slot[cid].monster)
+        for cid in order
+    ]
 
 
 def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.Embed, discord.File]:
@@ -344,7 +390,10 @@ def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.Embed, 
         marker = " ⬅️ target" if len(living) > 1 and m.slot == target_slot else ""
         embed.add_field(name=m.monster["name"], value=f"HP {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
     room = session.rooms_by_id[session.current_room_id]
-    buf = dungeon_render.render_room(session.rooms_visited, [m.monster for m in living], _room_background_path(session.delve, room))
+    buf = dungeon_render.render_room(
+        session.rooms_visited, [m.monster for m in living], _room_background_path(session.delve, room),
+        turn_order=_solo_turn_order_cards(session),
+    )
     file = discord.File(buf, filename="room.png")
     embed.set_image(url="attachment://room.png")
     return embed, file
@@ -427,18 +476,26 @@ async def _build_choice_room_view(session: DelveSession, room: dict) -> "ChoiceR
     return ChoiceRoomView(session, room, availability)
 
 
-async def _build_room_display(session: DelveSession) -> tuple[discord.Embed, discord.File, discord.ui.View]:
-    """Builds the (embed, file, view) triple for whatever room a session is CURRENTLY sitting on
-    -- used both for a fresh delve's very first room and, via _goto_room, every later transition,
-    so there's one place that branches on room type rather than duplicating it at each call site."""
+async def _build_room_display(interaction: discord.Interaction, session: DelveSession, intro_text: str = "") -> None:
+    """Renders (and sends, via interaction.response.edit_message) whatever room a session is
+    CURRENTLY sitting on -- used both for a fresh delve's very first room and, via _goto_room,
+    every later transition, so there's one place that branches on room type rather than
+    duplicating it at each call site. A combat room doesn't just show a static view -- entering
+    one can resolve several automatic monster turns before the player ever gets to act (a fast
+    enough monster group ambushes a slow player), so intro_text and the room's own flavor
+    (_combat_intro_text) are seeded as the STARTING log lines and handed to _advance_solo_turns,
+    which does the actual rendering/sending for combat."""
     room = session.rooms_by_id[session.current_room_id]
     if room["type"] == "combat":
-        embed, file = _combat_embed(session, _combat_intro_text(room, [m.monster for m in session.living_monsters()]))
-        view = await _build_combat_view(session)
+        log_lines = [intro_text] if intro_text else []
+        log_lines.append(_combat_intro_text(room, [m.monster for m in session.living_monsters()]))
+        await _advance_solo_turns(interaction, session, log_lines)
     else:
         embed, file = _choice_embed(session, room, room["prompt"])
+        if intro_text:
+            embed.description = f"{intro_text}\n\n{embed.description}"
         view = await _build_choice_room_view(session, room)
-    return embed, file, view
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
 
 
 async def _goto_room(interaction: discord.Interaction, session: DelveSession, room_id: str, intro_text: str = ""):
@@ -455,12 +512,10 @@ async def _goto_room(interaction: discord.Interaction, session: DelveSession, ro
         session.current_target_slot = 0
         session.chips = session.max_chips
         session.used_item_effects = set()
+        session.turn_clock = 0.0  # fresh fight -- same reset point as chips/used_item_effects
     else:
         session.monsters = []
-    embed, file, view = await _build_room_display(session)
-    if intro_text:
-        embed.description = f"{intro_text}\n\n{embed.description}"
-    await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+    await _build_room_display(interaction, session, intro_text)
 
 
 async def _handle_choice_action(
@@ -904,7 +959,7 @@ async def _award_kill(
     level_result = await asyncio.to_thread(
         db.add_xp, guild_id, actor.user_id, xp_gain,
         dungeon.LEVEL_HP_GAIN, dungeon.LEVEL_ATK_GAIN, dungeon.LEVEL_DEF_GAIN,
-        dungeon.LEVEL_SPATK_GAIN, dungeon.LEVEL_SPDEF_GAIN,
+        dungeon.LEVEL_SPATK_GAIN, dungeon.LEVEL_SPDEF_GAIN, dungeon.LEVEL_SPEED_GAIN,
     )
     log_lines.append(f"+{xp_gain} XP")
     if level_result["levels_gained"] > 0:
@@ -914,12 +969,14 @@ async def _award_kill(
         def_delta = dungeon.LEVEL_DEF_GAIN * level_result["levels_gained"]
         spatk_delta = dungeon.LEVEL_SPATK_GAIN * level_result["levels_gained"]
         spdef_delta = dungeon.LEVEL_SPDEF_GAIN * level_result["levels_gained"]
+        speed_delta = dungeon.LEVEL_SPEED_GAIN * level_result["levels_gained"]
         actor.max_hp += hp_delta
         actor.hp += hp_delta
         actor.atk += atk_delta
         actor.def_ += def_delta
         actor.spatk += spatk_delta
         actor.spdef += spdef_delta
+        actor.speed += speed_delta
         actor.unlocked_skills = dungeon.unlocked_skills(actor.main_class, actor.subclass, actor.level)
         plural = "s" if level_result["levels_gained"] > 1 else ""
         log_lines.append(f"🎉 Level up! Now level {actor.level} (+{level_result['levels_gained']} level{plural}).")
@@ -943,6 +1000,7 @@ async def _award_kill(
             actor.def_ += new_bonuses.get("def", 0) - old_bonuses.get("def", 0)
             actor.spatk += new_bonuses.get("spatk", 0) - old_bonuses.get("spatk", 0)
             actor.spdef += new_bonuses.get("spdef", 0) - old_bonuses.get("spdef", 0)
+            actor.speed += new_bonuses.get("speed", 0) - old_bonuses.get("speed", 0)
             actor.equipped[slot] = dropped["id"]
             if current_item:
                 log_lines.append(f"⚔️ Found **{dropped['name']}**! Replaced {current_item['name']} — equipped (stored in `!equipment`).")
@@ -990,7 +1048,7 @@ DAMAGE_EFFECT_TYPES = {"damage_multiplier", "extra_attack"}
 
 
 def _default_mods() -> dict:
-    return {"multiplier": 1.0, "guard_reduction": None, "lifesteal_fraction": None, "extra_attack_multipliers": []}
+    return {"multiplier": 1.0, "lifesteal_fraction": None, "extra_attack_multipliers": []}
 
 
 def _actor_label(entity) -> str:
@@ -1038,9 +1096,28 @@ def _effect_heal_fraction(actor, monster_state, effect: dict, log_lines: list[st
 
 
 def _effect_guard(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
-    mods["guard_reduction"] = effect["reduction"]
+    # A one-shot "absorb the next hit" charge (actor.guard_charge), NOT a mods-dict entry -- under
+    # dynamic turn order, an arbitrary number of *other* combatants' turns can fall between "I
+    # guard" and "something actually hits me," so there's no single next call frame (the old
+    # same-call mods dict) to stash this in. Consumed by _consume_guard_charge, called wherever
+    # damage is next applied to this entity, whoever that ends up being.
+    actor.guard_charge = effect["reduction"]
     pronoun = "its" if isinstance(actor, MonsterInstance) else "your"
     log_lines.append(f"{_actor_label(actor)} {_verb(actor, 'raise')} {pronoun} guard, ready to blunt the next blow.")
+
+
+def _consume_guard_charge(defender, dmg: int, log_lines: list[str]) -> int:
+    """If `defender` has an active guard_charge, reduces `dmg` by it and clears the charge (spent
+    on this hit, whichever hit that turns out to be -- could be the very next action, or several
+    turns later if nothing else has hit them since). Returns dmg unchanged if there's nothing to
+    consume. Called at every point damage is applied to any entity, player or monster alike (full
+    parity -- a monster's own Guard-shaped skill works the same way a player's does)."""
+    if defender.guard_charge is None:
+        return dmg
+    reduced = max(1, round(dmg * defender.guard_charge))
+    defender.guard_charge = None
+    log_lines.append(f"{_possessive_label(defender)} guard softens the blow — {reduced} damage instead of {dmg}.")
+    return reduced
 
 
 def _effect_lifesteal_fraction(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
@@ -1148,12 +1225,13 @@ EFFECT_HANDLERS = {
 
 
 def _apply_effects(actor, monster_state, effects: list[dict], log_lines: list[str]) -> dict:
-    """Runs every effect in order, mutating actor (HP/ATK/DEF/timed_effects) and/or monster_state
-    (the opponent's DEF/ATK/SpAtk/SpDef debuffs -- see the module comment above DAMAGE_EFFECT_TYPES
-    for which handlers touch which param), and appending log lines as it goes. Returns this-action
-    modifiers the caller still needs for the damage roll: multiplier, guard_reduction (None if not
-    guarding), lifesteal_fraction (None if no lifesteal), and extra_attack_multipliers (one
-    roll_damage call per entry, on top of the primary hit)."""
+    """Runs every effect in order, mutating actor (HP/ATK/DEF/timed_effects/guard_charge) and/or
+    monster_state (the opponent's DEF/ATK/SpAtk/SpDef debuffs -- see the module comment above
+    DAMAGE_EFFECT_TYPES for which handlers touch which param), and appending log lines as it goes.
+    Returns this-action modifiers the caller still needs for the damage roll: multiplier,
+    lifesteal_fraction (None if no lifesteal), and extra_attack_multipliers (one roll_damage call
+    per entry, on top of the primary hit). Guard is NOT in this dict -- see _effect_guard/
+    _consume_guard_charge for why it's a persistent per-entity field instead."""
     mods = _default_mods()
     for effect in effects:
         EFFECT_HANDLERS[effect["type"]](actor, monster_state, effect, log_lines, mods)
@@ -1261,21 +1339,99 @@ async def _build_combat_view(session: DelveSession) -> "CombatView":
     return CombatView(session, usable_items)
 
 
+async def _solo_death_embed(session: DelveSession, log_lines: list[str]) -> discord.Embed:
+    """Ends the delve (via _forfeit) and builds the "You Have Fallen" embed -- shared by every
+    place a solo player's hp can drop to 0 (their own action's aftermath, a monster's turn, or a
+    DoT ticking as their own turn comes up), so there's one death screen, not one per cause."""
+    currency = db.get_currency_name(session.guild_id)
+    await _forfeit(session)
+    return discord.Embed(
+        title="💀 You Have Fallen",
+        description="\n".join(log_lines) + f"\n\nYou're carried out of the dungeon empty-handed, losing this "
+        f"delve's **{session.loot_total}** {currency} haul.",
+        color=discord.Color.dark_red(),
+    )
+
+
+async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSession, log_lines: list[str]) -> None:
+    """Resolves consecutive automatic monster turns (per dungeon.preview_next_turns) until either
+    the player's own turn comes up or the fight/room ends -- called both when entering/resuming a
+    combat room (_build_room_display, log_lines seeded with room/monster flavor -- a fast enough
+    monster group can land a hit before the player's very first action, a real CTB ambush) and
+    after the player's own action resolves (_resolve_combat_turn's tail, right after their own
+    turn_clock advances). Always ends by sending exactly one response via
+    interaction.response.edit_message -- the player's own turn view, a death screen, or a
+    room-cleared screen. A monster's own DoT-caused death is handled inline here (award the kill,
+    `continue` the loop) rather than the old batch-collect-casualties pattern -- there's no longer
+    a "round" to batch within, just this one monster's turn."""
+    moon_effect = moon.effect_for("dungeon")
+    player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
+    while True:
+        if not session.living_monsters():
+            await _present_room_result(interaction, session, log_lines)
+            return
+
+        combatants = [{"id": None, "speed": max(0, session.speed - session.speed_debuff), "clock": session.turn_clock}]
+        combatants += [
+            {"id": m.slot, "speed": max(0, m.speed - m.speed_debuff), "clock": m.turn_clock}
+            for m in session.living_monsters()
+        ]
+        next_id = dungeon.preview_next_turns(combatants, 1)[0]
+
+        if next_id is None:
+            # The player's own turn -- tick their own timed effects right as it comes up (a DoT
+            # can end the fight here, before they ever get to act) then render and hand control
+            # back.
+            _tick_timed_effects([session], log_lines)
+            if session.hp <= 0:
+                embed = await _solo_death_embed(session, log_lines)
+                await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+                return
+            embed, file = _combat_embed(session, "\n".join(log_lines))
+            view = await _build_combat_view(session)
+            await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+            return
+
+        monster = next(m for m in session.living_monsters() if m.slot == next_id)
+        _tick_timed_effects([monster], log_lines)
+        monster.turn_clock += dungeon.turn_interval(max(1, monster.speed - monster.speed_debuff))
+        if monster.hp <= 0:
+            log_lines.append(f"**{monster.monster['name']}** succumbs to its wounds!")
+            await _award_kill(
+                session.guild_id, monster.monster, session, session.current_room_id, log_lines,
+                loot_mult=session.loot_mult * player_moon_mult, chance_mult=1.0,
+            )
+            continue  # never got to act this turn -- loop re-checks living_monsters() at the top
+
+        monster_dmg, monster_skill, dodged = _resolve_monster_attack(monster, session, moon_effect, log_lines)
+        verb = f"unleashes **{monster_skill['name']}**" if monster_skill else "strikes back"
+        if dodged:
+            log_lines.append(f"You dodge **{monster.monster['name']}**'s attack!")
+        else:
+            monster_dmg = _consume_guard_charge(session, monster_dmg, log_lines)
+            log_lines.append(f"**{monster.monster['name']}** {verb} for **{monster_dmg}**.")
+            session.hp -= monster_dmg
+
+        if session.hp <= 0:
+            embed = await _solo_death_embed(session, log_lines)
+            await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+            return
+
+
 async def _resolve_combat_turn(
     interaction: discord.Interaction, session: DelveSession, effects: list[dict], verb: str, log_lines: list[str],
     special: bool = False,
 ) -> bool:
-    """Shared tail for every kind of combat action (plain Attack, a skill, or a consumed item):
-    applies `effects` against the player's current target, rolls damage if any effect is
-    damage-shaped, resolves the target's death (and, if that clears the whole group, victory) or
-    else every remaining living monster's counter-attack, and renders the next view. `verb` only
-    matters if a damage roll happens (e.g. "attack", "unleash **Fireball**", "use **Healing
-    Draught**") -- callers that only heal/buff never reach the line that reads it. `special`
-    (always False for a plain Attack) picks SpAtk/SpDef instead of ATK/DEF for the damage roll --
-    set by callers from the triggering skill/item's own "special" flag. Always returns True (this
-    always consumes the turn -- any "can't do this right now" rejection happens before this is
-    called)."""
-    currency = db.get_currency_name(session.guild_id)
+    """Resolves the player's own chosen action (plain Attack, a skill, or a consumed item) against
+    their current target -- applies `effects`, rolls damage if any effect is damage-shaped, checks
+    for a kill/room-clear -- then hands off to _advance_solo_turns for whatever happens next
+    (automatic monster turns, in speed order, until the player's own turn comes back around).
+    `verb` only matters if a damage roll happens (e.g. "attack", "unleash **Fireball**", "use
+    **Healing Draught**") -- callers that only heal/buff never reach the line that reads it.
+    `special` (always False for a plain Attack) picks SpAtk/SpDef instead of ATK/DEF for the
+    damage roll -- set by callers from the triggering skill/item's own "special" flag. Always
+    returns True (this always consumes the turn -- any "can't do this right now" rejection happens
+    before this is called)."""
     # A plain Attack (no effects) always rolls damage; anything else rolls damage only if at
     # least one of its effects is damage-shaped -- everything else (Heal, Guard, ...) is pure
     # utility and skips the roll_damage call below entirely, same branch shape as the old
@@ -1291,10 +1447,6 @@ async def _resolve_combat_turn(
     # not just the damage number, matching "completely dodge" literally. Never rolled for a
     # non-damage action (Heal, Guard, ...) -- there's nothing on the monster's side to dodge.
     dodged = is_damage_action and random.random() < _defended_dodge_chance(target, effective_monster_def, special)
-    # mods defaults here (rather than only being assigned in the `else` below) so the monster
-    # counter-attack loop's own `mods["guard_reduction"]` read further down always has something
-    # to read, even when the player's own action was itself dodged and _apply_effects never ran.
-    mods = _default_mods()
     if dodged:
         log_lines.append(f"**{target.monster['name']}** dodges your {verb}!")
     else:
@@ -1304,6 +1456,10 @@ async def _resolve_combat_turn(
             dmg = dungeon.roll_damage(attacker_atk, effective_monster_def, mods["multiplier"] * player_moon_mult)
             for extra_multiplier in mods["extra_attack_multipliers"]:
                 dmg += dungeon.roll_damage(attacker_atk, effective_monster_def, extra_multiplier * player_moon_mult)
+            # Guard reduction is consumed here (against the TARGET's own charge, if any -- a
+            # monster can guard itself too, full parity) before lifesteal/on-hit procs read `dmg`,
+            # so both scale off what was actually dealt, not the pre-guard theoretical number.
+            dmg = _consume_guard_charge(target, dmg, log_lines)
             if mods["lifesteal_fraction"]:
                 healed = min(session.max_hp, session.hp + round(dmg * mods["lifesteal_fraction"])) - session.hp
                 session.hp += healed
@@ -1313,6 +1469,8 @@ async def _resolve_combat_turn(
             log_lines.append(f"You {verb} for **{dmg}** damage.")
             equipped_items = [dungeon.EQUIPMENT[iid] for iid in session.equipped.values()]
             _roll_on_hit_procs(session, target, equipped_items, dmg, log_lines)
+
+    session.turn_clock += dungeon.turn_interval(max(1, session.speed - session.speed_debuff))
 
     if target.hp <= 0:
         log_lines.append(f"**{target.monster['name']} is defeated!**")
@@ -1324,51 +1482,7 @@ async def _resolve_combat_turn(
             await _present_room_result(interaction, session, log_lines)
             return True
 
-    # Every monster still alive attacks back -- including one killed by an *earlier* skill/effect
-    # this same turn (already excluded from living_monsters()), but never the one that was just
-    # defeated by this action's own damage roll above.
-    for attacker in session.living_monsters():
-        monster_dmg, monster_skill, dodged = _resolve_monster_attack(attacker, session, moon_effect, log_lines)
-        verb = f"unleashes **{monster_skill['name']}**" if monster_skill else "strikes back"
-        if dodged:
-            log_lines.append(f"You dodge **{attacker.monster['name']}**'s attack!")
-        elif mods["guard_reduction"] is not None:
-            monster_dmg = max(1, round(monster_dmg * mods["guard_reduction"]))
-            log_lines.append(f"Your guard softens the blow — **{attacker.monster['name']}** {verb} for **{monster_dmg}**.")
-        else:
-            log_lines.append(f"**{attacker.monster['name']}** {verb} for **{monster_dmg}**.")
-        session.hp -= monster_dmg
-
-    pre_tick_monsters = session.living_monsters()
-    _tick_timed_effects([session] + pre_tick_monsters, log_lines)
-    # A DoT tick can finish off a monster on its own (no direct hit involved) -- award its kill the
-    # same as any other, and check for a room-clear here too, mirroring the exact precedence the
-    # player's-own-attack kill above already uses (a kill clears the room before a simultaneous
-    # player death is ever considered, see that branch's own early `return True`).
-    for dead_monster in [m for m in pre_tick_monsters if m.hp <= 0]:
-        log_lines.append(f"**{dead_monster.monster['name']}** succumbs to its wounds!")
-        await _award_kill(
-            session.guild_id, dead_monster.monster, session, session.current_room_id, log_lines,
-            loot_mult=session.loot_mult * player_moon_mult, chance_mult=1.0,
-        )
-    if not session.living_monsters():
-        await _present_room_result(interaction, session, log_lines)
-        return True
-
-    if session.hp <= 0:
-        await _forfeit(session)
-        embed = discord.Embed(
-            title="💀 You Have Fallen",
-            description="\n".join(log_lines) + f"\n\nYou're carried out of the dungeon empty-handed, losing this "
-            f"delve's **{session.loot_total}** {currency} haul.",
-            color=discord.Color.dark_red(),
-        )
-        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
-        return True
-
-    embed, file = _combat_embed(session, "\n".join(log_lines))
-    view = await _build_combat_view(session)
-    await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+    await _advance_solo_turns(interaction, session, log_lines)
     return True
 
 
@@ -1440,34 +1554,57 @@ async def _present_room_result(interaction: discord.Interaction, session: DelveS
 
 
 # --- Party combat ---------------------------------------------------------------------------
-# Same monster/room model as solo, but the monster only counter-attacks once a full round (every
-# living member acting once, in join order) has passed, instead of after every single action --
-# see _advance_party_round, the one real behavioral fork from solo's _resolve_combat_turn.
+# Same CTB scheduling as solo (dungeon.preview_next_turns), just run across every living member
+# AND every living monster at once instead of one player -- see _advance_party_turns, the party
+# sibling of _advance_solo_turns.
 
 
-def _party_combat_embed(session: PartyDelveSession, log_text: str) -> tuple[discord.Embed, discord.File]:
+def _party_turn_order_cards(session: PartyDelveSession) -> list[dict]:
+    living_members = session.living_members()
+    living_monsters = session.living_monsters()
+    combatants = [
+        {"id": m.user_id, "speed": max(0, m.speed - m.speed_debuff), "clock": m.turn_clock} for m in living_members
+    ] + [
+        {"id": m.slot, "speed": max(0, m.speed - m.speed_debuff), "clock": m.turn_clock} for m in living_monsters
+    ]
+    member_ids = {m.user_id for m in living_members}
+    members_by_id = {m.user_id: m for m in living_members}
+    monsters_by_slot = {m.slot: m for m in living_monsters}
+    order = dungeon.preview_next_turns(combatants, TURN_ORDER_PREVIEW_COUNT)
+    cards = []
+    for cid in order:
+        if cid in member_ids:
+            member = members_by_id[cid]
+            cards.append(_player_card(member.main_class, member.subclass))
+        else:
+            cards.append(_monster_card(monsters_by_slot[cid].monster))
+    return cards
+
+
+def _party_combat_embed(
+    session: PartyDelveSession, log_text: str, current_actor: PartyMember,
+) -> tuple[discord.Embed, discord.File]:
     living_monsters = session.living_monsters()
     title = f"🗡️ {living_monsters[0].monster['name']}" if len(living_monsters) == 1 else "🗡️ Combat"
     embed = discord.Embed(title=title, description=log_text, color=discord.Color.dark_red())
-    current_actor_id = session.turn_queue[0] if session.turn_queue else None
     for m in session.members:
         if m.knocked_out:
             status = "💀 Knocked out"
-        elif m.user_id == current_actor_id:
+        elif m.user_id == current_actor.user_id:
             status = f"HP {max(m.hp, 0)}/{m.max_hp} 🪙 {m.chips}/{m.max_chips} ⬅️ acting now"
         else:
             status = f"HP {max(m.hp, 0)}/{m.max_hp} 🪙 {m.chips}/{m.max_chips}"
         embed.add_field(name=m.label, value=status, inline=True)
     # Only the currently-acting member's target is shown -- every other member's independent
     # target choice isn't relevant to the embed until it's their own turn.
-    current_actor = session.members_by_id.get(current_actor_id) if current_actor_id is not None else None
-    target_slot = session.target_for(current_actor).slot if current_actor and living_monsters else None
+    target_slot = session.target_for(current_actor).slot if living_monsters else None
     for m in living_monsters:
         marker = " ⬅️ target" if len(living_monsters) > 1 and m.slot == target_slot else ""
         embed.add_field(name=m.monster["name"], value=f"HP {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
     room = session.rooms_by_id[session.current_room_id]
     buf = dungeon_render.render_room(
-        session.rooms_visited, [m.monster for m in living_monsters], _room_background_path(session.delve, room)
+        session.rooms_visited, [m.monster for m in living_monsters], _room_background_path(session.delve, room),
+        turn_order=_party_turn_order_cards(session),
     )
     file = discord.File(buf, filename="room.png")
     embed.set_image(url="attachment://room.png")
@@ -1479,8 +1616,7 @@ async def _usable_items_for(session: PartyDelveSession, actor: PartyMember) -> l
     return [dungeon.CONSUMABLES[item_id] for item_id, qty in held.items() if item_id in dungeon.CONSUMABLES and qty > 0]
 
 
-async def _build_party_combat_view(session: PartyDelveSession) -> "PartyCombatView":
-    actor = session.members_by_id[session.turn_queue[0]]
+async def _build_party_combat_view(session: PartyDelveSession, actor: PartyMember) -> "PartyCombatView":
     return PartyCombatView(session, actor, await _usable_items_for(session, actor))
 
 
@@ -1503,87 +1639,95 @@ async def _send_party_update(
         pass
 
 
-async def _advance_party_round(interaction: discord.Interaction | None, session: PartyDelveSession, log_lines: list[str]):
-    """Shared tail once a member's turn (whether an actual action or a timeout-skip) is resolved
-    and at least one monster is still alive: if another member is still queued this round, render
-    their turn -- no monster counter yet. Otherwise the round is over: every living monster gets
-    its own counter-attack against an independently-random living member (not specified by the
-    user -- simplest fair default), then either the party wipes (nobody left standing, no payout
-    for anyone, same shape as solo's death forfeit) or a fresh round begins."""
-    if session.turn_queue:
-        next_actor = session.members_by_id[session.turn_queue[0]]
-        embed, file = _party_combat_embed(session, "\n".join(log_lines))
-        view = PartyCombatView(session, next_actor, await _usable_items_for(session, next_actor))
-        await _send_party_update(interaction, session, embed, file, view)
-        return
-
+async def _advance_party_turns(interaction: discord.Interaction | None, session: PartyDelveSession, log_lines: list[str]) -> None:
+    """Party sibling of _advance_solo_turns: resolves consecutive automatic monster turns (per
+    dungeon.preview_next_turns, scheduled across every living member AND every living monster at
+    once -- member ids are real Discord user_ids, monster ids are their small 0-3 slot, so the two
+    id spaces never collide) until either some living member's own turn comes up or the fight/room
+    ends. Called both when entering/resuming a combat room (_build_party_room_display, log_lines
+    seeded with room/monster flavor -- a fast enough monster group can land a hit before anyone's
+    very first action, a real CTB ambush) and after a member's own action or a timed-out skip
+    resolves (both advance that member's own turn_clock first, then call this). Always ends by
+    sending exactly one response via _send_party_update -- the next acting member's own turn view,
+    a party-wipe screen, or a room-cleared screen. A monster's own DoT-caused death is handled
+    inline here (award the kill to every living member, `continue` the loop) rather than the old
+    batch-collect-casualties pattern -- there's no longer a "round" to batch within."""
     moon_effect = moon.effect_for("dungeon")
-    for attacker in session.living_monsters():
+    player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
+    while True:
+        if not session.living_monsters():
+            await _present_party_room_result(interaction, session, log_lines)
+            return
+
+        if not session.living_members():
+            for m in session.members:
+                await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
+            _cleanup(session)
+            embed = discord.Embed(
+                title="💀 Your Party Has Fallen",
+                description="\n".join(log_lines) + "\n\nEveryone's down — the party stumbles out empty-handed, "
+                "losing every haul from this delve.",
+                color=discord.Color.dark_red(),
+            )
+            await _send_party_update(interaction, session, embed, None, None)
+            return
+
+        combatants = [
+            {"id": m.user_id, "speed": max(0, m.speed - m.speed_debuff), "clock": m.turn_clock}
+            for m in session.living_members()
+        ] + [
+            {"id": m.slot, "speed": max(0, m.speed - m.speed_debuff), "clock": m.turn_clock}
+            for m in session.living_monsters()
+        ]
+        next_id = dungeon.preview_next_turns(combatants, 1)[0]
+        member_ids = {m.user_id for m in session.living_members()}
+
+        if next_id in member_ids:
+            # A living member's own turn -- tick their own timed effects right as it comes up (a
+            # DoT can knock them out here, before they ever get to act).
+            member = session.members_by_id[next_id]
+            _tick_timed_effects([member], log_lines)
+            if member.hp <= 0:
+                member.knocked_out = True
+                log_lines.append(f"💀 **{member.label}** is knocked out!")
+                continue
+            embed, file = _party_combat_embed(session, "\n".join(log_lines), member)
+            view = await _build_party_combat_view(session, member)
+            await _send_party_update(interaction, session, embed, file, view)
+            return
+
+        monster = next(m for m in session.living_monsters() if m.slot == next_id)
+        _tick_timed_effects([monster], log_lines)
+        monster.turn_clock += dungeon.turn_interval(max(1, monster.speed - monster.speed_debuff))
+        if monster.hp <= 0:
+            log_lines.append(f"**{monster.monster['name']}** succumbs to its wounds!")
+            for m in session.living_members():
+                member_log: list[str] = []
+                loot_mult = m.loot_mult * (1.0 if m.is_leader else 0.5) * player_moon_mult
+                chance_mult = 1.0 if m.is_leader else 0.5
+                await _award_kill(
+                    session.guild_id, monster.monster, m, session.current_room_id, member_log,
+                    loot_mult=loot_mult, chance_mult=chance_mult,
+                )
+                log_lines.append(f"**{m.label}**")
+                log_lines.extend(f"> {line}" for line in member_log)
+            continue  # never got to act this turn -- loop re-checks living_monsters() at the top
+
         living = session.living_members()
         if not living:
-            break
+            continue  # loop re-checks at the top and hits the party-wipe branch
         target = random.choice(living)
-        monster_dmg, monster_skill, dodged = _resolve_monster_attack(attacker, target, moon_effect, log_lines)
-        target.hp -= monster_dmg
+        monster_dmg, monster_skill, dodged = _resolve_monster_attack(monster, target, moon_effect, log_lines)
         if dodged:
-            log_lines.append(f"**{target.label}** dodges **{attacker.monster['name']}**'s attack!")
+            log_lines.append(f"**{target.label}** dodges **{monster.monster['name']}**'s attack!")
         else:
+            monster_dmg = _consume_guard_charge(target, monster_dmg, log_lines)
             verb = f"unleashes **{monster_skill['name']}** on" if monster_skill else "strikes"
-            log_lines.append(f"**{attacker.monster['name']}** {verb} **{target.label}** for **{monster_dmg}**.")
-        if target.hp <= 0:
-            target.knocked_out = True
-            log_lines.append(f"💀 **{target.label}** is knocked out!")
-
-    pre_tick_monsters = session.living_monsters()
-    _tick_timed_effects(session.living_members() + pre_tick_monsters, log_lines)
-    # A DoT tick (unlike the per-hit knockout check above, which only ever looks at the one member
-    # who just got attacked) can drop ANY living member's hp to 0 -- living_members() filters on
-    # the knocked_out flag, not hp directly, so anyone the tick just finished off needs it set here
-    # or they'd stay "living" indefinitely at negative HP.
-    for m in session.living_members():
-        if m.hp <= 0:
-            m.knocked_out = True
-            log_lines.append(f"💀 **{m.label}** is knocked out!")
-
-    # A DoT tick can finish off the last monster on its own, same as it can in solo -- award the
-    # kill to every still-living member (same per-member reward loop _resolve_party_turn's own
-    # direct-hit kill already uses) and check for a room-clear here, before the party-wipe check
-    # below, mirroring solo's own kill-before-death precedence.
-    player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
-    for dead_monster in [m for m in pre_tick_monsters if m.hp <= 0]:
-        log_lines.append(f"**{dead_monster.monster['name']}** succumbs to its wounds!")
-        for m in session.living_members():
-            member_log: list[str] = []
-            loot_mult = m.loot_mult * (1.0 if m.is_leader else 0.5) * player_moon_mult
-            chance_mult = 1.0 if m.is_leader else 0.5
-            await _award_kill(
-                session.guild_id, dead_monster.monster, m, session.current_room_id, member_log,
-                loot_mult=loot_mult, chance_mult=chance_mult,
-            )
-            log_lines.append(f"**{m.label}**")
-            log_lines.extend(f"> {line}" for line in member_log)
-    if pre_tick_monsters and not session.living_monsters():
-        await _present_party_room_result(interaction, session, log_lines)
-        return
-
-    if not session.living_members():
-        for m in session.members:
-            await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
-        _cleanup(session)
-        embed = discord.Embed(
-            title="💀 Your Party Has Fallen",
-            description="\n".join(log_lines) + "\n\nEveryone's down — the party stumbles out empty-handed, "
-            "losing every haul from this delve.",
-            color=discord.Color.dark_red(),
-        )
-        await _send_party_update(interaction, session, embed, None, None)
-        return
-
-    session.turn_queue = [m.user_id for m in session.living_members()]
-    next_actor = session.members_by_id[session.turn_queue[0]]
-    embed, file = _party_combat_embed(session, "\n".join(log_lines))
-    view = PartyCombatView(session, next_actor, await _usable_items_for(session, next_actor))
-    await _send_party_update(interaction, session, embed, file, view)
+            log_lines.append(f"**{monster.monster['name']}** {verb} **{target.label}** for **{monster_dmg}**.")
+            target.hp -= monster_dmg
+            if target.hp <= 0:
+                target.knocked_out = True
+                log_lines.append(f"💀 **{target.label}** is knocked out!")
 
 
 async def _resolve_party_turn(
@@ -1593,9 +1737,10 @@ async def _resolve_party_turn(
     """Party sibling of _resolve_combat_turn: applies `effects`, rolls `member`'s damage against
     `member`'s own current target (see PartyDelveSession.target_for), and on a kill runs the
     party's independent-per-member reward loop (leader at full rate, joiners halved -- see
-    _award_kill). Unlike solo, this never rolls a monster's counter-attack itself -- that only
-    happens once the whole round is done, via _advance_party_round. `special` picks SpAtk/SpDef
-    instead of ATK/DEF for the damage roll, same as _resolve_combat_turn."""
+    _award_kill). Advances `member`'s own turn_clock, then hands off to _advance_party_turns for
+    whatever happens next (automatic member/monster turns, in speed order, until some living
+    member's own turn comes back around). `special` picks SpAtk/SpDef instead of ATK/DEF for the
+    damage roll, same as _resolve_combat_turn."""
     is_damage_action = not effects or any(e["type"] in DAMAGE_EFFECT_TYPES for e in effects)
     target = session.target_for(member)
     moon_effect = moon.effect_for("dungeon")
@@ -1612,6 +1757,10 @@ async def _resolve_party_turn(
             dmg = dungeon.roll_damage(attacker_atk, effective_monster_def, mods["multiplier"] * player_moon_mult)
             for extra_multiplier in mods["extra_attack_multipliers"]:
                 dmg += dungeon.roll_damage(attacker_atk, effective_monster_def, extra_multiplier * player_moon_mult)
+            # Guard reduction is consumed here (against the TARGET's own charge, if any -- a
+            # monster can guard itself too, full parity) before lifesteal/on-hit procs read `dmg`,
+            # same ordering _resolve_combat_turn uses.
+            dmg = _consume_guard_charge(target, dmg, log_lines)
             if mods["lifesteal_fraction"]:
                 healed = min(member.max_hp, member.hp + round(dmg * mods["lifesteal_fraction"])) - member.hp
                 member.hp += healed
@@ -1621,6 +1770,8 @@ async def _resolve_party_turn(
             log_lines.append(f"{member.label} {verb} for **{dmg}** damage.")
             equipped_items = [dungeon.EQUIPMENT[iid] for iid in member.equipped.values()]
             _roll_on_hit_procs(member, target, equipped_items, dmg, log_lines)
+
+    member.turn_clock += dungeon.turn_interval(max(1, member.speed - member.speed_debuff))
 
     if target.hp <= 0:
         log_lines.append(f"**{target.monster['name']} is defeated!**")
@@ -1638,19 +1789,20 @@ async def _resolve_party_turn(
             await _present_party_room_result(interaction, session, log_lines)
             return True
 
-    session.turn_queue.remove(member.user_id)
-    await _advance_party_round(interaction, session, log_lines)
+    await _advance_party_turns(interaction, session, log_lines)
     return True
 
 
 async def _skip_party_turn(session: PartyDelveSession, member: PartyMember):
     """A stalled member's turn timing out -- they simply pass (no damage dealt, no penalty beyond
-    losing this turn) rather than forfeiting the whole party over one AFK player."""
-    if member.user_id not in session.turn_queue:
-        return  # already resolved by some other path
+    losing this turn) rather than forfeiting the whole party over one AFK player. Advances their
+    own turn_clock exactly as a real action would (same clock-advance path _resolve_party_turn
+    uses), then re-enters the auto-turn loop. PartyCombatView.on_timeout already guards against a
+    stale/superseded view firing this twice (session.current_view is not self), so no separate
+    "already resolved" check is needed here."""
     log_lines = [f"⌛ {member.label} takes too long and passes their turn."]
-    session.turn_queue.remove(member.user_id)
-    await _advance_party_round(None, session, log_lines)
+    member.turn_clock += dungeon.turn_interval(max(1, member.speed - member.speed_debuff))
+    await _advance_party_turns(None, session, log_lines)
 
 
 async def _handle_party_action(
@@ -1753,7 +1905,7 @@ class PartyCastItemButton(discord.ui.Button):
 class PartyTargetSelect(discord.ui.Select):
     """Party sibling of TargetSelect -- scoped to whichever member's turn it currently is; picking
     an option only updates that member's own entry in session.member_target_slots (see
-    PartyDelveSession.target_for), so it never touches turn_queue or costs a turn."""
+    PartyDelveSession.target_for), so it never advances a turn_clock or costs a turn."""
 
     def __init__(self, session: PartyDelveSession, actor: PartyMember):
         target = session.target_for(actor)
@@ -1770,8 +1922,8 @@ class PartyTargetSelect(discord.ui.Select):
         session: PartyDelveSession = self.view.session
         session.member_target_slots[self.view.actor.user_id] = int(self.values[0])
         log_text = interaction.message.embeds[0].description or ""
-        embed, file = _party_combat_embed(session, log_text)
-        view = await _build_party_combat_view(session)
+        embed, file = _party_combat_embed(session, log_text, self.view.actor)
+        view = await _build_party_combat_view(session, self.view.actor)
         await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
         self.view.stop()
 
@@ -1855,17 +2007,26 @@ async def _build_party_choice_room_view(session: PartyDelveSession, room: dict) 
     return PartyChoiceRoomView(session, leader, room, availability)
 
 
-async def _build_party_room_display(session: PartyDelveSession) -> tuple[discord.Embed, discord.File, discord.ui.View]:
-    """Party sibling of _build_room_display -- builds the (embed, file, view) triple for whatever
-    room the party is CURRENTLY on."""
+async def _build_party_room_display(
+    interaction: discord.Interaction | None, session: PartyDelveSession, intro_text: str = "",
+) -> None:
+    """Party sibling of _build_room_display -- renders (and sends, via _send_party_update)
+    whatever room the party is CURRENTLY on. A combat room doesn't just show a static view --
+    entering one can resolve several automatic turns (any mix of members and monsters) before any
+    human gets to act, so intro_text and the room's own flavor (_combat_intro_text) are seeded as
+    the STARTING log lines and handed to _advance_party_turns, which does the actual
+    rendering/sending for combat."""
     room = session.rooms_by_id[session.current_room_id]
     if room["type"] == "combat":
-        embed, file = _party_combat_embed(session, _combat_intro_text(room, [m.monster for m in session.living_monsters()]))
-        view = await _build_party_combat_view(session)
+        log_lines = [intro_text] if intro_text else []
+        log_lines.append(_combat_intro_text(room, [m.monster for m in session.living_monsters()]))
+        await _advance_party_turns(interaction, session, log_lines)
     else:
         embed, file = _party_choice_embed(session, room, room["prompt"])
+        if intro_text:
+            embed.description = f"{intro_text}\n\n{embed.description}"
         view = await _build_party_choice_room_view(session, room)
-    return embed, file, view
+        await _send_party_update(interaction, session, embed, file, view)
 
 
 async def _goto_party_room(interaction: discord.Interaction, session: PartyDelveSession, room_id: str, intro_text: str = ""):
@@ -1873,10 +2034,7 @@ async def _goto_party_room(interaction: discord.Interaction, session: PartyDelve
     action outcome both funnel through this."""
     session.rooms_visited += 1
     session._enter_room(room_id)
-    embed, file, view = await _build_party_room_display(session)
-    if intro_text:
-        embed.description = f"{intro_text}\n\n{embed.description}"
-    await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+    await _build_party_room_display(interaction, session, intro_text)
 
 
 async def _handle_party_choice_action(
@@ -1935,7 +2093,7 @@ async def _resolve_party_choice_action(
     member step up for a rough check should mean *they* take the hit, not whoever happened to be
     clicking the button. A knocked-out actor is treated exactly like a combat knockout (skipped,
     party continues) rather than ending the delve -- unless it leaves nobody standing, the same
-    full-wipe path _advance_party_round already uses."""
+    full-wipe path _advance_party_turns already uses."""
     log_lines = []
     check = action.get("check")
     if check is not None:
@@ -2216,11 +2374,11 @@ class PartyRoomResultView(discord.ui.View):
 async def _present_party_room_result(
     interaction: discord.Interaction | None, session: PartyDelveSession, log_lines: list[str],
 ):
-    """`interaction` is optional (unlike its only call site's own real interaction used to imply)
-    now that a DoT tick can also clear a room during a timeout-skipped round (_advance_party_round,
-    called with interaction=None from _skip_party_turn) -- routes through _send_party_update, the
-    same live-interaction-or-session.message split every other timeout-reachable party response
-    already uses."""
+    """`interaction` is optional -- a DoT tick can clear a room mid-_advance_party_turns even when
+    that call originated from a timeout-skipped turn (_skip_party_turn calls _advance_party_turns
+    with interaction=None) -- routes through _send_party_update, the same
+    live-interaction-or-session.message split every other timeout-reachable party response already
+    uses."""
     room = session.rooms_by_id[session.current_room_id]
     next_room = room.get("next")
     currency = db.get_currency_name(session.guild_id)
@@ -2368,8 +2526,7 @@ class PartyLobbyView(discord.ui.View):
         session = PartyDelveSession(lobby.guild_id, lobby.delve, members)
         for uid in lobby.member_ids:
             active_delves[uid] = session  # swap PartyLobby -> PartyDelveSession in place, ids stay registered throughout
-        embed, file, view = await _build_party_room_display(session)
-        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+        await _build_party_room_display(interaction, session)
         session.message = await interaction.original_response()
         self.stop()
 
@@ -2414,8 +2571,7 @@ class DelveModeChoiceView(discord.ui.View):
             await interaction.response.send_message("You're out of energy — run `!rest` to refill it.", ephemeral=True)
             return
         session = await _new_delve_session(self.guild_id, self.user_id, self.character, self.delve)
-        embed, file, view = await _build_room_display(session)
-        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+        await _build_room_display(interaction, session)
         session.message = await interaction.original_response()
         self.stop()
 
@@ -2596,7 +2752,7 @@ class ClassPickerView(discord.ui.View):
             embed.add_field(
                 name=f"Preview: {name}",
                 value=f"HP {stats['hp']} / ATK {stats['atk']} / DEF {stats['def']} / "
-                      f"SpAtk {stats['spatk']} / SpDef {stats['spdef']} / 🪙 Chips {stats['chips']}\n"
+                      f"SpAtk {stats['spatk']} / SpDef {stats['spdef']} / 🏃 Speed {stats['speed']} / 🪙 Chips {stats['chips']}\n"
                       f"Dodge {dodge_pct}% / Resist {resist_pct}%\n"
                       f"Skill: **{skill['name']}** — {skill['flavor']}",
                 inline=False,
@@ -2618,7 +2774,7 @@ class ConfirmButton(discord.ui.Button):
         stats = dungeon.compute_stats(picker.main_class, picker.subclass)
         created = await asyncio.to_thread(
             db.create_character, picker.guild_id, picker.user_id, picker.main_class, picker.subclass,
-            stats["hp"], stats["atk"], stats["def"], stats["spatk"], stats["spdef"],
+            stats["hp"], stats["atk"], stats["def"], stats["spatk"], stats["spdef"], stats["speed"],
         )
         if not created:
             await interaction.response.send_message("You already have a character.", ephemeral=True)
@@ -2630,7 +2786,7 @@ class ConfirmButton(discord.ui.Button):
         embed = discord.Embed(
             title=f"✅ You are now a {name}!",
             description=f"HP {stats['hp']} / ATK {stats['atk']} / DEF {stats['def']} / "
-                        f"SpAtk {stats['spatk']} / SpDef {stats['spdef']} / 🪙 Chips {stats['chips']}\n"
+                        f"SpAtk {stats['spatk']} / SpDef {stats['spdef']} / 🏃 Speed {stats['speed']} / 🪙 Chips {stats['chips']}\n"
                         f"Dodge {dodge_pct}% / Resist {resist_pct}%\n\n"
                         f"Use `!delve` to enter the dungeon.",
             color=discord.Color.green(),
