@@ -945,5 +945,22 @@
     ],
     "chip_cost": 7,
     "special": true
+  },
+  {
+    "id": "summon_guards",
+    "main_class": "healer",
+    "subclass": "hearts",
+    "unlock_level": 5,
+    "name": "Guardsss!",
+    "flavor": "Come help your king!",
+    "effects": [
+      {
+        "type": "def_buff",
+        "value": 6,
+        "aoe": true
+      }
+    ],
+    "chip_cost": 14,
+    "special": true
   }
 ]
