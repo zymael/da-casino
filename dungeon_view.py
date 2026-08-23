@@ -2891,6 +2891,17 @@ async def _send_duel_update(
 DUEL_ARENA_BACKGROUND = "assets/rooms/slug_dome.jpg"
 
 
+def _duel_turn_order_cards(session: DuelSession) -> list[dict]:
+    duelists = [session.challenger, session.opponent]
+    combatants = [{"id": d.user_id, "speed": max(0, d.speed - d.speed_debuff), "clock": d.turn_clock} for d in duelists]
+    duelists_by_id = {d.user_id: d for d in duelists}
+    order = dungeon.preview_next_turns(combatants, TURN_ORDER_PREVIEW_COUNT)
+    return [
+        _player_card(duelists_by_id[cid].player_name, duelists_by_id[cid].main_class, duelists_by_id[cid].subclass)
+        for cid in order
+    ]
+
+
 def _duel_combat_embed(
     session: DuelSession, log_text: str, current_actor: PartyMember,
 ) -> tuple[discord.Embed, discord.File]:
@@ -2902,7 +2913,7 @@ def _duel_combat_embed(
         embed.add_field(
             name=d.label, value=f"❤️ HP {max(d.hp, 0)}/{d.max_hp}\n🪙 Chips {d.chips}/{d.max_chips}{marker}", inline=True,
         )
-    buf = dungeon_render.render_room(1, [], DUEL_ARENA_BACKGROUND, label="Duel")
+    buf = dungeon_render.render_room(1, [], DUEL_ARENA_BACKGROUND, label="Duel", turn_order=_duel_turn_order_cards(session))
     file = discord.File(buf, filename="duel.png")
     embed.set_image(url="attachment://duel.png")
     return embed, file
