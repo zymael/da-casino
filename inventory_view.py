@@ -23,7 +23,7 @@ MAX_SELECT_OPTIONS = 25  # Discord's hard limit on a single Select's options
 def stat_bonus_text(item: dict) -> str:
     """e.g. 'ATK +3' or 'HP +2 / DEF +1' -- the compact form used everywhere an item's constant
     power needs to be legible at a glance (embed lines and Select option descriptions alike).
-    Constant-only on purpose: on_use/on_hit effects go through _dynamic_effect_lines instead,
+    Constant-only on purpose: on_use/on_hit effects go through dynamic_effect_lines instead,
     never here -- this text also feeds a Select option's char-capped description (see
     _equipment_summary), which a proc's description could overflow."""
     order = ("hp", "atk", "def", "spatk", "spdef")
@@ -42,7 +42,7 @@ def _equipment_summary(item: dict) -> str:
 
 def _effect_phrase(effect: dict) -> str:
     """A short player-facing description of one on_use/on_hit effect -- e.g. '1.5x damage' or
-    'enemy DEF −3' -- used by _dynamic_effect_lines. Deliberately terser than
+    'enemy DEF −3' -- used by dynamic_effect_lines. Deliberately terser than
     admin_schemas.EFFECT_TYPE_HINTS, which is authoring-oriented text for someone filling in a
     form, not a player reading their own gear."""
     t, v = effect["type"], effect.get("value")
@@ -85,7 +85,7 @@ def _effect_phrase(effect: dict) -> str:
     return t
 
 
-def _dynamic_effect_lines(item: dict) -> list[str]:
+def dynamic_effect_lines(item: dict) -> list[str]:
     """One line per on_use/on_hit effect on `item` -- constant effects are already covered by
     stat_bonus_text, this is what makes the other two trigger kinds visible to a player at all."""
     lines = []
@@ -107,7 +107,7 @@ def _equipment_line(item_id: str, qty: int | None = None) -> str:
     stat_suffix = f" — {stat_text}" if stat_text else ""
     rarity_dot = dungeon.RARITY_EMOJI[item["rarity"]]
     lines = [f"{rarity_dot} **{item['name']}**{qty_suffix}{stat_suffix} · *{item['rarity']}*"]
-    lines.extend(_dynamic_effect_lines(item))
+    lines.extend(dynamic_effect_lines(item))
     lines.append(f"> {item['flavor']}")
     return "\n".join(lines)
 
@@ -222,13 +222,15 @@ def _equipped_lines(equipped: dict[str, str]) -> str:
         item_id = equipped.get(slot)
         if item_id is None:
             lines.append(f"**{slot.title()}**: *empty*")
-        else:
-            item = dungeon.EQUIPMENT[item_id]
-            rarity_dot = dungeon.RARITY_EMOJI[item["rarity"]]
-            lines.append(
-                f"**{slot.title()}**: {rarity_dot} {item['name']} — {stat_bonus_text(item)} · *{item['rarity']}*"
-                f"\n> {item['flavor']}"
-            )
+            continue
+        item = dungeon.EQUIPMENT[item_id]
+        rarity_dot = dungeon.RARITY_EMOJI[item["rarity"]]
+        entry_lines = [
+            f"**{slot.title()}**: {rarity_dot} {item['name']} — {stat_bonus_text(item)} · *{item['rarity']}*"
+        ]
+        entry_lines.extend(dynamic_effect_lines(item))
+        entry_lines.append(f"> {item['flavor']}")
+        lines.append("\n".join(entry_lines))
     return "\n".join(lines)
 
 

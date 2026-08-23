@@ -116,8 +116,12 @@ def _in_seconds(seconds: float) -> str:
 def _gear_breakdown_lines(equipped: dict[str, str]) -> list[str]:
     """One line per equipment slot (Weapon/Armor/Trinket): rarity dot, item name, and its constant
     stat bonuses (inventory_view.stat_bonus_text -- the same formatter !inventory/!equipment use,
-    so a build's gear reads identically everywhere), or *none* if that slot is empty. Shared by
-    !stats and !class so gear reads the same way in both."""
+    so a build's gear reads identically everywhere), or *none* if that slot is empty. Any on_use/
+    on_hit effects (inventory_view.dynamic_effect_lines -- previously only shown in !inventory/
+    !equipment, invisible everywhere else a player might check their own gear) are listed
+    underneath, indented, so a "ring of fireball"-style item's actual behavior is visible from a
+    character sheet too, not just the dedicated equipment screen. Shared by !stats and !class so
+    gear reads the same way in both."""
     lines = []
     for slot in dungeon.EQUIPMENT_SLOTS:
         item_id = equipped.get(slot)
@@ -128,6 +132,7 @@ def _gear_breakdown_lines(equipped: dict[str, str]) -> list[str]:
         stat_text = inventory_view.stat_bonus_text(item)
         stat_suffix = f" ({stat_text})" if stat_text else ""
         lines.append(f"{slot.title()}: {dungeon.RARITY_EMOJI[item['rarity']]} {item['name']}{stat_suffix}")
+        lines.extend(f"> {effect_line}" for effect_line in inventory_view.dynamic_effect_lines(item))
     return lines
 
 
@@ -363,7 +368,7 @@ async def stats_cmd(ctx):
         max_chips = dungeon.compute_stats(character["main_class"], character["subclass"])["chips"]
         embed.add_field(name="🗡️ Class", value=f"{name} {suit_symbol}\nLevel {character['level']}", inline=True)
         embed.add_field(name="📊 Stats", value=_character_sheet_stats(character, effective, max_chips), inline=True)
-        embed.add_field(name="⚔️ Gear", value="\n".join(_gear_breakdown_lines(equipped)), inline=True)
+        embed.add_field(name="⚔️ Gear", value="\n".join(_gear_breakdown_lines(equipped)), inline=False)
     else:
         embed.add_field(name="🗡️ Class", value="None yet — try `!class`.", inline=True)
 

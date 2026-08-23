@@ -10,6 +10,8 @@ import asyncio
 import discord
 
 import db
+import dungeon
+import inventory_view
 import npcs
 import shop
 
@@ -27,8 +29,20 @@ def _entry_line(entry: dict) -> str:
     item = shop.REGISTRIES[entry["kind"]][entry["item_id"]]
     emoji = _KIND_EMOJI[entry["kind"]]
     blurb = _item_blurb(entry["kind"], item)
-    line = f"{emoji} **{item['name']}** — {entry['price']} gold"
-    return f"{line}\n> {blurb}" if blurb else line
+    lines = []
+    if entry["kind"] == "equipment":
+        # Same detail a player would see in !inventory/!equipment before buying -- rarity dot,
+        # stat bonuses, and any on_use/on_hit effect, not just a bare name and price.
+        emoji = f"{emoji}{dungeon.RARITY_EMOJI[item['rarity']]}"
+        stat_text = inventory_view.stat_bonus_text(item)
+        stat_suffix = f" ({stat_text})" if stat_text else ""
+        lines.append(f"{emoji} **{item['name']}**{stat_suffix} — {entry['price']} gold")
+        lines.extend(f"> {effect_line}" for effect_line in inventory_view.dynamic_effect_lines(item))
+    else:
+        lines.append(f"{emoji} **{item['name']}** — {entry['price']} gold")
+    if blurb:
+        lines.append(f"> {blurb}")
+    return "\n".join(lines)
 
 
 async def build_shop_display(guild_id: int, user_id: int, npc_id: str) -> tuple[discord.Embed, "ShopView"]:
@@ -59,10 +73,12 @@ class ShopSelect(discord.ui.Select):
         options = []
         for i, entry in enumerate(entries[:MAX_SELECT_OPTIONS]):
             item = shop.REGISTRIES[entry["kind"]][entry["item_id"]]
+            rarity_emoji = dungeon.RARITY_EMOJI[item["rarity"]] if entry["kind"] == "equipment" else None
             options.append(discord.SelectOption(
                 label=f"{item['name']} — {entry['price']} {currency}",
                 value=str(i),
                 description=_item_blurb(entry["kind"], item)[:100] or None,
+                emoji=rarity_emoji,
             ))
         super().__init__(placeholder="Buy something...", options=options)
 
