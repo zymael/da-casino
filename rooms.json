@@ -219,6 +219,12 @@
         "label": "\ud83c\udf44Gnomish Night Market"
       }
     ],
-    "commands": []
+    "commands": [
+      {
+        "key": "duel",
+        "kind": "none",
+        "label": "\u2694\ufe0f Duel"
+      }
+    ]
   }
 ]
