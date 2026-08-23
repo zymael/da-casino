@@ -529,5 +529,20 @@
     "special": false,
     "intended_level": 1,
     "flavor": "A vampiric test sword"
+  },
+  {
+    "id": "test_trinket",
+    "name": "Test Speed Lower",
+    "slot": "trinket",
+    "rarity": "common",
+    "effects": [
+      {
+        "type": "speed_debuff",
+        "trigger": "on_use",
+        "value": 25
+      }
+    ],
+    "special": false,
+    "flavor": "aaaa"
   }
 ]
