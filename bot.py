@@ -134,16 +134,16 @@ def _gear_breakdown_lines(equipped: dict[str, str]) -> list[str]:
 def _character_sheet_stats(character: dict, effective: dict, max_chips: int) -> str:
     """The character-sheet stat block shared by !stats and !class -- one consistent emoji per
     stat (matching the existing 🪙 Chips convention) instead of some stats having an icon and
-    others being bare text, grouped into three lines by what kind of number each one is: HP and
+    others being bare text, grouped into four lines by what kind of number each one is: HP and
     Chips together (both a resource pool that refills -- HP between rests, Chips at the start of
-    every fight -- unlike a flat combat stat), the four combat stats on their own line, then the
-    two derived dodge/resist chances last."""
+    every fight -- unlike a flat combat stat), Physical (ATK/DEF) and Special (SpAtk/SpDef) each
+    on their own line, then the two derived dodge/resist chances last."""
     current_hp = min(character["current_hp"], effective["hp"])
     dodge_pct = round(dungeon.dodge_chance(effective["def"]) * 100)
     resist_pct = round(dungeon.dodge_chance(effective["spdef"]) * 100)
     return (
         f"❤️ HP {current_hp}/{effective['hp']} — 🪙 Chips {max_chips}\n"
-        f"⚔️ ATK {effective['atk']} — 🛡️ DEF {effective['def']} — "
+        f"⚔️ ATK {effective['atk']} — 🛡️ DEF {effective['def']}\n"
         f"✨ SpAtk {effective['spatk']} — 🔮 SpDef {effective['spdef']}\n"
         f"💨 Dodge {dodge_pct}% — 🌀 Resist {resist_pct}%"
     )
