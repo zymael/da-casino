@@ -521,6 +521,17 @@ CONTENT_TYPES = {
                 "hint": "at most one dream may be active at a time -- saving a second active dream "
                         "is rejected. Deactivate the current one first, then activate the new one.",
             },
+            {
+                "name": "item_kind", "type": "enum", "required": False, "choices": list(npcs.SHOP_KINDS.keys()),
+                "group": "Reward", "cascades_to": "dream_item",
+                "hint": "optional -- an item granted alongside the message when this dream is "
+                        "delivered. Leave blank (and item_id below blank too) for a message-only dream.",
+            },
+            {
+                "name": "item_id", "type": "cascaded_id", "required": False, "group": "Reward",
+                "cascade": "dream_item", "cascade_from": "item_kind",
+                "hint": "which item -- options populate once item_kind (above) is chosen",
+            },
         ],
     },
     "npcs": {

@@ -9,6 +9,13 @@ A player who successfully !rest's while a dream is active gets its message DM'd 
 (dream_claimed:<id>), not a new table -- same "it's just a flag key" idea quest-stage/NPC-presence
 state already relies on. Keying by the dream's own id (not one global "has dreamed" flag) means a
 *new* dream, once activated, reaches every player again.
+
+A dream can optionally grant one item alongside its message (item_kind + item_id, both optional --
+set together or not at all) -- same five kinds and equip-if-upgrade-else-store/add_inventory_item
+grant logic as shop.py's REGISTRIES/buy(), just triggered by a dream instead of a purchase. quests.py
+IS importable here (unlike npcs.py, which can't -- see its own SHOP_KINDS comment -- quests.py
+doesn't import dreams.py, so there's no cycle), so quest_item ids are validated directly, no
+deferred cross-module check needed for that either.
 """
 
 import asyncio
@@ -18,9 +25,20 @@ import os
 import discord
 
 import db
+import dungeon
+import horse_clothes
+import quests
 
 _DREAMS_PATH = os.path.join(os.path.dirname(__file__), "dreams.json")
 _REQUIRED_DREAM_FIELDS = {"id", "name", "message"}
+
+REGISTRIES = {
+    "equipment": dungeon.EQUIPMENT,
+    "material": dungeon.MATERIALS,
+    "consumable": dungeon.CONSUMABLES,
+    "quest_item": quests.QUEST_ITEMS,
+    "horse_clothes": horse_clothes.HORSE_CLOTHES,
+}
 
 
 def _load_dreams(path: str = _DREAMS_PATH) -> dict[str, dict]:
@@ -35,6 +53,18 @@ def _load_dreams(path: str = _DREAMS_PATH) -> dict[str, dict]:
             raise ValueError(f"dreams.json: dream {entry_id!r} missing field(s): {sorted(missing)}")
         if entry_id in dreams:
             raise ValueError(f"dreams.json: duplicate dream id {entry_id!r}")
+        item_kind, item_id = entry.get("item_kind"), entry.get("item_id")
+        if bool(item_kind) != bool(item_id):
+            raise ValueError(
+                f"dreams.json: dream {entry_id!r} must set both item_kind and item_id together, or neither"
+            )
+        if item_kind is not None:
+            if item_kind not in REGISTRIES:
+                raise ValueError(f"dreams.json: dream {entry_id!r} has unknown item_kind {item_kind!r}")
+            if item_id not in REGISTRIES[item_kind]:
+                raise ValueError(
+                    f"dreams.json: dream {entry_id!r} item_id {item_id!r} not found in {item_kind} registry"
+                )
         if entry.get("active"):
             active_count += 1
         dreams[entry_id] = entry
@@ -54,17 +84,19 @@ def active_dream() -> dict | None:
 
 async def try_deliver_dream(dm_send, guild_id: int, user_id: int) -> bool:
     """Attempts to DM the currently active dream (if any) to this player, once ever per (guild,
-    dream). `dm_send` is an async callable like discord.Member.send/discord.User.send -- mirrors
-    achievements.try_award_many's own `send` param, same "caller supplies the Discord-facing bit,
-    this module stays decoupled from needing a real discord.Member" reasoning. Returns whether it
-    was actually delivered -- False if there's no active dream right now, or this player already
-    claimed it.
+    dream) -- granting its optional item alongside it. `dm_send` is an async callable like
+    discord.Member.send/discord.User.send -- mirrors achievements.try_award_many's own `send`
+    param, same "caller supplies the Discord-facing bit, this module stays decoupled from needing a
+    real discord.Member" reasoning. Returns whether it was actually delivered -- False if there's
+    no active dream right now, or this player already claimed it.
 
     Claims the flag BEFORE sending (atomically, via db.set_flag_if_zero) so a doubled-up call can't
-    send twice, then rolls the claim back if the DM itself fails (discord.Forbidden -- the player
-    has DMs off) so someone who fixes their DM settings later still eventually receives it -- same
-    "lost a race, give it back" shape quests.turn_in already uses for a stale double-click on an
-    inventory item."""
+    send twice. The item grant itself happens AFTER a successful send, not before -- only the
+    (pure, side-effect-free) lookup of what the item is and whether it'd be an equip or a store
+    happens early, so the DM text can describe it. If the DM fails (discord.Forbidden -- the player
+    has DMs off), the flag is rolled back and nothing is granted, so a retry after they fix their
+    DM settings grants it exactly once, not twice -- same "lost a race, give it back" shape
+    quests.turn_in already uses for a stale double-click on an inventory item."""
     dream = active_dream()
     if dream is None:
         return False
@@ -72,10 +104,37 @@ async def try_deliver_dream(dm_send, guild_id: int, user_id: int) -> bool:
     claimed = await asyncio.to_thread(db.set_flag_if_zero, guild_id, user_id, flag_key, 1)
     if not claimed:
         return False
+
+    item_kind = dream.get("item_kind")
+    item = REGISTRIES[item_kind][dream["item_id"]] if item_kind else None
+    will_equip, slot = False, None
+    if item_kind == "equipment":
+        equipped_items = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
+        slot = item["slot"]
+        will_equip = dungeon.is_upgrade(equipped_items.get(slot), item)
+
+    description = dream["message"]
+    if item is not None:
+        if item_kind == "equipment":
+            note = "equipped!" if will_equip else "stored in `!equipment` (your current gear's better)."
+            description += f"\n\n⚔️ You wake up holding **{item['name']}** — {note}"
+        else:
+            description += f"\n\n🎁 You wake up holding **{item['name']}**! Check `!inventory`."
+
     try:
-        embed = discord.Embed(title="💭 A Dream", description=dream["message"], color=discord.Color.purple())
+        embed = discord.Embed(title="💭 A Dream", description=description, color=discord.Color.purple())
         await dm_send(embed=embed)
     except discord.Forbidden:
         await asyncio.to_thread(db.set_flag, guild_id, user_id, flag_key, 0)
         return False
+
+    if item is not None:
+        if item_kind == "equipment":
+            if will_equip:
+                await asyncio.to_thread(db.equip_item_smart, guild_id, user_id, slot, item["id"])
+            else:
+                await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, item["id"])
+        else:
+            await asyncio.to_thread(db.add_inventory_item, guild_id, user_id, item["id"], 1)
+
     return True

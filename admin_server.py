@@ -299,6 +299,13 @@ def _cascade_options() -> dict:
             "quest_item": _choices(quests.QUEST_ITEMS),
             "horse_clothes": _choices(horse_clothes.HORSE_CLOTHES),
         },
+        "dream_item": {
+            "equipment": _choices(dungeon.EQUIPMENT),
+            "material": _choices(dungeon.MATERIALS),
+            "consumable": _choices(dungeon.CONSUMABLES),
+            "quest_item": _choices(quests.QUEST_ITEMS),
+            "horse_clothes": _choices(horse_clothes.HORSE_CLOTHES),
+        },
         "monster_drop": {
             # quest_only equipment (e.g. Mondor's Greasy Pencil) is excluded -- those are only
             # ever granted through a quest turn-in, never a monster's own drop table (enforced
