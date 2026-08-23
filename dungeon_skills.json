@@ -1020,5 +1020,28 @@
     ],
     "chip_cost": 10,
     "special": true
+  },
+  {
+    "id": "fireball_evolved_spades",
+    "main_class": "mage",
+    "subclass": "spades",
+    "unlock_level": 7,
+    "name": "Fireball",
+    "flavor": "BIGGER BOOM",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1.8,
+        "aoe": true
+      },
+      {
+        "type": "dot",
+        "duration": 4,
+        "value": 0.3,
+        "aoe": true
+      }
+    ],
+    "chip_cost": 12,
+    "special": true
   }
 ]
