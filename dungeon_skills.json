@@ -846,7 +846,7 @@
     "effects": [
       {
         "type": "damage_multiplier",
-        "value": 0.4
+        "value": 0.6
       },
       {
         "type": "stun",
@@ -859,7 +859,7 @@
       }
     ],
     "chip_cost": 10,
-    "special": true
+    "special": false
   },
   {
     "id": "fetch_wine_base",
