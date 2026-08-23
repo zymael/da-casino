@@ -181,6 +181,10 @@
       {
         "room_id": "town_square",
         "label": "\ud83c\udfd8\ufe0f Town Square"
+      },
+      {
+        "room_id": "slug_dome",
+        "label": "\ud83d\udc1b Slug Dome"
       }
     ],
     "commands": []
