@@ -195,6 +195,13 @@ svg.delve-arrows text { user-select: none; }
 .room-detail-panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .live-next-tag { font-weight: normal; color: #9a9aa4; font-size: 0.78rem; margin-left: 6px; }
 #tooltip-bubble { position: fixed; z-index: 999; background: #101014; color: #e8e8ec; border: 1px solid #52525e; padding: 6px 10px; border-radius: 6px; font-size: 0.78rem; max-width: 260px; display: none; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+
+/* Live skill-odds display (see _dynamic_script's updateSkillOdds) -- a monster's "Skills" fieldset
+   shows the actual percent chance of each option (plain attack + every skill) recomputed on every
+   keystroke, so attack_chance/chance's relative-weight semantics don't have to be worked out by hand. */
+.skill-odds-summary { background: #1c1c26; border: 1px solid #35353f; border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; font-size: 0.85rem; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.skill-odds-item b { color: #6ac0f0; }
+.skill-odds-pct { font-size: 0.8rem; color: #6ac0f0; font-weight: bold; align-self: center; }
 """
 
 # Attaches to every image-upload input on the page (there may be several) -- picking a file
@@ -463,6 +470,49 @@ function wireCascadingSelects(root) {
     });
 }
 
+// A monster's skills fieldset (data-skill-odds, see admin_schemas.py's "monster_skills" field
+// type) shows the *actual* percent chance of each option -- dungeon.pick_monster_action picks one
+// of [plain attack (weight = attack_chance), skill 1 (weight = its own chance), skill 2, ...] via
+// random.choices, so "what are the real odds" only falls out once every weight in the row is known
+// together, not from staring at one chance value in isolation. No-op (returns immediately) on any
+// page without this fieldset, so it's safe to call unconditionally from every place a skill row
+// could change -- typing in attack_chance/a chance field, adding a skill, removing one.
+function updateSkillOdds() {
+    var summary = document.getElementById('skill-odds-summary');
+    if (!summary) return;
+    var attackInput = document.querySelector('input[name="attack_chance"]');
+    var attackRaw = attackInput ? attackInput.value.trim() : '';
+    var attackWeight = attackRaw === '' ? 1 : parseFloat(attackRaw);
+    if (isNaN(attackWeight) || attackWeight < 0) attackWeight = 0;
+
+    var entries = [{label: '⚔️ Plain attack', weight: attackWeight, pctEl: null}];
+    document.querySelectorAll('[data-skill-row]').forEach(function (row) {
+        var chanceInput = row.querySelector('[data-skill-chance]');
+        var nameInput = row.querySelector('[data-skill-name]');
+        var raw = chanceInput ? chanceInput.value.trim() : '';
+        var weight = raw === '' ? 0 : parseFloat(raw);
+        if (isNaN(weight) || weight < 0) weight = 0;
+        var label = (nameInput && nameInput.value.trim()) || '(unnamed skill)';
+        entries.push({label: label, weight: weight, pctEl: row.querySelector('[data-skill-pct]')});
+    });
+
+    var total = entries.reduce(function (sum, e) { return sum + e.weight; }, 0);
+    entries.forEach(function (e) {
+        if (!e.pctEl) return;
+        e.pctEl.textContent = total > 0 ? (e.weight / total * 100).toFixed(1) + '%' : '—';
+    });
+
+    if (total <= 0) {
+        summary.textContent = 'Every weight is 0 -- this monster could never act at all.';
+        return;
+    }
+    summary.innerHTML = entries.map(function (e) {
+        var pct = (e.weight / total * 100).toFixed(1);
+        var safeLabel = e.label.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+        return '<span class="skill-odds-item"><b>' + pct + '%</b> ' + safeLabel + '</span>';
+    }).join('');
+}
+
 // Wires every [data-repeat-add] button under `root` that isn't already wired -- called once at
 // page load (root=document) and again on every freshly-cloned row (root=that row), since a clone
 // can itself introduce a new "+ Add" button one level down (a delve room's own "+ Add monster"/
@@ -509,6 +559,7 @@ function wireRepeatAdd(root) {
             if (window.wireFlowchartNode) window.wireFlowchartNode(container.lastElementChild);
             if (window.refreshRoomBoxIfNested) window.refreshRoomBoxIfNested(container.lastElementChild);
             if (window.__scheduleDelveAutosave) window.__scheduleDelveAutosave();
+            updateSkillOdds();
             nextIndex++;
         });
     });
@@ -521,6 +572,10 @@ wireEquipmentTriggerSelects(document);
 wireRoomTypeSelects(document);
 wireCascadingSelects(document);
 wireRepeatAdd(document);
+updateSkillOdds();
+// Cheap enough to just run on every keystroke anywhere on the page -- updateSkillOdds itself
+// no-ops immediately (see its own comment) on any page without a monster's skills fieldset.
+document.addEventListener('input', updateSkillOdds);
 
 document.addEventListener('click', function (event) {
     if (event.target.matches('[data-remove-row]')) {
@@ -529,6 +584,7 @@ document.addEventListener('click', function (event) {
         group.remove();
         if (wrapper && window.refreshRoomBoxIfNested) window.refreshRoomBoxIfNested(wrapper);
         if (window.__scheduleDelveAutosave) window.__scheduleDelveAutosave();
+        updateSkillOdds();
     } else if (event.target.matches('[data-remove-room]')) {
         event.target.closest('.room-wrapper').remove();
         if (window.__redrawDelveArrows) window.__redrawDelveArrows();
@@ -1522,13 +1578,16 @@ def _render_monster_skill_row(prefix: str, skill: dict) -> str:
     effect_template_html = _render_effect_row(f"{effects_container}_ROWIDX", {})
     effects_repeatable = _render_repeatable(effects_container, effect_rows_html, effect_template_html, "+ Add effect")
     return (
-        f'<fieldset class="row-group"><legend>Skill</legend>'
-        f'<label>name<input type="text" name="{prefix}_name" value="{html.escape(skill.get("name", ""))}"></label>'
-        f'<label>chance (weight)<input type="number" step="any" min="0" name="{prefix}_chance" '
-        f'value="{skill.get("chance", "")}"></label>'
-        f'<small class="field-hint">A relative weight against this monster\'s own attack_chance '
-        f'and its other skills\' chances -- not a 0-1 probability. Higher = more likely relative '
-        f'to the others.</small>'
+        f'<fieldset class="row-group" data-skill-row><legend>Skill</legend>'
+        f'<label>name<input type="text" name="{prefix}_name" value="{html.escape(skill.get("name", ""))}" '
+        f'data-skill-name></label>'
+        f'<label data-tooltip="A relative weight against this monster\'s own attack_chance and its '
+        f'other skills\' chances -- NOT a 0-1 probability. E.g. two skills both at chance=1 with '
+        f'attack_chance=1 split evenly three ways (~33% each). The badge to the right shows this '
+        f'skill\'s actual live odds given every weight currently filled in.">chance (weight)'
+        f'<input type="number" step="any" min="0" name="{prefix}_chance" '
+        f'value="{skill.get("chance", "")}" data-skill-chance></label>'
+        f'<span class="skill-odds-pct" data-skill-pct>—</span>'
         f'<label class="checkbox-label"><input type="checkbox" name="{prefix}_special"'
         f'{" checked" if skill.get("special") else ""}> Special (rolls SpAtk/SpDef instead of ATK/DEF)</label>'
         f'<div>{effects_repeatable}</div>'
@@ -2205,7 +2264,11 @@ def _render_field(field: dict, value, entry: dict | None = None, problems: list[
         rows_html = [_render_monster_skill_row(f"skill_{i}", s) for i, s in enumerate(skills)]
         template_html = _render_monster_skill_row("skill_ROWIDX", {})
         repeatable = _render_repeatable(f"{name}-rows", rows_html, template_html, "+ Add skill")
-        return f'<fieldset><legend>{label}</legend>{repeatable}</fieldset>'
+        # data-skill-odds + #skill-odds-summary: the page script's updateSkillOdds recomputes and
+        # displays each option's actual live percent chance (attack_chance above plus every skill
+        # row's own chance) on every keystroke -- see _dynamic_script.
+        odds_summary = '<div class="skill-odds-summary" id="skill-odds-summary">Live odds appear here once attack_chance/skills are filled in.</div>'
+        return f'<fieldset data-skill-odds><legend>{label}</legend>{odds_summary}{repeatable}</fieldset>'
 
     if ftype == "materials":
         materials = list((value or {}).items())
