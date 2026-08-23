@@ -91,5 +91,11 @@
         "price": 1000
       }
     ]
+  },
+  {
+    "id": "slug",
+    "name": "Slug",
+    "room": "slug_dome",
+    "greet_message": "I hope you're stronger than you look."
   }
 ]
