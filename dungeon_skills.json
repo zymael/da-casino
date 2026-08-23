@@ -914,8 +914,7 @@
     "effects": [
       {
         "type": "damage_multiplier",
-        "value": 0.8,
-        "aoe": true
+        "value": 0.8
       },
       {
         "type": "def_shred",
