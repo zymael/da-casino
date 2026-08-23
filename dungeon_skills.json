@@ -905,20 +905,20 @@
     "special": true
   },
   {
-    "id": "fetch_wine_clubs",
+    "id": "throw_coin",
     "main_class": "healer",
-    "subclass": "clubs",
-    "unlock_level": 7,
-    "name": "Healing Wine",
-    "flavor": "Squire! Fetch me some tasty wine!",
+    "subclass": "diamonds",
+    "unlock_level": 5,
+    "name": "Throw fake coins!",
+    "flavor": "Oh look, shiney!",
     "effects": [
       {
-        "type": "heal_fraction",
-        "value": 0.3,
+        "type": "damage_multiplier",
+        "value": 0.8,
         "aoe": true
       },
       {
-        "type": "def_buff",
+        "type": "def_shred",
         "value": 4,
         "aoe": true
       }
