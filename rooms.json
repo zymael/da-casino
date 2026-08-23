@@ -196,6 +196,12 @@
         "label": "\ud83e\udddd Elven Night Market"
       }
     ],
-    "commands": []
+    "commands": [
+      {
+        "key": "horseequip",
+        "kind": "none",
+        "label": "Dress Up"
+      }
+    ]
   }
 ]
