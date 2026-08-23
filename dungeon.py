@@ -807,15 +807,31 @@ def _build_skills_by_combo(skills: dict[str, dict]) -> dict[tuple[str, str], lis
     # Every build must have exactly one level-1 skill -- otherwise a fresh character could get an
     # empty Ability button, which is a strictly worse UX regression than anything a content typo
     # elsewhere in this file would cause, so it's checked here rather than left to be noticed live.
+    # Zero is still a hard failure (no reasonable skill to synthesize, and it's a much rarer mistake
+    # to make than the other direction) -- but MORE than one (e.g. leftover template scaffolding
+    # from a Duplicate that never got re-leveled/re-subclassed before saving) degrades gracefully
+    # instead of taking the entire bot down over one bad combo in one build: keep the
+    # lowest-id skill deterministically, drop the rest from SKILLS_BY_COMBO (they're still in
+    # SKILLS/the admin panel's own list for whoever owns content to find and fix), and log it
+    # loudly so the mistake doesn't go unnoticed just because it stopped being fatal.
     for main_class in CLASSES:
         for subclass in SUBCLASSES:
             combo = (main_class, subclass)
             level_ones = [s for s in by_combo.get(combo, []) if s["unlock_level"] == 1]
-            if len(level_ones) != 1:
+            if not level_ones:
                 raise ValueError(
-                    f"dungeon_skills.json: {main_class}/{subclass} must have exactly one unlock_level=1 "
-                    f"skill, found {len(level_ones)}"
+                    f"dungeon_skills.json: {main_class}/{subclass} has no unlock_level=1 skill"
                 )
+            if len(level_ones) > 1:
+                keep = min(level_ones, key=lambda s: s["id"])
+                drop_ids = {s["id"] for s in level_ones if s is not keep}
+                print(
+                    f"[dungeon] {main_class}/{subclass} has {len(level_ones)} unlock_level=1 skills "
+                    f"({', '.join(sorted(s['id'] for s in level_ones))}) -- keeping {keep['id']!r}, "
+                    f"dropping the rest so startup doesn't fail entirely. Fix this in the admin panel.",
+                    flush=True,
+                )
+                by_combo[combo] = [s for s in by_combo[combo] if s["id"] not in drop_ids]
     return by_combo
 
 
