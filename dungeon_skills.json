@@ -1043,5 +1043,27 @@
     ],
     "chip_cost": 12,
     "special": true
+  },
+  {
+    "id": "fireball_evolved_clubs",
+    "main_class": "mage",
+    "subclass": "clubs",
+    "unlock_level": 7,
+    "name": "Fireball",
+    "flavor": "BIGGER BOOM",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1.8,
+        "aoe": true
+      },
+      {
+        "type": "def_shred",
+        "value": 3,
+        "aoe": true
+      }
+    ],
+    "chip_cost": 10,
+    "special": true
   }
 ]
