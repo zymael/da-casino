@@ -131,6 +131,24 @@ def _gear_breakdown_lines(equipped: dict[str, str]) -> list[str]:
     return lines
 
 
+def _character_sheet_stats(character: dict, effective: dict, max_chips: int) -> str:
+    """The character-sheet stat block shared by !stats and !class -- one consistent emoji per
+    stat (matching the existing 🪙 Chips convention) instead of some stats having an icon and
+    others being bare text, grouped into three lines by what kind of number each one is: HP and
+    Chips together (both a resource pool that refills -- HP between rests, Chips at the start of
+    every fight -- unlike a flat combat stat), the four combat stats on their own line, then the
+    two derived dodge/resist chances last."""
+    current_hp = min(character["current_hp"], effective["hp"])
+    dodge_pct = round(dungeon.dodge_chance(effective["def"]) * 100)
+    resist_pct = round(dungeon.dodge_chance(effective["spdef"]) * 100)
+    return (
+        f"❤️ HP {current_hp}/{effective['hp']} — 🪙 Chips {max_chips}\n"
+        f"⚔️ ATK {effective['atk']} — 🛡️ DEF {effective['def']} — "
+        f"✨ SpAtk {effective['spatk']} — 🔮 SpDef {effective['spdef']}\n"
+        f"💨 Dodge {dodge_pct}% — 🌀 Resist {resist_pct}%"
+    )
+
+
 async def _reject_if_at_poker_table(ctx) -> bool:
     """True (and sends a message) if the author is mid-hand at a poker table — their
     tracked stack there would desync from their balance if they spent money elsewhere."""
@@ -342,15 +360,11 @@ async def stats_cmd(ctx):
         suit_symbol = dungeon.SUIT_SYMBOLS[character["subclass"]]
         equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
         effective = dungeon.compute_effective_stats(character, equipped)
-        current_hp = min(character["current_hp"], effective["hp"])
-        dodge_pct = round(dungeon.dodge_chance(effective["def"]) * 100)
-        resist_pct = round(dungeon.dodge_chance(effective["spdef"]) * 100)
+        max_chips = dungeon.compute_stats(character["main_class"], character["subclass"])["chips"]
         embed.add_field(
             name="🗡️ Class",
             value=f"{name} {suit_symbol} — Level {character['level']}\n"
-            f"HP {current_hp}/{effective['hp']} / ATK {effective['atk']} / DEF {effective['def']} / "
-            f"SpAtk {effective['spatk']} / SpDef {effective['spdef']}\n"
-            f"Dodge {dodge_pct}% / Resist {resist_pct}%",
+            + _character_sheet_stats(character, effective, max_chips),
             inline=True,
         )
         embed.add_field(name="⚔️ Gear", value="\n".join(_gear_breakdown_lines(equipped)), inline=True)
@@ -801,18 +815,9 @@ async def class_cmd(ctx):
         max_chips = dungeon.compute_stats(character["main_class"], character["subclass"])["chips"]
         xp_needed = dungeon.xp_to_next_level(character["level"])
 
-        current_hp = min(character["current_hp"], effective["hp"])
-        dodge_pct = round(dungeon.dodge_chance(effective["def"]) * 100)
-        resist_pct = round(dungeon.dodge_chance(effective["spdef"]) * 100)
         embed = discord.Embed(title=f"{name} {suit_symbol}", color=discord.Color.blurple())
         embed.add_field(name="Level", value=f"{character['level']} ({character['xp']}/{xp_needed} XP)", inline=True)
-        embed.add_field(
-            name="Stats",
-            value=f"HP {current_hp}/{effective['hp']} / ATK {effective['atk']} / DEF {effective['def']} / "
-                  f"SpAtk {effective['spatk']} / SpDef {effective['spdef']}\n"
-                  f"Dodge {dodge_pct}% / Resist {resist_pct}% / 🪙 Chips {max_chips}",
-            inline=True,
-        )
+        embed.add_field(name="Stats", value=_character_sheet_stats(character, effective, max_chips), inline=True)
         embed.add_field(name="⚔️ Equipment", value="\n".join(_gear_breakdown_lines(equipped)), inline=False)
         embed.set_footer(text="Class/subclass is permanent — gear and levels grow from delving.")
         await ctx.send(embed=embed)
