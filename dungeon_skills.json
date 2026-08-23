@@ -1175,5 +1175,25 @@
     ],
     "chip_cost": 8,
     "special": true
+  },
+  {
+    "id": "meteor_fist",
+    "main_class": "mage",
+    "subclass": "clubs",
+    "unlock_level": 5,
+    "name": "Meteor Fist",
+    "flavor": "BIG OOGA BOOGA FIST",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1.9
+      },
+      {
+        "type": "stun",
+        "duration": 2
+      }
+    ],
+    "chip_cost": 12,
+    "special": true
   }
 ]
