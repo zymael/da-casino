@@ -2545,14 +2545,18 @@ def _load_raw_entries(spec: dict) -> list[dict]:
 
 
 def _auto_commit_content_save(path: str, spec: dict) -> None:
-    """Commits `path`'s new content as its own git commit, right after a successful save/publish/
-    delete -- every real content edit through this admin panel becomes its own checkpoint instead
-    of piling up as uncommitted working-tree state indefinitely (these JSON files are edited live,
-    constantly, exactly the kind of continuously-changing production data that's most exposed by
-    sitting uncommitted -- see CLAUDE.md/git history for why this exists). Best-effort and silent:
-    never raises and never blocks a save from succeeding -- a git failure here (no repo, nothing
-    actually changed, a lock held by something else) is a missed checkpoint, not a reason to
-    reject content an admin just successfully validated and wrote."""
+    """Commits `path`'s new content as its own git commit and pushes it to origin, right after a
+    successful save/publish/delete -- every real content edit through this admin panel becomes its
+    own checkpoint AND shows up on GitHub immediately, instead of piling up as uncommitted
+    working-tree state or sitting locally-committed-but-unpushed indefinitely (these JSON files are
+    edited live, constantly, exactly the kind of continuously-changing production data that's most
+    exposed by sitting uncommitted/unpushed -- see CLAUDE.md/git history for why this exists).
+    Best-effort and silent: never raises and never blocks a save from succeeding -- a git failure
+    here (no repo, nothing actually changed, a lock held by something else, no network for the
+    push) is a missed checkpoint, not a reason to reject content an admin just successfully
+    validated and wrote. `push` uses "origin HEAD" (not a hardcoded branch name) so it works
+    whatever branch this checkout happens to be on; a 15s timeout keeps a stalled connection from
+    hanging the save request instead of just skipping the push."""
     repo_dir = os.path.dirname(__file__)
     try:
         subprocess.run(["git", "add", "--", path], cwd=repo_dir, check=True, capture_output=True)
@@ -2560,6 +2564,7 @@ def _auto_commit_content_save(path: str, spec: dict) -> None:
             ["git", "commit", "-m", f"content: save {os.path.basename(path)} via admin panel", "--", path],
             cwd=repo_dir, capture_output=True,
         )
+        subprocess.run(["git", "push", "origin", "HEAD"], cwd=repo_dir, capture_output=True, timeout=15)
     except Exception:
         pass  # best-effort checkpoint only -- see docstring
 
