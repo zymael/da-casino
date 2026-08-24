@@ -41,7 +41,7 @@ class DrawButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         view: VideoPokerView = self.view
         if view.author.id in holdem_busy_players:
-            await interaction.response.send_message("Finish your poker hand first!", ephemeral=True)
+            await interaction.response.send_message("Finish up whatever you're already doing first.", ephemeral=True)
             return
 
         view.hand = video_poker.draw_replacements(view.deck, view.hand, view.held)
@@ -94,7 +94,7 @@ class PlayAgainButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         view: VideoPokerView = self.view
         if view.author.id in holdem_busy_players:
-            await interaction.response.send_message("Finish your poker hand first!", ephemeral=True)
+            await interaction.response.send_message("Finish up whatever you're already doing first.", ephemeral=True)
             return
         if view.bet > view.balance:
             currency = db.get_currency_name(view.guild_id)

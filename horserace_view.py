@@ -185,7 +185,7 @@ class HorseRaceView(discord.ui.View):
             await interaction.response.send_message("This race already closed.", ephemeral=True)
             return
         if interaction.user.id in holdem_busy_players:
-            await interaction.response.send_message("Finish your poker hand first!", ephemeral=True)
+            await interaction.response.send_message("Finish up whatever you're already doing first.", ephemeral=True)
             return
         try:
             amount = int(raw_amount)

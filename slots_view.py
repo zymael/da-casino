@@ -101,7 +101,7 @@ class SpinButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         view: SlotsView = self.view
         if view.author.id in holdem_busy_players:
-            await interaction.response.send_message("Finish your poker hand first!", ephemeral=True)
+            await interaction.response.send_message("Finish up whatever you're already doing first.", ephemeral=True)
             return
         if view.total_bet > view.balance:
             currency = db.get_currency_name(view.guild_id)

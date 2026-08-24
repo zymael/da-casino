@@ -167,10 +167,12 @@ def _character_sheet_stats(character: dict, effective: dict, max_chips: int) -> 
 
 
 async def _reject_if_at_poker_table(ctx) -> bool:
-    """True (and sends a message) if the author is mid-hand at a poker table — their
-    tracked stack there would desync from their balance if they spent money elsewhere."""
+    """True (and sends a message) if the author is mid-hand at a poker table, mid-delve, or
+    otherwise occupied per holdem_view.busy_players (dungeon_view.py reuses this same set for
+    delves/duels) — their tracked stack/session there would desync from their balance if they
+    spent money elsewhere."""
     if ctx.author.id in holdem_busy_players:
-        await ctx.send(f"{ctx.author.display_name}, finish your poker hand first!")
+        await ctx.send(f"{ctx.author.display_name}, finish up whatever you're already doing first.")
         return True
     return False
 

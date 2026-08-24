@@ -784,7 +784,11 @@ DELVE_ACTION_TIMEOUT = 1200  # 20 minutes -- plenty of time to notice it's your 
 
 class AttackButton(discord.ui.Button):
     def __init__(self):
-        super().__init__(label="Attack", style=discord.ButtonStyle.primary, row=0)
+        # No explicit row -- lets discord.py auto-pack Attack/skill buttons around whatever
+        # fixed-row items (item/cast/target) are already in the view, so a build with enough
+        # unlocked skills to overflow row 0 spills into free space instead of crashing (see
+        # CombatView.__init__'s add order, which adds fixed-row items first for this to work).
+        super().__init__(label="Attack", style=discord.ButtonStyle.primary)
 
     async def callback(self, interaction: discord.Interaction):
         # stop() cancels this view's own pending timeout once its turn is actually resolved --
@@ -805,7 +809,7 @@ class SkillButton(discord.ui.Button):
     same "show what you can't afford yet" idea an already-used skill used to convey."""
 
     def __init__(self, skill: dict, disabled: bool):
-        super().__init__(label=skill["name"], style=discord.ButtonStyle.success, disabled=disabled, row=0)
+        super().__init__(label=skill["name"], style=discord.ButtonStyle.success, disabled=disabled)
         self.skill = skill
 
     async def callback(self, interaction: discord.Interaction):
@@ -897,9 +901,8 @@ class CombatView(discord.ui.View):
     def __init__(self, session: DelveSession, usable_items: list[dict] | None = None):
         super().__init__(timeout=DELVE_ACTION_TIMEOUT)
         self.session = session
-        self.add_item(AttackButton())
-        for skill in session.unlocked_skills:
-            self.add_item(SkillButton(skill, disabled=skill["chip_cost"] > session.chips))
+        # Fixed-row items go in first so their rows are already reserved by the time
+        # Attack/skill buttons (no explicit row) get auto-packed -- see AttackButton's comment.
         usable_items = usable_items or []
         if len(usable_items) == 1:
             self.add_item(UseItemButton(usable_items[0]))
@@ -909,6 +912,9 @@ class CombatView(discord.ui.View):
             self.add_item(CastItemButton(item, disabled=item["id"] in session.used_item_effects))
         if len(session.living_monsters()) > 1:
             self.add_item(TargetSelect(session))
+        self.add_item(AttackButton())
+        for skill in session.unlocked_skills:
+            self.add_item(SkillButton(skill, disabled=skill["chip_cost"] > session.chips))
         session.current_view = self
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -951,6 +957,8 @@ class RoomResultView(discord.ui.View):
 
     @discord.ui.button(label="Retreat with Loot", style=discord.ButtonStyle.success)
     async def retreat_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.session.current_view is not self:
+            return  # already acted on (e.g. a double-click) -- avoid double-paying out
         embed = await _apply_retreat(self.session)
         await interaction.response.edit_message(embed=embed, attachments=[], view=None)
         self.stop()
@@ -958,10 +966,13 @@ class RoomResultView(discord.ui.View):
     @discord.ui.button(label="Push Deeper", style=discord.ButtonStyle.danger)
     async def push_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         session = self.session
+        if session.current_view is not self:
+            return  # already acted on -- a stray/duplicate click shouldn't re-derive room state
         room = session.rooms_by_id[session.current_room_id]
-        # Guaranteed non-None -- this view is only ever shown when _present_room_result found a
-        # "next" room to push into (see its is_last_room check).
-        await _goto_room(interaction, session, room["next"], "You press deeper into the dungeon...")
+        next_room = room.get("next")
+        if next_room is None:
+            return  # room state doesn't match this stale view -- nothing sane to push into
+        await _goto_room(interaction, session, next_room, "You press deeper into the dungeon...")
         self.stop()
 
     async def on_timeout(self):
@@ -2239,7 +2250,10 @@ async def _handle_party_cast_item(
 
 class PartyAttackButton(discord.ui.Button):
     def __init__(self):
-        super().__init__(label="Attack", style=discord.ButtonStyle.primary, row=0)
+        # No explicit row -- see solo AttackButton's comment; lets Attack/skills auto-pack
+        # around whatever fixed-row items PartyCombatView already added instead of crashing
+        # once a build has enough unlocked skills to overflow row 0.
+        super().__init__(label="Attack", style=discord.ButtonStyle.primary)
 
     async def callback(self, interaction: discord.Interaction):
         if await _handle_party_action(interaction, self.view.session, self.view.actor, skill=None):
@@ -2248,7 +2262,7 @@ class PartyAttackButton(discord.ui.Button):
 
 class PartySkillButton(discord.ui.Button):
     def __init__(self, skill: dict, disabled: bool):
-        super().__init__(label=skill["name"], style=discord.ButtonStyle.success, disabled=disabled, row=0)
+        super().__init__(label=skill["name"], style=discord.ButtonStyle.success, disabled=disabled)
         self.skill = skill
 
     async def callback(self, interaction: discord.Interaction):
@@ -2354,9 +2368,8 @@ class PartyCombatView(discord.ui.View):
         super().__init__(timeout=PARTY_ACTION_TIMEOUT)
         self.session = session
         self.actor = actor
-        self.add_item(PartyAttackButton())
-        for skill in actor.unlocked_skills:
-            self.add_item(PartySkillButton(skill, disabled=skill["chip_cost"] > actor.chips))
+        # Fixed-row items go in first so their rows are already reserved by the time
+        # Attack/skill buttons (no explicit row) get auto-packed -- see PartyAttackButton's comment.
         usable_items = usable_items or []
         if len(usable_items) == 1:
             self.add_item(PartyUseItemButton(usable_items[0]))
@@ -2368,6 +2381,9 @@ class PartyCombatView(discord.ui.View):
             self.add_item(PartyTargetSelect(session, actor))
         if len(session.living_members()) > 1:
             self.add_item(PartyAllyTargetSelect(session, actor))
+        self.add_item(PartyAttackButton())
+        for skill in actor.unlocked_skills:
+            self.add_item(PartySkillButton(skill, disabled=skill["chip_cost"] > actor.chips))
         session.current_view = self
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -2763,6 +2779,8 @@ class PartyRoomResultView(discord.ui.View):
 
     @discord.ui.button(label="Retreat with Loot", style=discord.ButtonStyle.success)
     async def retreat_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.session.current_view is not self:
+            return  # already acted on (e.g. a double-click) -- avoid double-paying out
         embed = await _apply_party_retreat(self.session)
         await interaction.response.edit_message(embed=embed, attachments=[], view=None)
         self.stop()
@@ -2770,10 +2788,13 @@ class PartyRoomResultView(discord.ui.View):
     @discord.ui.button(label="Push Deeper", style=discord.ButtonStyle.danger)
     async def push_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         session = self.session
+        if session.current_view is not self:
+            return  # already acted on -- a stray/duplicate click shouldn't re-derive room state
         room = session.rooms_by_id[session.current_room_id]
-        # Guaranteed non-None -- this view is only ever shown when _present_party_room_result
-        # found a "next" room to push into.
-        await _goto_party_room(interaction, session, room["next"], "The party presses deeper into the dungeon...")
+        next_room = room.get("next")
+        if next_room is None:
+            return  # room state doesn't match this stale view -- nothing sane to push into
+        await _goto_party_room(interaction, session, next_room, "The party presses deeper into the dungeon...")
         self.stop()
 
     async def on_timeout(self):
@@ -3363,7 +3384,10 @@ async def _handle_duel_cast_item(
 
 class DuelAttackButton(discord.ui.Button):
     def __init__(self):
-        super().__init__(label="Attack", style=discord.ButtonStyle.primary, row=0)
+        # No explicit row -- see solo AttackButton's comment; lets Attack/skills auto-pack
+        # around whatever fixed-row items DuelCombatView already added instead of crashing
+        # once a build has enough unlocked skills to overflow row 0.
+        super().__init__(label="Attack", style=discord.ButtonStyle.primary)
 
     async def callback(self, interaction: discord.Interaction):
         if await _handle_duel_action(interaction, self.view.session, self.view.actor, skill=None):
@@ -3372,7 +3396,7 @@ class DuelAttackButton(discord.ui.Button):
 
 class DuelSkillButton(discord.ui.Button):
     def __init__(self, skill: dict, disabled: bool):
-        super().__init__(label=skill["name"], style=discord.ButtonStyle.success, disabled=disabled, row=0)
+        super().__init__(label=skill["name"], style=discord.ButtonStyle.success, disabled=disabled)
         self.skill = skill
 
     async def callback(self, interaction: discord.Interaction):
@@ -3423,9 +3447,8 @@ class DuelCombatView(discord.ui.View):
         super().__init__(timeout=PARTY_ACTION_TIMEOUT)
         self.session = session
         self.actor = actor
-        self.add_item(DuelAttackButton())
-        for skill in actor.unlocked_skills:
-            self.add_item(DuelSkillButton(skill, disabled=skill["chip_cost"] > actor.chips))
+        # Fixed-row items go in first so their rows are already reserved by the time
+        # Attack/skill buttons (no explicit row) get auto-packed -- see DuelAttackButton's comment.
         usable_items = usable_items or []
         if len(usable_items) == 1:
             self.add_item(DuelUseItemButton(usable_items[0]))
@@ -3433,6 +3456,9 @@ class DuelCombatView(discord.ui.View):
             self.add_item(DuelUseItemSelect(usable_items))
         for item in castable_equipment(actor.equipped):
             self.add_item(DuelCastItemButton(item, disabled=item["id"] in actor.used_item_effects))
+        self.add_item(DuelAttackButton())
+        for skill in actor.unlocked_skills:
+            self.add_item(DuelSkillButton(skill, disabled=skill["chip_cost"] > actor.chips))
         # No target-select -- there's only ever one possible opponent in a 1v1 duel.
         session.current_view = self
 
