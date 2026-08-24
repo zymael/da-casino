@@ -45,7 +45,7 @@ import ranch_view
 import room_commands
 import room_view
 import rooms
-from roulette_view import RouletteView, active_rounds
+from roulette_view import active_rounds, start_roulette_table
 import slots_view
 from slots_view import SlotsView
 import video_poker
@@ -717,16 +717,12 @@ async def deuces_wild_cmd(ctx, bet: int = None):
 
 @bot.command(name="roulette", aliases=["rl"])
 async def roulette_cmd(ctx):
-    """Open a roulette table others can join before it spins: !roulette"""
+    """Open a persistent roulette table: !roulette — each round spins 30s after its last bet, then the table reopens for the next round automatically."""
     if ctx.channel.id in active_rounds:
         await ctx.send("A roulette round is already open here — place your bets on that one!")
         return
 
-    view = RouletteView(ctx.author, ctx.channel.id, ctx.guild.id)
-    active_rounds[ctx.channel.id] = view
-    embed, file = view.build_display()
-    message = await ctx.send(embed=embed, file=file, view=view)
-    view.message = message
+    await start_roulette_table(ctx)
 
 
 @bot.command(name="horserace", aliases=["horse", "race"])

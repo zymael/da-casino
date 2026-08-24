@@ -9,11 +9,13 @@ import roulette
 import roulette_render
 from holdem_view import busy_players as holdem_busy_players
 
-ROUND_SECONDS = 45
+BET_TIMEOUT_SECONDS = 30  # a round spins this long after its last bet (or after opening, if none yet)
 STEAL_CHANCE = 0.01  # 1-in-100 chance a winning payout gets swiped instead of paid out
 STEAL_NAMES = ["Lady of the evening", "Classy Escort"]
 
-# channel_id -> RouletteView, so only one open table per channel
+# channel_id -> the currently-open round's RouletteView, so only one open table per channel.
+# Registered/popped for the table's whole persistent lifetime by run_roulette_table -- not by
+# RouletteView itself -- since a table now spins round after round rather than closing after one.
 active_rounds: dict[int, "RouletteView"] = {}
 
 # (guild_id, user_id) -> that user's bets from their last resolved round, for "Repeat Bets"
@@ -254,21 +256,34 @@ class TowerShapeSelect(discord.ui.Select):
 
 class RouletteView(discord.ui.View):
     def __init__(self, starter: discord.abc.User, channel_id: int, guild_id: int):
-        super().__init__(timeout=ROUND_SECONDS)
+        super().__init__(timeout=BET_TIMEOUT_SECONDS)
         self.starter = starter
         self.channel_id = channel_id
         self.guild_id = guild_id
         self.bets: list[dict] = []
         self.message: discord.Message | None = None
         self.resolved = False
+        # Set at the very end of resolve(), after all its settlement/payout awaits finish --
+        # unlike view.wait() (which unblocks the instant stop() is called, well before that work
+        # is done), this is what run_roulette_table actually awaits between rounds so it doesn't
+        # start editing the message for the next round while this one's still being settled.
+        self.resolved_event = asyncio.Event()
         self.add_item(TowerShapeSelect())
+
+    def _reset_timer(self):
+        """Bumps the timeout back out to BET_TIMEOUT_SECONDS from now -- called after every
+        successful bet so the round spins 30s after the *last* bet, not a fixed time after it
+        opened. (discord.py already does this automatically for a plain button click, since
+        clicking Red/Black/etc to open its amount modal is itself a view-item callback -- this
+        covers the actual bet-placing methods, which run from a Modal's on_submit instead.)"""
+        self.timeout = BET_TIMEOUT_SECONDS
 
     def build_display(
         self, footer: str | None = None, winning_number: int | None = None
     ) -> tuple[discord.Embed, discord.File]:
         embed = discord.Embed(
             title="🎡 Roulette — Place Your Bets!" if winning_number is None else "🎡 Roulette",
-            description=f"Click a bet type below to join this spin. Betting closes in {ROUND_SECONDS}s."
+            description=f"Click a bet type below to join this spin. Betting closes {BET_TIMEOUT_SECONDS}s after the last bet."
             if winning_number is None
             else None,
             color=discord.Color.dark_green(),
@@ -328,6 +343,7 @@ class RouletteView(discord.ui.View):
         await interaction.response.send_message(
             f"✅ Bet placed: {roulette.describe_bet(kind, value)} for **{amount}** {currency}.", ephemeral=True
         )
+        self._reset_timer()
         if self.message is not None:
             try:
                 embed, file = self.build_display()
@@ -377,6 +393,7 @@ class RouletteView(discord.ui.View):
             f"✅ Bets placed on {numbers_str} — **{amount}** {currency} each (**{total}** {currency} total).",
             ephemeral=True,
         )
+        self._reset_timer()
         if self.message is not None:
             try:
                 embed, file = self.build_display()
@@ -421,6 +438,7 @@ class RouletteView(discord.ui.View):
         await interaction.response.send_message(
             f"✅ Repeated {len(saved)} bet(s): {desc} — **{total}** {currency} total.", ephemeral=True
         )
+        self._reset_timer()
         if self.message is not None:
             try:
                 embed, file = self.build_display()
@@ -491,95 +509,134 @@ class RouletteView(discord.ui.View):
         await self.repeat_bets(interaction)
 
     async def resolve(self):
+        """Settles this round's bets (or closes out an empty one). Table lifetime/active_rounds
+        registration belongs to run_roulette_table, not here -- this only ever handles one round.
+        Always sets resolved_event at the end (even on the empty-round path) so that loop's
+        `await view.resolved_event.wait()` doesn't unblock until this round's message has actually
+        been updated -- unlike view.wait(), which discord.py unblocks the instant stop() runs
+        above, well before any of this method's awaited settlement work finishes."""
         if self.resolved:
             return
         self.resolved = True
         self._disable_all()
         self.stop()
-        active_rounds.pop(self.channel_id, None)
+        try:
+            if not self.bets:
+                embed, file = self.build_display(footer="No bets were placed — table closed.")
+                if self.message is not None:
+                    try:
+                        await self.message.edit(embed=embed, attachments=[file], view=self)
+                    except discord.HTTPException:
+                        pass
+                return
 
-        if not self.bets:
-            embed, file = self.build_display(footer="No bets were placed — table closed.")
+            by_user: dict[int, list[dict]] = {}
+            for bet in self.bets:
+                by_user.setdefault(bet["user_id"], []).append(
+                    {"kind": bet["kind"], "value": bet["value"], "amount": bet["amount"]}
+                )
+            for user_id, user_bets in by_user.items():
+                last_bets[(self.guild_id, user_id)] = user_bets
+
+            result = roulette.spin()
+            lines = []
+            achievement_bets = []
+            for bet in self.bets:
+                multiplier = roulette.payout_multiplier(bet["kind"], bet["value"], result)
+                payout = bet["amount"] * multiplier
+                # 1-in-100 chance a winning payout gets swiped before it's credited -- "Unlucky!" is
+                # deliberate misdirection (see moon.py's own secrecy precedent): this has nothing to
+                # do with the player's actual Luck stat, which still does nothing mechanically
+                # anywhere in the game. Rolled per winning bet, not per round, so a player with
+                # several simultaneous winning bets gets an independent roll on each one.
+                stolen_by = None
+                if payout and random.random() < STEAL_CHANCE:
+                    stolen_by = random.choice(STEAL_NAMES)
+                    payout = 0
+                if payout:
+                    balance = await asyncio.to_thread(db.update_balance, self.guild_id, bet["user_id"], payout)
+                else:
+                    balance = await asyncio.to_thread(db.get_balance, self.guild_id, bet["user_id"])
+                net = payout - bet["amount"]
+                await asyncio.to_thread(db.log_bet, self.guild_id, bet["user_id"], "roulette", bet["amount"], net)
+                kinds = achievements.kinds_for_bet("roulette", net)
+                kinds += await achievements.record_and_check(self.guild_id, bet["user_id"], "roulette", net)
+                if stolen_by:
+                    kinds.append("stolen_from")
+                if kinds:
+                    achievement_bets.append((bet, kinds))
+                if stolen_by:
+                    outcome = f"💃 Unlucky! A {stolen_by} steals your winnings"
+                else:
+                    outcome = "🎉 WIN" if payout else "❌ LOSE"
+                lines.append(
+                    f"**{bet['display_name']}** — {roulette.describe_bet(bet['kind'], bet['value'])} "
+                    f"({bet['amount']}) — {outcome} ({'+' if net >= 0 else ''}{net}) — Balance: {balance}"
+                )
+
+            result_color = discord.Color.green() if roulette.color_of(result) != "black" else discord.Color.dark_gray()
+
+            wheel_embed = discord.Embed(
+                title=f"🎡 Roulette Result: {result} {roulette.color_emoji(result)}",
+                description="\n".join(lines),
+                color=result_color,
+            )
+            wheel_buf = roulette_render.render_wheel(winning_number=result)
+            wheel_file = discord.File(wheel_buf, filename="wheel.png")
+            wheel_embed.set_image(url="attachment://wheel.png")
+
+            table_embed = discord.Embed(color=result_color)
+            table_buf = roulette_render.render_table(self.bets, winning_number=result)
+            table_file = discord.File(table_buf, filename="table.png")
+            table_embed.set_image(url="attachment://table.png")
+
             if self.message is not None:
                 try:
-                    await self.message.edit(embed=embed, attachments=[file], view=self)
+                    await self.message.edit(
+                        embeds=[wheel_embed, table_embed], attachments=[wheel_file, table_file], view=self
+                    )
                 except discord.HTTPException:
                     pass
-            return
 
-        by_user: dict[int, list[dict]] = {}
-        for bet in self.bets:
-            by_user.setdefault(bet["user_id"], []).append(
-                {"kind": bet["kind"], "value": bet["value"], "amount": bet["amount"]}
-            )
-        for user_id, user_bets in by_user.items():
-            last_bets[(self.guild_id, user_id)] = user_bets
-
-        result = roulette.spin()
-        lines = []
-        achievement_bets = []
-        for bet in self.bets:
-            multiplier = roulette.payout_multiplier(bet["kind"], bet["value"], result)
-            payout = bet["amount"] * multiplier
-            # 1-in-100 chance a winning payout gets swiped before it's credited -- "Unlucky!" is
-            # deliberate misdirection (see moon.py's own secrecy precedent): this has nothing to
-            # do with the player's actual Luck stat, which still does nothing mechanically
-            # anywhere in the game. Rolled per winning bet, not per round, so a player with
-            # several simultaneous winning bets gets an independent roll on each one.
-            stolen_by = None
-            if payout and random.random() < STEAL_CHANCE:
-                stolen_by = random.choice(STEAL_NAMES)
-                payout = 0
-            if payout:
-                balance = await asyncio.to_thread(db.update_balance, self.guild_id, bet["user_id"], payout)
-            else:
-                balance = await asyncio.to_thread(db.get_balance, self.guild_id, bet["user_id"])
-            net = payout - bet["amount"]
-            await asyncio.to_thread(db.log_bet, self.guild_id, bet["user_id"], "roulette", bet["amount"], net)
-            kinds = achievements.kinds_for_bet("roulette", net)
-            kinds += await achievements.record_and_check(self.guild_id, bet["user_id"], "roulette", net)
-            if stolen_by:
-                kinds.append("stolen_from")
-            if kinds:
-                achievement_bets.append((bet, kinds))
-            if stolen_by:
-                outcome = f"💃 Unlucky! A {stolen_by} steals your winnings"
-            else:
-                outcome = "🎉 WIN" if payout else "❌ LOSE"
-            lines.append(
-                f"**{bet['display_name']}** — {roulette.describe_bet(bet['kind'], bet['value'])} "
-                f"({bet['amount']}) — {outcome} ({'+' if net >= 0 else ''}{net}) — Balance: {balance}"
-            )
-
-        result_color = discord.Color.green() if roulette.color_of(result) != "black" else discord.Color.dark_gray()
-
-        wheel_embed = discord.Embed(
-            title=f"🎡 Roulette Result: {result} {roulette.color_emoji(result)}",
-            description="\n".join(lines),
-            color=result_color,
-        )
-        wheel_buf = roulette_render.render_wheel(winning_number=result)
-        wheel_file = discord.File(wheel_buf, filename="wheel.png")
-        wheel_embed.set_image(url="attachment://wheel.png")
-
-        table_embed = discord.Embed(color=result_color)
-        table_buf = roulette_render.render_table(self.bets, winning_number=result)
-        table_file = discord.File(table_buf, filename="table.png")
-        table_embed.set_image(url="attachment://table.png")
-
-        if self.message is not None:
-            try:
-                await self.message.edit(
-                    embeds=[wheel_embed, table_embed], attachments=[wheel_file, table_file], view=self
-                )
-            except discord.HTTPException:
-                pass
-
-        if self.message is not None:
-            for bet, kinds in achievement_bets:
-                await achievements.try_award_many(
-                    self.message.channel.send, self.guild_id, bet["user_id"], bet["display_name"], kinds
-                )
+            if self.message is not None:
+                for bet, kinds in achievement_bets:
+                    await achievements.try_award_many(
+                        self.message.channel.send, self.guild_id, bet["user_id"], bet["display_name"], kinds
+                    )
+        finally:
+            self.resolved_event.set()
 
     async def on_timeout(self):
         await self.resolve()
+
+
+async def run_roulette_table(ctx, starter: discord.abc.User, channel_id: int, guild_id: int):
+    """Runs a persistent roulette table: deals round after round from the same message, each one
+    spinning BET_TIMEOUT_SECONDS after its last bet, until a round opens and closes with no bets
+    placed at all (see RouletteView.resolve's empty-round path) -- same "nobody's playing anymore"
+    signal blackjack's run_table uses to close, just without blackjack's seat/balance bookkeeping
+    since roulette has no persistent membership to check."""
+    message: discord.Message | None = None
+    try:
+        while True:
+            view = RouletteView(starter, channel_id, guild_id)
+            active_rounds[channel_id] = view
+            embed, file = view.build_display()
+            if message is None:
+                message = await ctx.send(embed=embed, file=file, view=view)
+            else:
+                try:
+                    await message.edit(embed=embed, attachments=[file], view=view)
+                except discord.HTTPException:
+                    message = await ctx.send(embed=embed, file=file, view=view)
+            view.message = message
+
+            await view.resolved_event.wait()
+            if not view.bets:
+                break
+    finally:
+        active_rounds.pop(channel_id, None)
+
+
+async def start_roulette_table(ctx):
+    await run_roulette_table(ctx, ctx.author, ctx.channel.id, ctx.guild.id)
