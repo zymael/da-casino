@@ -100,6 +100,15 @@ class BlackjackHand:
         self.bet = bet
         self.cards: list = []
         self.busted = False
+        # Set on both hands the moment a split happens. A split hand's own 21 never pays the 3:2
+        # natural-blackjack bonus (see _is_natural_blackjack) -- only the original, un-split deal can.
+        self.from_split = False
+        # Aces-only: true for both hands the instant they're split. Real casinos deal exactly one
+        # more card to each split ace and stop there -- no further hits, doubles, or resplits --
+        # so a hand with this set never gets an interactive turn (see play_round's skip condition).
+        self.split_restricted = False
+        # "Hand 1"/"Hand 2" once split, for telling the two apart in embeds; None otherwise.
+        self.label: str | None = None
 
 
 class RoundState:
@@ -142,10 +151,18 @@ def draw_biased(table: "BlackjackTable", favor: str | None) -> "Card":
     return chosen
 
 
+def _is_natural_blackjack(hand: BlackjackHand) -> bool:
+    """A genuine dealt-as-two-cards blackjack. A split hand can still total 21 with two cards
+    (e.g. splitting 10s and drawing an Ace), but that's not a "natural" -- it doesn't pay the 3:2
+    bonus, and unlike a real natural it still needs the dealer's played-out total to resolve
+    (see needs_dealer_play in play_round)."""
+    return is_blackjack(hand.cards) and not hand.from_split
+
+
 def outcome_for(hand: BlackjackHand, dealer: list, dealer_natural: bool) -> str:
     if hand.busted:
         return "lose"
-    player_natural = is_blackjack(hand.cards)
+    player_natural = _is_natural_blackjack(hand)
     if player_natural and dealer_natural:
         return "push"
     if player_natural:
@@ -328,6 +345,35 @@ async def apply_double_down(table: BlackjackTable, hand: BlackjackHand) -> tuple
     return hand.busted, None
 
 
+async def apply_split(
+    table: BlackjackTable, hand: BlackjackHand, hands: list[BlackjackHand], index: int
+) -> tuple[BlackjackHand | None, str | None]:
+    """Splits hand's matching pair into two hands, drawing a fresh second card into each and
+    escrowing one more bet (equal to hand.bet) from the player. Returns (new_hand, error) --
+    error is set (and nothing mutated) if the player can't afford it. The new hand is inserted
+    right after `hand` in `hands` so play_round's turn loop reaches it next. Splitting aces marks
+    both resulting hands split_restricted (see BlackjackHand)."""
+    balance = await asyncio.to_thread(db.get_balance, table.guild_id, hand.member.id)
+    if balance < hand.bet:
+        return None, "insufficient_balance"
+    await asyncio.to_thread(db.update_balance, table.guild_id, hand.member.id, -hand.bet)
+
+    is_aces = hand.cards[0].rank == "A"
+    split_card = hand.cards.pop()
+    new_hand = BlackjackHand(hand.member, hand.bet)
+    new_hand.cards = [split_card]
+    hand.from_split = new_hand.from_split = True
+    hand.label, new_hand.label = "Hand 1", "Hand 2"
+
+    hand.cards.append(table.draw())
+    new_hand.cards.append(table.draw())
+    if is_aces:
+        hand.split_restricted = new_hand.split_restricted = True
+
+    hands.insert(index + 1, new_hand)
+    return new_hand, None
+
+
 class BlackjackTurnView(discord.ui.View):
     def __init__(self, table: BlackjackTable, hand: BlackjackHand, dealer: list):
         super().__init__(timeout=ACTION_SECONDS)
@@ -359,7 +405,10 @@ class BlackjackTurnView(discord.ui.View):
 
         player_buf = cards_render.render_hand(self.hand.cards)
         files.append(discord.File(player_buf, filename="player.png"))
-        player_embed = discord.Embed(title=self.hand.member.display_name, color=discord.Color.gold())
+        title = self.hand.member.display_name
+        if self.hand.label:
+            title += f" — {self.hand.label}"
+        player_embed = discord.Embed(title=title, color=discord.Color.gold())
         player_embed.description = f"Value: {hand_value(self.hand.cards)}"
         player_embed.set_image(url="attachment://player.png")
         player_embed.add_field(name="Bet", value=f"{self.hand.bet} {currency}", inline=True)
@@ -395,6 +444,7 @@ class BlackjackTurnView(discord.ui.View):
             busted = apply_hit(self.table, self.hand)
             if len(self.hand.cards) > 2:
                 self.double_down.disabled = True
+                self.split.disabled = True
             if busted:
                 await self._finish("💥 Bust!", interaction=interaction)
                 return
@@ -421,6 +471,30 @@ class BlackjackTurnView(discord.ui.View):
                 await interaction.response.send_message(f"You don't have enough {currency} to double down.", ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER)
                 return
             await self._finish("💥 Bust!" if busted else "✋ Doubled down", interaction=interaction)
+
+    @discord.ui.button(label="Split", style=discord.ButtonStyle.blurple, row=0)
+    async def split(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self.table.round.turn_lock:
+            if self.done:
+                await interaction.response.defer()
+                return
+            if self.hand.from_split or len(self.hand.cards) != 2 or self.hand.cards[0].rank != self.hand.cards[1].rank:
+                await interaction.response.send_message(
+                    "You can only split a starting pair of matching cards, once.",
+                    ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER,
+                )
+                return
+            new_hand, error = await apply_split(self.table, self.hand, self.table.round.hands, self.table.round.active_hand_index)
+            if error:
+                currency = db.get_currency_name(self.table.guild_id)
+                await interaction.response.send_message(f"You don't have enough {currency} to split.", ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER)
+                return
+            if self.hand.split_restricted:
+                await self._finish("✂️ Split — Aces get one card each, no further action", interaction=interaction)
+                return
+            self.split.disabled = True
+            embeds, files = self.build_display()
+            await interaction.response.edit_message(embeds=embeds, attachments=files, view=self)
 
     async def on_timeout(self):
         async with self.table.round.turn_lock:
@@ -458,7 +532,10 @@ async def settle_round(ctx, table: BlackjackTable, hands: list[BlackjackHand], d
         fname = f"hand{i}.png"
         files.append(discord.File(buf, filename=fname))
         color = discord.Color.green() if net > 0 else (discord.Color.red() if net < 0 else discord.Color.greyple())
-        player_embed = discord.Embed(title=hand.member.display_name, description=f"Value: {hand_value(hand.cards)}", color=color)
+        title = hand.member.display_name
+        if hand.label:
+            title += f" — {hand.label}"
+        player_embed = discord.Embed(title=title, description=f"Value: {hand_value(hand.cards)}", color=color)
         player_embed.set_image(url=f"attachment://{fname}")
         player_embed.add_field(
             name="Result", value=f"{OUTCOME_LABELS[outcome]} ({'+' if net >= 0 else ''}{net} {currency})", inline=False
@@ -582,10 +659,16 @@ async def play_round(ctx, table: BlackjackTable, seats: list[BlackjackSeat]) -> 
         # own rendering or otherwise.
         table.round = RoundState(hands, dealer, dealer_natural)
 
-        for hand in hands:
-            if is_blackjack(hand.cards) or dealer_natural:
-                continue  # natural blackjack, or the dealer already has one -- no turn to take
-            table.round.active_hand_index = hands.index(hand)
+        # Index-based (not `for hand in hands`) because splitting inserts a new hand into this
+        # same list mid-loop -- table.round.hands is this same list object, so a Split callback's
+        # insert(index + 1, ...) is picked up the moment the loop advances to it.
+        i = 0
+        while i < len(hands):
+            hand = hands[i]
+            if hand.split_restricted or is_blackjack(hand.cards) or dealer_natural:
+                i += 1
+                continue  # forced-stood split aces, a natural blackjack, or the dealer already has one
+            table.round.active_hand_index = i
             view = BlackjackTurnView(table, hand, dealer)
             table.round.active_view = view
             embeds, files = view.build_display()
@@ -605,10 +688,11 @@ async def play_round(ctx, table: BlackjackTable, seats: list[BlackjackSeat]) -> 
                     await ping.delete()
                 except discord.HTTPException:
                     pass
+            i += 1
         table.round.active_hand_index = None
 
         needs_dealer_play = not dealer_natural and any(
-            not h.busted and not is_blackjack(h.cards) for h in hands
+            not h.busted and not _is_natural_blackjack(h) for h in hands
         )
         table.round.phase = "dealer_turn"
         if needs_dealer_play:
