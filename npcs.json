@@ -11,34 +11,7 @@
     "name": "Kel",
     "room": "ranch",
     "greet_message": "Yes, I am Kel. Your assistant and a proud breeder of horses. You may look to me whenever you need help tending to the ranch, or whenever you need a horse bred.",
-    "greet_achievement": "love_in_bloom",
-    "shop": [
-      {
-        "kind": "horse_clothes",
-        "item_id": "brown_saddle",
-        "price": 250
-      },
-      {
-        "kind": "horse_clothes",
-        "item_id": "blue_saddle",
-        "price": 250
-      },
-      {
-        "kind": "horse_clothes",
-        "item_id": "red_saddle",
-        "price": 250
-      },
-      {
-        "kind": "horse_clothes",
-        "item_id": "pink_saddle",
-        "price": 250
-      },
-      {
-        "kind": "horse_clothes",
-        "item_id": "bowler_derby",
-        "price": 400
-      }
-    ]
+    "greet_achievement": "love_in_bloom"
   },
   {
     "id": "roy",
