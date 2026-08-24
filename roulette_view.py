@@ -621,13 +621,22 @@ async def run_roulette_table(ctx, starter: discord.abc.User, channel_id: int, gu
         while True:
             view = RouletteView(starter, channel_id, guild_id)
             active_rounds[channel_id] = view
-            embed, file = view.build_display()
             if message is None:
+                # First round of the table -- nothing to show yet, so it's the only time this
+                # loop builds the empty "place your bets" board itself.
+                embed, file = view.build_display()
                 message = await ctx.send(embed=embed, file=file, view=view)
             else:
+                # Every later round leaves the previous round's result on screen -- editing just
+                # `view` swaps in fresh, live buttons without touching the embeds/attachments
+                # already there. The first bet placed against this view replaces it with the
+                # normal betting board itself (place_bet et al. already do their own build_display
+                # + edit); if BET_TIMEOUT_SECONDS passes with no bets, resolve()'s empty-round path
+                # overwrites it with "table closed" instead.
                 try:
-                    await message.edit(embed=embed, attachments=[file], view=view)
+                    await message.edit(view=view)
                 except discord.HTTPException:
+                    embed, file = view.build_display()
                     message = await ctx.send(embed=embed, file=file, view=view)
             view.message = message
 
