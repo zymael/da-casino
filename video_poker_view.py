@@ -147,7 +147,7 @@ class VideoPokerView(discord.ui.View):
         self.jackpot_pot = jackpot_pot
         self.deck = Deck()
         self.hand = video_poker.deal(self.deck)
-        self.held = [False] * 5
+        self.held = video_poker.suggest_hold(self.hand, self.variant)
         self.resolved = False
         self.result_label = ""
         self.multiplier = 0
@@ -172,7 +172,10 @@ class VideoPokerView(discord.ui.View):
         held_count = sum(self.held)
         embed = discord.Embed(
             title=self.title,
-            description="Tap cards to **hold** them, then hit **Draw** to replace the rest.",
+            description=(
+                "The best cards are pre-held for you — tap any card to toggle it, "
+                "then hit **Draw** to replace the rest."
+            ),
             color=discord.Color.blurple(),
         )
         embed.add_field(name="Bet", value=f"{self.bet} {currency}", inline=True)
