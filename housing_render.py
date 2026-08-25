@@ -3,20 +3,22 @@ rendering half of the housing system, split out from housing_view.py the same wa
 dungeon_render.py/npc_render.py are split from dungeon_view.py/room_view.py (this module builds
 plain PIL images, never discord.ui components; housing_view.py owns the embed/picker UI).
 
-BACKGROUND_PATH/FLOOR_START/CELL describe assets/housing/grid_template.png's layout: a 640x640
-image, floor grid starting at (FLOOR_START, FLOOR_START), CELL px per cell, 3x3. Swapping in real
-house art later just means replacing that file (or repointing BACKGROUND_PATH) -- as long as the
-new art keeps the same floor-grid geometry, nothing here needs to change.
+One flat background image (BACKGROUND_PATH, SIZE x SIZE) is the whole scene -- items are just
+layered on top of it at their grid slot's fixed pixel position, nothing more. SIZE/CELL describe
+a 3x3 grid spanning the full image edge to edge (see assets/housing/grid_template.png, the
+labeled reference this and the real art were both built against). Swapping in new house art later
+is just repointing BACKGROUND_PATH at a same-size image -- nothing else here needs to change.
 """
 import io
 import os
 
 from PIL import Image, ImageDraw, ImageFont
 
-BACKGROUND_PATH = "assets/housing/grid_template.png"
-FLOOR_START = 95
-CELL = 150
-ART_PADDING = 12  # an item's own art is scaled to fit within (CELL - 2*ART_PADDING), so it never touches the grid lines
+BACKGROUND_PATH = "assets/housing/floors/house_dirt_floor.jpg"
+BACKGROUND_FALLBACK_COLOR = (120, 90, 60, 255)  # used only if BACKGROUND_PATH is ever missing
+SIZE = 640
+CELL = SIZE // 3  # 213 -- edge-to-edge 3x3 grid, no separate wall/outside border
+ART_PADDING = 12  # an item's own art is scaled to fit within (CELL - 2*ART_PADDING), so cells don't crowd each other
 
 _FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 _INITIAL_FONT = ImageFont.truetype(_FONT_PATH, 64)
@@ -59,20 +61,28 @@ def _load_item_art(item: dict, box: int) -> Image.Image:
     return art
 
 
+def _load_background() -> Image.Image:
+    if os.path.exists(BACKGROUND_PATH):
+        bg = Image.open(BACKGROUND_PATH).convert("RGBA")
+        if bg.size != (SIZE, SIZE):
+            bg = bg.resize((SIZE, SIZE), Image.LANCZOS)
+        return bg
+    return Image.new("RGBA", (SIZE, SIZE), BACKGROUND_FALLBACK_COLOR)
+
+
 def render_house(placements: dict[int, str], housing_items: dict[str, dict]) -> io.BytesIO:
     """Composites every placed item's own art (or placeholder) onto the house background at its
     grid slot's fixed pixel position. `placements` is {slot: item_id} (db.get_house_placements'
     own shape); an item id with no match in `housing_items` (e.g. removed from content after being
     placed) is skipped rather than crashing."""
-    base = Image.open(BACKGROUND_PATH).convert("RGBA")
+    base = _load_background()
     box = CELL - 2 * ART_PADDING
     for slot, item_id in placements.items():
         item = housing_items.get(item_id)
         if item is None:
             continue
         row, col = divmod(slot, 3)
-        cell_x = FLOOR_START + col * CELL
-        cell_y = FLOOR_START + row * CELL
+        cell_x, cell_y = col * CELL, row * CELL
         art = _load_item_art(item, box)
         paste_x = cell_x + (CELL - art.width) // 2
         paste_y = cell_y + (CELL - art.height) // 2
