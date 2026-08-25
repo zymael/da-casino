@@ -195,6 +195,10 @@
       {
         "room_id": "slug_dome",
         "label": "\ud83d\udc1b Slug Dome"
+      },
+      {
+        "room_id": "kreachur_emporium",
+        "label": "\ud83e\uddcd\u200d\u2642\ufe0fDa Emporium"
       }
     ],
     "commands": []
