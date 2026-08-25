@@ -293,9 +293,10 @@ def init_db():
     # horses predates places/shows (Place/Show bets) -- add them non-destructively, since
     # unlike the race_starts drop-and-reseed above, this table now holds real accumulated
     # race history that must survive the migration. Horses with real races from before this
-    # existed are left at places = shows = 0 here; horserace.current_probabilities() detects
-    # that (races > 0 but places = shows = 0) and backfills a stat-simulated estimate the next
-    # time it's called for their guild, the same way a brand-new horse gets seeded.
+    # existed are simply left at places = shows = 0 here -- no backfill needed, since
+    # horserace.current_probabilities() no longer derives odds from this history at all (it's
+    # a fresh Monte-Carlo simulation of current stats every call); wins/places/shows/races are
+    # purely a career record now, shown in !horses but not read for pricing/payouts.
     columns = {row[1] for row in conn.execute("PRAGMA table_info(horses)")}
     for column in ("places", "shows"):
         if column not in columns:
@@ -1499,37 +1500,6 @@ def rename_horse(guild_id: int, horse_index: int, user_id: int, new_name: str) -
         )
         conn.commit()
         return True
-    finally:
-        conn.close()
-
-
-def seed_race_history(guild_id: int, horse_index: int, wins: int, places: int, shows: int, races: int):
-    """Gives a horse with no real races yet in this guild a starting (wins, places, shows,
-    races) record. Only applies while races is still 0, so it never overwrites real
-    accumulated results."""
-    conn = _connect()
-    try:
-        conn.execute(
-            "UPDATE horses SET wins = ?, places = ?, shows = ?, races = ? "
-            "WHERE guild_id = ? AND horse_index = ? AND races = 0",
-            (wins, places, shows, races, guild_id, horse_index),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def backfill_place_show(guild_id: int, horse_index: int, places: int, shows: int):
-    """One-time top-up for a horse with real races from before place/show tracking existed.
-    Guarded by places = 0 AND shows = 0, so it never overwrites real accumulated results."""
-    conn = _connect()
-    try:
-        conn.execute(
-            "UPDATE horses SET places = ?, shows = ? "
-            "WHERE guild_id = ? AND horse_index = ? AND places = 0 AND shows = 0",
-            (places, shows, guild_id, horse_index),
-        )
-        conn.commit()
     finally:
         conn.close()
 

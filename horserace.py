@@ -75,15 +75,24 @@ SPIRIT_BURST_BONUS_MAX = 0.6
 JITTER_LOW, JITTER_HIGH = 0.85, 1.15
 FLAT_NOISE_MAX = 26
 
-# Betting: payout multiplier is TARGET_RTP / (that horse's actual win probability), so every
-# horse has the same expected return regardless of how strong it is. The win probability
-# itself comes from real accumulated race results (db.horses) rather than the stat simulation
-# directly — a horse with no races yet is seeded with SEED_RACE_COUNT "virtual" races at its
-# stat-simulated fair rate against the rest of the currently-eligible field, so odds start
-# sane and then drift to reflect what it actually does on the track.
+# Betting: payout multiplier is TARGET_RTP / (that horse's implied win probability), so every
+# horse has the same expected return regardless of how strong it is. That implied probability is
+# recomputed fresh on every current_probabilities() call -- a Monte-Carlo simulation of the actual
+# field's current stats (DYNAMIC_ODDS_TRIALS trials, cheap enough to run per-command rather than
+# once-ever-per-horse the way the old WIN_PROBABILITY_TRIALS=4000 seed was), reshaped by
+# _crowd_shares to read like a simulated betting crowd's odds rather than a raw fair probability
+# -- see that function's own docstring. This means odds actually react to the field a horse is
+# racing against and to its current (post-training) stats, unlike the old design, which derived
+# odds from a horse's own cumulative career win rate and only recalculated once at its racing
+# debut. A horse's real wins/places/shows/races (db.horses) are still recorded after every race
+# and still shown as its career record (see bot.py's horses_cmd) -- they just no longer feed odds.
 TARGET_RTP = 0.97
-WIN_PROBABILITY_TRIALS = 4000
-SEED_RACE_COUNT = 40
+DYNAMIC_ODDS_TRIALS = 500
+# How much a simulated betting crowd over-favors the favorite and under-backs the longshot
+# relative to the field's true simulated probability -- the well-documented real-track
+# "favorite-longshot bias" (bettors don't wager in exact proportion to true win rate). 0 leaves
+# the raw simulated probability untouched; see _crowd_shares for the exact transform.
+FAVORITE_LONGSHOT_BIAS = 0.15
 
 # Ownership: horses are expensive, priced off how likely they are to win (a proven favorite
 # costs the most since it pays its owner a cut most often; a long shot is a cheap speculative
@@ -246,11 +255,11 @@ STAKE_MULTIPLIER = {"win": 1, "place": 1, "show": 1, "across": 3}
 
 
 def _simulate_stat_probabilities(
-    stat_roster: list[dict], trials: int = WIN_PROBABILITY_TRIALS
+    stat_roster: list[dict], trials: int = DYNAMIC_ODDS_TRIALS
 ) -> tuple[list[float], list[float], list[float]]:
     """Monte-Carlo win/place/show rate for each position under its current stats, run through
-    the exact same simulate_race() used for the actual race. Used only to seed a horse's very
-    first record — once real races exist, current_probabilities() below takes over."""
+    the exact same simulate_race() used for the actual race -- the raw, unbiased "true" fair
+    probability current_probabilities() then reshapes via _crowd_shares."""
     n = len(stat_roster)
     wins, places, shows = [0] * n, [0] * n, [0] * n
     for _ in range(trials):
@@ -271,42 +280,50 @@ def _simulate_stat_probabilities(
     )
 
 
-def current_probabilities(guild_id: int) -> tuple[dict[int, dict], list[int], dict[str, dict[int, float]]]:
-    """Returns (full_roster, eligible_horse_indices, {"win"/"place"/"show": {horse_index: rate}}) —
-    each probability dict only covers eligible (old enough to race) horses. Any eligible horse
-    with no races yet gets seeded first, from a stat-simulated rate against the rest of the
-    current field. A horse with real races but no real place/show data (raced before that
-    tracking existed) gets the same stat-simulated treatment for just places/shows, scaled to
-    its actual race count rather than SEED_RACE_COUNT, floored at its real win count. Touches
-    the database — call via asyncio.to_thread, once per command, and reuse the result rather
-    than having every call site query separately."""
+def _crowd_shares(rates: list[float], bias: float = FAVORITE_LONGSHOT_BIAS) -> list[float]:
+    """Reshapes raw simulated win/place/show rates into what a simulated betting crowd's pool
+    shares would look like, instead of a mathematically fair probability -- real bettors don't
+    wager in exact proportion to true win rate, they systematically overbet the favorite and
+    underbet the longshot (the "favorite-longshot bias" well documented at real tracks). Each
+    rate is raised to the power (1 + bias): since every rate is in (0, 1), a higher exponent
+    shrinks *every* rate, but shrinks a small rate proportionally more than a large one (0.5 ** 1.15
+    ≈ 0.44, a 13% cut, vs. 0.05 ** 1.15 ≈ 0.035, a 30% cut) -- so after renormalizing, the
+    favorite's share rises and the longshot's falls relative to the raw simulation. Renormalized
+    to the *raw* total rather than a hardcoded 1.0, since only "win" naturally sums to ~1 across a
+    field (exactly one winner); "place"/"show" naturally sum to ~2/~3 (multiple horses place or
+    show per race) and must keep that same total, just reshaped across the field. bias=0 is a
+    no-op (exponent 1, rates unchanged)."""
+    sharpened = [max(rate, 1e-9) ** (1 + bias) for rate in rates]
+    sharpened_total = sum(sharpened)
+    raw_total = sum(rates)
+    return [s / sharpened_total * raw_total for s in sharpened]
+
+
+def current_probabilities(
+    guild_id: int, field: list[int] | None = None
+) -> tuple[dict[int, dict], list[int], dict[str, dict[int, float]]]:
+    """Returns (full_roster, eligible_horse_indices, {"win"/"place"/"show": {horse_index: rate}}).
+    `field` is which horses to simulate odds for -- pass the specific drawn race_field once one's
+    been selected (select_race_field) so a race's odds reflect exactly who's actually running;
+    defaults to every eligible horse (e.g. for !horses' whole-stable listing or !buyhorse's
+    pricing, where there's no specific race to scope to yet). Each of win/place/show is a fresh
+    Monte-Carlo simulation (_simulate_stat_probabilities) against the field's *current* stats,
+    reshaped by _crowd_shares -- so odds react immediately to training and to who's actually in
+    the field, unlike the old design (derived from a horse's own cumulative career win rate,
+    computed once at its racing debut and otherwise static). No database writes -- cheap enough
+    to call fresh every time; call via asyncio.to_thread since it still reads db.get_guild_horses."""
     roster = get_roster(guild_id)
     eligible = eligible_indices(roster)
-    unseeded = [i for i in eligible if roster[i]["races"] == 0]
-    legacy = [i for i in eligible if roster[i]["races"] > 0 and roster[i]["places"] == 0 and roster[i]["shows"] == 0]
-    if unseeded or legacy:
-        stat_roster = [
-            {"speed": roster[i]["speed"], "endurance": roster[i]["endurance"], "spirit": roster[i]["spirit"]}
-            for i in eligible
-        ]
-        seed_win, seed_place, seed_show = _simulate_stat_probabilities(stat_roster)
-        for position, i in enumerate(eligible):
-            if i in unseeded:
-                wins = max(1, round(seed_win[position] * SEED_RACE_COUNT))
-                places = max(1, round(seed_place[position] * SEED_RACE_COUNT))
-                shows = max(1, round(seed_show[position] * SEED_RACE_COUNT))
-                db.seed_race_history(guild_id, i, wins, places, shows, SEED_RACE_COUNT)
-            elif i in legacy:
-                races = roster[i]["races"]
-                wins = roster[i]["wins"]
-                places = max(wins, round(seed_place[position] * races))
-                shows = max(wins, round(seed_show[position] * races))
-                db.backfill_place_show(guild_id, i, places, shows)
-        roster = db.get_guild_horses(guild_id)
+    positions = field if field is not None else eligible
+    stat_roster = [
+        {"speed": roster[i]["speed"], "endurance": roster[i]["endurance"], "spirit": roster[i]["spirit"]}
+        for i in positions
+    ]
+    sim_win, sim_place, sim_show = _simulate_stat_probabilities(stat_roster)
     probabilities = {
-        "win": {i: roster[i]["wins"] / roster[i]["races"] for i in eligible},
-        "place": {i: roster[i]["places"] / roster[i]["races"] for i in eligible},
-        "show": {i: roster[i]["shows"] / roster[i]["races"] for i in eligible},
+        "win": dict(zip(positions, _crowd_shares(sim_win))),
+        "place": dict(zip(positions, _crowd_shares(sim_place))),
+        "show": dict(zip(positions, _crowd_shares(sim_show))),
     }
     return roster, eligible, probabilities
 

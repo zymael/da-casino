@@ -206,8 +206,7 @@ async def on_ready():
     print(f"{bot.user} has connected to Discord!", flush=True)
     print("------", flush=True)
     await asyncio.to_thread(db.migrate_legacy_users_into_guilds, [g.id for g in bot.guilds])
-    for guild in bot.guilds:  # warm each guild's seed so it's not the first command paying for it
-        await asyncio.to_thread(horserace.current_probabilities, guild.id)
+    for guild in bot.guilds:
         await asyncio.to_thread(db.load_currency_name_cache, guild.id)
         if guild.id not in _SYNCED_GUILD_IDS:
             # Guild-scoped sync (vs a bare global sync) so /play shows up immediately rather than
@@ -744,8 +743,15 @@ async def horserace_cmd(ctx):
         await ctx.send("A horse race is already open here — place your bets on that one!")
         return
 
-    roster, eligible, probabilities = await asyncio.to_thread(horserace.current_probabilities, ctx.guild.id)
+    roster = await asyncio.to_thread(horserace.get_roster, ctx.guild.id)
+    eligible = horserace.eligible_indices(roster)
     race_field = horserace.select_race_field(eligible)
+    # Odds are simulated specifically against race_field (not every eligible horse) so they
+    # reflect exactly who's actually running today, not the whole stable -- see
+    # current_probabilities' own docstring.
+    roster, _eligible, probabilities = await asyncio.to_thread(
+        horserace.current_probabilities, ctx.guild.id, race_field
+    )
     equipped_clothes = await asyncio.to_thread(db.get_guild_horse_clothes, ctx.guild.id)
     view = HorseRaceView(ctx.author, ctx.channel.id, ctx.guild.id, roster, race_field, probabilities, equipped_clothes)
     active_races[ctx.channel.id] = view
