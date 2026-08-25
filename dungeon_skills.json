@@ -1337,5 +1337,27 @@
     ],
     "chip_cost": 10,
     "special": false
+  },
+  {
+    "id": "coin_toss",
+    "main_class": "rogue",
+    "subclass": "diamonds",
+    "unlock_level": 5,
+    "name": "Coin toss",
+    "flavor": "LET IT RIIIIDE",
+    "effect_groups": [
+      {
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 2.7,
+            "target": "enemy"
+          }
+        ],
+        "chance": 1
+      }
+    ],
+    "chip_cost": 8,
+    "special": false
   }
 ]
