@@ -256,7 +256,7 @@
   },
   {
     "id": "kreachur_emporium",
-    "name": "Karl Reachur's Emporium of Quality Magical Goods",
+    "name": "\ud83e\uddcd\u200d\u2642\ufe0fKarl Reachur's Emporium of Quality Magical Goods",
     "description": "This place is a complete pigsty.  And it smells like... you don't actually want to think what it smells like.",
     "background_path": "assets/rooms/kreachur_emporium.jpg",
     "exits": [
