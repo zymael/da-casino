@@ -88,5 +88,11 @@
     "name": "Femur",
     "rarity": "rare",
     "flavor": "A big chonky bone!"
+  },
+  {
+    "id": "slope_detector",
+    "name": "Slope Detector",
+    "rarity": "rare",
+    "flavor": "A spherical device that is capable of detecting where any slope might lie."
   }
 ]
