@@ -4,6 +4,7 @@
     "name": "Cozy Sleeping Bag",
     "emoji": "\ud83d\udca4",
     "description": "A used sleeping bag that makes resting a little more restorative.",
+    "image_path": "assets/housing/items/cozy_sleeping_bag.png",
     "effect_type": "rest_energy_bonus",
     "value": 1
   },
