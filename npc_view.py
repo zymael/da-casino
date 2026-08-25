@@ -97,12 +97,14 @@ class TurnInButton(discord.ui.Button):
         self, quest_id: str, banner_path: str, rebuild, *, row: int, item: dict | None = None,
         label: str | None = None,
     ):
-        npc_name = npcs.NPCS[quests.QUESTS_BY_ID[quest_id]["npc"]]["name"]
+        npc = npcs.NPCS[quests.QUESTS_BY_ID[quest_id]["npc"]]
+        npc_name = npc["name"]
         if label is None:
             label = f"🎁 Give {npc_name} the {item['name']}" if item else f"✅ Turn in to {npc_name}"
         super().__init__(label=label, style=discord.ButtonStyle.success, row=row)
         self.quest_id = quest_id
         self.npc_name = npc_name
+        self.sprite_path = npc.get("sprite_path")
         self.banner_path = banner_path
         self.rebuild = rebuild
 
@@ -115,7 +117,9 @@ class TurnInButton(discord.ui.Button):
             )
             return
 
-        buf = await asyncio.to_thread(npc_render.render_npc_dialogue, self.banner_path, result["message"])
+        buf = await asyncio.to_thread(
+            npc_render.render_npc_dialogue, self.banner_path, result["message"], self.sprite_path,
+        )
         await self.rebuild(interaction, buf, f"{self.quest_id}_turnin.png")
 
         reward_item = result["reward_item"]

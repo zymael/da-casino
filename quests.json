@@ -54,7 +54,7 @@
           "item_id": "goblins_sleeping_bag",
           "drop_monster": "goblin_grunt"
         },
-        "on_complete_message": "Alright, let's talk business.",
+        "on_complete_message": "Is that... a sleeping bag?  I was joking you realize, you ne-\r\n\r\nNah, you know what fine. First month's rent is 100 flakes.  Pay it and you can live in squalor to your heart's content.",
         "reward_item": "cozy_sleeping_bag",
         "reward_item_kind": "housing_item",
         "button_label": "🏕️ Ask about a place to stay"
