@@ -249,5 +249,18 @@
       }
     ],
     "commands": []
+  },
+  {
+    "id": "kreachur_emporium",
+    "name": "Karl Reachur's Emporium of Quality Magical Goods",
+    "description": "This place is a complete pigsty.  And it smells like... you don't actually want to think what it smells like.",
+    "background_path": "assets/rooms/kreachur_emporium.jpg",
+    "exits": [
+      {
+        "room_id": "gnomish_night_market",
+        "label": "\ud83c\udf44Gnomish Night Market"
+      }
+    ],
+    "commands": []
   }
 ]
