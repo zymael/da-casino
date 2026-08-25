@@ -349,6 +349,7 @@ def _dynamic_script() -> str:
         "var EFFECT_TYPE_HINTS = " + json.dumps(EFFECT_TYPE_HINTS) + ";\n"
         "var CASCADE_OPTIONS = " + json.dumps(_cascade_options()) + ";\n"
         "var DELVE_ROOM_FIELDS_BY_TYPE = " + json.dumps(_DELVE_ROOM_FIELDS_BY_TYPE) + ";\n"
+        "var ROOM_NAMES = " + json.dumps({rid: r["name"] for rid, r in rooms.ROOMS.items()}) + ";\n"
     )
     return data_script + """
 // Same idea as trigger param visibility, for a delve room's detail panel: monsters only matters
@@ -433,6 +434,27 @@ function wireCommandKindSelects(root) {
     root.querySelectorAll('select.command-kind-select').forEach(function (select) {
         updateCommandKindVisibility(select);
         select.addEventListener('change', function () { updateCommandKindVisibility(select); });
+    });
+}
+
+// A room_exits row's label is free text, but it usually just wants to be the target room's name --
+// picking a room_id fills it in as a convenience. Only overwrites the label when it's still blank
+// or still holds whatever this same auto-fill last put there (tracked via data-auto-label), so an
+// admin who typed a shorter/custom label never gets it silently clobbered by a later selection change.
+function updateExitLabel(select) {
+    var container = select.closest('.row-group');
+    if (!container) return;
+    var label = container.querySelector('.exit-label-input');
+    if (!label) return;
+    if (label.value && label.value !== label.dataset.autoLabel) return;
+    var roomName = ROOM_NAMES[select.value] || '';
+    label.value = roomName;
+    label.dataset.autoLabel = roomName;
+}
+
+function wireRoomExitSelects(root) {
+    root.querySelectorAll('select.room-exit-room-select').forEach(function (select) {
+        select.addEventListener('change', function () { updateExitLabel(select); });
     });
 }
 
@@ -617,6 +639,7 @@ function wireRepeatAdd(root) {
             wireCascadingSelects(container.lastElementChild);
             wireImagePreviews(container.lastElementChild);
             wireRoomTypeSelects(container.lastElementChild);
+            wireRoomExitSelects(container.lastElementChild);
             wireRepeatAdd(container.lastElementChild);
             // Flowchart-only hooks -- no-ops everywhere else (window.wireFlowchartNode only
             // exists on a delve's edit page, see the flowchart script below). Handles both a
@@ -638,6 +661,7 @@ wireCommandKindSelects(document);
 wireEquipmentTriggerSelects(document);
 wireRoomTypeSelects(document);
 wireCascadingSelects(document);
+wireRoomExitSelects(document);
 wireRepeatAdd(document);
 updateSkillOdds();
 updateGroupOdds();
