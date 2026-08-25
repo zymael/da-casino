@@ -1382,5 +1382,36 @@
     ],
     "chip_cost": 12,
     "special": false
+  },
+  {
+    "id": "reshuffle",
+    "main_class": "rogue",
+    "subclass": "hearts",
+    "unlock_level": 5,
+    "name": "Reshuffle",
+    "flavor": "Let's take that one back!",
+    "effects": [
+      {
+        "type": "hot",
+        "duration": 3,
+        "value": 0.2,
+        "aoe": true,
+        "target": "ally"
+      },
+      {
+        "type": "spatk_buff",
+        "value": 5,
+        "aoe": true,
+        "target": "ally"
+      },
+      {
+        "type": "atk_buff",
+        "value": 5,
+        "aoe": true,
+        "target": "ally"
+      }
+    ],
+    "chip_cost": 8,
+    "special": false
   }
 ]
