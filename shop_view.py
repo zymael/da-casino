@@ -93,8 +93,7 @@ class ShopSelect(discord.ui.Select):
 
         item = result["item"]
         if result["kind"] == "equipment":
-            status = "equipped!" if result["equipped"] else "stored in `!equipment` (your current gear is better)"
-            purchase_text = f"⚔️ Bought **{item['name']}** — {status}"
+            purchase_text = f"⚔️ Bought **{item['name']}** — stored in `!equipment`."
         else:
             purchase_text = f"🎉 Bought **{item['name']}**! Check `!inventory`."
 

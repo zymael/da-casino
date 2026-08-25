@@ -1079,10 +1079,10 @@ def _validate_equipment_effects(effects, context: str) -> None:
 
 def constant_stat_bonuses(item: dict) -> dict[str, int]:
     """An item's `trigger == "constant"` effects collapsed into the old flat {hp, atk, def, spatk,
-    spdef} shape -- the one place this mapping lives, reused by item_power, compute_effective_stats,
-    and dungeon_view._award_kill's live mid-fight gear-swap delta. Sums if the same stat is buffed
-    by more than one constant entry. `item.get("effects", [])` rather than `item["effects"]` since
-    this is also called against an in-progress admin-panel entry that may not have the key yet."""
+    spdef} shape -- the one place this mapping lives, reused by compute_effective_stats. Sums if
+    the same stat is buffed by more than one constant entry. `item.get("effects", [])` rather than
+    `item["effects"]` since this is also called against an in-progress admin-panel entry that may
+    not have the key yet."""
     bonuses: dict[str, int] = {}
     for effect in item.get("effects", []):
         if effect.get("trigger") != "constant":
@@ -1266,21 +1266,6 @@ def find_recipe_by_materials(materials: dict[str, int]) -> dict | None:
             return recipe
     return None
 
-
-def item_power(item: dict) -> int:
-    """Total constant stat value of an item -- the yardstick used to decide whether a newly found
-    piece of gear replaces what's currently equipped in that slot. Only constant effects count
-    toward this -- on_use/on_hit are situational, not baseline power, and there's no well-defined
-    way to compare a proc's value against a flat stat."""
-    return sum(constant_stat_bonuses(item).values())
-
-
-def is_upgrade(current_item_id: str | None, new_item: dict) -> bool:
-    """Whether new_item is worth equipping over whatever (if anything) is currently in its slot --
-    the same power comparison used for both ordinary dungeon loot (dungeon_view.py's kill-rewards
-    flow) and quest turn-in gear rewards (quests.py's turn_in), so the rule only lives once."""
-    current_item = EQUIPMENT.get(current_item_id) if current_item_id else None
-    return current_item is None or item_power(new_item) > item_power(current_item)
 
 
 def compute_effective_stats(
@@ -1577,9 +1562,9 @@ def _item_power_budget(level: int) -> float:
     own stats, not a whole combatant's total. Unlike the monster case, spatk/spdef/speed fold into
     this SAME budget rather than getting an independent one -- necessary, not just simpler: no
     equipment gets backfilled with spatk/spdef/speed (existing gear just omits the keys, worth 0
-    here), so item_power()/is_upgrade() (which sum whatever's in constant_stat_bonuses) stay
-    correct for old gear, and a fresh item at a given level isn't handed extra "free" power an old
-    item of the same level never had a chance to also carry."""
+    here), so a stat total summed over whatever's in constant_stat_bonuses stays correct for old
+    gear, and a fresh item at a given level isn't handed extra "free" power an old item of the
+    same level never had a chance to also carry."""
     return 1.5 * level
 
 

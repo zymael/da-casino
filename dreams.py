@@ -11,8 +11,9 @@ state already relies on. Keying by the dream's own id (not one global "has dream
 *new* dream, once activated, reaches every player again.
 
 A dream can optionally grant one item alongside its message (item_kind + item_id, both optional --
-set together or not at all) -- same six kinds and equip-if-upgrade-else-store/add_inventory_item
-grant logic as shop.py's REGISTRIES/buy(), just triggered by a dream instead of a purchase. quests.py
+set together or not at all) -- same six kinds and store/add_inventory_item grant logic as shop.py's
+REGISTRIES/buy() (equipment is always stored, never auto-equipped -- the player equips manually via
+!equipment), just triggered by a dream instead of a purchase. quests.py
 and housing.py are both importable here (unlike npcs.py, which can't -- see its own SHOP_KINDS
 comment -- neither quests.py nor housing.py import dreams.py, so there's no cycle), so every kind's
 item ids are validated directly, no deferred cross-module check needed for any of them.
@@ -94,11 +95,11 @@ async def try_deliver_dream(dm_send, guild_id: int, user_id: int) -> bool:
 
     Claims the flag BEFORE sending (atomically, via db.set_flag_if_zero) so a doubled-up call can't
     send twice. The item grant itself happens AFTER a successful send, not before -- only the
-    (pure, side-effect-free) lookup of what the item is and whether it'd be an equip or a store
-    happens early, so the DM text can describe it. If the DM fails (discord.Forbidden -- the player
-    has DMs off), the flag is rolled back and nothing is granted, so a retry after they fix their
-    DM settings grants it exactly once, not twice -- same "lost a race, give it back" shape
-    quests.turn_in already uses for a stale double-click on an inventory item."""
+    (pure, side-effect-free) lookup of what the item is happens early, so the DM text can describe
+    it. If the DM fails (discord.Forbidden -- the player has DMs off), the flag is rolled back and
+    nothing is granted, so a retry after they fix their DM settings grants it exactly once, not
+    twice -- same "lost a race, give it back" shape quests.turn_in already uses for a stale
+    double-click on an inventory item."""
     dream = active_dream()
     if dream is None:
         return False
@@ -109,17 +110,11 @@ async def try_deliver_dream(dm_send, guild_id: int, user_id: int) -> bool:
 
     item_kind = dream.get("item_kind")
     item = REGISTRIES[item_kind][dream["item_id"]] if item_kind else None
-    will_equip, slot = False, None
-    if item_kind == "equipment":
-        equipped_items = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
-        slot = item["slot"]
-        will_equip = dungeon.is_upgrade(equipped_items.get(slot), item)
 
     description = dream["message"]
     if item is not None:
         if item_kind == "equipment":
-            note = "equipped!" if will_equip else "stored in `!equipment` (your current gear's better)."
-            description += f"\n\n⚔️ You wake up holding **{item['name']}** — {note}"
+            description += f"\n\n⚔️ You wake up holding **{item['name']}** — stored in `!equipment`."
         else:
             description += f"\n\n🎁 You wake up holding **{item['name']}**! Check `!inventory`."
 
@@ -132,10 +127,7 @@ async def try_deliver_dream(dm_send, guild_id: int, user_id: int) -> bool:
 
     if item is not None:
         if item_kind == "equipment":
-            if will_equip:
-                await asyncio.to_thread(db.equip_item_smart, guild_id, user_id, slot, item["id"])
-            else:
-                await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, item["id"])
+            await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, item["id"])
         else:
             await asyncio.to_thread(db.add_inventory_item, guild_id, user_id, item["id"], 1)
 

@@ -124,17 +124,12 @@ class TurnInButton(discord.ui.Button):
 
         reward_item = result["reward_item"]
         if reward_item:
-            if result["reward_item_kind"] != "equipment":
+            if result["reward_item_kind"] == "equipment":
+                status_text = f"⚔️ Received **{reward_item['name']}** — stored in `!equipment`."
+            else:
                 # Same "just landed in your bag" phrasing as dreams.py's own non-equipment reward
                 # notification -- reward_item_kind used to be assumed "equipment" unconditionally
                 # here, which showed a nonsense "your current weapon is better" message for e.g. a
                 # housing_item reward that was never compared to any weapon at all.
                 status_text = f"🎁 Received **{reward_item['name']}**! Check `!inventory`."
-            elif result["equipped"]:
-                status_text = f"⚔️ Received **{reward_item['name']}** — equipped!"
-            else:
-                status_text = (
-                    f"⚔️ Received **{reward_item['name']}**, but your current weapon is better — "
-                    f"stored in `!equipment`."
-                )
             await interaction.followup.send(status_text, ephemeral=True)

@@ -132,8 +132,7 @@ class CombineView(discord.ui.View):
 
         item = result["output_item"]
         if result["output_kind"] == "equipment":
-            gear_note = "equipped!" if result["equipped"] else "stored in `!equipment` (your current gear's better)."
-            status_text = f"⚔️ Crafted **{item['name']}** — {gear_note}"
+            status_text = f"⚔️ Crafted **{item['name']}** — stored in `!equipment`."
         else:
             emoji = _INVENTORY_KIND_EMOJI[result["output_kind"]](item)
             status_text = f"{emoji} Crafted **{item['name']}** — check `!inventory`."

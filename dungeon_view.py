@@ -1051,35 +1051,16 @@ async def _award_kill(
             continue
 
         slot = dropped["slot"]
-        current_item_id = actor.equipped.get(slot)
-        current_item = dungeon.EQUIPMENT.get(current_item_id) if current_item_id else None
-        if dungeon.is_upgrade(current_item_id, dropped):
-            await asyncio.to_thread(db.equip_item_smart, guild_id, actor.user_id, slot, dropped["id"])
-            old_bonuses = dungeon.constant_stat_bonuses(current_item) if current_item else {}
-            new_bonuses = dungeon.constant_stat_bonuses(dropped)
-            actor.max_hp += new_bonuses.get("hp", 0) - old_bonuses.get("hp", 0)
-            actor.hp += new_bonuses.get("hp", 0) - old_bonuses.get("hp", 0)
-            actor.atk += new_bonuses.get("atk", 0) - old_bonuses.get("atk", 0)
-            actor.def_ += new_bonuses.get("def", 0) - old_bonuses.get("def", 0)
-            actor.spatk += new_bonuses.get("spatk", 0) - old_bonuses.get("spatk", 0)
-            actor.spdef += new_bonuses.get("spdef", 0) - old_bonuses.get("spdef", 0)
-            actor.speed += new_bonuses.get("speed", 0) - old_bonuses.get("speed", 0)
-            actor.equipped[slot] = dropped["id"]
-            if current_item:
-                log_lines.append(f"⚔️ Found **{dropped['name']}**! Replaced {current_item['name']} — equipped (stored in `!equipment`).")
-            else:
-                log_lines.append(f"⚔️ Found **{dropped['name']}**! Equipped.")
-        elif dropped["id"] == current_item_id:
-            # A dead-even is_upgrade tie against the exact item already worn (not just something
-            # of equal power) -- storing it would put the same item_id in equipment_inventory
-            # while it's ALSO equipped, an invariant equip_item_smart otherwise always maintains
-            # (see inventory_view._stored_excluding_equipped, added after this produced a live
-            # crash: a duplicate Discord Select option value in EquipmentSlotSelect). Nothing to
-            # gain from a spare of an already-worn item, so it's just not kept.
+        if dropped["id"] == actor.equipped.get(slot):
+            # Storing it would put the same item_id in equipment_inventory while it's ALSO
+            # equipped, an invariant equip_item_smart otherwise always maintains (see
+            # inventory_view._stored_excluding_equipped, added after this produced a live crash: a
+            # duplicate Discord Select option value in EquipmentSlotSelect). Nothing to gain from a
+            # spare of an already-worn item, so it's just not kept.
             log_lines.append(f"⚔️ Found another **{dropped['name']}** -- you're already wearing one.")
         else:
             await asyncio.to_thread(db.store_equipment_item, guild_id, actor.user_id, dropped["id"])
-            log_lines.append(f"⚔️ Found **{dropped['name']}**, but your current {slot} is better — stored in `!equipment`.")
+            log_lines.append(f"⚔️ Found **{dropped['name']}** — stored in `!equipment`.")
 
     await quests.record_progress(guild_id, actor.user_id, "kill_monster", monster_id=monster["id"])
 

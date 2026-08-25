@@ -166,8 +166,9 @@ if _item_id_collisions:
     raise ValueError(f"quest_items.json ids collide with dungeon materials/consumables: {sorted(_item_id_collisions)}")
 
 # kind -> item registry a stage's "reward_item" can be drawn from -- same shape and grant-logic
-# split (equipment gets equip-if-upgrade-else-store, everything else gets add_inventory_item) as
-# shop.py's and dreams.py's own REGISTRIES. housing.py deliberately is NOT imported here to add a
+# split (equipment is always stored, never auto-equipped -- see turn_in below; everything else
+# gets add_inventory_item) as shop.py's and dreams.py's own REGISTRIES. housing.py deliberately is
+# NOT imported here to add a
 # "housing_item" kind: housing.py already imports this module (for its own item-id collision check
 # against QUEST_ITEMS, mirroring the one directly above), so the reverse import would be circular.
 # housing.py is the module that ends up able to see both, so -- same "module that can see both does
@@ -230,9 +231,8 @@ def _load_quests(path: str = _QUESTS_PATH) -> dict[str, dict]:
 
     Each stage: "prompt" (NPC dialogue shown while this stage is active), "trigger" (what advances
     it, or absent for a dialogue-only endpoint), "on_complete_message", and either a currency
-    "reward" or an equipment "reward_item" (id into dungeon.EQUIPMENT -- equipped via the same
-    is_upgrade rule as ordinary loot, see turn_in). Later stages are just appended to a quest's
-    list."""
+    "reward" or a "reward_item" (any REWARD_REGISTRIES kind, see turn_in -- an equipment one is
+    always stored, never auto-equipped). Later stages are just appended to a quest's list."""
     with open(path) as f:
         raw = json.load(f)
     quests_by_id: dict[str, dict] = {}
@@ -634,18 +634,16 @@ async def turn_in(guild_id: int, user_id: int, quest_id: str) -> dict:
     its cost (if any) and advances the stage. Takes a quest_id rather than an npc_id -- an NPC can
     have more than one eligible quest active at once (see talk_to_npc), so "which quest this
     button turns in" has to be decided by whoever built that button, not re-resolved ambiguously
-    here. Returns {"success", "message", "reward", "reward_item", "reward_item_kind", "equipped",
+    here. Returns {"success", "message", "reward", "reward_item", "reward_item_kind",
     "quest_complete"} -- success is False (everything else None/0/False) if there's nothing to
     turn in. reward_item is the REWARD_REGISTRIES[reward_item_kind] dict if this stage grants one
     (None otherwise, kind defaults to "equipment" for backward compatibility) -- reward_item_kind
-    is always reported alongside it so a caller can tell what it's showing rather than assuming
-    equipment (see npc_view.TurnInButton, which used to). equipped is only ever True for an
-    "equipment" kind reward -- says whether it actually got equipped (same is_upgrade rule as
-    ordinary loot), or if not, it's stored in equipment_inventory instead, swappable later via
-    !equipment rather than lost. Every other kind is simply added to inventory."""
+    is always reported alongside it so a caller can tell what it's showing. An "equipment" kind
+    reward is always stored in equipment_inventory, never auto-equipped -- the player equips
+    manually via !equipment. Every other kind is simply added to inventory."""
     failure = {
         "success": False, "message": None, "reward": 0, "reward_item": None,
-        "reward_item_kind": None, "equipped": False, "quest_complete": False,
+        "reward_item_kind": None, "quest_complete": False,
     }
     quest = QUESTS_BY_ID[quest_id]
     stage_index = await _get_stage(guild_id, user_id, quest_id)
@@ -680,24 +678,18 @@ async def turn_in(guild_id: int, user_id: int, quest_id: str) -> dict:
     if reward:
         await asyncio.to_thread(db.update_balance, guild_id, user_id, reward)
 
-    reward_item, reward_item_kind, equipped = None, None, False
+    reward_item, reward_item_kind = None, None
     reward_item_id = stage.get("reward_item")
     if reward_item_id:
         reward_item_kind = stage.get("reward_item_kind", "equipment")
         reward_item = REWARD_REGISTRIES[reward_item_kind][reward_item_id]
         if reward_item_kind == "equipment":
-            equipped_items = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
-            slot = reward_item["slot"]
-            if dungeon.is_upgrade(equipped_items.get(slot), reward_item):
-                await asyncio.to_thread(db.equip_item_smart, guild_id, user_id, slot, reward_item_id)
-                equipped = True
-            else:
-                await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, reward_item_id)
+            await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, reward_item_id)
         else:
             await asyncio.to_thread(db.add_inventory_item, guild_id, user_id, reward_item_id, 1)
 
     return {
         "success": True, "message": stage.get("on_complete_message"), "reward": reward,
-        "reward_item": reward_item, "reward_item_kind": reward_item_kind, "equipped": equipped,
+        "reward_item": reward_item, "reward_item_kind": reward_item_kind,
         "quest_complete": stage_index + 1 >= len(quest["stages"]),
     }
