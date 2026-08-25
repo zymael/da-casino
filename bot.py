@@ -371,7 +371,7 @@ async def stats_cmd(ctx):
 
     embed = discord.Embed(title=f"📊 {ctx.author.display_name}'s Stats", color=discord.Color.blurple())
     embed.add_field(name="Balance", value=f"{balance} {currency}", inline=True)
-    embed.add_field(name="⚡ Energy", value=f"{energy}/{db.ENERGY_MAX}", inline=True)
+    embed.add_field(name="⚡ Energy", value=f"{energy}/{db.ENERGY_CAP}", inline=True)
     embed.add_field(name="🍀 Luck", value=str(luck), inline=True)
     embed.add_field(name="🍕 Pizzas Bought", value=str(pizzas_bought), inline=True)
     embed.add_field(name="🏆 Achievements", value=f"{achievement_count} unlocked", inline=True)
@@ -486,24 +486,27 @@ async def leaderboard(ctx):
 async def rest_cmd(ctx):
     """Claim your credits and refill your energy (once every 12 hours)."""
     housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, ctx.guild.id, ctx.author.id)
-    status, value = await asyncio.to_thread(
+    result = await asyncio.to_thread(
         db.claim_rest, ctx.guild.id, ctx.author.id, DAILY_AMOUNT,
         housing_bonuses.get("rest_energy_bonus", 0), housing_bonuses.get("rest_gold_bonus", 0),
     )
+    status = result[0]
     if status == "cooldown":
+        remaining = result[1]
         await ctx.send(
             f"⏳ {ctx.author.display_name}, you've rested recently. "
-            f"You can rest again {_in_seconds(value)}."
+            f"You can rest again {_in_seconds(remaining)}."
         )
         return
+    _, new_balance, new_energy = result
 
     currency = db.get_currency_name(ctx.guild.id)
     gold_claimed = DAILY_AMOUNT + housing_bonuses.get("rest_gold_bonus", 0)
-    energy_refilled = db.ENERGY_MAX + housing_bonuses.get("rest_energy_bonus", 0)
+    energy_gained = db.ENERGY_REST_GAIN + housing_bonuses.get("rest_energy_bonus", 0)
     _, moon_emoji, moon_label, _, _ = moon.current_phase()
     await ctx.send(
-        f"✅ {ctx.author.display_name} rested up! Claimed **{gold_claimed}** {currency} and refilled to "
-        f"**{energy_refilled}** ⚡ energy. Balance: **{value}**\n"
+        f"✅ {ctx.author.display_name} rested up! Claimed **{gold_claimed}** {currency} and gained "
+        f"**+{energy_gained}** ⚡ energy (now **{new_energy}/{db.ENERGY_CAP}**). Balance: **{new_balance}**\n"
         f"{moon_emoji} Tonight's moon: **{moon_label}**"
     )
 

@@ -3800,6 +3800,6 @@ async def extra_embed_fields(guild_id: int, user_id: int) -> list[tuple[str, str
     """room_view.py's dungeon specialization hook -- the energy field, a live per-player DB read a
     generic room embed has no way to know about on its own."""
     energy = await asyncio.to_thread(db.get_energy, guild_id, user_id)
-    return [("⚡ Energy", f"{energy}/{db.ENERGY_MAX} — 1 per delve, refills with `!rest`", False)]
+    return [("⚡ Energy", f"{energy}/{db.ENERGY_CAP} — 1 per delve, +{db.ENERGY_REST_GAIN} per `!rest`", False)]
 
 

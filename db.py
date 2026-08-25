@@ -4,7 +4,8 @@ from datetime import date, datetime, timedelta, timezone
 
 DB_PATH = "casino.db"
 STARTING_BALANCE = 100
-ENERGY_MAX = 3  # currently spent only by !delve (1 per delve); refilled to this by !rest
+ENERGY_CAP = 40  # energy carries over between rests -- this is the hard ceiling it accumulates to
+ENERGY_REST_GAIN = 3  # base energy granted per !rest (added to current energy, capped at ENERGY_CAP)
 # Shared cooldown for !rest, !rub, and !train -- a rolling window since each one's own last use,
 # not a calendar-day reset (see _seconds_until_refresh). One knob for all three since they're
 # meant to stay in lockstep; give a function its own constant instead if one of them ever needs to
@@ -48,11 +49,12 @@ def init_db():
     for column in ("last_mine_start", "last_mine_claim", "last_tip", "last_rub"):
         if column not in columns:
             conn.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
-    # Energy: a delve-gating resource (spent 1 per delve, refilled to bot.ENERGY_MAX by !rest) --
-    # separate from the last_daily cooldown that gates *when* !rest can be claimed. DEFAULT 3
-    # backfills existing rows to full on upgrade, same as any other ALTER ADD COLUMN here.
+    # Energy: a delve-gating resource (spent 1 per delve, gained ENERGY_REST_GAIN per !rest, capped
+    # at ENERGY_CAP -- it carries over unspent, it's not a use-it-or-lose-it refill) -- separate
+    # from the last_daily cooldown that gates *when* !rest can be claimed. DEFAULT backfills
+    # existing rows on upgrade, same as any other ALTER ADD COLUMN here.
     if "energy" not in columns:
-        conn.execute(f"ALTER TABLE users ADD COLUMN energy INTEGER NOT NULL DEFAULT {ENERGY_MAX}")
+        conn.execute(f"ALTER TABLE users ADD COLUMN energy INTEGER NOT NULL DEFAULT {ENERGY_REST_GAIN}")
     # Luck: a purely cosmetic stat (nothing else in the game reads it) that only !rub touches --
     # permanently bumps the rubber's luck and permanently docks the target's (see apply_rub); no
     # restore-on-rest, stolen luck stays stolen. Every player gets a random starting value rather
@@ -1590,20 +1592,21 @@ def _seconds_until_refresh(last_timestamp: str | None) -> float | None:
 
 def claim_rest(
     guild_id: int, user_id: int, gold_amount: int, energy_bonus: int = 0, gold_bonus: int = 0
-) -> tuple[str, float | int]:
-    """Grants `gold_amount` (+ `gold_bonus`) credits, refills energy to ENERGY_MAX + `energy_bonus`,
+) -> tuple[str, float | int] | tuple[str, int, int]:
+    """Grants `gold_amount` (+ `gold_bonus`) credits, adds ENERGY_REST_GAIN + `energy_bonus` energy
+    (capped at ENERGY_CAP -- unspent energy carries over, this is not a use-it-or-lose-it refill),
     and (if this user has a dungeon character) heals it to full -- once every REFRESH_HOURS (still
     gated by last_daily -- renamed from claim_daily now that resting does multiple duties, the
     column itself wasn't worth an ALTER just for the name; it stores a full timestamp now rather
     than a bare date, despite the name). Healing here is deliberate: current_hp otherwise only
     rises from an in-combat heal skill/item, never automatically between delves -- see
-    set_current_hp. `energy_bonus`/`gold_bonus` default to 0 (today's exact behavior) -- the
-    caller (bot.py's rest_cmd) is expected to look up any housing rest-bonus items and pass them
-    in, the same way it already computes gold_amount itself before calling this.
+    set_current_hp. `energy_bonus`/`gold_bonus` default to 0 -- the caller (bot.py's rest_cmd) is
+    expected to look up any housing rest-bonus items and pass them in, the same way it already
+    computes gold_amount itself before calling this.
 
-    Returns (status, value):
+    Returns (status, value) or (status, value, new_energy):
       - ("cooldown", seconds_remaining) — still within REFRESH_HOURS of the last rest
-      - ("claimed", new_balance) — credits granted, energy refilled, character healed
+      - ("claimed", new_balance, new_energy) — credits granted, energy gained, character healed
     """
     conn = _connect()
     try:
@@ -1618,14 +1621,18 @@ def claim_rest(
         new_balance = balance + gold_amount + gold_bonus
         now = datetime.now().isoformat()
         conn.execute(
-            "UPDATE users SET balance = ?, last_daily = ?, energy = ? WHERE guild_id = ? AND user_id = ?",
-            (new_balance, now, ENERGY_MAX + energy_bonus, guild_id, user_id),
+            "UPDATE users SET balance = ?, last_daily = ?, energy = MIN(?, energy + ?) "
+            "WHERE guild_id = ? AND user_id = ?",
+            (new_balance, now, ENERGY_CAP, ENERGY_REST_GAIN + energy_bonus, guild_id, user_id),
         )
         conn.execute(
             "UPDATE characters SET current_hp = hp WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
         )
+        new_energy = conn.execute(
+            "SELECT energy FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
         conn.commit()
-        return "claimed", new_balance
+        return "claimed", new_balance, new_energy
     finally:
         conn.close()
 
@@ -1730,13 +1737,13 @@ def spend_energy(guild_id: int, user_id: int, amount: int = 1) -> bool:
 
 def set_energy(guild_id: int, user_id: int, value: int) -> None:
     """Admin-panel direct override -- unlike spend_energy (gated, delta-based, for normal
-    gameplay), this sets energy to an exact value. Clamped to [0, ENERGY_MAX]."""
+    gameplay), this sets energy to an exact value. Clamped to [0, ENERGY_CAP]."""
     conn = _connect()
     try:
         _ensure_user(conn, guild_id, user_id)
         conn.execute(
             "UPDATE users SET energy = ? WHERE guild_id = ? AND user_id = ?",
-            (max(0, min(ENERGY_MAX, value)), guild_id, user_id),
+            (max(0, min(ENERGY_CAP, value)), guild_id, user_id),
         )
         conn.commit()
     finally:

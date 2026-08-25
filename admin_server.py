@@ -4142,8 +4142,8 @@ async def player_debug_view(request: web.Request) -> web.Response:
                 f'<input type="hidden" name="user_id" value="{uid}">'
                 f'<h2>{html.escape(_player_label(bot, gid, uid))}</h2>'
                 f'<label>Balance<input type="number" min="0" name="balance" value="{balance}"></label>'
-                f'<label>Energy <small class="field-hint">0-{db.ENERGY_MAX}</small>'
-                f'<input type="number" min="0" max="{db.ENERGY_MAX}" name="energy" value="{energy}"></label>'
+                f'<label>Energy <small class="field-hint">0-{db.ENERGY_CAP}</small>'
+                f'<input type="number" min="0" max="{db.ENERGY_CAP}" name="energy" value="{energy}"></label>'
                 f'{character_fields}'
                 f'<button type="submit">Save</button></form>'
             )
