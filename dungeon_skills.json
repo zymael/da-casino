@@ -1413,5 +1413,46 @@
     ],
     "chip_cost": 8,
     "special": false
+  },
+  {
+    "id": "long_con",
+    "main_class": "rogue",
+    "subclass": "hearts",
+    "unlock_level": 7,
+    "name": "The Long Con",
+    "flavor": "The house always wins.",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 0.7,
+        "target": "enemy"
+      },
+      {
+        "type": "stun",
+        "duration": 1,
+        "target": "enemy",
+        "chance": 0.5
+      },
+      {
+        "type": "def_shred",
+        "value": 4,
+        "target": "enemy",
+        "chance": 0.5
+      },
+      {
+        "type": "spdef_debuff",
+        "value": 4,
+        "target": "enemy",
+        "chance": 0.5
+      },
+      {
+        "type": "speed_debuff",
+        "value": 2,
+        "target": "enemy",
+        "chance": 0.5
+      }
+    ],
+    "chip_cost": 10,
+    "special": false
   }
 ]
