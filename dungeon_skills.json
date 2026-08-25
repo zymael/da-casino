@@ -1283,5 +1283,27 @@
     ],
     "chip_cost": 10,
     "special": false
+  },
+  {
+    "id": "all_in_base",
+    "main_class": "rogue",
+    "subclass": "clubs",
+    "unlock_level": 1,
+    "name": "All in",
+    "flavor": "Look over there, a dragon!",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1.5
+      },
+      {
+        "type": "damage_multiplier",
+        "value": 0.7,
+        "target": "enemy",
+        "chance": 0.5
+      }
+    ],
+    "chip_cost": 10,
+    "special": false
   }
 ]
