@@ -30,7 +30,8 @@ async def build_sell_display(guild_id: int, user_id: int, npc_id: str) -> tuple[
     npc = npcs.NPCS[npc_id]
     held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
     stored_equipment = await asyncio.to_thread(db.get_equipment_inventory, guild_id, user_id)
-    holdings = sell.sellable_holdings(held, stored_equipment)
+    horse_clothes_in_use = await asyncio.to_thread(sell._horse_clothes_in_use, guild_id, user_id)
+    holdings = sell.sellable_holdings(held, stored_equipment, horse_clothes_in_use)
     balance = await asyncio.to_thread(db.get_balance, guild_id, user_id)
     currency = db.get_currency_name(guild_id)
 
