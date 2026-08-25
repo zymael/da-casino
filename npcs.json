@@ -79,5 +79,12 @@
     "greet_message": "*They appear to take a drag from a cigarette with the side of their head before a series of hacking coughs erupt from the masked person*",
     "greet_achievement": "greeted_leto",
     "sprite_path": "assets/npcs/leto.png"
+  },
+  {
+    "id": "kreachur",
+    "name": "Karl Reachur",
+    "room": "town_square",
+    "greet_message": "I'm KREACHIN'.\r\n\r\nYou wanna trade?   I got many unique, and powerful goods. ",
+    "sprite_path": "assets/npcs/kreachur.png"
   }
 ]
