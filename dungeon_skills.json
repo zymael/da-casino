@@ -1454,5 +1454,28 @@
     ],
     "chip_cost": 10,
     "special": false
+  },
+  {
+    "id": "bar_stool_special",
+    "main_class": "rogue",
+    "subclass": "clubs",
+    "unlock_level": 7,
+    "name": "Bar Stool Special",
+    "flavor": "*BONK*",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1.9,
+        "target": "enemy"
+      },
+      {
+        "type": "stun",
+        "duration": 2,
+        "target": "enemy",
+        "chance": 0.5
+      }
+    ],
+    "chip_cost": 13,
+    "special": false
   }
 ]
