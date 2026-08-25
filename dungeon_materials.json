@@ -94,5 +94,11 @@
     "name": "Slope Detector",
     "rarity": "rare",
     "flavor": "A spherical device that is capable of detecting where any slope might lie."
+  },
+  {
+    "id": "magic_rock",
+    "name": "Magical Rock",
+    "rarity": "Rare",
+    "flavor": "A rock that you were told is possessed by a magical spirit.  Her name is Coco."
   }
 ]
