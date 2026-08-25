@@ -4,6 +4,7 @@
     "name": "Rusty Dagger",
     "slot": "weapon",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "atk_buff",
@@ -18,6 +19,7 @@
     "name": "Wooden Club",
     "slot": "weapon",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "atk_buff",
@@ -32,6 +34,7 @@
     "name": "Leather Vest",
     "slot": "armor",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "hp_buff",
@@ -51,6 +54,7 @@
     "name": "Padded Jerkin",
     "slot": "armor",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "hp_buff",
@@ -65,6 +69,7 @@
     "name": "Lucky Coin",
     "slot": "trinket",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "hp_buff",
@@ -79,6 +84,7 @@
     "name": "Copper Ring",
     "slot": "trinket",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "atk_buff",
@@ -93,6 +99,7 @@
     "name": "Iron Sword",
     "slot": "weapon",
     "rarity": "rare",
+    "base_value": 250,
     "effects": [
       {
         "type": "atk_buff",
@@ -107,6 +114,7 @@
     "name": "Steel Hatchet",
     "slot": "weapon",
     "rarity": "rare",
+    "base_value": 250,
     "effects": [
       {
         "type": "atk_buff",
@@ -126,6 +134,7 @@
     "name": "Chainmail",
     "slot": "armor",
     "rarity": "rare",
+    "base_value": 250,
     "effects": [
       {
         "type": "hp_buff",
@@ -145,6 +154,7 @@
     "name": "Reinforced Buckler",
     "slot": "armor",
     "rarity": "rare",
+    "base_value": 250,
     "effects": [
       {
         "type": "def_buff",
@@ -159,6 +169,7 @@
     "name": "Jade Pendant",
     "slot": "trinket",
     "rarity": "rare",
+    "base_value": 250,
     "effects": [
       {
         "type": "atk_buff",
@@ -178,6 +189,7 @@
     "name": "Swift Boots",
     "slot": "trinket",
     "rarity": "rare",
+    "base_value": 250,
     "effects": [
       {
         "type": "hp_buff",
@@ -197,6 +209,7 @@
     "name": "Goblin Chief's Cleaver",
     "slot": "weapon",
     "rarity": "epic",
+    "base_value": 500,
     "effects": [
       {
         "type": "atk_buff",
@@ -211,6 +224,7 @@
     "name": "Warlord's Blade",
     "slot": "weapon",
     "rarity": "epic",
+    "base_value": 500,
     "effects": [
       {
         "type": "atk_buff",
@@ -230,6 +244,7 @@
     "name": "Plate of the Vanguard",
     "slot": "armor",
     "rarity": "epic",
+    "base_value": 500,
     "effects": [
       {
         "type": "hp_buff",
@@ -249,6 +264,7 @@
     "name": "Dragonhide Cloak",
     "slot": "armor",
     "rarity": "epic",
+    "base_value": 500,
     "effects": [
       {
         "type": "hp_buff",
@@ -263,6 +279,7 @@
     "name": "Signet of Kings",
     "slot": "trinket",
     "rarity": "epic",
+    "base_value": 500,
     "effects": [
       {
         "type": "hp_buff",
@@ -287,6 +304,7 @@
     "name": "Amulet of Vigor",
     "slot": "trinket",
     "rarity": "epic",
+    "base_value": 500,
     "effects": [
       {
         "type": "hp_buff",
@@ -306,6 +324,7 @@
     "name": "Greasy Pencil",
     "slot": "weapon",
     "rarity": "rare",
+    "base_value": 250,
     "effects": [
       {
         "type": "atk_buff",
@@ -321,6 +340,7 @@
     "name": "Bonk Stick",
     "slot": "weapon",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "atk_buff",
@@ -335,6 +355,7 @@
     "name": "Shiny Pin",
     "slot": "trinket",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "atk_buff",
@@ -349,6 +370,7 @@
     "name": "Fancy Cowl",
     "slot": "armor",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "hp_buff",
@@ -368,6 +390,7 @@
     "name": "Bulging Tights",
     "slot": "armor",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "def_buff",
@@ -382,6 +405,7 @@
     "name": "Shield",
     "slot": "armor",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "def_buff",
@@ -396,6 +420,7 @@
     "name": "Gladius",
     "slot": "weapon",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "atk_buff",
@@ -410,6 +435,7 @@
     "name": "Magic Wand",
     "slot": "weapon",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "atk_buff",
@@ -424,6 +450,7 @@
     "name": "Spear",
     "slot": "weapon",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "atk_buff",
@@ -438,6 +465,7 @@
     "name": "Magic Amulet",
     "slot": "trinket",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "hp_buff",
@@ -452,6 +480,7 @@
     "name": "Pugilist Gloves",
     "slot": "weapon",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "atk_buff",
@@ -466,6 +495,7 @@
     "name": "Shark Punch",
     "slot": "weapon",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "atk_buff",
@@ -480,6 +510,7 @@
     "name": "Fancy Hat",
     "slot": "trinket",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "hp_buff",
@@ -499,6 +530,7 @@
     "name": "Sling",
     "slot": "weapon",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "atk_buff",
@@ -513,6 +545,7 @@
     "name": "Zymi Test Sword",
     "slot": "weapon",
     "rarity": "legendary",
+    "base_value": 1000,
     "effects": [
       {
         "type": "atk_buff",
@@ -535,6 +568,7 @@
     "name": "Test Speed Lower",
     "slot": "trinket",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "speed_debuff",
@@ -550,6 +584,7 @@
     "name": "Overpowered Jinkblade",
     "slot": "weapon",
     "rarity": "common",
+    "base_value": 100,
     "effects": [
       {
         "type": "atk_buff",

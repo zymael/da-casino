@@ -3,102 +3,119 @@
     "id": "stick",
     "name": "Stick",
     "rarity": "common",
+    "base_value": 15,
     "flavor": "Sturdy enough. Barely."
   },
   {
     "id": "comb",
     "name": "Comb",
     "rarity": "common",
+    "base_value": 15,
     "flavor": "A few teeth missing, but so is everyone's."
   },
   {
     "id": "nail",
     "name": "Nail",
     "rarity": "common",
+    "base_value": 15,
     "flavor": "Bent, rusty, and somehow still pointy."
   },
   {
     "id": "dirty_cloth",
     "name": "Dirty Cloth",
     "rarity": "common",
+    "base_value": 15,
     "flavor": "You don't want to know what the stains are."
   },
   {
     "id": "hair",
     "name": "Hair",
     "rarity": "common",
+    "base_value": 15,
     "flavor": "Whose is a question best left unasked."
   },
   {
     "id": "used_thong",
     "name": "Used Thong",
     "rarity": "common",
+    "base_value": 15,
     "flavor": "It's seen things. It won't say what."
   },
   {
     "id": "droppings",
     "name": "Droppings",
     "rarity": "common",
+    "base_value": 15,
     "flavor": "Fresh-ish. That's the best you can say about it."
   },
   {
     "id": "charcoal",
     "name": "Charcoal",
     "rarity": "common",
+    "base_value": 15,
     "flavor": "Still warm from something you'd rather not ask about."
   },
   {
     "id": "pan",
     "name": "Pan",
     "rarity": "common",
+    "base_value": 15,
     "flavor": "Dented in a way that suggests a good story."
   },
   {
     "id": "razor",
     "name": "Razor",
     "rarity": "common",
+    "base_value": 15,
     "flavor": "Dull, but still capable of ruining your day."
   },
   {
     "id": "shiny_rock",
     "name": "Shiny Rock",
     "rarity": "common",
+    "base_value": 15,
     "flavor": "Probably not magic. Probably."
   },
   {
     "id": "pointy_rock",
     "name": "Pointy Rock",
     "rarity": "common",
+    "base_value": 15,
     "flavor": "Nature's cheapest weapon."
   },
   {
     "id": "oversized_hat",
     "name": "Oversized Hat",
     "rarity": "common",
+    "base_value": 15,
     "flavor": "Falls over your eyes at the worst possible moment."
   },
   {
     "id": "rat_tooth",
     "name": "Rat Tooth",
     "rarity": "common",
+    "base_value": 15,
     "flavor": "Sharper than it has any right to be."
   },
   {
     "id": "femur",
     "name": "Femur",
     "rarity": "rare",
+    "base_value": 50,
     "flavor": "A big chonky bone!"
   },
   {
     "id": "slope_detector",
     "name": "Slope Detector",
     "rarity": "rare",
+    "base_value": 50,
     "flavor": "A spherical device that is capable of detecting where any slope might lie."
   },
   {
     "id": "magic_rock",
     "name": "Magical Rock",
     "rarity": "Rare",
+    "base_value": 50,
     "flavor": "A rock that you were told is possessed by a magical spirit.  Her name is Coco."
   }
 ]

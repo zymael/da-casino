@@ -20,7 +20,10 @@ import dungeon
 import quests
 
 _HOUSING_ITEMS_PATH = os.path.join(os.path.dirname(__file__), "housing_items.json")
-_REQUIRED_ITEM_FIELDS = {"id", "name", "emoji", "description", "effect_type", "value"}
+# "base_value" -- not "value" -- for the sell.py economy price this item is worth (half of it, on
+# sale): "value" already means this item's own effect magnitude (see HOUSING_EFFECT_TYPES below),
+# a completely different number that would collide with an economy-value field of the same name.
+_REQUIRED_ITEM_FIELDS = {"id", "name", "emoji", "description", "effect_type", "value", "base_value"}
 
 # effect_type -> {value_kind, requires_stat}. value_kind is documentation only (nothing enforces it
 # at load time beyond "value is a number") -- "percent" types are read as +N% by their hook site,
@@ -66,6 +69,8 @@ def _load_housing_items(path: str = _HOUSING_ITEMS_PATH) -> dict[str, dict]:
                 f"housing_items.json: item {entry_id!r} sets 'stat' but effect_type {effect_type!r} "
                 f"doesn't use one"
             )
+        if entry["base_value"] < 0:
+            raise ValueError(f"housing_items.json: item {entry_id!r} base_value must be >= 0")
         items[entry_id] = entry
     return items
 

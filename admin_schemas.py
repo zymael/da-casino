@@ -315,6 +315,11 @@ CONTENT_TYPES = {
                         "level\" above to pre-fill its constant effects from a level, or just label an "
                         "item you've already hand-tuned.",
             },
+            {
+                "name": "base_value", "type": "int", "required": True, "min": 0, "group": "Drop Info",
+                "hint": "sell.py's basis for this item's sell price (half of this, rounded down) at any "
+                        "NPC with \"buys_items\" checked",
+            },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
         ],
     },
@@ -333,6 +338,11 @@ CONTENT_TYPES = {
             {
                 "name": "rarity", "type": "str", "required": True, "group": "Drop Info",
                 "hint": "flavor label only (e.g. \"common\", \"rare\") -- not read by any game logic",
+            },
+            {
+                "name": "base_value", "type": "int", "required": True, "min": 0, "group": "Drop Info",
+                "hint": "sell.py's basis for this item's sell price (half of this, rounded down) at any "
+                        "NPC with \"buys_items\" checked",
             },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
         ],
@@ -353,6 +363,11 @@ CONTENT_TYPES = {
                 "name": "kind", "type": "str", "required": True, "default": "consumable", "group": "Identity",
                 "hint": "must be exactly \"consumable\" -- the loader rejects anything else. Kept as an "
                         "explicit field rather than hardcoded for when a second kind of item exists.",
+            },
+            {
+                "name": "base_value", "type": "int", "required": True, "min": 0, "group": "Identity",
+                "hint": "sell.py's basis for this item's sell price (half of this, rounded down) at any "
+                        "NPC with \"buys_items\" checked",
             },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
             {
@@ -555,6 +570,12 @@ CONTENT_TYPES = {
                         "instead, so new items work immediately with no art required.",
             },
             {
+                "name": "base_value", "type": "int", "required": True, "min": 0, "group": "Identity",
+                "hint": "sell.py's basis for this item's sell price (half of this, rounded down) at any "
+                        "NPC with \"buys_items\" checked -- NOT the same as \"value\" below, which is "
+                        "this item's own effect magnitude",
+            },
+            {
                 "name": "effect_type", "type": "enum", "required": True, "group": "Effect",
                 "choices": lambda: sorted(housing.HOUSING_EFFECT_TYPES.keys()),
                 "hint": "the passive bonus this item grants while placed in a house slot",
@@ -674,6 +695,11 @@ CONTENT_TYPES = {
                         "item_id is looked up in the registry named by kind (equipment/material/"
                         "consumable/quest_item/horse_clothes/housing_item).",
             },
+            {
+                "name": "buys_items", "type": "bool", "required": False, "default": False,
+                "hint": "shows a Sell button for this NPC -- buys anything sellable (any kind but "
+                        "quest_item) the player currently owns, at half its base_value (sell.py)",
+            },
         ],
     },
     "quests": {
@@ -722,6 +748,11 @@ CONTENT_TYPES = {
                 "hint": "composited directly onto the horse's coat sprite in race photos -- draw it "
                         "on a transparent 50x37 canvas aligned to assets/horses/*.png so it lines up "
                         "with no extra positioning",
+            },
+            {
+                "name": "base_value", "type": "int", "required": True, "min": 0, "group": "Identity",
+                "hint": "sell.py's basis for this item's sell price (half of this, rounded down) at any "
+                        "NPC with \"buys_items\" checked",
             },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
         ],

@@ -2,41 +2,46 @@
   {
     "id": "cozy_sleeping_bag",
     "name": "Cozy Sleeping Bag",
-    "emoji": "\ud83d\udca4",
+    "emoji": "💤",
     "description": "A used sleeping bag that makes resting a little more restorative.",
     "image_path": "assets/housing/items/cozy_sleeping_bag.png",
+    "base_value": 1000,
     "effect_type": "rest_energy_bonus",
     "value": 1
   },
   {
     "id": "piggy_bank",
     "name": "Piggy Bank",
-    "emoji": "\ud83d\udc37",
+    "emoji": "🐷",
     "description": "A few extra coins waiting for you whenever you rest.",
+    "base_value": 150,
     "effect_type": "rest_gold_bonus",
     "value": 25
   },
   {
     "id": "lucky_horseshoe",
     "name": "Lucky Horseshoe",
-    "emoji": "\ud83e\uddf2",
+    "emoji": "🧲",
     "description": "Hung over the door for a little extra luck in the dungeon's loot rooms.",
+    "base_value": 300,
     "effect_type": "dungeon_loot_bonus",
     "value": 10
   },
   {
     "id": "study_desk",
     "name": "Study Desk",
-    "emoji": "\ud83d\udcda",
+    "emoji": "📚",
     "description": "A tidy desk for reviewing your notes between delves.",
+    "base_value": 300,
     "effect_type": "dungeon_xp_bonus",
     "value": 10
   },
   {
     "id": "training_dummy",
     "name": "Training Dummy",
-    "emoji": "\ud83e\udd4a",
+    "emoji": "🥊",
     "description": "Shadow-boxing before breakfast keeps your attack sharp.",
+    "base_value": 400,
     "effect_type": "stat_bonus",
     "value": 3,
     "stat": "atk"
@@ -44,8 +49,9 @@
   {
     "id": "ranch_almanac",
     "name": "Ranch Almanac",
-    "emoji": "\ud83d\udcd6",
+    "emoji": "📖",
     "description": "Well-worn notes on horse care, kept on the mantel.",
+    "base_value": 300,
     "effect_type": "ranch_training_bonus",
     "value": 10
   }

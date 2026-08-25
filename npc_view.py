@@ -1,14 +1,15 @@
 """Generic NPC interaction buttons -- shared by every room (room_view.RoomView adds these for
 whichever NPCs quests.npcs_present_in_room reports for that room, no per-room NPC code at all).
-Three classes cover every NPC: TalkToNpcButton (always shows whatever's currently relevant -- their
+Four classes cover every NPC: TalkToNpcButton (always shows whatever's currently relevant -- their
 static greeting, or every active quest's current prompt with them), TurnInButton (one per quest
 that quests.talk_to_npc reports can_turn_in -- an NPC can have more than one eligible quest active
 at once, so a room adds zero or more of these, each scoped to its own quest_id rather than the NPC
-as a whole; see quests.talk_to_npc's docstring for why that matters), and ShopButton (added only
-for an NPC with a non-empty npcs.json "shop" list -- opens shop_view's ephemeral purchase popup,
-same pattern as hub_ui.InventoryButton/EquipmentButton, rather than anything built into the room's
-own view; see CLAUDE.md's "Rooms/NPCs" section for why a room never builds bespoke picker UI
-itself).
+as a whole; see quests.talk_to_npc's docstring for why that matters), ShopButton (added only for an
+NPC with a non-empty npcs.json "shop" list -- opens shop_view's ephemeral purchase popup), and
+SellButton (added only for an NPC with npcs.json's "buys_items" checked -- opens sell_view's
+ephemeral popup, the reverse direction). Both Shop/Sell follow the same pattern as
+hub_ui.InventoryButton/EquipmentButton, rather than anything built into the room's own view; see
+CLAUDE.md's "Rooms/NPCs" section for why a room never builds bespoke picker UI itself.
 
 TalkToNpcButton/TurnInButton take a `rebuild` callable -- `async def rebuild(interaction, buf,
 filename) -> None` -- that redraws the room and applies the freshly-rendered dialogue image;
@@ -27,6 +28,7 @@ import achievements
 import npc_render
 import npcs
 import quests
+import sell_view
 import shop_view
 
 
@@ -81,6 +83,22 @@ class ShopButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         guild_id, user_id = interaction.guild.id, interaction.user.id
         embed, view = await shop_view.build_shop_display(guild_id, user_id, self.npc_id)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+
+class SellButton(discord.ui.Button):
+    """Shown for any NPC with npcs.json's "buys_items" checked -- opens sell_view's ephemeral
+    popup, same shape as ShopButton but listing whatever the player owns (sell.sellable_holdings)
+    rather than a fixed catalog."""
+
+    def __init__(self, npc_id: str, *, row: int):
+        npc = npcs.NPCS[npc_id]
+        super().__init__(label=f"💰 Sell ({npc['name']})", style=discord.ButtonStyle.secondary, row=row)
+        self.npc_id = npc_id
+
+    async def callback(self, interaction: discord.Interaction):
+        guild_id, user_id = interaction.guild.id, interaction.user.id
+        embed, view = await sell_view.build_sell_display(guild_id, user_id, self.npc_id)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 

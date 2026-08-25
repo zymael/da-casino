@@ -98,9 +98,10 @@ class RoomView(discord.ui.View):
     one NoArgButton/AmountButton per rooms.json commands[] entry, one TalkToNpcButton per NPC
     currently present (npcs.json data -- see quests.npcs_present_in_room; its label is
     quests.npc_talk_label's per-quest-stage override if one's set, else the button's own generic
-    "Talk to X" default) plus one TurnInButton per turn-in-able quest any of them has with this
-    player, the shared Inventory/Equipment buttons, and one RoomExitButton per exit. No manual row
-    numbers anywhere -- `_add` auto-flows every item into groups of 5, Discord's per-row limit, so
+    "Talk to X" default) plus one ShopButton/SellButton per NPC with a non-empty "shop"/"buys_items"
+    checked and one TurnInButton per turn-in-able quest any of them has with this player, the
+    shared Inventory/Equipment buttons, and one RoomExitButton per exit. No manual row numbers
+    anywhere -- `_add` auto-flows every item into groups of 5, Discord's per-row limit, so
     authoring a room's command order never has to think about Discord UI row math."""
 
     def __init__(
@@ -144,6 +145,8 @@ class RoomView(discord.ui.View):
             ))
             if npcs.NPCS[npc_id].get("shop"):
                 self._add(npc_view.ShopButton(npc_id, row=0))
+            if npcs.NPCS[npc_id].get("buys_items"):
+                self._add(npc_view.SellButton(npc_id, row=0))
             for state in npc_states[npc_id]:
                 if state["can_turn_in"]:
                     self._add(npc_view.TurnInButton(

@@ -14,7 +14,7 @@ import json
 import os
 
 _HORSE_CLOTHES_PATH = os.path.join(os.path.dirname(__file__), "horse_clothes.json")
-_REQUIRED_FIELDS = {"id", "name", "slot", "image_path", "flavor"}
+_REQUIRED_FIELDS = {"id", "name", "slot", "image_path", "flavor", "base_value"}
 CLOTHES_SLOTS = ("saddle", "hat")
 
 
@@ -31,6 +31,8 @@ def _load_horse_clothes(path: str = _HORSE_CLOTHES_PATH) -> dict[str, dict]:
             raise ValueError(f"horse_clothes.json: duplicate item id {entry_id!r}")
         if entry["slot"] not in CLOTHES_SLOTS:
             raise ValueError(f"horse_clothes.json: item {entry_id!r} has unknown slot {entry['slot']!r}")
+        if entry["base_value"] < 0:
+            raise ValueError(f"horse_clothes.json: item {entry_id!r} base_value must be >= 0")
         clothes[entry_id] = entry
     return clothes
 

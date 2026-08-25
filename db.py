@@ -2070,6 +2070,22 @@ def store_equipment_item(guild_id: int, user_id: int, item_id: str, qty: int = 1
         conn.close()
 
 
+def sell_equipment_item(guild_id: int, user_id: int, item_id: str, qty: int = 1) -> bool:
+    """Removes qty of item_id from equipment_inventory (never from character_equipment -- an
+    equipped item was never in this table to begin with, see _stored_excluding_equipped, so this
+    can never accidentally sell something worn). Returns whether enough was held -- False leaves
+    storage untouched. Standalone public version of _remove_equipment_inventory, for sell.py; the
+    currency credit is a separate call (db.update_balance), same "compose separately-atomic calls"
+    shape shop.py/quests.turn_in already use rather than one all-encompassing transaction."""
+    conn = _connect()
+    try:
+        removed = _remove_equipment_inventory(conn, guild_id, user_id, item_id, qty)
+        conn.commit()
+        return removed
+    finally:
+        conn.close()
+
+
 def get_equipment_inventory(guild_id: int, user_id: int) -> dict[str, int]:
     """Returns {item_id: qty} for gear this character has found/been granted but isn't currently
     wearing -- an item not in the dict means 0, same "absence = default state" idea as

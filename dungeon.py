@@ -1021,7 +1021,7 @@ RARITY_EMOJI = {"common": "⚪", "uncommon": "🟢", "rare": "🔵", "epic": "�
 RARITY_STAT_MULTIPLIERS = {"common": 1.0, "uncommon": 1.25, "rare": 1.6, "epic": 2.1, "legendary": 3.0}
 
 _EQUIPMENT_PATH = os.path.join(os.path.dirname(__file__), "dungeon_equipment.json")
-_REQUIRED_EQUIPMENT_FIELDS = {"id", "name", "slot", "rarity", "effects", "flavor"}
+_REQUIRED_EQUIPMENT_FIELDS = {"id", "name", "slot", "rarity", "effects", "flavor", "base_value"}
 EQUIPMENT_SLOTS = ("weapon", "armor", "trinket")
 EQUIPMENT_EFFECT_TRIGGERS = ("constant", "on_use", "on_hit")
 CONSTANT_EQUIPMENT_EFFECT_TYPES = {"atk_buff", "def_buff", "spatk_buff", "spdef_buff", "hp_buff", "speed_buff"}
@@ -1110,6 +1110,8 @@ def _load_equipment(path: str = _EQUIPMENT_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has unknown rarity {entry['rarity']!r}")
         if "special" in entry and not isinstance(entry["special"], bool):
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} special must be a bool")
+        if entry["base_value"] < 0:
+            raise ValueError(f"dungeon_equipment.json: item {entry_id!r} base_value must be >= 0")
         _validate_equipment_effects(entry["effects"], f"dungeon_equipment.json: item {entry_id!r}")
         equipment[entry_id] = entry
     return equipment
@@ -1126,7 +1128,7 @@ EQUIPMENT = _load_equipment()
 # EQUIPMENT above.
 
 _MATERIALS_PATH = os.path.join(os.path.dirname(__file__), "dungeon_materials.json")
-_REQUIRED_MATERIAL_FIELDS = {"id", "name", "rarity", "flavor"}
+_REQUIRED_MATERIAL_FIELDS = {"id", "name", "rarity", "flavor", "base_value"}
 
 
 def _load_materials(path: str = _MATERIALS_PATH) -> dict[str, dict]:
@@ -1140,6 +1142,8 @@ def _load_materials(path: str = _MATERIALS_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_materials.json: material {entry_id!r} missing field(s): {sorted(missing)}")
         if entry_id in materials:
             raise ValueError(f"dungeon_materials.json: duplicate material id {entry_id!r}")
+        if entry["base_value"] < 0:
+            raise ValueError(f"dungeon_materials.json: material {entry_id!r} base_value must be >= 0")
         materials[entry_id] = entry
     return materials
 
@@ -1158,7 +1162,7 @@ MONSTERS = _load_monsters()
 # the same generic `inventory` table as quest items and materials.
 
 _CONSUMABLES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_consumables.json")
-_REQUIRED_CONSUMABLE_FIELDS = {"id", "name", "kind", "flavor"}
+_REQUIRED_CONSUMABLE_FIELDS = {"id", "name", "kind", "flavor", "base_value"}
 
 
 def _load_consumables(path: str = _CONSUMABLES_PATH) -> dict[str, dict]:
@@ -1174,6 +1178,8 @@ def _load_consumables(path: str = _CONSUMABLES_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_consumables.json: duplicate item id {entry_id!r}")
         if entry["kind"] != "consumable":
             raise ValueError(f"dungeon_consumables.json: item {entry_id!r} has kind {entry['kind']!r}, expected 'consumable'")
+        if entry["base_value"] < 0:
+            raise ValueError(f"dungeon_consumables.json: item {entry_id!r} base_value must be >= 0")
         _validate_effects_or_groups(entry, f"dungeon_consumables.json: item {entry_id!r}")
         consumables[entry_id] = entry
     return consumables
