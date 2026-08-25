@@ -239,34 +239,5 @@
       }
     ],
     "commands": []
-  },
-  {
-    "id": "town_square_copy",
-    "name": "\ud83c\udfd8\ufe0f Town Square",
-    "description": "The central square of the great city of PANTHEON.  You can help but bristle at the thought of the exciting adventures you're going to have here!  Or maybe it's just what you ate last night.",
-    "background_path": "assets/rooms/town_square.jpg",
-    "exits": [
-      {
-        "room_id": "casino",
-        "label": "\ud83c\udfb0 Casino"
-      },
-      {
-        "room_id": "ranch",
-        "label": "\ud83d\udc34 Ranch"
-      },
-      {
-        "room_id": "dungeon",
-        "label": "\ud83d\udde1\ufe0f Dungeon"
-      },
-      {
-        "room_id": "gnomish_night_market",
-        "label": "\ud83c\udf44Gnomish Night Market"
-      },
-      {
-        "room_id": "rv_park",
-        "label": "\ud83c\udfd5\ufe0f  Leper Colony"
-      }
-    ],
-    "commands": []
   }
 ]
