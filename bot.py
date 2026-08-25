@@ -29,6 +29,7 @@ from dungeon_view import (
 )
 import horse_clothes_view
 import housing
+import housing_render
 import housing_view
 from holdem_view import (
     BIG_BLIND as HOLDEM_BIG_BLIND,
@@ -1470,10 +1471,14 @@ async def house_cmd(ctx):
 
 async def _show_house(ctx):
     guild_id, user_id = ctx.guild.id, ctx.author.id
-    embed = housing_view.build_house_embed(guild_id, user_id, ctx.author.display_name)
     placements = await asyncio.to_thread(db.get_house_placements, guild_id, user_id)
+    bonuses = await asyncio.to_thread(housing.get_house_bonuses, guild_id, user_id)
+    buf = await asyncio.to_thread(housing_render.render_house, placements, housing.HOUSING_ITEMS)
+    file = discord.File(buf, filename=housing_view.IMAGE_FILENAME)
+    embed = housing_view.build_house_embed(ctx.author.display_name, placements, bonuses)
+    embed.set_image(url=f"attachment://{housing_view.IMAGE_FILENAME}")
     view = housing_view.build_slot_picker(placements, _pick_house_slot)
-    await ctx.send(embed=embed, view=view)
+    await ctx.send(embed=embed, file=file, view=view)
 
 
 async def _pick_house_slot(ctx, slot: int):

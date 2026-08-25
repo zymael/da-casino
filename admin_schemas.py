@@ -545,6 +545,13 @@ CONTENT_TYPES = {
             {"name": "emoji", "type": "str", "required": True, "group": "Identity"},
             {"name": "description", "type": "text", "required": True, "group": "Flavor Text"},
             {
+                "name": "image_path", "type": "image", "required": False, "subdir": "housing/items",
+                "group": "Identity",
+                "hint": "optional -- composited into this item's house grid cell (housing_render.py). "
+                        "Without one, the item shows as a colored circle with its name's first letter "
+                        "instead, so new items work immediately with no art required.",
+            },
+            {
                 "name": "effect_type", "type": "enum", "required": True, "group": "Effect",
                 "choices": lambda: sorted(housing.HOUSING_EFFECT_TYPES.keys()),
                 "hint": "the passive bonus this item grants while placed in a house slot",

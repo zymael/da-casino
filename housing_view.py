@@ -8,18 +8,13 @@ always opens this same picker chain.
 """
 import discord
 
-import db
 import housing
 import hub_ui
 
 MAX_SELECT_OPTIONS = 25  # Discord's hard limit on a single Select's options
 GRID_SIZE = 9
 REMOVE_VALUE = "__remove__"
-
-
-def _cell_emoji(item_id: str | None) -> str:
-    item = housing.HOUSING_ITEMS.get(item_id) if item_id else None
-    return item["emoji"] if item else "➕"
+IMAGE_FILENAME = "house.png"
 
 
 def _bonus_lines(bonuses: dict) -> list[str]:
@@ -34,21 +29,20 @@ def _bonus_lines(bonuses: dict) -> list[str]:
     return lines
 
 
-def build_house_embed(guild_id: int, user_id: int, display_name: str) -> discord.Embed:
-    """Renders the player's 3x3 grid (each cell an emoji or an empty-slot marker) plus a field per
-    filled slot and a summary of the aggregate passive bonuses currently active."""
-    placements = db.get_house_placements(guild_id, user_id)
-    grid_text = "\n".join(
-        " ".join(_cell_emoji(placements.get(row * 3 + col)) for col in range(3)) for row in range(3)
-    )
-
-    embed = discord.Embed(title=f"🏠 {display_name}'s House", description=grid_text, color=discord.Color.gold())
+def build_house_embed(display_name: str, placements: dict[int, str], bonuses: dict) -> discord.Embed:
+    """Renders the text half of !house's response -- a field per filled slot and a summary of the
+    aggregate passive bonuses currently active. The grid itself is the composited image bot.py
+    attaches separately (housing_render.render_house) and sets via embed.set_image(url=
+    f"attachment://{IMAGE_FILENAME}"); this function doesn't touch the image at all, so it stays a
+    plain data-in-data-out builder like build_slot_picker/build_item_picker below (placements and
+    bonuses are pre-fetched by the caller, not queried here)."""
+    embed = discord.Embed(title=f"🏠 {display_name}'s House", color=discord.Color.gold())
     for slot in range(GRID_SIZE):
         item = housing.HOUSING_ITEMS.get(placements.get(slot))
         if item:
             embed.add_field(name=f"Slot {slot + 1}", value=f"{item['emoji']} {item['name']}", inline=True)
 
-    bonus_lines = _bonus_lines(housing.get_house_bonuses(guild_id, user_id))
+    bonus_lines = _bonus_lines(bonuses)
     embed.add_field(
         name="Active Bonuses",
         value="\n".join(bonus_lines) if bonus_lines else "None yet -- place an item!",
