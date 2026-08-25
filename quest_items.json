@@ -16,5 +16,11 @@
     "name": "Lucky Coin",
     "emoji": "\ud83e\ude99",
     "description": "Though it should be impossible, flipping the coin shows either a Heart, Spade, Diamond or Club symbol, despite the coin only being two sided."
+  },
+  {
+    "id": "goblins_sleeping_bag",
+    "name": "Goblin's Sleeping Bag",
+    "emoji": "\ud83d\udecf\ufe0f",
+    "description": "A grimy, goblin-scented sleeping bag. Leto will probably want this."
   }
 ]

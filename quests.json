@@ -50,9 +50,9 @@
       {
         "prompt": "You don't have a trailer... a tent... or even a sleeping bag. I can't have you just sitting in the dirt. Come back when you have something to use the land for.",
         "trigger": {
-          "type": "kill_monster",
-          "count": 1,
-          "monster_id": "goblin_grunt"
+          "type": "turn_in_item",
+          "item_id": "goblins_sleeping_bag",
+          "drop_monster": "goblin_grunt"
         },
         "on_complete_message": "Alright, let's talk business.",
         "reward_item": "cozy_sleeping_bag",
