@@ -1305,5 +1305,37 @@
     ],
     "chip_cost": 10,
     "special": false
+  },
+  {
+    "id": "all_in_spades",
+    "main_class": "rogue",
+    "subclass": "spades",
+    "unlock_level": 7,
+    "name": "All in",
+    "flavor": "Look over there, a dragon!",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1.5
+      },
+      {
+        "type": "damage_multiplier",
+        "value": 0.7,
+        "target": "enemy",
+        "chance": 0.5
+      },
+      {
+        "type": "extra_attack",
+        "multiplier": 1.5,
+        "target": "enemy"
+      },
+      {
+        "type": "atk_buff",
+        "value": 4,
+        "target": "self"
+      }
+    ],
+    "chip_cost": 10,
+    "special": false
   }
 ]
