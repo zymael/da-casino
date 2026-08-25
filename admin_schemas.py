@@ -132,12 +132,18 @@ Field types the generic form-builder knows how to render:
     actually enforces which params a given type needs. See TRIGGER_PARAM_KINDS for how each
     param renders (a number input, or a <select> sourced from the right registry).
   - "quest_stages" -- a repeatable list of {prompt, trigger, on_complete_message, reward,
-    reward_item, reward_item_kind, button_label}; each row's trigger portion is the same flattened
-    rendering as the "trigger" field type above. reward_item_kind picks which of
+    reward_item, reward_item_kind, button_label, turn_in_label}; each row's trigger portion is the
+    same flattened rendering as the "trigger" field type above. reward_item_kind picks which of
     quests.REWARD_REGISTRIES' kinds reward_item is looked up in (defaults to "equipment" if blank,
     for every quest authored before reward_item_kind existed). button_label is optional -- while
     this stage is the player's current one with this NPC, it overrides the room's "Talk to X"
-    button (see quests.npc_talk_label); blank keeps the generic default.
+    button (see quests.npc_talk_label); blank keeps the generic default. turn_in_label is the same
+    idea but for the *turn-in* button instead -- blank keeps its own generic default ("Give X the
+    Y" for a turn_in_item trigger, else "Turn in to X"). The two are separate fields because
+    they're two different buttons: button_label only ever relabels "Talk to X" (which just re-shows
+    this stage's prompt), turn_in_label relabels the button that actually resolves the trigger --
+    conflating them reads as a button lying about what it does (e.g. a "Pay rent" button that only
+    talks, while the real payment happens on a separately-labeled "Turn in to X").
   - "room_exits" -- a repeatable list of {room_id, label}, room_id a <select> sourced live from
     rooms.ROOMS.
   - "room_commands" -- a repeatable list of {key, kind, label, const_args?, modal_title?,

@@ -2308,7 +2308,9 @@ def _render_stage_row(prefix: str, stage: dict) -> str:
     time) for every quest authored before reward_item_kind existed. button_label is optional --
     quests.npc_talk_label reads it to override this NPC's "Talk to X" room button while this stage
     is the player's current one with them (e.g. "Ask about a place to stay"), blank means keep the
-    generic default."""
+    generic default. turn_in_label is the same idea for the separate TurnInButton (the one that
+    actually resolves the trigger) -- blank keeps its own generic default; see admin_schemas.py's
+    "quest_stages" doc for why these are two different fields rather than one shared label."""
     reward_item_kind = stage.get("reward_item_kind")
     reward_item_kind_options = "".join(
         f'<option value="{k}"{" selected" if k == reward_item_kind else ""}>{k}</option>'
@@ -2330,6 +2332,9 @@ def _render_stage_row(prefix: str, stage: dict) -> str:
         f'<label>button_label<input type="text" name="{prefix}_button_label" '
         f'placeholder="e.g. Ask about a place to stay" '
         f'value="{html.escape(stage.get("button_label", ""))}"></label>'
+        f'<label>turn_in_label<input type="text" name="{prefix}_turn_in_label" '
+        f'placeholder="e.g. Pay rent" '
+        f'value="{html.escape(stage.get("turn_in_label", ""))}"></label>'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove stage</button>'
         f'</div>'
     )
@@ -2892,6 +2897,9 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
             button_label = form.get(f"{prefix}_button_label", "").strip()
             if button_label:
                 stage["button_label"] = button_label
+            turn_in_label = form.get(f"{prefix}_turn_in_label", "").strip()
+            if turn_in_label:
+                stage["turn_in_label"] = turn_in_label
             stages.append(stage)
         return (name, stages)
 

@@ -589,16 +589,22 @@ async def record_progress(guild_id: int, user_id: int, event_type: str, **event_
 
 
 async def talk_to_npc(guild_id: int, user_id: int, npc_id: str) -> list[dict]:
-    """Returns one {"quest_id", "prompt", "can_turn_in", "item", "complete"} entry per quest this
-    player has active (or just started) with this NPC -- an NPC can have more than one eligible
-    quest at once, so this is a list rather than a single merged dict (an earlier version
+    """Returns one {"quest_id", "prompt", "can_turn_in", "item", "turn_in_label", "complete"} entry
+    per quest this player has active (or just started) with this NPC -- an NPC can have more than
+    one eligible quest at once, so this is a list rather than a single merged dict (an earlier version
     collapsed every quest into one result and silently let whichever quest came last in
     quests.json order clobber the rest, which also meant the displayed prompt and the thing
     turn_in would actually resolve could disagree once a second quest existed). A stage with no
     trigger (dialogue-only endpoint) reports can_turn_in False, same as one whose trigger isn't
     satisfied yet. "complete" marks a quest whose complete_message is now showing (all stages
     turned in) -- callers that want a one-off visual (e.g. a reveal sprite) for one specific quest
-    check for its quest_id here rather than "any NPC quest is done".
+    check for its quest_id here rather than "any NPC quest is done". "turn_in_label" is the stage's
+    own optional override for the TurnInButton's label -- distinct from button_label (which only
+    ever relabels the Talk button, see npc_talk_label) because a turn-in with nothing physical to
+    hand over (pay_currency, flag_at_least, ...) has no `item` to build a "Give X the Y" default
+    from, so it'd otherwise always read as the generic "Turn in to X" -- confusable with a
+    button_label like "Pay rent" sitting on the Talk button instead, which just re-shows the prompt
+    rather than actually paying anything.
 
     This is the only place a not-yet-started quest ever actually starts: whenever the player talks
     to its NPC and its start_trigger is satisfied (an achievement already earned, an item already
@@ -628,7 +634,7 @@ async def talk_to_npc(guild_id: int, user_id: int, npc_id: str) -> list[dict]:
         item = QUEST_ITEMS[trigger["item_id"]] if can_turn_in and trigger["type"] == "turn_in_item" else None
         results.append({
             "quest_id": quest["id"], "prompt": stage["prompt"], "can_turn_in": can_turn_in, "item": item,
-            "complete": False,
+            "turn_in_label": stage.get("turn_in_label"), "complete": False,
         })
     return results
 

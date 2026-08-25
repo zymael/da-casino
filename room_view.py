@@ -151,6 +151,7 @@ class RoomView(discord.ui.View):
                 if state["can_turn_in"]:
                     self._add(npc_view.TurnInButton(
                         state["quest_id"], room["background_path"], self._rebuild, row=0, item=state["item"],
+                        label=state["turn_in_label"],
                     ))
 
         self._add(hub_ui.InventoryButton(row=0))
