@@ -1,11 +1,11 @@
 """!inventory (read-only) and !equipment (manage gear) -- and the ephemeral popups the hub
 shortcut buttons open for the same two views, via hub_ui.InventoryButton/EquipmentButton.
 
-Covers quest items and crafting materials (both quests.py's/dungeon.py's rows in the same
-generic `inventory` table -- see _inventory_sections below for how one row is told from the
-other) and dungeon gear (dungeon.EQUIPMENT, currently equipped or sitting in equipment_inventory
--- see db.equip_item_smart for why non-upgrade drops/rewards land there instead of being
-discarded).
+Covers quest items, crafting materials, consumables, horse clothes, and housing items (all five
+sharing the same generic `inventory` table -- see _inventory_sections below for how one row is
+told from another) and dungeon gear (dungeon.EQUIPMENT, currently equipped or sitting in
+equipment_inventory -- see db.equip_item_smart for why non-upgrade drops/rewards land there
+instead of being discarded).
 """
 
 import asyncio
@@ -15,6 +15,7 @@ import discord
 import db
 import dungeon
 import horse_clothes
+import housing
 import quests
 
 MAX_SELECT_OPTIONS = 25  # Discord's hard limit on a single Select's options
@@ -144,6 +145,12 @@ def _stored_excluding_equipped(equipped: dict[str, str], stored: dict[str, int])
     return {item_id: qty for item_id, qty in stored.items() if item_id not in equipped_ids}
 
 
+def _housing_item_line(item_id: str, qty: int) -> str:
+    item = housing.HOUSING_ITEMS[item_id]
+    qty_suffix = f" x{qty}" if qty > 1 else ""
+    return f"{item['emoji']} **{item['name']}**{qty_suffix}\n> {item['description']}"
+
+
 def _horse_clothes_line(item_id: str, qty: int) -> str:
     item = horse_clothes.HORSE_CLOTHES[item_id]
     qty_suffix = f" x{qty}" if qty > 1 else ""
@@ -152,31 +159,33 @@ def _horse_clothes_line(item_id: str, qty: int) -> str:
 
 def _inventory_sections(
     held: dict[str, int]
-) -> tuple[dict[str, int], dict[str, int], dict[str, int], dict[str, int]]:
+) -> tuple[dict[str, int], dict[str, int], dict[str, int], dict[str, int], dict[str, int]]:
     """The generic `inventory` table holds several kinds of item (quest items, crafting
-    materials, consumables, horse clothes) told apart only by which content registry recognizes
-    the id -- there's no type column. Splits `held` into (quest_items, materials, consumables,
-    horse_clothes); an id recognized by none of them is a genuine content bug (e.g. two JSON
-    files picking the same id, or a kind this function hasn't been taught about yet) and is
-    reported loudly rather than silently dropped, since that's exactly the class of bug this
-    split exists to catch."""
+    materials, consumables, horse clothes, housing items) told apart only by which content
+    registry recognizes the id -- there's no type column. Splits `held` into (quest_items,
+    materials, consumables, horse_clothes, housing_items); an id recognized by none of them is a
+    genuine content bug (e.g. two JSON files picking the same id, or a kind this function hasn't
+    been taught about yet) and is reported loudly rather than silently dropped, since that's
+    exactly the class of bug this split exists to catch."""
     quest_item_ids = {item_id: qty for item_id, qty in held.items() if item_id in quests.QUEST_ITEMS}
     material_ids = {item_id: qty for item_id, qty in held.items() if item_id in dungeon.MATERIALS}
     consumable_ids = {item_id: qty for item_id, qty in held.items() if item_id in dungeon.CONSUMABLES}
     horse_clothes_ids = {item_id: qty for item_id, qty in held.items() if item_id in horse_clothes.HORSE_CLOTHES}
+    housing_item_ids = {item_id: qty for item_id, qty in held.items() if item_id in housing.HOUSING_ITEMS}
     unrecognized = (
-        held.keys() - quest_item_ids.keys() - material_ids.keys() - consumable_ids.keys() - horse_clothes_ids.keys()
+        held.keys() - quest_item_ids.keys() - material_ids.keys() - consumable_ids.keys()
+        - horse_clothes_ids.keys() - housing_item_ids.keys()
     )
     if unrecognized:
         raise ValueError(f"inventory has unrecognized item id(s): {sorted(unrecognized)}")
-    return quest_item_ids, material_ids, consumable_ids, horse_clothes_ids
+    return quest_item_ids, material_ids, consumable_ids, horse_clothes_ids, housing_item_ids
 
 
 async def build_inventory_embed(guild_id: int, user_id: int) -> discord.Embed:
     held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
     equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
     stored = _stored_excluding_equipped(equipped, await asyncio.to_thread(db.get_equipment_inventory, guild_id, user_id))
-    quest_items, materials, consumables, horse_clothes_held = _inventory_sections(held)
+    quest_items, materials, consumables, horse_clothes_held, housing_items_held = _inventory_sections(held)
 
     embed = discord.Embed(title="🎒 Inventory", color=discord.Color.blurple())
 
@@ -203,6 +212,12 @@ async def build_inventory_embed(guild_id: int, user_id: int) -> discord.Embed:
         embed.add_field(name="Horse Clothes", value="\n\n".join(lines), inline=False)
     else:
         embed.add_field(name="Horse Clothes", value="None yet.", inline=False)
+
+    if housing_items_held:
+        lines = [_housing_item_line(item_id, qty) for item_id, qty in housing_items_held.items()]
+        embed.add_field(name="Housing Items", value="\n\n".join(lines), inline=False)
+    else:
+        embed.add_field(name="Housing Items", value="None yet -- see !house.", inline=False)
 
     embed.add_field(name="Equipped", value=_equipped_lines(equipped), inline=False)
 
