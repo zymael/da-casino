@@ -83,7 +83,7 @@
   {
     "id": "kreachur",
     "name": "Karl Reachur",
-    "room": "town_square",
+    "room": "kreachur_emporium",
     "greet_message": "I'm KREACHIN'.\r\n\r\nYou wanna trade?   I got many unique, and powerful goods. ",
     "sprite_path": "assets/npcs/kreachur.png"
   }
