@@ -132,10 +132,12 @@ Field types the generic form-builder knows how to render:
     actually enforces which params a given type needs. See TRIGGER_PARAM_KINDS for how each
     param renders (a number input, or a <select> sourced from the right registry).
   - "quest_stages" -- a repeatable list of {prompt, trigger, on_complete_message, reward,
-    reward_item, reward_item_kind}; each row's trigger portion is the same flattened rendering as
-    the "trigger" field type above. reward_item_kind picks which of quests.REWARD_REGISTRIES'
-    kinds reward_item is looked up in (defaults to "equipment" if blank, for every quest authored
-    before reward_item_kind existed).
+    reward_item, reward_item_kind, button_label}; each row's trigger portion is the same flattened
+    rendering as the "trigger" field type above. reward_item_kind picks which of
+    quests.REWARD_REGISTRIES' kinds reward_item is looked up in (defaults to "equipment" if blank,
+    for every quest authored before reward_item_kind existed). button_label is optional -- while
+    this stage is the player's current one with this NPC, it overrides the room's "Talk to X"
+    button (see quests.npc_talk_label); blank keeps the generic default.
   - "room_exits" -- a repeatable list of {room_id, label}, room_id a <select> sourced live from
     rooms.ROOMS.
   - "room_commands" -- a repeatable list of {key, kind, label, const_args?, modal_title?,

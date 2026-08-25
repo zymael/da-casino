@@ -491,6 +491,26 @@ def _quests_for_npc(npc_id: str) -> list[dict]:
     return [quest for quest in QUESTS_BY_ID.values() if quest["npc"] == npc_id]
 
 
+async def npc_talk_label(guild_id: int, user_id: int, npc_id: str) -> str | None:
+    """The first active, in-progress quest stage's own "button_label" for this NPC, if any is set
+    -- lets a room's TalkToNpcButton read as "Ask about a place to stay" or "Pay rent" instead of
+    a generic "Talk to X" once there's actually something specific going on, editable per-stage in
+    the admin panel's quest editor right alongside prompt/reward. Returns None (caller falls back
+    to its own default label) if no active quest with this NPC has a stage past _START_STAGE with
+    a button_label set -- deliberately read-only (only ever looks at an *already-started* quest's
+    current stage via _get_stage) so calling this to build a room's display can never itself start
+    a quest the way talk_to_npc does; a quest that hasn't been started yet (or was already
+    completed) never overrides the default label."""
+    for quest in _quests_for_npc(npc_id):
+        stage_index = await _get_stage(guild_id, user_id, quest["id"])
+        if stage_index is None or stage_index >= len(quest["stages"]):
+            continue
+        label = quest["stages"][stage_index].get("button_label")
+        if label:
+            return label
+    return None
+
+
 async def trigger_satisfied(
     guild_id: int, user_id: int, trigger: dict, *, quest_id: str | None = None, stage: int | None = None,
     character: dict | None = None,

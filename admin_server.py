@@ -2305,7 +2305,10 @@ def _render_stage_row(prefix: str, stage: dict) -> str:
     kind-select + _render_cascaded_select pairing as _render_shop_row's kind/item_id, scoped to the
     "quest_reward" cascade (quests.REWARD_REGISTRIES' kinds) instead of "shop" -- reward_item_kind
     defaults to "equipment" (blank in the dropdown resolves to the same default at parse/runtime
-    time) for every quest authored before reward_item_kind existed."""
+    time) for every quest authored before reward_item_kind existed. button_label is optional --
+    quests.npc_talk_label reads it to override this NPC's "Talk to X" room button while this stage
+    is the player's current one with them (e.g. "Ask about a place to stay"), blank means keep the
+    generic default."""
     reward_item_kind = stage.get("reward_item_kind")
     reward_item_kind_options = "".join(
         f'<option value="{k}"{" selected" if k == reward_item_kind else ""}>{k}</option>'
@@ -2324,6 +2327,9 @@ def _render_stage_row(prefix: str, stage: dict) -> str:
         f'<label>reward_item_kind<select name="{prefix}_reward_item_kind" class="cascade-select" '
         f'data-cascade="quest_reward">{reward_item_kind_options}</select></label>'
         f'<label>reward_item{reward_item_select}</label>'
+        f'<label>button_label<input type="text" name="{prefix}_button_label" '
+        f'placeholder="e.g. Ask about a place to stay" '
+        f'value="{html.escape(stage.get("button_label", ""))}"></label>'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove stage</button>'
         f'</div>'
     )
@@ -2883,6 +2889,9 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
                 reward_item_kind = form.get(f"{prefix}_reward_item_kind", "").strip()
                 if reward_item_kind and reward_item_kind != "equipment":
                     stage["reward_item_kind"] = reward_item_kind
+            button_label = form.get(f"{prefix}_button_label", "").strip()
+            if button_label:
+                stage["button_label"] = button_label
             stages.append(stage)
         return (name, stages)
 

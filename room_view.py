@@ -53,6 +53,7 @@ async def build_room_display(
     room = rooms.ROOMS[room_id]
     present_npcs = await quests.npcs_present_in_room(guild_id, user_id, room_id)
     npc_states = {npc_id: await quests.talk_to_npc(guild_id, user_id, npc_id) for npc_id in present_npcs}
+    npc_talk_labels = {npc_id: await quests.npc_talk_label(guild_id, user_id, npc_id) for npc_id in present_npcs}
 
     filename = os.path.basename(room["background_path"])
     sprite_paths = [
@@ -71,7 +72,7 @@ async def build_room_display(
         for name, value, inline in await specialization.extra_embed_fields(guild_id, user_id):
             embed.add_field(name=name, value=value, inline=inline)
 
-    view = RoomView(guild_id, user_id, room_id, present_npcs, npc_states, session)
+    view = RoomView(guild_id, user_id, room_id, present_npcs, npc_states, npc_talk_labels, session)
     return embed, view, file
 
 
@@ -95,15 +96,16 @@ class RoomExitButton(discord.ui.Button):
 class RoomView(discord.ui.View):
     """Launcher for whatever a room actually contains: the specialization's extra_items (if any),
     one NoArgButton/AmountButton per rooms.json commands[] entry, one TalkToNpcButton per NPC
-    currently present (npcs.json data -- see quests.npcs_present_in_room) plus one TurnInButton per
-    turn-in-able quest any of them has with this player, the shared Inventory/Equipment buttons,
-    and one RoomExitButton per exit. No manual row numbers anywhere -- `_add` auto-flows every item
-    into groups of 5, Discord's per-row limit, so authoring a room's command order never has to
-    think about Discord UI row math."""
+    currently present (npcs.json data -- see quests.npcs_present_in_room; its label is
+    quests.npc_talk_label's per-quest-stage override if one's set, else the button's own generic
+    "Talk to X" default) plus one TurnInButton per turn-in-able quest any of them has with this
+    player, the shared Inventory/Equipment buttons, and one RoomExitButton per exit. No manual row
+    numbers anywhere -- `_add` auto-flows every item into groups of 5, Discord's per-row limit, so
+    authoring a room's command order never has to think about Discord UI row math."""
 
     def __init__(
         self, guild_id: int, user_id: int, room_id: str, present_npcs: list[str],
-        npc_states: dict[str, list[dict]], session: hub_ui.HubSession,
+        npc_states: dict[str, list[dict]], npc_talk_labels: dict[str, str | None], session: hub_ui.HubSession,
     ):
         super().__init__(timeout=300)
         self.guild_id = guild_id
@@ -137,7 +139,9 @@ class RoomView(discord.ui.View):
             self._add(button)
 
         for npc_id in present_npcs:
-            self._add(npc_view.TalkToNpcButton(npc_id, room["background_path"], self._rebuild, row=0))
+            self._add(npc_view.TalkToNpcButton(
+                npc_id, room["background_path"], self._rebuild, row=0, label=npc_talk_labels.get(npc_id),
+            ))
             if npcs.NPCS[npc_id].get("shop"):
                 self._add(npc_view.ShopButton(npc_id, row=0))
             for state in npc_states[npc_id]:

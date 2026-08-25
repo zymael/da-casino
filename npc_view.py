@@ -33,14 +33,18 @@ import shop_view
 class TalkToNpcButton(discord.ui.Button):
     """Shows whatever quests.talk_to_npc reports is currently relevant with this NPC (every active
     quest's current stage prompt, one per line, if more than one), else their static greet_message
-    if none are active -- checked *before* awarding the NPC's greet_achievement (if set) so a quest
-    whose start_trigger is that same achievement never starts on the same click that earns it: the
-    first-ever talk always shows greet_message (plus the achievement banked quietly in the
-    background), and the quest itself only starts the next time this player talks to them. Reads
-    better for a quest that's supposed to feel like something offered once you're already
-    acquainted, not blurted out as your very first hello -- and awarding stays idempotent/safe
-    every click regardless of this ordering, so nothing here changes for a greet_achievement with
-    no quest attached to it."""
+    if none are active -- fully resolved and sent (both this dialogue image *and* self.rebuild's
+    own redraw of the room, which independently re-fetches every present NPC's states too) before
+    awarding the NPC's greet_achievement (if set), so a quest whose start_trigger is that same
+    achievement never starts on the same click that earns it: the first-ever talk always shows
+    greet_message (plus the achievement banked quietly right after, once nothing this click still
+    needs to read state from the DB), and the quest itself only starts the next time this player
+    talks to them -- either by clicking this button again or simply re-opening/refreshing the room
+    (build_room_display calls quests.talk_to_npc for every present NPC unconditionally, not just
+    the one clicked). Reads better for a quest that's supposed to feel like something offered once
+    you're already acquainted, not blurted out as your very first hello -- and awarding stays
+    idempotent/safe every click regardless of this ordering, so nothing here changes for a
+    greet_achievement with no quest attached to it."""
 
     def __init__(self, npc_id: str, banner_path: str, rebuild, *, row: int, label: str | None = None):
         npc = npcs.NPCS[npc_id]
@@ -54,13 +58,13 @@ class TalkToNpcButton(discord.ui.Button):
         npc = npcs.NPCS[self.npc_id]
         states = await quests.talk_to_npc(guild_id, user_id, self.npc_id)
         text = "\n\n".join(state["prompt"] for state in states) if states else npc["greet_message"]
+        buf = await asyncio.to_thread(npc_render.render_npc_dialogue, self.banner_path, text, npc.get("sprite_path"))
+        await self.rebuild(interaction, buf, f"{self.npc_id}_dialogue.png")
         if npc.get("greet_achievement"):
             await achievements.try_award_many(
                 interaction.channel.send, guild_id, user_id, interaction.user.display_name,
                 [npc["greet_achievement"]],
             )
-        buf = await asyncio.to_thread(npc_render.render_npc_dialogue, self.banner_path, text, npc.get("sprite_path"))
-        await self.rebuild(interaction, buf, f"{self.npc_id}_dialogue.png")
 
 
 class ShopButton(discord.ui.Button):
