@@ -1460,12 +1460,26 @@ async def pizza(ctx):
     await _update_pizza_champion(ctx.guild)
 
 
+# Gates house_cmd -- see quests.json's "leto_first_home" quest (started by greeting Leto at the
+# Trailer Park, finished by bringing her a sleeping bag and paying rent). A hardcoded content id
+# reference like this (rather than new data-driven room-command gating plumbing) matches how
+# achievement kinds are already referenced directly in bot.py elsewhere (e.g. try_award_many's
+# ["first_horse"]/["first_dream"] calls) -- a small, well-motivated exception, not a new pattern.
+HOUSE_UNLOCK_QUEST_ID = "leto_first_home"
+
+
 @bot.command(name="house")
 async def house_cmd(ctx):
     """View your house and place items in its 3x3 grid: !house. Unlike !train (a single typed
     horse number), placing an item needs two arguments -- which slot, which item -- so there's no
     typed-argument fast path; this always opens the slot-picker -> item-picker chain
-    (housing_view.build_slot_picker/build_item_picker)."""
+    (housing_view.build_slot_picker/build_item_picker). Gated behind HOUSE_UNLOCK_QUEST_ID."""
+    unlocked = await quests.trigger_satisfied(
+        ctx.guild.id, ctx.author.id, {"type": "quest_complete", "quest_id": HOUSE_UNLOCK_QUEST_ID},
+    )
+    if not unlocked:
+        await ctx.send("You don't have anywhere to live yet — go talk to Leto at the Trailer Park.")
+        return
     await _show_house(ctx)
 
 

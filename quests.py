@@ -63,6 +63,11 @@ TRIGGER_SCHEMAS = {
     # action "requires" gates (e.g. "must be a mage" to attempt a magical unlock) -- see
     # trigger_satisfied's own "class" branch.
     "class": ({"main_class"}, {"subclass"}),
+    # A currency cost rather than an item one -- same "consuming, not just checkable" shape as
+    # turn_in_item (trigger_satisfied's own case below is a non-consuming "can they afford it"
+    # check; the actual deduction is special-cased in turn_in(), same split turn_in_item has with
+    # db.consume_inventory_item).
+    "pay_currency": ({"amount"}, set()),
 }
 
 # event_type -> does this trigger match the event's data. Only the *counted* trigger types
@@ -204,6 +209,8 @@ def _validate_trigger(trigger: dict, context: str):
         raise ValueError(f"{context} trigger references unknown recipe {trigger['recipe_id']!r}")
     if "count" in params and trigger["count"] <= 0:
         raise ValueError(f"{context} trigger {trigger_type!r} count must be > 0")
+    if "amount" in params and trigger["amount"] <= 0:
+        raise ValueError(f"{context} trigger {trigger_type!r} amount must be > 0")
     if "main_class" in params and trigger["main_class"] not in dungeon.CLASSES:
         raise ValueError(f"{context} trigger references unknown class {trigger['main_class']!r}")
     if "subclass" in params and trigger["subclass"] not in dungeon.SUBCLASSES:
@@ -498,11 +505,17 @@ async def trigger_satisfied(
     live state this function can just read, no counter needed. `character` is only needed for
     "class" (a dungeon character dict, e.g. from db.get_character or a live DelveSession/
     PartyMember) -- the one type that checks something about the caller's own build rather than
-    persistent per-player state this function can fetch itself; every other type ignores it."""
+    persistent per-player state this function can fetch itself; every other type ignores it.
+    pay_currency is a non-consuming "can they afford it" check, same relationship to its own
+    actual deduction (turn_in()'s special-cased db.spend_currency call) as turn_in_item has to
+    db.consume_inventory_item."""
     trigger_type = trigger["type"]
     if trigger_type == "turn_in_item":
         held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
         return held.get(trigger["item_id"], 0) > 0
+    if trigger_type == "pay_currency":
+        balance = await asyncio.to_thread(db.get_balance, guild_id, user_id)
+        return balance >= trigger["amount"]
     if trigger_type == "achievement":
         earned = await asyncio.to_thread(db.get_user_personal_achievements, guild_id, user_id)
         return trigger["kind"] in earned
@@ -624,14 +637,21 @@ async def turn_in(guild_id: int, user_id: int, quest_id: str) -> dict:
     if trigger["type"] == "turn_in_item":
         if not await asyncio.to_thread(db.consume_inventory_item, guild_id, user_id, trigger["item_id"]):
             return failure
+    elif trigger["type"] == "pay_currency":
+        status, _ = await asyncio.to_thread(db.spend_currency, guild_id, user_id, trigger["amount"])
+        if status != "ok":
+            return failure
     elif not await trigger_satisfied(guild_id, user_id, trigger, quest_id=quest_id, stage=stage_index):
         return failure
 
     advanced = await _advance_stage(guild_id, user_id, quest_id, stage_index)
     if not advanced:
-        # Lost a race (e.g. a double-clicked button) -- give the item back rather than eat it.
+        # Lost a race (e.g. a double-clicked button) -- give back whatever was just consumed
+        # rather than eat it.
         if trigger["type"] == "turn_in_item":
             await asyncio.to_thread(db.add_inventory_item, guild_id, user_id, trigger["item_id"])
+        elif trigger["type"] == "pay_currency":
+            await asyncio.to_thread(db.update_balance, guild_id, user_id, trigger["amount"])
         return failure
 
     reward = stage.get("reward", 0)

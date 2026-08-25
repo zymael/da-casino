@@ -133,6 +133,14 @@ ACHIEVEMENTS = [
         "reward": 25,
     },
     {
+        "kind": "greeted_leto",
+        "scope": "personal",
+        "emoji": "🚐",
+        "name": "New Neighbor",
+        "description": "You greeted Leto at the Trailer Park.",
+        "reward": 25,
+    },
+    {
         "kind": "bitten_by_princess",
         "scope": "personal",
         "emoji": "🐀",

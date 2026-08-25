@@ -183,7 +183,7 @@ TRIGGER_PARAM_NAMES = sorted({p for required, optional in quests.TRIGGER_SCHEMAS
 TRIGGER_PARAM_KINDS = {
     "item_id": "quest_item", "drop_monster": "monster", "monster_id": "monster",
     "recipe_id": "recipe", "kind": "achievement", "quest_id": "quest",
-    "count": "int", "value": "int", "key": "str",
+    "count": "int", "value": "int", "key": "str", "amount": "int",
     "main_class": "main_class", "subclass": "subclass",
 }
 # One-line explanations shown under each trigger param box -- the params themselves (tier vs
@@ -202,6 +202,7 @@ TRIGGER_PARAM_HINTS = {
            "Start typing to see keys already in use (e.g. \"quest:<id>\"), or type a new one if "
            "something else in the game is going to set it",
     "value": "the flag's value must be at least this",
+    "amount": "how much currency must be paid to advance this stage",
     "main_class": "the player's dungeon class (e.g. mage) -- required for the \"class\" trigger",
     "subclass": "optional -- narrows to one specific subclass; blank means any subclass of main_class",
 }

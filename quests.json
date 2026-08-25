@@ -37,5 +37,35 @@
         "reward_item": "greasy_pencil"
       }
     ]
+  },
+  {
+    "id": "leto_first_home",
+    "npc": "leto",
+    "start_trigger": {
+      "type": "achievement",
+      "kind": "greeted_leto"
+    },
+    "complete_message": "Rent's paid. Land's yours to use. Don't make me regret this.",
+    "stages": [
+      {
+        "prompt": "You don't have a trailer... a tent... or even a sleeping bag. I can't have you just sitting in the dirt. Come back when you have something to use the land for.",
+        "trigger": {
+          "type": "kill_monster",
+          "count": 1,
+          "monster_id": "goblin_grunt"
+        },
+        "on_complete_message": "Huh. Guess that'll work. Alright, let's talk business.",
+        "reward_item": "cozy_sleeping_bag",
+        "reward_item_kind": "housing_item"
+      },
+      {
+        "prompt": "Alright, you've got a bag. First month's rent is 100 credits if you want to actually use this land.",
+        "trigger": {
+          "type": "pay_currency",
+          "amount": 100
+        },
+        "on_complete_message": "Rent's paid. Land's yours to use. Don't make me regret this."
+      }
+    ]
   }
 ]
