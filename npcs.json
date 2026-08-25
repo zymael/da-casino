@@ -85,6 +85,14 @@
     "name": "Karl Reachur",
     "room": "kreachur_emporium",
     "greet_message": "I'm KREACHIN'.\r\n\r\nYou wanna trade?   I got many unique, and powerful goods. ",
-    "sprite_path": "assets/npcs/kreachur.png"
+    "sprite_path": "assets/npcs/kreachur.png",
+    "shop": [
+      {
+        "kind": "material",
+        "item_id": "magic_rock",
+        "price": 25
+      }
+    ],
+    "buys_items": false
   }
 ]
