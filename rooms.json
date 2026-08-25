@@ -26,7 +26,13 @@
         "label": "\ud83c\udfd5\ufe0f Trailer Park"
       }
     ],
-    "commands": []
+    "commands": [
+      {
+        "key": "house",
+        "kind": "none",
+        "label": "\ud83c\udfe0 My House"
+      }
+    ]
   },
   {
     "id": "casino",

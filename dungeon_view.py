@@ -7,6 +7,7 @@ import achievements
 import db
 import dungeon
 import dungeon_render
+import housing
 import hub_ui
 import moon
 import quests
@@ -96,14 +97,17 @@ def _roll_monster_instances(room: dict) -> list[MonsterInstance]:
 
 
 class DelveSession:
-    def __init__(self, guild_id: int, user_id: int, character: dict, equipped: dict[str, str], delve: dict):
+    def __init__(
+        self, guild_id: int, user_id: int, character: dict, equipped: dict[str, str], delve: dict,
+        housing_stat_bonuses: dict | None = None,
+    ):
         self.guild_id = guild_id
         self.user_id = user_id
         self.main_class = character["main_class"]
         self.subclass = character["subclass"]
         self.level = character["level"]
         self.equipped = equipped
-        effective = dungeon.compute_effective_stats(character, equipped)
+        effective = dungeon.compute_effective_stats(character, equipped, housing_stat_bonuses)
         self.max_hp = effective["hp"]
         self.atk = effective["atk"]
         self.def_ = effective["def"]
@@ -206,7 +210,10 @@ class PartyMember:
     rather than living on each one individually (see PartyDelveSession, which owns that shared
     state instead)."""
 
-    def __init__(self, guild_id: int, user_id: int, player_name: str, character: dict, equipped: dict[str, str], is_leader: bool):
+    def __init__(
+        self, guild_id: int, user_id: int, player_name: str, character: dict, equipped: dict[str, str],
+        is_leader: bool, housing_stat_bonuses: dict | None = None,
+    ):
         self.guild_id = guild_id
         self.user_id = user_id
         self.player_name = player_name  # snapshot of interaction.user.display_name at join time
@@ -214,7 +221,7 @@ class PartyMember:
         self.subclass = character["subclass"]
         self.level = character["level"]
         self.equipped = equipped
-        effective = dungeon.compute_effective_stats(character, equipped)
+        effective = dungeon.compute_effective_stats(character, equipped, housing_stat_bonuses)
         self.max_hp = effective["hp"]
         self.atk = effective["atk"]
         self.def_ = effective["def"]
@@ -1004,11 +1011,14 @@ async def _award_kill(
     party kill only says that once while every living member still gets their own reward lines;
     callers log that line themselves before calling this (once per kill, not once per actor)."""
     currency = db.get_currency_name(guild_id)
+    housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, guild_id, actor.user_id)
     loot = dungeon.roll_loot(monster, loot_mult)
+    loot = round(loot * (1 + housing_bonuses.get("dungeon_loot_bonus", 0) / 100))
     actor.loot_total += loot
     log_lines.append(f"You find **{loot}** {currency}.")
 
     xp_gain = dungeon.xp_for_monster(monster)
+    xp_gain = round(xp_gain * (1 + housing_bonuses.get("dungeon_xp_bonus", 0) / 100))
     level_result = await asyncio.to_thread(
         db.add_xp, guild_id, actor.user_id, xp_gain,
         dungeon.LEVEL_HP_GAIN, dungeon.LEVEL_ATK_GAIN, dungeon.LEVEL_DEF_GAIN,
@@ -2962,7 +2972,11 @@ class PartyLobbyView(discord.ui.View):
             is_leader = uid == lobby.leader_id
             character = lobby.leader_character if is_leader else await asyncio.to_thread(db.get_character, lobby.guild_id, uid)
             equipped = await asyncio.to_thread(db.get_equipped_items, lobby.guild_id, uid)
-            members.append(PartyMember(lobby.guild_id, uid, lobby.member_names[uid], character, equipped, is_leader))
+            housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, lobby.guild_id, uid)
+            members.append(PartyMember(
+                lobby.guild_id, uid, lobby.member_names[uid], character, equipped, is_leader,
+                housing_bonuses.get("stat_bonus", {}),
+            ))
 
         session = PartyDelveSession(lobby.guild_id, lobby.delve, members)
         for uid in lobby.member_ids:
@@ -3130,11 +3144,15 @@ class DuelChallengeView(discord.ui.View):
 
         challenger_equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, challenge.challenger_id)
         target_equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, challenge.target_id)
+        challenger_housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, guild_id, challenge.challenger_id)
+        target_housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, guild_id, challenge.target_id)
         challenger = PartyMember(
             guild_id, challenge.challenger_id, challenge.challenger_name, challenger_character, challenger_equipped, True,
+            challenger_housing_bonuses.get("stat_bonus", {}),
         )
         opponent = PartyMember(
             guild_id, challenge.target_id, interaction.user.display_name, target_character, target_equipped, True,
+            target_housing_bonuses.get("stat_bonus", {}),
         )
         # PartyMember.__init__ defaults hp to wherever the last dungeon delve left off (the right
         # rule for a party delve) -- override it here so both duelists start fresh at full HP, per
@@ -3608,7 +3626,8 @@ async def _new_delve_session(guild_id: int, user_id: int, character: dict, delve
     message in place or (via DelvePickerView -> DelveConfirmButton -> this same choice) a message
     that started life as the multi-delve picker."""
     equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
-    session = DelveSession(guild_id, user_id, character, equipped, delve)
+    housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, guild_id, user_id)
+    session = DelveSession(guild_id, user_id, character, equipped, delve, housing_bonuses.get("stat_bonus", {}))
     active_delves[session.user_id] = session
     busy_players.add(session.user_id)
     return session

@@ -20,15 +20,17 @@ would be circular), so quests.py cross-validates every NPC's visible_trigger rig
 both registries; see the bottom of quests.py.
 
 An NPC's optional "shop" is a non-empty list of {kind, item_id, price} -- any item any registry
-recognizes (dungeon.EQUIPMENT/MATERIALS/CONSUMABLES, horse_clothes.HORSE_CLOTHES, or a
-quests.QUEST_ITEMS one) can be sold, told
+recognizes (dungeon.EQUIPMENT/MATERIALS/CONSUMABLES, horse_clothes.HORSE_CLOTHES, a
+quests.QUEST_ITEMS one, or a housing.HOUSING_ITEMS one) can be sold, told
 apart by "kind" rather than inferred from item_id the way inventory_view.py has to for a held
 item, since a shop entry needs to be unambiguous before the item is ever owned. Presence of a
 non-empty list is what makes npc_view.ShopButton show a store icon for this NPC -- there's no
 separate on/off flag. This module can validate the dungeon-backed kinds itself (dungeon.py doesn't
-import this module, so that direction isn't circular) but not "quest_item" (same circularity as
-visible_trigger above -- quests.py cross-validates those entries too, right alongside
-visible_trigger at the bottom of quests.py).
+import this module, so that direction isn't circular) but not "quest_item" or "housing_item" (same
+circularity as visible_trigger above -- quests.py cross-validates "quest_item" entries right
+alongside visible_trigger at the bottom of quests.py; "housing_item" entries are cross-validated
+separately, by quests.validate_shop_housing_items, called once housing.py has actually loaded --
+see that function's own docstring for why it can't just join the quest_item check).
 """
 
 import json
@@ -41,14 +43,16 @@ import horse_clothes
 _NPCS_PATH = os.path.join(os.path.dirname(__file__), "npcs.json")
 _REQUIRED_NPC_FIELDS = {"id", "name", "room", "greet_message"}
 _REQUIRED_SHOP_ENTRY_FIELDS = {"kind", "item_id", "price"}
-# "quest_item" maps to None -- its item_id can't be checked here (quests.py isn't importable from
-# this module; see module docstring), so it's cross-validated in quests.py instead.
+# "quest_item"/"housing_item" map to None -- their item_ids can't be checked here (neither
+# quests.py nor housing.py is importable from this module; see module docstring), so they're
+# cross-validated elsewhere instead (see quests.validate_shop_housing_items for "housing_item").
 SHOP_KINDS = {
     "equipment": dungeon.EQUIPMENT,
     "material": dungeon.MATERIALS,
     "consumable": dungeon.CONSUMABLES,
     "quest_item": None,
     "horse_clothes": horse_clothes.HORSE_CLOTHES,
+    "housing_item": None,
 }
 
 

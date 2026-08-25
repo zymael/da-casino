@@ -213,6 +213,20 @@ def init_db():
         )
         """
     )
+    # A player's housing grid -- one row per filled slot (0-8), same "absence = empty" idea as
+    # character_equipment, but with an integer slot instead of a named one since all 9 grid
+    # positions are mechanically identical (display-only).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS house_placements (
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            slot INTEGER NOT NULL,
+            item_id TEXT NOT NULL,
+            PRIMARY KEY (guild_id, user_id, slot)
+        )
+        """
+    )
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS guild_settings (
@@ -1604,13 +1618,18 @@ def _seconds_until_refresh(last_timestamp: str | None) -> float | None:
     return remaining if remaining > 0 else None
 
 
-def claim_rest(guild_id: int, user_id: int, gold_amount: int) -> tuple[str, float | int]:
-    """Grants `gold_amount` credits, refills energy to ENERGY_MAX, and (if this user has a dungeon
-    character) heals it to full -- once every REFRESH_HOURS (still gated by last_daily -- renamed
-    from claim_daily now that resting does multiple duties, the column itself wasn't worth an
-    ALTER just for the name; it stores a full timestamp now rather than a bare date, despite the
-    name). Healing here is deliberate: current_hp otherwise only rises from an in-combat heal
-    skill/item, never automatically between delves -- see set_current_hp.
+def claim_rest(
+    guild_id: int, user_id: int, gold_amount: int, energy_bonus: int = 0, gold_bonus: int = 0
+) -> tuple[str, float | int]:
+    """Grants `gold_amount` (+ `gold_bonus`) credits, refills energy to ENERGY_MAX + `energy_bonus`,
+    and (if this user has a dungeon character) heals it to full -- once every REFRESH_HOURS (still
+    gated by last_daily -- renamed from claim_daily now that resting does multiple duties, the
+    column itself wasn't worth an ALTER just for the name; it stores a full timestamp now rather
+    than a bare date, despite the name). Healing here is deliberate: current_hp otherwise only
+    rises from an in-combat heal skill/item, never automatically between delves -- see
+    set_current_hp. `energy_bonus`/`gold_bonus` default to 0 (today's exact behavior) -- the
+    caller (bot.py's rest_cmd) is expected to look up any housing rest-bonus items and pass them
+    in, the same way it already computes gold_amount itself before calling this.
 
     Returns (status, value):
       - ("cooldown", seconds_remaining) — still within REFRESH_HOURS of the last rest
@@ -1626,11 +1645,11 @@ def claim_rest(guild_id: int, user_id: int, gold_amount: int) -> tuple[str, floa
         remaining = _seconds_until_refresh(last_daily)
         if remaining is not None:
             return "cooldown", remaining
-        new_balance = balance + gold_amount
+        new_balance = balance + gold_amount + gold_bonus
         now = datetime.now().isoformat()
         conn.execute(
             "UPDATE users SET balance = ?, last_daily = ?, energy = ? WHERE guild_id = ? AND user_id = ?",
-            (new_balance, now, ENERGY_MAX, guild_id, user_id),
+            (new_balance, now, ENERGY_MAX + energy_bonus, guild_id, user_id),
         )
         conn.execute(
             "UPDATE characters SET current_hp = hp WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
@@ -2113,6 +2132,96 @@ def unequip_item(guild_id: int, user_id: int, slot: str) -> str | None:
             (guild_id, user_id, slot),
         )
         _add_equipment_inventory(conn, guild_id, user_id, item_id)
+        conn.commit()
+        return item_id
+    finally:
+        conn.close()
+
+
+def get_house_placements(guild_id: int, user_id: int) -> dict[int, str]:
+    """Returns {slot: item_id} for whatever's currently placed in this player's house -- a slot
+    with nothing placed is simply absent from the dict, same "absence = default state" idea as
+    get_equipped_items."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT slot, item_id FROM house_placements WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ).fetchall()
+        return {slot: item_id for slot, item_id in rows}
+    finally:
+        conn.close()
+
+
+def place_house_item(guild_id: int, user_id: int, slot: int, item_id: str) -> bool:
+    """Places item_id into `slot`, moving whatever was previously there back into inventory (same
+    swap behavior as equip_item_smart) and removing one item_id from inventory (it's on display
+    now, not held). Returns whether it succeeded -- False (untouched) if the player doesn't hold a
+    free copy of item_id."""
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT qty FROM inventory WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+            (guild_id, user_id, item_id),
+        ).fetchone()
+        if not row or row[0] < 1:
+            conn.rollback()
+            return False
+        if row[0] == 1:
+            conn.execute(
+                "DELETE FROM inventory WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                (guild_id, user_id, item_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE inventory SET qty = qty - 1 WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                (guild_id, user_id, item_id),
+            )
+        previous = conn.execute(
+            "SELECT item_id FROM house_placements WHERE guild_id = ? AND user_id = ? AND slot = ?",
+            (guild_id, user_id, slot),
+        ).fetchone()
+        if previous:
+            conn.execute(
+                "INSERT INTO inventory (guild_id, user_id, item_id, qty) VALUES (?, ?, ?, 1) "
+                "ON CONFLICT(guild_id, user_id, item_id) DO UPDATE SET qty = qty + 1",
+                (guild_id, user_id, previous[0]),
+            )
+        conn.execute(
+            "INSERT INTO house_placements (guild_id, user_id, slot, item_id) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(guild_id, user_id, slot) DO UPDATE SET item_id = excluded.item_id",
+            (guild_id, user_id, slot, item_id),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def remove_house_item(guild_id: int, user_id: int, slot: int) -> str | None:
+    """Empties `slot` entirely, moving whatever was placed there back into inventory. Returns the
+    item_id that was removed, or None if the slot was already empty."""
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT item_id FROM house_placements WHERE guild_id = ? AND user_id = ? AND slot = ?",
+            (guild_id, user_id, slot),
+        ).fetchone()
+        if row is None:
+            conn.rollback()
+            return None
+        item_id = row[0]
+        conn.execute(
+            "DELETE FROM house_placements WHERE guild_id = ? AND user_id = ? AND slot = ?",
+            (guild_id, user_id, slot),
+        )
+        conn.execute(
+            "INSERT INTO inventory (guild_id, user_id, item_id, qty) VALUES (?, ?, ?, 1) "
+            "ON CONFLICT(guild_id, user_id, item_id) DO UPDATE SET qty = qty + 1",
+            (guild_id, user_id, item_id),
+        )
         conn.commit()
         return item_id
     finally:

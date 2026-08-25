@@ -28,6 +28,8 @@ from dungeon_view import (
     start_duel,
 )
 import horse_clothes_view
+import housing
+import housing_view
 from holdem_view import (
     BIG_BLIND as HOLDEM_BIG_BLIND,
     active_tables as active_holdem_tables,
@@ -379,7 +381,8 @@ async def stats_cmd(ctx):
         rank = dungeon.CLASSES[character["main_class"]]["rank"]
         suit_symbol = dungeon.SUIT_SYMBOLS[character["subclass"]]
         equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
-        effective = dungeon.compute_effective_stats(character, equipped)
+        housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, guild_id, user_id)
+        effective = dungeon.compute_effective_stats(character, equipped, housing_bonuses.get("stat_bonus", {}))
         max_chips = dungeon.compute_stats(character["main_class"], character["subclass"])["chips"]
         embed.add_field(name="🗡️ Class", value=f"{name} {rank}{suit_symbol}\nLevel {character['level']}", inline=True)
         embed.add_field(name="📊 Stats", value=_character_sheet_stats(character, effective, max_chips), inline=True)
@@ -482,7 +485,11 @@ async def leaderboard(ctx):
 @bot.command(name="rest")
 async def rest_cmd(ctx):
     """Claim your credits and refill your energy (once every 12 hours)."""
-    status, value = await asyncio.to_thread(db.claim_rest, ctx.guild.id, ctx.author.id, DAILY_AMOUNT)
+    housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, ctx.guild.id, ctx.author.id)
+    status, value = await asyncio.to_thread(
+        db.claim_rest, ctx.guild.id, ctx.author.id, DAILY_AMOUNT,
+        housing_bonuses.get("rest_energy_bonus", 0), housing_bonuses.get("rest_gold_bonus", 0),
+    )
     if status == "cooldown":
         await ctx.send(
             f"⏳ {ctx.author.display_name}, you've rested recently. "
@@ -491,10 +498,12 @@ async def rest_cmd(ctx):
         return
 
     currency = db.get_currency_name(ctx.guild.id)
+    gold_claimed = DAILY_AMOUNT + housing_bonuses.get("rest_gold_bonus", 0)
+    energy_refilled = db.ENERGY_MAX + housing_bonuses.get("rest_energy_bonus", 0)
     _, moon_emoji, moon_label, _, _ = moon.current_phase()
     await ctx.send(
-        f"✅ {ctx.author.display_name} rested up! Claimed **{DAILY_AMOUNT}** {currency} and refilled to "
-        f"**{db.ENERGY_MAX}** ⚡ energy. Balance: **{value}**\n"
+        f"✅ {ctx.author.display_name} rested up! Claimed **{gold_claimed}** {currency} and refilled to "
+        f"**{energy_refilled}** ⚡ energy. Balance: **{value}**\n"
         f"{moon_emoji} Tonight's moon: **{moon_label}**"
     )
 
@@ -834,7 +843,8 @@ async def class_cmd(ctx):
         rank = dungeon.CLASSES[character["main_class"]]["rank"]
         suit_symbol = dungeon.SUIT_SYMBOLS[character["subclass"]]
         equipped = await asyncio.to_thread(db.get_equipped_items, ctx.guild.id, ctx.author.id)
-        effective = dungeon.compute_effective_stats(character, equipped)
+        housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, ctx.guild.id, ctx.author.id)
+        effective = dungeon.compute_effective_stats(character, equipped, housing_bonuses.get("stat_bonus", {}))
         max_chips = dungeon.compute_stats(character["main_class"], character["subclass"])["chips"]
         xp_needed = dungeon.xp_to_next_level(character["level"])
 
@@ -1087,7 +1097,8 @@ async def _train_horse(ctx, horse_index: int):
     pending_stat = horse["pending_boost_stat"] if horse else None
 
     tier = await asyncio.to_thread(db.get_facility_tier, ctx.guild.id, ctx.author.id)
-    facility_bonus = horserace.facility_bonus_for_tier(tier)
+    housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, ctx.guild.id, ctx.author.id)
+    facility_bonus = horserace.facility_bonus_for_tier(tier) + housing_bonuses.get("ranch_training_bonus", 0) / 100
     speed_gain, endurance_gain, spirit_gain = horserace.compute_training_gains(facility_bonus, pending_stat)
 
     status, payload = await asyncio.to_thread(
@@ -1448,6 +1459,70 @@ async def pizza(ctx):
     await _update_pizza_champion(ctx.guild)
 
 
+@bot.command(name="house")
+async def house_cmd(ctx):
+    """View your house and place items in its 3x3 grid: !house. Unlike !train (a single typed
+    horse number), placing an item needs two arguments -- which slot, which item -- so there's no
+    typed-argument fast path; this always opens the slot-picker -> item-picker chain
+    (housing_view.build_slot_picker/build_item_picker)."""
+    await _show_house(ctx)
+
+
+async def _show_house(ctx):
+    guild_id, user_id = ctx.guild.id, ctx.author.id
+    embed = housing_view.build_house_embed(guild_id, user_id, ctx.author.display_name)
+    placements = await asyncio.to_thread(db.get_house_placements, guild_id, user_id)
+    view = housing_view.build_slot_picker(placements, _pick_house_slot)
+    await ctx.send(embed=embed, view=view)
+
+
+async def _pick_house_slot(ctx, slot: int):
+    """HouseSlotSelect's on_pick callback -- opens the second picker (which item to place there,
+    or remove what's there) now that a slot's been chosen."""
+    guild_id, user_id = ctx.guild.id, ctx.author.id
+    owned = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
+    owned_item_ids = [item_id for item_id in owned if item_id in housing.HOUSING_ITEMS]
+    placements = await asyncio.to_thread(db.get_house_placements, guild_id, user_id)
+    occupant_item_id = placements.get(slot)
+    if not owned_item_ids and not occupant_item_id:
+        await ctx.send("You don't own any housing items to place there yet.")
+        return
+
+    async def on_place(inner_ctx, item_id):
+        await _place_house_item(inner_ctx, slot, item_id)
+
+    async def on_remove(inner_ctx):
+        await _remove_house_item(inner_ctx, slot)
+
+    view = housing_view.build_item_picker(owned_item_ids, occupant_item_id, on_place, on_remove)
+    await ctx.send(f"Slot {slot + 1}: choose an item to place (or remove what's there):", view=view)
+
+
+async def _place_house_item(ctx, slot: int, item_id: str):
+    """The actual placement logic -- shared by whatever gets here regardless of how slot/item_id
+    were collected, same "one real code path" shape as _train_horse."""
+    guild_id, user_id = ctx.guild.id, ctx.author.id
+    placed = await asyncio.to_thread(db.place_house_item, guild_id, user_id, slot, item_id)
+    if not placed:
+        await ctx.send("You don't have a free copy of that item anymore.")
+        return
+    item = housing.HOUSING_ITEMS[item_id]
+    await ctx.send(f"{item['emoji']} Placed **{item['name']}** in slot {slot + 1}!")
+    await _show_house(ctx)
+
+
+async def _remove_house_item(ctx, slot: int):
+    guild_id, user_id = ctx.guild.id, ctx.author.id
+    item_id = await asyncio.to_thread(db.remove_house_item, guild_id, user_id, slot)
+    if not item_id:
+        await ctx.send("That slot's already empty.")
+        return
+    item = housing.HOUSING_ITEMS.get(item_id)
+    name = item["name"] if item else item_id
+    await ctx.send(f"Removed **{name}** from slot {slot + 1} — it's back in your inventory.")
+    await _show_house(ctx)
+
+
 # Every command a /play room can invoke, keyed exactly as rooms.json's commands[].key references
 # it. Populated once, here (not rebuilt per /play call the way it used to be -- it's static) --
 # see room_commands.py's own docstring for why this dict lives in its own tiny module rather than
@@ -1476,11 +1551,20 @@ room_commands.COMMANDS.update({
     "boost": boost_cmd.callback,
     "facility": facility_cmd.callback,
     "horseequip": horseequip_cmd.callback,
+    "house": house_cmd.callback,
 })
 # Catches a typo'd rooms.json command key loudly at startup instead of a KeyError the moment some
 # player clicks the broken button -- see rooms.py's own docstring for why this can't run any
 # earlier (room_commands.COMMANDS is empty until the update() above runs).
 rooms.validate_command_keys(room_commands.COMMANDS.keys())
+# Same "can't run any earlier" story as validate_command_keys above, for a housing_item reference
+# in quests.json/npcs.json/dungeon_recipes.json -- housing.py only registers itself into
+# quests.REWARD_REGISTRIES once its own module-level import runs, which happens above (bot.py
+# imports housing at the top of this file), so it's safe to check now. See each function's own
+# docstring (quests.py) for why none of the three can validate this at their own module import time.
+quests.validate_reward_item_kinds()
+quests.validate_shop_housing_items()
+quests.validate_recipe_housing_items()
 
 
 async def in_casino_channel_slash(interaction: discord.Interaction) -> bool:

@@ -11,11 +11,11 @@ state already relies on. Keying by the dream's own id (not one global "has dream
 *new* dream, once activated, reaches every player again.
 
 A dream can optionally grant one item alongside its message (item_kind + item_id, both optional --
-set together or not at all) -- same five kinds and equip-if-upgrade-else-store/add_inventory_item
+set together or not at all) -- same six kinds and equip-if-upgrade-else-store/add_inventory_item
 grant logic as shop.py's REGISTRIES/buy(), just triggered by a dream instead of a purchase. quests.py
-IS importable here (unlike npcs.py, which can't -- see its own SHOP_KINDS comment -- quests.py
-doesn't import dreams.py, so there's no cycle), so quest_item ids are validated directly, no
-deferred cross-module check needed for that either.
+and housing.py are both importable here (unlike npcs.py, which can't -- see its own SHOP_KINDS
+comment -- neither quests.py nor housing.py import dreams.py, so there's no cycle), so every kind's
+item ids are validated directly, no deferred cross-module check needed for any of them.
 """
 
 import asyncio
@@ -27,6 +27,7 @@ import discord
 import db
 import dungeon
 import horse_clothes
+import housing
 import quests
 
 _DREAMS_PATH = os.path.join(os.path.dirname(__file__), "dreams.json")
@@ -38,6 +39,7 @@ REGISTRIES = {
     "consumable": dungeon.CONSUMABLES,
     "quest_item": quests.QUEST_ITEMS,
     "horse_clothes": horse_clothes.HORSE_CLOTHES,
+    "housing_item": housing.HOUSING_ITEMS,
 }
 
 

@@ -28,6 +28,7 @@ import random
 
 import db
 import dungeon
+import horse_clothes
 import npcs
 
 _QUEST_ITEMS_PATH = os.path.join(os.path.dirname(__file__), "quest_items.json")
@@ -159,6 +160,25 @@ _item_id_collisions = QUEST_ITEMS.keys() & (dungeon.MATERIALS.keys() | dungeon.C
 if _item_id_collisions:
     raise ValueError(f"quest_items.json ids collide with dungeon materials/consumables: {sorted(_item_id_collisions)}")
 
+# kind -> item registry a stage's "reward_item" can be drawn from -- same shape and grant-logic
+# split (equipment gets equip-if-upgrade-else-store, everything else gets add_inventory_item) as
+# shop.py's and dreams.py's own REGISTRIES. housing.py deliberately is NOT imported here to add a
+# "housing_item" kind: housing.py already imports this module (for its own item-id collision check
+# against QUEST_ITEMS, mirroring the one directly above), so the reverse import would be circular.
+# housing.py is the module that ends up able to see both, so -- same "module that can see both does
+# the deferred wiring" shape as room_commands.COMMANDS (populated by bot.py well after rooms.py
+# itself is loaded) -- it registers "housing_item" into this dict itself, at the bottom of its own
+# module. validate_reward_item_kinds() below is what actually catches a bad reward_item_kind/
+# reward_item pairing; _load_quests() above can't fully validate a "housing_item" reward inline,
+# since this dict won't have that kind yet at quests.py's own import time.
+REWARD_REGISTRIES = {
+    "equipment": dungeon.EQUIPMENT,
+    "material": dungeon.MATERIALS,
+    "consumable": dungeon.CONSUMABLES,
+    "quest_item": QUEST_ITEMS,
+    "horse_clothes": horse_clothes.HORSE_CLOTHES,
+}
+
 
 def _validate_trigger(trigger: dict, context: str):
     """Shared by every stage's trigger -- `context` is an f-string-ready label (e.g. "quests.json:
@@ -231,7 +251,12 @@ def _load_quests(path: str = _QUESTS_PATH) -> dict[str, dict]:
             if trigger is not None:
                 _validate_trigger(trigger, context)
             reward_item_id = stage.get("reward_item")
-            if reward_item_id and reward_item_id not in dungeon.EQUIPMENT:
+            reward_item_kind = stage.get("reward_item_kind", "equipment")
+            # Only the "equipment" kind (the original, and only, reward kind before housing_item
+            # existed) is checked here -- REWARD_REGISTRIES doesn't have "housing_item" registered
+            # yet at this point in module load order (see its own comment above), so a
+            # housing_item reward is checked later instead, by validate_reward_item_kinds().
+            if reward_item_id and reward_item_kind == "equipment" and reward_item_id not in dungeon.EQUIPMENT:
                 raise ValueError(f"{context} reward_item {reward_item_id!r} not in dungeon.EQUIPMENT")
         quests_by_id[quest_id] = entry
 
@@ -250,6 +275,71 @@ def _load_quests(path: str = _QUESTS_PATH) -> dict[str, dict]:
 
 
 QUESTS_BY_ID = _load_quests()
+
+
+def validate_reward_item_kinds(quests_by_id: dict[str, dict] | None = None):
+    """Called from bot.py once every REWARD_REGISTRIES-contributing module (including housing.py)
+    is fully loaded -- see the REWARD_REGISTRIES comment above for why this can't happen inside
+    _load_quests() itself. Raises loudly on a typo'd/unknown reward_item_kind or a reward_item id
+    that doesn't exist in that kind's registry, rather than a KeyError the moment a player turns in
+    the stage. `quests_by_id` -- see rooms.validate_command_keys for the same "defaults to the
+    module's own registry, but admin_server.py's save flow passes in the freshly-loaded candidate
+    instead" shape."""
+    for quest in (QUESTS_BY_ID if quests_by_id is None else quests_by_id).values():
+        for stage in quest["stages"]:
+            reward_item_id = stage.get("reward_item")
+            if not reward_item_id:
+                continue
+            reward_item_kind = stage.get("reward_item_kind", "equipment")
+            registry = REWARD_REGISTRIES.get(reward_item_kind)
+            if registry is None:
+                raise ValueError(
+                    f"quests.json: quest {quest['id']!r} references unknown reward_item_kind {reward_item_kind!r}"
+                )
+            if reward_item_id not in registry:
+                raise ValueError(
+                    f"quests.json: quest {quest['id']!r} reward_item {reward_item_id!r} not in {reward_item_kind}"
+                )
+
+
+def validate_shop_housing_items(npcs_by_id: dict[str, dict] | None = None):
+    """Same deferred story as validate_reward_item_kinds, for an npc's "housing_item"-kind shop
+    entries -- npcs.py's own SHOP_KINDS maps "housing_item" to None (same treatment as
+    "quest_item") since it can't import housing.py either (housing.py already imports this module,
+    which already imports npcs.py -- the reverse would be circular through this module). Unlike the
+    existing quest_item shop-entry check a few lines below (which runs eagerly, right here at this
+    module's own import time, since QUEST_ITEMS is already loaded by then), this one can't run
+    eagerly -- housing.py hasn't loaded yet at that point -- so it's called later instead, from
+    bot.py once housing.py has, and wired as a save-time extra_validator for the "npcs" content type
+    (admin_schemas.py)."""
+    housing_items = REWARD_REGISTRIES["housing_item"]
+    for npc in (npcs.NPCS if npcs_by_id is None else npcs_by_id).values():
+        for i, shop_entry in enumerate(npc.get("shop") or []):
+            if shop_entry["kind"] == "housing_item" and shop_entry["item_id"] not in housing_items:
+                raise ValueError(
+                    f"npcs.json: npc {npc['id']!r} shop entry {i} item_id {shop_entry['item_id']!r} "
+                    f"not in housing_items"
+                )
+
+
+def validate_recipe_housing_items(recipes: dict[str, dict] | None = None):
+    """Same deferred story as validate_shop_housing_items, for a "housing_item"-output recipe --
+    dungeon._load_recipes can't check its output_id against HOUSING_ITEMS (dungeon.py can't import
+    housing.py -- housing.py already imports dungeon.py, the reverse would be circular). Unlike
+    validate_recipe_quest_items (called eagerly right below, against the live dungeon.RECIPES, since
+    QUEST_ITEMS is already loaded by then), this can't run eagerly -- housing.py hasn't loaded yet
+    at that point -- so it's called later instead, from bot.py once housing.py has, and wired as an
+    additional save-time extra_validator for the "recipes" content type (admin_schemas.py).
+    `recipes` defaults to the live dungeon.RECIPES, same "candidate override for admin save"
+    shape as validate_recipe_quest_items."""
+    housing_items = REWARD_REGISTRIES["housing_item"]
+    for recipe_id, entry in (dungeon.RECIPES if recipes is None else recipes).items():
+        if entry["output_kind"] == "housing_item" and entry["output_id"] not in housing_items:
+            raise ValueError(
+                f"dungeon_recipes.json: recipe {recipe_id!r} output_id {entry['output_id']!r} not found in "
+                f"HOUSING_ITEMS"
+            )
+
 
 # npcs.py can't validate its own "visible_trigger" field (that needs TRIGGER_SCHEMAS/
 # _validate_trigger, and this module already imports npcs -- the reverse would be circular), so
@@ -513,9 +603,11 @@ async def turn_in(guild_id: int, user_id: int, quest_id: str) -> dict:
     button turns in" has to be decided by whoever built that button, not re-resolved ambiguously
     here. Returns {"success", "message", "reward", "reward_item", "equipped", "quest_complete"} --
     success is False (everything else None/0/False) if there's nothing to turn in. reward_item is
-    the dungeon.EQUIPMENT dict if this stage grants one (None otherwise); equipped says whether it
-    actually got equipped (same is_upgrade rule as ordinary loot) -- if not, it's stored in
-    equipment_inventory instead, swappable later via !equipment rather than lost."""
+    the REWARD_REGISTRIES[reward_item_kind] dict if this stage grants one (None otherwise, kind
+    defaults to "equipment" for backward compatibility); equipped is only ever True for an
+    "equipment" kind reward -- says whether it actually got equipped (same is_upgrade rule as
+    ordinary loot), or if not, it's stored in equipment_inventory instead, swappable later via
+    !equipment rather than lost. Every other kind is simply added to inventory."""
     failure = {
         "success": False, "message": None, "reward": 0, "reward_item": None, "equipped": False,
         "quest_complete": False,
@@ -549,14 +641,18 @@ async def turn_in(guild_id: int, user_id: int, quest_id: str) -> dict:
     reward_item, equipped = None, False
     reward_item_id = stage.get("reward_item")
     if reward_item_id:
-        reward_item = dungeon.EQUIPMENT[reward_item_id]
-        equipped_items = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
-        slot = reward_item["slot"]
-        if dungeon.is_upgrade(equipped_items.get(slot), reward_item):
-            await asyncio.to_thread(db.equip_item_smart, guild_id, user_id, slot, reward_item_id)
-            equipped = True
+        reward_item_kind = stage.get("reward_item_kind", "equipment")
+        reward_item = REWARD_REGISTRIES[reward_item_kind][reward_item_id]
+        if reward_item_kind == "equipment":
+            equipped_items = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
+            slot = reward_item["slot"]
+            if dungeon.is_upgrade(equipped_items.get(slot), reward_item):
+                await asyncio.to_thread(db.equip_item_smart, guild_id, user_id, slot, reward_item_id)
+                equipped = True
+            else:
+                await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, reward_item_id)
         else:
-            await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, reward_item_id)
+            await asyncio.to_thread(db.add_inventory_item, guild_id, user_id, reward_item_id, 1)
 
     return {
         "success": True, "message": stage.get("on_complete_message"), "reward": reward,

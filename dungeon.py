@@ -1202,17 +1202,21 @@ DELVES = _load_delves()
 # are loaded (see the bottom of quests.py) and wired as a save-time extra_validator for the
 # "recipes" content type (admin_schemas.py). horse_clothes.py has no such problem -- it doesn't
 # import dungeon.py -- so "horse_clothes" is validated directly below, same as equipment/consumable.
+# "housing_item" has the exact same problem as "quest_item" (housing.py imports this module, so the
+# reverse would be circular too) -- deferred to quests.validate_recipe_housing_items instead, called
+# separately from bot.py once housing.py has actually loaded (see that function's own docstring for
+# why it can't just be folded into validate_recipe_quest_items's single eager call here).
 _RECIPES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_recipes.json")
 _REQUIRED_RECIPE_FIELDS = {"id", "name", "output_kind", "output_id", "materials"}
-RECIPE_OUTPUT_KINDS = ("equipment", "consumable", "horse_clothes", "quest_item")
+RECIPE_OUTPUT_KINDS = ("equipment", "consumable", "horse_clothes", "quest_item", "housing_item")
 
 
 def _load_recipes(path: str = _RECIPES_PATH) -> dict[str, dict]:
     # output_kind -> the registry its output_id is checked against here, or None if it has to be
-    # checked elsewhere (see "quest_item" note above).
+    # checked elsewhere (see "quest_item"/"housing_item" note above).
     output_registries = {
         "equipment": EQUIPMENT, "consumable": CONSUMABLES, "horse_clothes": horse_clothes.HORSE_CLOTHES,
-        "quest_item": None,
+        "quest_item": None, "housing_item": None,
     }
     with open(path) as f:
         raw = json.load(f)
@@ -1279,10 +1283,16 @@ def is_upgrade(current_item_id: str | None, new_item: dict) -> bool:
     return current_item is None or item_power(new_item) > item_power(current_item)
 
 
-def compute_effective_stats(character: dict, equipped: dict[str, str]) -> dict:
+def compute_effective_stats(
+    character: dict, equipped: dict[str, str], housing_stat_bonuses: dict[str, int] | None = None
+) -> dict:
     """A character's stored hp/atk/def/spatk/spdef/speed (which already include all permanent
-    level growth) plus whatever's currently equipped in each slot. `equipped` is {slot: item_id},
-    e.g. from db.get_equipped_items."""
+    level growth) plus whatever's currently equipped in each slot, plus (optionally) a
+    {stat: value} dict of passive bonuses from placed housing items -- see
+    housing.get_house_bonuses(...).get("stat_bonus", {}), the housing analogue of an equipped
+    item's own constant_stat_bonuses. `equipped` is {slot: item_id}, e.g. from
+    db.get_equipped_items. `housing_stat_bonuses` defaults to none (today's exact behavior) --
+    callers that want housing items to count pass one in."""
     hp, atk, def_ = character["hp"], character["atk"], character["def"]
     spatk, spdef, speed = character["spatk"], character["spdef"], character["speed"]
     for item_id in equipped.values():
@@ -1296,6 +1306,13 @@ def compute_effective_stats(character: dict, equipped: dict[str, str]) -> dict:
         spatk += bonuses.get("spatk", 0)
         spdef += bonuses.get("spdef", 0)
         speed += bonuses.get("speed", 0)
+    if housing_stat_bonuses:
+        hp += housing_stat_bonuses.get("hp", 0)
+        atk += housing_stat_bonuses.get("atk", 0)
+        def_ += housing_stat_bonuses.get("def", 0)
+        spatk += housing_stat_bonuses.get("spatk", 0)
+        spdef += housing_stat_bonuses.get("spdef", 0)
+        speed += housing_stat_bonuses.get("speed", 0)
     return {"hp": hp, "atk": atk, "def": def_, "spatk": spatk, "spdef": spdef, "speed": speed}
 
 

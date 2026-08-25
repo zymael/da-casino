@@ -33,6 +33,7 @@ import achievements
 import db
 import dungeon
 import horse_clothes
+import housing
 import quests
 import room_commands
 import rooms
@@ -293,6 +294,7 @@ def _cascade_options() -> dict:
             "consumable": _choices(dungeon.CONSUMABLES),
             "quest_item": _choices(quests.QUEST_ITEMS),
             "horse_clothes": _choices(horse_clothes.HORSE_CLOTHES),
+            "housing_item": _choices(housing.HOUSING_ITEMS),
         },
         "shop": {
             "equipment": _choices(dungeon.EQUIPMENT),
@@ -300,6 +302,7 @@ def _cascade_options() -> dict:
             "consumable": _choices(dungeon.CONSUMABLES),
             "quest_item": _choices(quests.QUEST_ITEMS),
             "horse_clothes": _choices(horse_clothes.HORSE_CLOTHES),
+            "housing_item": _choices(housing.HOUSING_ITEMS),
         },
         "dream_item": {
             "equipment": _choices(dungeon.EQUIPMENT),
@@ -307,6 +310,15 @@ def _cascade_options() -> dict:
             "consumable": _choices(dungeon.CONSUMABLES),
             "quest_item": _choices(quests.QUEST_ITEMS),
             "horse_clothes": _choices(horse_clothes.HORSE_CLOTHES),
+            "housing_item": _choices(housing.HOUSING_ITEMS),
+        },
+        "quest_reward": {
+            "equipment": _choices(dungeon.EQUIPMENT),
+            "material": _choices(dungeon.MATERIALS),
+            "consumable": _choices(dungeon.CONSUMABLES),
+            "quest_item": _choices(quests.QUEST_ITEMS),
+            "horse_clothes": _choices(horse_clothes.HORSE_CLOTHES),
+            "housing_item": _choices(housing.HOUSING_ITEMS),
         },
         "monster_drop": {
             # quest_only equipment (e.g. Mondor's Greasy Pencil) is excluded -- those are only
@@ -2289,12 +2301,18 @@ def _render_delve_flowchart(label: str, rooms: list[dict], entry: dict, problems
 def _render_stage_row(prefix: str, stage: dict) -> str:
     """One row of a "quest_stages" list -- shared by real rows (prefix like "stage_0") and the
     blank <template> row (prefix "stage_ROWIDX") that "+ Add stage" clones. See _parse_field's
-    "quest_stages" case for the matching parse side."""
-    equipment_ids = sorted(dungeon.EQUIPMENT.keys())
-    reward_item = stage.get("reward_item")
-    reward_item_options = "".join(
-        f'<option value="{item_id}"{" selected" if item_id == reward_item else ""}>{item_id}</option>'
-        for item_id in [""] + equipment_ids
+    "quest_stages" case for the matching parse side. reward_item_kind/reward_item is the same
+    kind-select + _render_cascaded_select pairing as _render_shop_row's kind/item_id, scoped to the
+    "quest_reward" cascade (quests.REWARD_REGISTRIES' kinds) instead of "shop" -- reward_item_kind
+    defaults to "equipment" (blank in the dropdown resolves to the same default at parse/runtime
+    time) for every quest authored before reward_item_kind existed."""
+    reward_item_kind = stage.get("reward_item_kind")
+    reward_item_kind_options = "".join(
+        f'<option value="{k}"{" selected" if k == reward_item_kind else ""}>{k}</option>'
+        for k in [""] + sorted(quests.REWARD_REGISTRIES.keys())
+    )
+    reward_item_select = _render_cascaded_select(
+        f"{prefix}_reward_item", "quest_reward", reward_item_kind or "equipment", stage.get("reward_item")
     )
     return (
         f'<div class="row-group">'
@@ -2303,7 +2321,9 @@ def _render_stage_row(prefix: str, stage: dict) -> str:
         f'<label>on_complete_message<textarea name="{prefix}_message">'
         f'{html.escape(stage.get("on_complete_message", ""))}</textarea></label>'
         f'<label>reward<input type="number" min="0" name="{prefix}_reward" value="{stage.get("reward", "")}"></label>'
-        f'<label>reward_item<select name="{prefix}_reward_item">{reward_item_options}</select></label>'
+        f'<label>reward_item_kind<select name="{prefix}_reward_item_kind" class="cascade-select" '
+        f'data-cascade="quest_reward">{reward_item_kind_options}</select></label>'
+        f'<label>reward_item{reward_item_select}</label>'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove stage</button>'
         f'</div>'
     )
@@ -2860,6 +2880,9 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
             reward_item = form.get(f"{prefix}_reward_item", "").strip()
             if reward_item:
                 stage["reward_item"] = reward_item
+                reward_item_kind = form.get(f"{prefix}_reward_item_kind", "").strip()
+                if reward_item_kind and reward_item_kind != "equipment":
+                    stage["reward_item_kind"] = reward_item_kind
             stages.append(stage)
         return (name, stages)
 
@@ -3980,6 +4003,7 @@ def _grant_item(guild_id: int, user_id: int, kind: str, item_id: str, qty: int) 
     registry = {
         "equipment": dungeon.EQUIPMENT, "material": dungeon.MATERIALS,
         "consumable": dungeon.CONSUMABLES, "quest_item": quests.QUEST_ITEMS,
+        "housing_item": housing.HOUSING_ITEMS,
     }.get(kind)
     if registry is None or item_id not in registry:
         return f"Unknown {kind or 'item'} id {item_id!r}."
@@ -4090,7 +4114,8 @@ async def player_debug_view(request: web.Request) -> web.Response:
             character = db.get_character(gid, uid)
             if character:
                 equipped = db.get_equipped_items(gid, uid)
-                max_hp = dungeon.compute_effective_stats(character, equipped)["hp"]
+                housing_bonuses = housing.get_house_bonuses(gid, uid)
+                max_hp = dungeon.compute_effective_stats(character, equipped, housing_bonuses.get("stat_bonus", {}))["hp"]
                 current_hp = min(character["current_hp"], max_hp)
                 character_fields = (
                     f'<label>Level<input type="number" min="1" name="level" value="{character["level"]}"></label>'

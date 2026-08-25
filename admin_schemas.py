@@ -132,8 +132,10 @@ Field types the generic form-builder knows how to render:
     actually enforces which params a given type needs. See TRIGGER_PARAM_KINDS for how each
     param renders (a number input, or a <select> sourced from the right registry).
   - "quest_stages" -- a repeatable list of {prompt, trigger, on_complete_message, reward,
-    reward_item}; each row's trigger portion is the same flattened rendering as the "trigger"
-    field type above.
+    reward_item, reward_item_kind}; each row's trigger portion is the same flattened rendering as
+    the "trigger" field type above. reward_item_kind picks which of quests.REWARD_REGISTRIES'
+    kinds reward_item is looked up in (defaults to "equipment" if blank, for every quest authored
+    before reward_item_kind existed).
   - "room_exits" -- a repeatable list of {room_id, label}, room_id a <select> sourced live from
     rooms.ROOMS.
   - "room_commands" -- a repeatable list of {key, kind, label, const_args?, modal_title?,
@@ -166,6 +168,7 @@ import achievements
 import dreams
 import dungeon
 import horse_clothes
+import housing
 import npcs
 import quests
 import room_commands
@@ -206,9 +209,10 @@ TRIGGER_PARAM_HINTS = {
 DUNGEON_CONTENT = "Dungeon Content"
 STORY_CONTENT = "Story"
 RANCH_CONTENT = "Ranch"
+HOUSING_CONTENT = "Housing"
 # Sidebar/dashboard order: categories in this order, content types within a category in
 # CONTENT_TYPES' own definition order (below).
-CATEGORIES = [DUNGEON_CONTENT, STORY_CONTENT, RANCH_CONTENT]
+CATEGORIES = [DUNGEON_CONTENT, STORY_CONTENT, RANCH_CONTENT, HOUSING_CONTENT]
 
 CONTENT_TYPES = {
     "monsters": {
@@ -371,10 +375,13 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "RECIPES",
         "loader": dungeon._load_recipes,
-        # dungeon._load_recipes can't check a "quest_item"-output recipe's output_id itself (see
-        # its own comment for why) -- deferred here as an extra save-time check, same "rooms"
-        # pattern above.
-        "extra_validators": [lambda new_registry: quests.validate_recipe_quest_items(new_registry)],
+        # dungeon._load_recipes can't check a "quest_item"/"housing_item"-output recipe's output_id
+        # itself (see its own comment for why) -- deferred here as an extra save-time check, same
+        # "rooms" pattern above.
+        "extra_validators": [
+            lambda new_registry: quests.validate_recipe_quest_items(new_registry),
+            lambda new_registry: quests.validate_recipe_housing_items(new_registry),
+        ],
         "list_columns": ["id", "name", "output_kind", "output_id"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
@@ -523,6 +530,38 @@ CONTENT_TYPES = {
             {"name": "commands", "type": "room_commands", "required": True},
         ],
     },
+    "housing_items": {
+        "label": "Housing Items",
+        "category": HOUSING_CONTENT,
+        "icon": "🛋️",
+        "json_path": "housing_items.json",
+        "module": housing,
+        "registry_attr": "HOUSING_ITEMS",
+        "loader": housing._load_housing_items,
+        "list_columns": ["id", "name", "effect_type", "value"],
+        "fields": [
+            {"name": "id", "type": "str", "required": True, "group": "Identity"},
+            {"name": "name", "type": "str", "required": True, "group": "Identity"},
+            {"name": "emoji", "type": "str", "required": True, "group": "Identity"},
+            {"name": "description", "type": "text", "required": True, "group": "Flavor Text"},
+            {
+                "name": "effect_type", "type": "enum", "required": True, "group": "Effect",
+                "choices": lambda: sorted(housing.HOUSING_EFFECT_TYPES.keys()),
+                "hint": "the passive bonus this item grants while placed in a house slot",
+            },
+            {
+                "name": "value", "type": "int", "required": True, "group": "Effect",
+                "hint": "a percent for dungeon_loot_bonus/dungeon_xp_bonus/ranch_training_bonus, a "
+                        "flat point for stat_bonus, a flat amount for rest_energy_bonus/rest_gold_bonus",
+            },
+            {
+                "name": "stat", "type": "enum", "required": False, "group": "Effect",
+                "choices": list(housing.HOUSING_STATS),
+                "hint": "only used (and required) when effect_type is stat_bonus -- which stat this "
+                        "item boosts. Leave blank for every other effect_type.",
+            },
+        ],
+    },
     "quest_items": {
         "label": "Quest Items",
         "category": STORY_CONTENT,
@@ -587,6 +626,10 @@ CONTENT_TYPES = {
         "module": npcs,
         "registry_attr": "NPCS",
         "loader": npcs._load_npcs,
+        # npcs._load_npcs can't check a "housing_item"-kind shop entry's item_id itself (see
+        # npcs.py's own SHOP_KINDS comment for why) -- deferred here as an extra save-time check,
+        # same "rooms"/"recipes" pattern above.
+        "extra_validators": [lambda new_registry: quests.validate_shop_housing_items(new_registry)],
         "list_columns": ["id", "name", "room", "greet_achievement"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
@@ -619,7 +662,7 @@ CONTENT_TYPES = {
                 "name": "shop", "type": "shop_items", "required": False,
                 "hint": "optional -- any items listed here show a Shop button for this NPC. "
                         "item_id is looked up in the registry named by kind (equipment/material/"
-                        "consumable/quest_item).",
+                        "consumable/quest_item/horse_clothes/housing_item).",
             },
         ],
     },
@@ -631,6 +674,11 @@ CONTENT_TYPES = {
         "module": quests,
         "registry_attr": "QUESTS_BY_ID",
         "loader": quests._load_quests,
+        # quests._load_quests only checks an "equipment"-kind reward_item at load time (see
+        # REWARD_REGISTRIES' own comment for why the other kinds -- material, consumable,
+        # horse_clothes, housing_item -- can't be fully validated there yet) -- the rest are caught
+        # here instead, as an extra save-time check, same "rooms"/"recipes"/"npcs" pattern above.
+        "extra_validators": [lambda new_registry: quests.validate_reward_item_kinds(new_registry)],
         "list_columns": ["id", "npc"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},

@@ -1,9 +1,9 @@
 """Crafting orchestration: turns a dungeon.RECIPES entry into the material/currency consumption
 (db.craft_item, atomic) plus the resulting item grant -- equip-if-upgrade or store for equipment
 (same as ordinary loot), or add to the generic `inventory` table for every other output_kind
-(consumable, quest_item, horse_clothes -- see _INVENTORY_REGISTRIES). Mirrors quests.py's turn_in
-and shop.py's buy -- composes several separately-atomic db calls rather than one
-all-encompassing transaction, since the consumption step and the grant step touch different
+(consumable, quest_item, horse_clothes, housing_item -- see _INVENTORY_REGISTRIES). Mirrors
+quests.py's turn_in and shop.py's buy -- composes several separately-atomic db calls rather than
+one all-encompassing transaction, since the consumption step and the grant step touch different
 tables (inventory vs. character_equipment/equipment_inventory) that can't safely share one open
 connection/transaction.
 """
@@ -13,6 +13,7 @@ import asyncio
 import db
 import dungeon
 import horse_clothes
+import housing
 import quests
 
 # Every non-equipment output_kind just adds one to the generic `inventory` table by item_id --
@@ -22,6 +23,7 @@ _INVENTORY_REGISTRIES = {
     "consumable": dungeon.CONSUMABLES,
     "quest_item": quests.QUEST_ITEMS,
     "horse_clothes": horse_clothes.HORSE_CLOTHES,
+    "housing_item": housing.HOUSING_ITEMS,
 }
 
 
