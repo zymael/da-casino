@@ -291,7 +291,7 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "EQUIPMENT",
         "loader": dungeon._load_equipment,
-        "list_columns": ["id", "name", "slot", "rarity"],
+        "list_columns": ["id", "name", "slot", "rarity", "base_value"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
@@ -331,7 +331,7 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "MATERIALS",
         "loader": dungeon._load_materials,
-        "list_columns": ["id", "name", "rarity"],
+        "list_columns": ["id", "name", "rarity", "base_value"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
@@ -355,7 +355,7 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "CONSUMABLES",
         "loader": dungeon._load_consumables,
-        "list_columns": ["id", "name"],
+        "list_columns": ["id", "name", "base_value"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
@@ -556,7 +556,7 @@ CONTENT_TYPES = {
         "module": housing,
         "registry_attr": "HOUSING_ITEMS",
         "loader": housing._load_housing_items,
-        "list_columns": ["id", "name", "effect_type", "value"],
+        "list_columns": ["id", "name", "effect_type", "value", "base_value"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
@@ -738,7 +738,7 @@ CONTENT_TYPES = {
         "module": horse_clothes,
         "registry_attr": "HORSE_CLOTHES",
         "loader": horse_clothes._load_horse_clothes,
-        "list_columns": ["id", "name", "slot"],
+        "list_columns": ["id", "name", "slot", "base_value"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
