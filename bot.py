@@ -762,7 +762,12 @@ async def horserace_cmd(ctx):
 
 @bot.command(name="horses", aliases=["stable"])
 async def horses_cmd(ctx):
-    """List every horse in the stable, its odds/price/record, and who owns it: !horses"""
+    """List every horse in the stable, its price/record, and who owns it: !horses"""
+    # Odds deliberately aren't shown here -- current_probabilities() is now a fresh per-race
+    # simulation against whoever's actually entered (see its own docstring), so there's no single
+    # "this horse's odds" number outside the context of one specific drawn field; !horserace is
+    # the only place odds are meaningful to show. Still needed here for price_of, which prices an
+    # unowned horse off the same simulation, scoped to the whole eligible stable by default.
     roster, _eligible, probabilities = await asyncio.to_thread(horserace.current_probabilities, ctx.guild.id)
     currency = db.get_currency_name(ctx.guild.id)
     lines = []
@@ -770,20 +775,17 @@ async def horses_cmd(ctx):
         horse = roster[i]
         kind = "🐣 Foal" if horse["is_foal"] else "🏆 Legend"
         if horse["age"] < horserace.MIN_RACING_AGE:
-            odds = "—"
             status = f"Growing (age {horse['age']}/{horserace.MIN_RACING_AGE}) — owned by <@{horse['owner_id']}>"
+        elif horse["owner_id"] is not None:
+            status = f"Owned by <@{horse['owner_id']}>"
         else:
-            odds = horserace.describe_odds(i, probabilities["win"])
-            if horse["owner_id"] is not None:
-                status = f"Owned by <@{horse['owner_id']}>"
-            else:
-                status = f"💰 {horserace.price_of(i, probabilities['win'])} {currency} — `!buyhorse {i + 1}`"
+            status = f"💰 {horserace.price_of(i, probabilities['win'])} {currency} — `!buyhorse {i + 1}`"
         record = f"{horse['wins']}W-{horse['places']}P-{horse['shows']}S ({horse['races']} starts)" if horse["races"] else "unraced"
         stats = (
             f"SPD {horse['speed']:.0f} / END {horse['endurance']:.0f} / SPI {horse['spirit']:.0f} — {record}"
         )
         sex_symbol = horserace.SEX_SYMBOLS.get(horse["sex"], "")
-        lines.append(f"**{i + 1}. {horse['name']}** {sex_symbol} {horse['coat']} ({odds}) — {kind} — {status}\n{stats}")
+        lines.append(f"**{i + 1}. {horse['name']}** {sex_symbol} {horse['coat']} — {kind} — {status}\n{stats}")
 
     embed = discord.Embed(
         title="🐴 The Stable",
