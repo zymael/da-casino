@@ -1316,7 +1316,8 @@
     "effects": [
       {
         "type": "damage_multiplier",
-        "value": 1.5
+        "value": 1.5,
+        "target": "enemy"
       },
       {
         "type": "damage_multiplier",
