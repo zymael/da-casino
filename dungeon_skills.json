@@ -1075,7 +1075,8 @@
     "flavor": "I shall show you, peasant!",
     "effects": [
       {
-        "type": "cleanse_dot",
+        "type": "stun",
+        "duration": 1,
         "target": "self"
       },
       {
