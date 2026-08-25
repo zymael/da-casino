@@ -34,13 +34,16 @@ import quests
 _DREAMS_PATH = os.path.join(os.path.dirname(__file__), "dreams.json")
 _REQUIRED_DREAM_FIELDS = {"id", "name", "message"}
 
+# Values are zero-arg getters, not the registries themselves -- see npcs.SHOP_KINDS' own comment
+# for why a captured `dungeon.MATERIALS` etc would silently go stale the moment a content edit
+# landed through the admin panel with no restart.
 REGISTRIES = {
-    "equipment": dungeon.EQUIPMENT,
-    "material": dungeon.MATERIALS,
-    "consumable": dungeon.CONSUMABLES,
-    "quest_item": quests.QUEST_ITEMS,
-    "horse_clothes": horse_clothes.HORSE_CLOTHES,
-    "housing_item": housing.HOUSING_ITEMS,
+    "equipment": lambda: dungeon.EQUIPMENT,
+    "material": lambda: dungeon.MATERIALS,
+    "consumable": lambda: dungeon.CONSUMABLES,
+    "quest_item": lambda: quests.QUEST_ITEMS,
+    "horse_clothes": lambda: horse_clothes.HORSE_CLOTHES,
+    "housing_item": lambda: housing.HOUSING_ITEMS,
 }
 
 
@@ -64,7 +67,7 @@ def _load_dreams(path: str = _DREAMS_PATH) -> dict[str, dict]:
         if item_kind is not None:
             if item_kind not in REGISTRIES:
                 raise ValueError(f"dreams.json: dream {entry_id!r} has unknown item_kind {item_kind!r}")
-            if item_id not in REGISTRIES[item_kind]:
+            if item_id not in REGISTRIES[item_kind]():
                 raise ValueError(
                     f"dreams.json: dream {entry_id!r} item_id {item_id!r} not found in {item_kind} registry"
                 )
@@ -109,7 +112,7 @@ async def try_deliver_dream(dm_send, guild_id: int, user_id: int) -> bool:
         return False
 
     item_kind = dream.get("item_kind")
-    item = REGISTRIES[item_kind][dream["item_id"]] if item_kind else None
+    item = REGISTRIES[item_kind]()[dream["item_id"]] if item_kind else None
 
     description = dream["message"]
     if item is not None:

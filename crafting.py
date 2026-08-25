@@ -18,12 +18,13 @@ import quests
 
 # Every non-equipment output_kind just adds one to the generic `inventory` table by item_id --
 # equipment is the only kind with an equip-or-store decision (see craft() below). Mirrors shop.py's
-# own REGISTRIES.
+# own REGISTRIES -- including the same "values are zero-arg getters, not the registries
+# themselves" reasoning (see npcs.SHOP_KINDS' own comment).
 _INVENTORY_REGISTRIES = {
-    "consumable": dungeon.CONSUMABLES,
-    "quest_item": quests.QUEST_ITEMS,
-    "horse_clothes": horse_clothes.HORSE_CLOTHES,
-    "housing_item": housing.HOUSING_ITEMS,
+    "consumable": lambda: dungeon.CONSUMABLES,
+    "quest_item": lambda: quests.QUEST_ITEMS,
+    "horse_clothes": lambda: horse_clothes.HORSE_CLOTHES,
+    "housing_item": lambda: housing.HOUSING_ITEMS,
 }
 
 
@@ -45,7 +46,7 @@ async def craft(guild_id: int, user_id: int, recipe_id: str) -> dict:
         item = dungeon.EQUIPMENT[recipe["output_id"]]
         await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, item["id"])
     else:
-        item = _INVENTORY_REGISTRIES[recipe["output_kind"]][recipe["output_id"]]
+        item = _INVENTORY_REGISTRIES[recipe["output_kind"]]()[recipe["output_id"]]
         await asyncio.to_thread(db.add_inventory_item, guild_id, user_id, item["id"], 1)
 
     await quests.record_progress(guild_id, user_id, "craft_item", recipe_id=recipe_id)

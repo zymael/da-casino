@@ -95,7 +95,12 @@ if _item_id_collisions:
 # quests.validate_reward_item_kinds() (run by bot.py/admin_server.py once every content module,
 # including this one, is loaded) is what actually catches a bad reward_item_kind/reward_item
 # pairing -- quests.py's own loader can't, since this line hasn't run yet at that point.
-quests.REWARD_REGISTRIES["housing_item"] = HOUSING_ITEMS
+#
+# A zero-arg getter, not HOUSING_ITEMS itself -- see npcs.SHOP_KINDS' own comment for why a
+# captured dict reference would silently go stale the moment a housing_items.json edit landed
+# through the admin panel with no restart (admin_server.py's hot-reload rebinds this module's own
+# HOUSING_ITEMS attribute via setattr, which a captured reference here would never see).
+quests.REWARD_REGISTRIES["housing_item"] = lambda: HOUSING_ITEMS
 
 
 def get_house_bonuses(guild_id: int, user_id: int) -> dict:

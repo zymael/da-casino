@@ -177,12 +177,16 @@ if _item_id_collisions:
 # module. validate_reward_item_kinds() below is what actually catches a bad reward_item_kind/
 # reward_item pairing; _load_quests() above can't fully validate a "housing_item" reward inline,
 # since this dict won't have that kind yet at quests.py's own import time.
+# Values are zero-arg getters, not the registries themselves -- see npcs.SHOP_KINDS' own comment
+# for why a captured `dungeon.MATERIALS` etc (this module's own QUEST_ITEMS included -- it's just
+# as hot-reloadable as any other content registry) would silently go stale the moment a content
+# edit landed through the admin panel with no restart.
 REWARD_REGISTRIES = {
-    "equipment": dungeon.EQUIPMENT,
-    "material": dungeon.MATERIALS,
-    "consumable": dungeon.CONSUMABLES,
-    "quest_item": QUEST_ITEMS,
-    "horse_clothes": horse_clothes.HORSE_CLOTHES,
+    "equipment": lambda: dungeon.EQUIPMENT,
+    "material": lambda: dungeon.MATERIALS,
+    "consumable": lambda: dungeon.CONSUMABLES,
+    "quest_item": lambda: QUEST_ITEMS,
+    "horse_clothes": lambda: horse_clothes.HORSE_CLOTHES,
 }
 
 
@@ -303,7 +307,7 @@ def validate_reward_item_kinds(quests_by_id: dict[str, dict] | None = None):
                 raise ValueError(
                     f"quests.json: quest {quest['id']!r} references unknown reward_item_kind {reward_item_kind!r}"
                 )
-            if reward_item_id not in registry:
+            if reward_item_id not in registry():
                 raise ValueError(
                     f"quests.json: quest {quest['id']!r} reward_item {reward_item_id!r} not in {reward_item_kind}"
                 )
@@ -319,7 +323,7 @@ def validate_shop_housing_items(npcs_by_id: dict[str, dict] | None = None):
     eagerly -- housing.py hasn't loaded yet at that point -- so it's called later instead, from
     bot.py once housing.py has, and wired as a save-time extra_validator for the "npcs" content type
     (admin_schemas.py)."""
-    housing_items = REWARD_REGISTRIES["housing_item"]
+    housing_items = REWARD_REGISTRIES["housing_item"]()
     for npc in (npcs.NPCS if npcs_by_id is None else npcs_by_id).values():
         for i, shop_entry in enumerate(npc.get("shop") or []):
             if shop_entry["kind"] == "housing_item" and shop_entry["item_id"] not in housing_items:
@@ -339,7 +343,7 @@ def validate_recipe_housing_items(recipes: dict[str, dict] | None = None):
     additional save-time extra_validator for the "recipes" content type (admin_schemas.py).
     `recipes` defaults to the live dungeon.RECIPES, same "candidate override for admin save"
     shape as validate_recipe_quest_items."""
-    housing_items = REWARD_REGISTRIES["housing_item"]
+    housing_items = REWARD_REGISTRIES["housing_item"]()
     for recipe_id, entry in (dungeon.RECIPES if recipes is None else recipes).items():
         if entry["output_kind"] == "housing_item" and entry["output_id"] not in housing_items:
             raise ValueError(
@@ -682,7 +686,7 @@ async def turn_in(guild_id: int, user_id: int, quest_id: str) -> dict:
     reward_item_id = stage.get("reward_item")
     if reward_item_id:
         reward_item_kind = stage.get("reward_item_kind", "equipment")
-        reward_item = REWARD_REGISTRIES[reward_item_kind][reward_item_id]
+        reward_item = REWARD_REGISTRIES[reward_item_kind]()[reward_item_id]
         if reward_item_kind == "equipment":
             await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, reward_item_id)
         else:

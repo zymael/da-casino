@@ -15,12 +15,15 @@ import dungeon
 import horse_clothes
 import housing
 
+# Values are zero-arg getters, not the registries themselves -- see npcs.SHOP_KINDS' own comment
+# for why a captured `dungeon.MATERIALS` etc would silently go stale the moment a content edit
+# landed through the admin panel with no restart.
 SELLABLE_REGISTRIES = {
-    "equipment": dungeon.EQUIPMENT,
-    "material": dungeon.MATERIALS,
-    "consumable": dungeon.CONSUMABLES,
-    "horse_clothes": horse_clothes.HORSE_CLOTHES,
-    "housing_item": housing.HOUSING_ITEMS,
+    "equipment": lambda: dungeon.EQUIPMENT,
+    "material": lambda: dungeon.MATERIALS,
+    "consumable": lambda: dungeon.CONSUMABLES,
+    "horse_clothes": lambda: horse_clothes.HORSE_CLOTHES,
+    "housing_item": lambda: housing.HOUSING_ITEMS,
 }
 
 
@@ -38,11 +41,11 @@ def sellable_holdings(held: dict[str, int], stored_equipment: dict[str, int]) ->
     collision bug; that's already caught elsewhere, every time !inventory renders."""
     result = []
     for item_id, qty in stored_equipment.items():
-        if item_id in SELLABLE_REGISTRIES["equipment"]:
+        if item_id in SELLABLE_REGISTRIES["equipment"]():
             result.append(("equipment", item_id, qty))
     for item_id, qty in held.items():
         for kind in ("material", "consumable", "horse_clothes", "housing_item"):
-            if item_id in SELLABLE_REGISTRIES[kind]:
+            if item_id in SELLABLE_REGISTRIES[kind]():
                 result.append((kind, item_id, qty))
                 break
     return result
@@ -53,7 +56,7 @@ async def sell(guild_id: int, user_id: int, kind: str, item_id: str) -> dict:
     {"success", "item", "kind", "price", "balance"}. On failure (they don't actually hold one --
     e.g. a stale picker from before they already sold/used their only copy), success is False and
     nothing was touched."""
-    item = SELLABLE_REGISTRIES[kind][item_id]
+    item = SELLABLE_REGISTRIES[kind]()[item_id]
     price = sell_price(item)
     if kind == "equipment":
         removed = await asyncio.to_thread(db.sell_equipment_item, guild_id, user_id, item_id, 1)

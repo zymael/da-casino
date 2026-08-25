@@ -26,7 +26,7 @@ def _item_blurb(kind: str, item: dict) -> str:
 
 
 def _entry_line(entry: dict) -> str:
-    item = shop.REGISTRIES[entry["kind"]][entry["item_id"]]
+    item = shop.REGISTRIES[entry["kind"]]()[entry["item_id"]]
     emoji = _KIND_EMOJI[entry["kind"]]
     blurb = _item_blurb(entry["kind"], item)
     lines = []
@@ -72,7 +72,7 @@ class ShopSelect(discord.ui.Select):
         self.currency = currency
         options = []
         for i, entry in enumerate(entries[:MAX_SELECT_OPTIONS]):
-            item = shop.REGISTRIES[entry["kind"]][entry["item_id"]]
+            item = shop.REGISTRIES[entry["kind"]]()[entry["item_id"]]
             rarity_emoji = dungeon.RARITY_EMOJI[item["rarity"]] if entry["kind"] == "equipment" else None
             options.append(discord.SelectOption(
                 label=f"{item['name']} — {entry['price']} {currency}",

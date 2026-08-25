@@ -46,12 +46,20 @@ _REQUIRED_SHOP_ENTRY_FIELDS = {"kind", "item_id", "price"}
 # "quest_item"/"housing_item" map to None -- their item_ids can't be checked here (neither
 # quests.py nor housing.py is importable from this module; see module docstring), so they're
 # cross-validated elsewhere instead (see quests.validate_shop_housing_items for "housing_item").
+#
+# Values are zero-arg getters, not the registries themselves -- admin_server.py's hot-reload does
+# `setattr(dungeon, "MATERIALS", new_registry)` on a content save, which *rebinds* the module
+# attribute rather than mutating the existing dict in place. A plain `dungeon.MATERIALS` captured
+# here at this module's own import time would keep pointing at that original object forever,
+# silently going stale the moment a materials.json edit landed through the admin panel with no
+# restart -- exactly the shape of bug that made a shop entry reject a real, just-added material.
+# A lambda re-reads the live attribute on every call instead.
 SHOP_KINDS = {
-    "equipment": dungeon.EQUIPMENT,
-    "material": dungeon.MATERIALS,
-    "consumable": dungeon.CONSUMABLES,
+    "equipment": lambda: dungeon.EQUIPMENT,
+    "material": lambda: dungeon.MATERIALS,
+    "consumable": lambda: dungeon.CONSUMABLES,
     "quest_item": None,
-    "horse_clothes": horse_clothes.HORSE_CLOTHES,
+    "horse_clothes": lambda: horse_clothes.HORSE_CLOTHES,
     "housing_item": None,
 }
 
@@ -86,8 +94,8 @@ def _load_npcs(path: str = _NPCS_PATH) -> dict[str, dict]:
                     raise ValueError(f"npcs.json: npc {npc_id!r} shop entry {i} has unknown kind {kind!r}")
                 if not isinstance(shop_entry["price"], int) or shop_entry["price"] <= 0:
                     raise ValueError(f"npcs.json: npc {npc_id!r} shop entry {i} price must be a positive integer")
-                registry = SHOP_KINDS[kind]
-                if registry is not None and shop_entry["item_id"] not in registry:
+                registry_getter = SHOP_KINDS[kind]
+                if registry_getter is not None and shop_entry["item_id"] not in registry_getter():
                     raise ValueError(
                         f"npcs.json: npc {npc_id!r} shop entry {i} item_id {shop_entry['item_id']!r} "
                         f"not in dungeon's {kind!r} registry"

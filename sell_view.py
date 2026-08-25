@@ -38,7 +38,7 @@ async def build_sell_display(guild_id: int, user_id: int, npc_id: str) -> tuple[
     if holdings:
         lines = []
         for kind, item_id, qty in holdings:
-            item = sell.SELLABLE_REGISTRIES[kind][item_id]
+            item = sell.SELLABLE_REGISTRIES[kind]()[item_id]
             price = sell.sell_price(item)
             qty_suffix = f" x{qty}" if qty > 1 else ""
             lines.append(f"{_KIND_EMOJI[kind]} **{item['name']}**{qty_suffix} — {price} {currency}")
@@ -69,7 +69,7 @@ class SellSelect(discord.ui.Select):
         self.holdings = holdings
         options = []
         for i, (kind, item_id, qty) in enumerate(holdings[:MAX_SELECT_OPTIONS]):
-            item = sell.SELLABLE_REGISTRIES[kind][item_id]
+            item = sell.SELLABLE_REGISTRIES[kind]()[item_id]
             price = sell.sell_price(item)
             rarity_emoji = dungeon.RARITY_EMOJI[item["rarity"]] if kind == "equipment" else None
             qty_suffix = f" x{qty}" if qty > 1 else ""

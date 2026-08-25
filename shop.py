@@ -16,13 +16,16 @@ import housing
 import npcs
 import quests
 
+# Values are zero-arg getters, not the registries themselves -- see npcs.SHOP_KINDS' own comment
+# for why a captured `dungeon.MATERIALS` etc would silently go stale the moment a content edit
+# landed through the admin panel with no restart.
 REGISTRIES = {
-    "equipment": dungeon.EQUIPMENT,
-    "material": dungeon.MATERIALS,
-    "consumable": dungeon.CONSUMABLES,
-    "quest_item": quests.QUEST_ITEMS,
-    "horse_clothes": horse_clothes.HORSE_CLOTHES,
-    "housing_item": housing.HOUSING_ITEMS,
+    "equipment": lambda: dungeon.EQUIPMENT,
+    "material": lambda: dungeon.MATERIALS,
+    "consumable": lambda: dungeon.CONSUMABLES,
+    "quest_item": lambda: quests.QUEST_ITEMS,
+    "horse_clothes": lambda: horse_clothes.HORSE_CLOTHES,
+    "housing_item": lambda: housing.HOUSING_ITEMS,
 }
 
 
@@ -39,7 +42,7 @@ async def buy(guild_id: int, user_id: int, npc_id: str, index: int) -> dict:
         }
 
     kind = entry["kind"]
-    item = REGISTRIES[kind][entry["item_id"]]
+    item = REGISTRIES[kind]()[entry["item_id"]]
     if kind == "equipment":
         await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, item["id"])
     else:
