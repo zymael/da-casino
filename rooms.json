@@ -20,6 +20,10 @@
       {
         "room_id": "gnomish_night_market",
         "label": "\ud83c\udf44Gnomish Night Market"
+      },
+      {
+        "room_id": "rv_park",
+        "label": "\ud83c\udfd5\ufe0f Trailer Park"
       }
     ],
     "commands": []
