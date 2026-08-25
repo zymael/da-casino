@@ -1050,17 +1050,8 @@ async def _award_kill(
             log_lines.append(f"⛏️ You scavenge some **{dropped['name']}**.")
             continue
 
-        slot = dropped["slot"]
-        if dropped["id"] == actor.equipped.get(slot):
-            # Storing it would put the same item_id in equipment_inventory while it's ALSO
-            # equipped, an invariant equip_item_smart otherwise always maintains (see
-            # inventory_view._stored_excluding_equipped, added after this produced a live crash: a
-            # duplicate Discord Select option value in EquipmentSlotSelect). Nothing to gain from a
-            # spare of an already-worn item, so it's just not kept.
-            log_lines.append(f"⚔️ Found another **{dropped['name']}** -- you're already wearing one.")
-        else:
-            await asyncio.to_thread(db.store_equipment_item, guild_id, actor.user_id, dropped["id"])
-            log_lines.append(f"⚔️ Found **{dropped['name']}** — stored in `!equipment`.")
+        await asyncio.to_thread(db.store_equipment_item, guild_id, actor.user_id, dropped["id"])
+        log_lines.append(f"⚔️ Found **{dropped['name']}** — stored in `!equipment`.")
 
     await quests.record_progress(guild_id, actor.user_id, "kill_monster", monster_id=monster["id"])
 
