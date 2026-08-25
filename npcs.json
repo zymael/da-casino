@@ -96,6 +96,11 @@
         "kind": "material",
         "item_id": "slope_detector",
         "price": 25
+      },
+      {
+        "kind": "material",
+        "item_id": "weather_rock",
+        "price": 25
       }
     ],
     "buys_items": true
