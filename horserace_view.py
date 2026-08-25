@@ -328,17 +328,21 @@ class HorseRaceView(discord.ui.View):
 
         owner_id = self.roster[winner]["owner_id"]
         if owner_id is not None and pot > 0:
-            cut = round(pot * horserace.OWNER_CUT_FRACTION)
-            if cut > 0:
-                await asyncio.to_thread(db.update_balance, self.guild_id, owner_id, cut)
-                await asyncio.to_thread(db.log_bet, self.guild_id, owner_id, "horserace_owner", 0, cut)
-                currency = db.get_currency_name(self.guild_id)
-                result_embed.add_field(
-                    name="🐴 Owner Bonus",
-                    value=f"<@{owner_id}> owns {winner_name} and earns **+{cut}** {currency} "
-                    f"({int(horserace.OWNER_CUT_FRACTION * 100)}% of the {pot}-{currency} pot on this horse).",
-                    inline=False,
-                )
+            # max(1, ...), not a bare round() -- a win pot under 11 rounds all the way down to 0
+            # (Python's round() even sends exactly 10 * 0.05 = 0.5 to 0, banker's rounding), so any
+            # owner whose horse won on a small pot got silently nothing. Any nonzero win-leg money
+            # on this horse now guarantees at least 1 credit, matching "whenever their horse wins"
+            # literally rather than only above a hidden threshold.
+            cut = max(1, round(pot * horserace.OWNER_CUT_FRACTION))
+            await asyncio.to_thread(db.update_balance, self.guild_id, owner_id, cut)
+            await asyncio.to_thread(db.log_bet, self.guild_id, owner_id, "horserace_owner", 0, cut)
+            currency = db.get_currency_name(self.guild_id)
+            result_embed.add_field(
+                name="🐴 Owner Bonus",
+                value=f"<@{owner_id}> owns {winner_name} and earns **+{cut}** {currency} "
+                f"({int(horserace.OWNER_CUT_FRACTION * 100)}% of the {pot}-{currency} pot on this horse).",
+                inline=False,
+            )
 
         buf = horserace_render.render_track(
             names, colors, coats, odds_labels, frames[-1], final_max=final_max, finish_order=order, clothes=clothes
