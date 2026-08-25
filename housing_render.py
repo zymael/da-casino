@@ -4,10 +4,12 @@ dungeon_render.py/npc_render.py are split from dungeon_view.py/room_view.py (thi
 plain PIL images, never discord.ui components; housing_view.py owns the embed/picker UI).
 
 One flat background image (BACKGROUND_PATH, SIZE x SIZE) is the whole scene -- items are just
-layered on top of it at their grid slot's fixed pixel position, nothing more. SIZE/CELL describe
-a 3x3 grid spanning the full image edge to edge (see assets/housing/grid_template.png, the
-labeled reference this and the real art were both built against). Swapping in new house art later
-is just repointing BACKGROUND_PATH at a same-size image -- nothing else here needs to change.
+layered on top of it at their grid slot's fixed pixel position, nothing more. FLOOR_START/CELL are
+assets/housing/grid_template.png's own floor-grid geometry (the labeled reference the real art is
+composed against) -- a 3x3 grid inset from the image's edges, not spanning it edge to edge, so a
+background built over the template lines up with where items actually get placed. Swapping in new
+house art later is just repointing BACKGROUND_PATH at a same-size image built the same way --
+nothing else here needs to change.
 """
 import io
 import os
@@ -17,7 +19,8 @@ from PIL import Image, ImageDraw, ImageFont
 BACKGROUND_PATH = "assets/housing/floors/house_dirt_floor.jpg"
 BACKGROUND_FALLBACK_COLOR = (120, 90, 60, 255)  # used only if BACKGROUND_PATH is ever missing
 SIZE = 640
-CELL = SIZE // 3  # 213 -- edge-to-edge 3x3 grid, no separate wall/outside border
+FLOOR_START = 95
+CELL = 150  # matches grid_template.png's own floor footprint (3 * 150 = 450, inset from the edges)
 ART_PADDING = 12  # an item's own art is scaled to fit within (CELL - 2*ART_PADDING), so cells don't crowd each other
 
 _FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
@@ -82,7 +85,7 @@ def render_house(placements: dict[int, str], housing_items: dict[str, dict]) -> 
         if item is None:
             continue
         row, col = divmod(slot, 3)
-        cell_x, cell_y = col * CELL, row * CELL
+        cell_x, cell_y = FLOOR_START + col * CELL, FLOOR_START + row * CELL
         art = _load_item_art(item, box)
         paste_x = cell_x + (CELL - art.width) // 2
         paste_y = cell_y + (CELL - art.height) // 2
