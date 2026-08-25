@@ -54,12 +54,12 @@
           "count": 1,
           "monster_id": "goblin_grunt"
         },
-        "on_complete_message": "Huh. Guess that'll work. Alright, let's talk business.",
+        "on_complete_message": "Alright, let's talk business.",
         "reward_item": "cozy_sleeping_bag",
         "reward_item_kind": "housing_item"
       },
       {
-        "prompt": "Alright, you've got a bag. First month's rent is 100 credits if you want to actually use this land.",
+        "prompt": "Is that... a sleeping bag?  I was joking you realize, you ne-\r\n\r\nNah, you know what fine. First month's rent is 100 flakes.  Pay it and you can live in squalor to your heart's content.",
         "trigger": {
           "type": "pay_currency",
           "amount": 100
