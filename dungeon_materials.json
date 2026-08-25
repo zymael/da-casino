@@ -117,5 +117,12 @@
     "rarity": "Rare",
     "base_value": 50,
     "flavor": "A rock that you were told is possessed by a magical spirit.  Her name is Coco."
+  },
+  {
+    "id": "weather_rock",
+    "name": "Weather Rocck",
+    "rarity": "Rare",
+    "base_value": 25,
+    "flavor": "A rock on a string that is magically able to tell the weather."
   }
 ]
