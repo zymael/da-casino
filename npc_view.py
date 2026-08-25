@@ -31,10 +31,16 @@ import shop_view
 
 
 class TalkToNpcButton(discord.ui.Button):
-    """Awards the NPC's greet_achievement if set (idempotent, safe every click -- a no-op after
-    the first), then shows whatever quests.talk_to_npc reports is currently relevant with them:
-    every active quest's current stage prompt (one per line, if more than one), else their static
-    greet_message if none are active."""
+    """Shows whatever quests.talk_to_npc reports is currently relevant with this NPC (every active
+    quest's current stage prompt, one per line, if more than one), else their static greet_message
+    if none are active -- checked *before* awarding the NPC's greet_achievement (if set) so a quest
+    whose start_trigger is that same achievement never starts on the same click that earns it: the
+    first-ever talk always shows greet_message (plus the achievement banked quietly in the
+    background), and the quest itself only starts the next time this player talks to them. Reads
+    better for a quest that's supposed to feel like something offered once you're already
+    acquainted, not blurted out as your very first hello -- and awarding stays idempotent/safe
+    every click regardless of this ordering, so nothing here changes for a greet_achievement with
+    no quest attached to it."""
 
     def __init__(self, npc_id: str, banner_path: str, rebuild, *, row: int, label: str | None = None):
         npc = npcs.NPCS[npc_id]
@@ -46,13 +52,13 @@ class TalkToNpcButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         guild_id, user_id = interaction.guild.id, interaction.user.id
         npc = npcs.NPCS[self.npc_id]
+        states = await quests.talk_to_npc(guild_id, user_id, self.npc_id)
+        text = "\n\n".join(state["prompt"] for state in states) if states else npc["greet_message"]
         if npc.get("greet_achievement"):
             await achievements.try_award_many(
                 interaction.channel.send, guild_id, user_id, interaction.user.display_name,
                 [npc["greet_achievement"]],
             )
-        states = await quests.talk_to_npc(guild_id, user_id, self.npc_id)
-        text = "\n\n".join(state["prompt"] for state in states) if states else npc["greet_message"]
         buf = await asyncio.to_thread(npc_render.render_npc_dialogue, self.banner_path, text, npc.get("sprite_path"))
         await self.rebuild(interaction, buf, f"{self.npc_id}_dialogue.png")
 
