@@ -634,16 +634,18 @@ async def turn_in(guild_id: int, user_id: int, quest_id: str) -> dict:
     its cost (if any) and advances the stage. Takes a quest_id rather than an npc_id -- an NPC can
     have more than one eligible quest active at once (see talk_to_npc), so "which quest this
     button turns in" has to be decided by whoever built that button, not re-resolved ambiguously
-    here. Returns {"success", "message", "reward", "reward_item", "equipped", "quest_complete"} --
-    success is False (everything else None/0/False) if there's nothing to turn in. reward_item is
-    the REWARD_REGISTRIES[reward_item_kind] dict if this stage grants one (None otherwise, kind
-    defaults to "equipment" for backward compatibility); equipped is only ever True for an
+    here. Returns {"success", "message", "reward", "reward_item", "reward_item_kind", "equipped",
+    "quest_complete"} -- success is False (everything else None/0/False) if there's nothing to
+    turn in. reward_item is the REWARD_REGISTRIES[reward_item_kind] dict if this stage grants one
+    (None otherwise, kind defaults to "equipment" for backward compatibility) -- reward_item_kind
+    is always reported alongside it so a caller can tell what it's showing rather than assuming
+    equipment (see npc_view.TurnInButton, which used to). equipped is only ever True for an
     "equipment" kind reward -- says whether it actually got equipped (same is_upgrade rule as
     ordinary loot), or if not, it's stored in equipment_inventory instead, swappable later via
     !equipment rather than lost. Every other kind is simply added to inventory."""
     failure = {
-        "success": False, "message": None, "reward": 0, "reward_item": None, "equipped": False,
-        "quest_complete": False,
+        "success": False, "message": None, "reward": 0, "reward_item": None,
+        "reward_item_kind": None, "equipped": False, "quest_complete": False,
     }
     quest = QUESTS_BY_ID[quest_id]
     stage_index = await _get_stage(guild_id, user_id, quest_id)
@@ -678,7 +680,7 @@ async def turn_in(guild_id: int, user_id: int, quest_id: str) -> dict:
     if reward:
         await asyncio.to_thread(db.update_balance, guild_id, user_id, reward)
 
-    reward_item, equipped = None, False
+    reward_item, reward_item_kind, equipped = None, None, False
     reward_item_id = stage.get("reward_item")
     if reward_item_id:
         reward_item_kind = stage.get("reward_item_kind", "equipment")
@@ -696,6 +698,6 @@ async def turn_in(guild_id: int, user_id: int, quest_id: str) -> dict:
 
     return {
         "success": True, "message": stage.get("on_complete_message"), "reward": reward,
-        "reward_item": reward_item, "equipped": equipped,
+        "reward_item": reward_item, "reward_item_kind": reward_item_kind, "equipped": equipped,
         "quest_complete": stage_index + 1 >= len(quest["stages"]),
     }
