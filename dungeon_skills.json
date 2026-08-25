@@ -1196,5 +1196,30 @@
     ],
     "chip_cost": 12,
     "special": true
+  },
+  {
+    "id": "marked_card_base",
+    "main_class": "rogue",
+    "subclass": "clubs",
+    "unlock_level": 1,
+    "name": "Marked Card",
+    "flavor": "Let's use my deck! It's the fanciest one, you know?",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 0.7,
+        "target": "enemy"
+      },
+      {
+        "type": "dodge_buff",
+        "duration": 3,
+        "value": 0.5,
+        "aoe": true,
+        "target": "ally",
+        "chance": 0.5
+      }
+    ],
+    "chip_cost": 7,
+    "special": false
   }
 ]
