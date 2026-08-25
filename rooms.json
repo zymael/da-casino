@@ -226,5 +226,13 @@
         "label": "\u2694\ufe0f Duel"
       }
     ]
+  },
+  {
+    "id": "rv_park",
+    "name": "\ud83c\udfd5\ufe0f Leto's Discount Trailer Park and Leper Colony",
+    "description": "Not the nicest neighborhood in town, but it has culture, and more importantly, it's cheap!",
+    "background_path": "assets/rooms/rv_park.jpg",
+    "exits": [],
+    "commands": []
   }
 ]
