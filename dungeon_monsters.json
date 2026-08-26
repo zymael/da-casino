@@ -92,12 +92,12 @@
   {
     "id": "goblin_scavenger",
     "name": "Goblin Scavenger",
-    "hp": 27,
-    "atk": 5,
-    "def": 2,
-    "spatk": 5,
-    "spdef": 2,
-    "spd": 4,
+    "hp": 24,
+    "atk": 6,
+    "def": 5,
+    "spatk": 4,
+    "spdef": 5,
+    "spd": 7,
     "intended_level": 1,
     "shape": "triangle",
     "color": "#6b8e3a",
@@ -201,6 +201,7 @@
         "chance": 0.04
       }
     ],
+    "skills": [],
     "sprite_path": "assets/dungeon/monsters/goblin_scavenger.png"
   },
   {
