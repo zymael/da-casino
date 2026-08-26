@@ -15,7 +15,10 @@ lists).
 Every successful smash always grants exactly one random material flagged "garbage": true in
 dungeon_materials.json -- freeform junk for now (a bent fork, some scrap metal, whatever), with no
 recipe yet actually consuming it. What these turn into is a later problem for dungeon_recipes.json,
-not this module's."""
+not this module's. Garbage materials are themselves excluded from being smashed (smashing garbage
+into more garbage is a pointless loop) -- unlike quest items, they're still ordinary sellable
+material as far as sell.py is concerned, so this exclusion lives here in smashable_holdings, not in
+sell.SELLABLE_REGISTRIES."""
 
 import asyncio
 import random
@@ -25,7 +28,18 @@ import dungeon
 import sell
 
 SMASHABLE_REGISTRIES = sell.SELLABLE_REGISTRIES
-smashable_holdings = sell.sellable_holdings
+
+
+def smashable_holdings(
+    held: dict[str, int], stored_equipment: dict[str, int], horse_clothes_in_use: dict[str, int] | None = None,
+) -> list[tuple[str, str, int]]:
+    """Same as sell.sellable_holdings, minus anything flagged "garbage": true -- see module
+    docstring for why that exclusion belongs here rather than in sell.py."""
+    holdings = sell.sellable_holdings(held, stored_equipment, horse_clothes_in_use)
+    return [
+        (kind, item_id, qty) for kind, item_id, qty in holdings
+        if not SMASHABLE_REGISTRIES[kind]()[item_id].get("garbage")
+    ]
 
 
 def _random_garbage_material() -> dict | None:
@@ -38,13 +52,16 @@ def _random_garbage_material() -> dict | None:
 async def smash(guild_id: int, user_id: int, kind: str, item_id: str) -> dict:
     """Attempts to destroy one copy of item_id (of the given kind) for this player. Returns
     {"success", "item", "kind", "protected", "byproduct"}. "protected" is True (and "success"
-    False, nothing touched) when the item's content declined via "unsmashable_message" -- checked
-    before any inventory access. Otherwise "success" is False the same way sell.sell's is: a stale
-    picker from before the last copy was already used/sold/smashed. "byproduct" is the garbage
-    material dict granted on a successful smash (None if no garbage material exists yet, or the
-    smash wasn't successful)."""
+    False, nothing touched) when the item declined via "unsmashable_message" OR is itself
+    "garbage": true -- checked before any inventory access. A garbage item reaching here at all
+    would mean a stale picker (smashable_holdings already excludes them), not normal use; there's
+    no dedicated flavor text for it the way unsmashable_message provides, so smash_view falls back
+    to a generic line. Otherwise "success" is False the same way sell.sell's is: a stale picker
+    from before the last copy was already used/sold/smashed. "byproduct" is the garbage material
+    dict granted on a successful smash (None if no garbage material exists yet, or the smash
+    wasn't successful)."""
     item = SMASHABLE_REGISTRIES[kind]()[item_id]
-    if item.get("unsmashable_message"):
+    if item.get("unsmashable_message") or item.get("garbage"):
         return {"success": False, "item": item, "kind": kind, "protected": True, "byproduct": None}
 
     if kind == "equipment":
