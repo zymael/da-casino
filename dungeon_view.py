@@ -357,9 +357,8 @@ class PartyDelveSession:
                 instance.hp = instance.max_hp
                 self.monsters.append(instance)
             for m in self.members:
-                m.chips = m.max_chips
                 m.used_item_effects = set()
-                m.turn_clock = 0.0  # fresh fight -- same reset point as chips/used_item_effects
+                m.turn_clock = 0.0  # fresh fight -- chips are delve-scoped, not reset here (see __init__)
         else:
             self.monsters = []
 
@@ -561,9 +560,8 @@ async def _goto_room(interaction: discord.Interaction, session: DelveSession, ro
     if room["type"] == "combat":
         session.monsters = _roll_monster_instances(room)
         session.current_target_slot = 0
-        session.chips = session.max_chips
         session.used_item_effects = set()
-        session.turn_clock = 0.0  # fresh fight -- same reset point as chips/used_item_effects
+        session.turn_clock = 0.0  # fresh fight -- chips are delve-scoped, not reset here (see __init__)
     else:
         session.monsters = []
     await _build_room_display(interaction, session, intro_text)

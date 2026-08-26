@@ -2,7 +2,7 @@
 between game logic here and Discord UI in dungeon_view.py.
 
 Characters are a permanent one-time choice: a main class (face rank) x a subclass (suit) = 16
-builds. Combat is deliberately lightweight -- HP/ATK/DEF/SpAtk/SpDef/Speed plus a per-fight Chips
+builds. Combat is deliberately lightweight -- HP/ATK/DEF/SpAtk/SpDef/Speed plus a per-delve Chips
 pool (the casino's on-theme name for what a JRPG would call mana), no persistent status effects.
 SpAtk/SpDef are a second, parallel combat-stat pair (Pokemon-style Physical/Special split) -- a
 skill flagged "special" (dungeon_skills.json's optional `special` field, defaulting to
@@ -11,9 +11,10 @@ always Physical. Speed drives turn order (see preview_next_turns below) -- a Fin
 Conditional Turn-Based queue, not a real-time gauge: turn order is a deterministic, precomputable
 "next N turns" list derived purely from each combatant's own speed, resolved turn-by-turn between
 discrete player actions, never live-filling. Skills cost Chips (dungeon_skills.json's chip_cost)
-rather than being limited to one use per fight -- Chips refill to max at the start of every fight
-and are never spent outside combat, so the pool is tracked only on the in-memory fight session
-(DelveSession/PartyMember), never persisted to the DB. Skills unlock automatically as the character
+rather than being limited to one use per fight -- Chips refill to max once at the start of a delve
+and are never spent outside combat, so the same pool is spent down across every fight in that delve
+(a multi-fight delve rewards pacing Chips, not just burning them turn one) -- tracked only on the
+in-memory delve session (DelveSession/PartyMember), never persisted to the DB. Skills unlock automatically as the character
 levels. Each of the 16 builds has its own skill line (dungeon_skills.json, see SKILLS below) rather
 than sharing one ability per class. Monster content lives in dungeon_monsters.json (not here)
 specifically so new monsters can be added without touching this file -- see MONSTERS below.

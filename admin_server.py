@@ -38,6 +38,7 @@ import moon
 import quests
 import room_commands
 import rooms
+import skill_balance
 from admin_schemas import (
     CATEGORIES, CONTENT_TYPES, EFFECT_PARAM_NAMES, EFFECT_PARAMS_BY_TYPE, EFFECT_TYPE_HINTS,
     EFFECT_TYPES, EQUIPMENT_EFFECT_TRIGGERS, SHOP_KINDS, TRIGGER_PARAM_HINTS, TRIGGER_PARAM_KINDS,
@@ -158,6 +159,14 @@ button:hover { background: #45454f; }
 .asset-thumb { max-width: 60px; max-height: 40px; border-radius: 4px; display: block; }
 .asset-table form { flex-direction: row; max-width: none; }
 .info-icon { cursor: help; color: #6a6a74; margin-left: 4px; font-size: 0.8rem; }
+
+/* Skill Balance page (admin_server.py's skill_balance_view) */
+.table-scroll { overflow-x: auto; }
+.outlier-flag { display: inline-block; background: #4a3a1f; border: 1px solid #d09030; color: #f0c080; padding: 1px 6px; border-radius: 4px; font-size: 0.75rem; margin-left: 6px; white-space: nowrap; }
+.bar-track { background: #26262e; border-radius: 3px; height: 10px; width: 120px; overflow: hidden; }
+.bar-fill { background: #e8813a; height: 100%; }
+.effect-tag { display: inline-block; background: #2c2c34; color: #9a9aa4; border-radius: 4px; padding: 1px 6px; font-size: 0.72rem; margin: 1px 2px 1px 0; }
+.delve-picker { flex-direction: row; align-items: center; gap: 8px; max-width: none; margin-bottom: 16px; }
 
 /* Delve flowchart editor (see admin_server.py's _render_delve_flowchart / _dynamic_script) */
 form.delve-form { max-width: none; }
@@ -1555,9 +1564,13 @@ def _sidebar_html(active_content_type: str | None) -> str:
         f'<a class="nav-item{" active" if active_content_type == "player-debug" else ""}" '
         f'href="/player-debug">🐛 Player Debug</a>'
     )
+    skill_balance_link = (
+        f'<a class="nav-item{" active" if active_content_type == "skill-balance" else ""}" '
+        f'href="/skill-balance">📊 Skill Balance</a>'
+    )
     return (
         f'<nav class="sidebar"><a class="brand" href="/">🛠️ Content Editor</a>'
-        f'{assets_link}{utilities_link}{player_debug_link}{"".join(sections)}</nav>'
+        f'{assets_link}{utilities_link}{player_debug_link}{skill_balance_link}{"".join(sections)}</nav>'
     )
 
 
@@ -4310,6 +4323,121 @@ async def player_debug_view(request: web.Request) -> web.Response:
     )
 
 
+def _bar_html(value: float, max_value: float) -> str:
+    pct = 0 if max_value <= 0 else min(100, round(value / max_value * 100))
+    return f'<div class="bar-track"><div class="bar-fill" style="width:{pct}%"></div></div>'
+
+
+def _outlier_badge(direction: str | None) -> str:
+    return f'<span class="outlier-flag">⚠ {html.escape(direction)}</span>' if direction else ""
+
+
+def _skill_balance_table_html(rows: list[dict]) -> str:
+    max_dmg_per_chip = max((r["dmg_per_chip"] for r in rows if r["dmg_per_chip"] is not None), default=0)
+    body_rows = []
+    for r in sorted(rows, key=lambda r: (r["build_label"], r["unlock_level"], r["name"])):
+        effects_html = "".join(f'<span class="effect-tag">{html.escape(t)}</span>' for t in r["effect_types"])
+        if r["dmg_per_chip"] is not None:
+            dmg_cell = (
+                f'{r["avg_damage"]:.1f} dmg &middot; {r["dmg_per_chip"]:.2f}/chip '
+                f'{_bar_html(r["dmg_per_chip"], max_dmg_per_chip)}'
+                f'{_outlier_badge(r["dmg_outlier"])}'
+            )
+        elif r["heal_per_chip"] is not None:
+            dmg_cell = (
+                f'{r["avg_healed"]:.1f} HP &middot; {r["heal_per_chip"]:.2f}/chip'
+                f'{_outlier_badge(r["heal_outlier"])}'
+            )
+        else:
+            dmg_cell = "&mdash;"
+        body_rows.append(
+            f'<tr><td>{html.escape(r["build_label"])}</td><td>{html.escape(r["name"])}</td>'
+            f'<td>{html.escape(r["type"])}</td><td>{r["chip_cost"]}</td><td>{r["unlock_level"]}</td>'
+            f'<td>{effects_html}</td><td>{dmg_cell}</td></tr>'
+        )
+    return (
+        '<div class="table-scroll"><table><thead><tr>'
+        "<th>Build</th><th>Skill</th><th>Type</th><th>Chips</th><th>Lv</th><th>Effects</th>"
+        "<th>Damage / Heal</th></tr></thead><tbody>" + "".join(body_rows) + "</tbody></table></div>"
+    )
+
+
+def _delve_balance_table_html(rows: list[dict]) -> str:
+    max_overall = max((r["overall_dpt"] for r in rows), default=0)
+    body_rows = []
+    for r in sorted(rows, key=lambda r: -r["overall_dpt"]):
+        per_fight = " &nbsp; ".join(f"{v:.1f}" for v in r["per_fight_dpt"])
+        body_rows.append(
+            f'<tr><td>{html.escape(r["build_label"])}</td><td>{html.escape(per_fight)}</td>'
+            f'<td>{r["overall_dpt"]:.1f} {_bar_html(r["overall_dpt"], max_overall)}'
+            f'{_outlier_badge(r["outlier"])}</td></tr>'
+        )
+    return (
+        '<div class="table-scroll"><table><thead><tr>'
+        "<th>Build</th><th>Damage/turn per fight (in delve order)</th><th>Overall avg</th>"
+        "</tr></thead><tbody>" + "".join(body_rows) + "</tbody></table></div>"
+    )
+
+
+async def skill_balance_view(request: web.Request) -> web.Response:
+    """Read-only balance report for every class+subclass build and skill -- no content edits, no
+    POST, recomputed fresh on every load the same way horserace.current_probabilities is (a Monte-
+    Carlo simulation cheap enough to run per-request, no DB writes). Reads dungeon.SKILLS/CLASSES/
+    SUBCLASSES/DELVES live inside this function body (not captured at import time), so it always
+    reflects whatever a content save through this same admin panel most recently hot-reloaded. See
+    skill_balance.py for the actual simulation logic and its documented scope boundaries (output
+    only -- no incoming damage/survivability/equipment modeling)."""
+    delve_ids = list(dungeon.DELVES.keys())
+    requested_delve = request.query.get("delve")
+    delve_id = requested_delve if requested_delve in dungeon.DELVES else skill_balance.default_delve_id()
+
+    skill_rows = skill_balance.per_skill_table()
+    skill_table = _skill_balance_table_html(skill_rows)
+
+    if delve_id:
+        delve_rows = skill_balance.per_build_delve_table(delve_id)
+        delve_table = _delve_balance_table_html(delve_rows)
+        delve_name = html.escape(dungeon.DELVES[delve_id].get("name", delve_id))
+    else:
+        delve_table = "<p>No delves defined.</p>"
+        delve_name = "(none)"
+
+    delve_options = "".join(
+        f'<option value="{html.escape(did)}"{" selected" if did == delve_id else ""}>'
+        f'{html.escape(dungeon.DELVES[did].get("name", did))}'
+        f'{"" if dungeon.DELVES[did].get("active", True) else " (inactive)"}</option>'
+        for did in delve_ids
+    )
+
+    body = f"""
+    <h1>📊 Skill Balance</h1>
+    <p>Simulated, not measured from real play -- every build's raw class+subclass stats (no
+    equipment/housing), simulated at a level high enough to unlock its full current skill kit.
+    Models a build's own output (damage dealt, Chip economy) only, not incoming damage or
+    survivability. <span class="outlier-flag">⚠</span> flags a skill or build whose value sits
+    more than {skill_balance.OUTLIER_THRESHOLD:.0%} from its cohort's median -- worth a look, not
+    necessarily a bug.</p>
+
+    <h2>Per-skill damage (isolated, vs. the game's real median monster DEF/SpDef)</h2>
+    {skill_table}
+
+    <h2>Per-build rotation through a whole delve ({delve_name})</h2>
+    <p>Chips are spent across the delve's real fight sequence in order, never refilled mid-delve --
+    watch how each build's damage/turn holds up (or falls off) fight to fight. A branching delve's
+    choice rooms follow their first listed outcome only -- one representative path, not full
+    coverage.</p>
+    <form method="get" class="delve-picker">
+        <label style="flex-direction:row;align-items:center;gap:8px;">Delve
+            <select name="delve" onchange="this.form.submit()">{delve_options}</select>
+        </label>
+    </form>
+    {delve_table}
+    """
+    return _html_response(
+        _page("Skill Balance", body, active="skill-balance", breadcrumbs=[("Home", "/"), ("Skill Balance", None)])
+    )
+
+
 def build_app(bot=None) -> web.Application:
     if not ADMIN_PANEL_PASSWORD:
         raise RuntimeError("Set ADMIN_PANEL_PASSWORD in .env before starting the content editor.")
@@ -4341,6 +4469,7 @@ def build_app(bot=None) -> web.Application:
     app.router.add_post("/utilities/delete-backup", delete_backup_view)
     app.router.add_get("/player-debug", player_debug_view)
     app.router.add_post("/player-debug", player_debug_view)
+    app.router.add_get("/skill-balance", skill_balance_view)
     # Same reasoning as /assets above -- lets a saved snapshot be pulled straight from
     # /backups/<filename> (e.g. by a scheduled scp/rsync), not just downloaded through the page.
     # add_static requires the directory to exist up front, unlike ASSETS_DIR (already present in
