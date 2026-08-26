@@ -87,8 +87,8 @@
   {
     "id": "ranch",
     "name": "\ud83d\udc34 Ranch",
-    "background_path": "assets/ranch_banner.png",
     "specialization": "ranch",
+    "background_path": "assets/rooms/ranch.jpg",
     "exits": [
       {
         "room_id": "town_square",
