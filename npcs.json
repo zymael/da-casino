@@ -125,5 +125,18 @@
       }
     ],
     "buys_items": true
+  },
+  {
+    "id": "kel_copy",
+    "name": "Kel",
+    "room": "ranch",
+    "greet_message": "Yes, I am Kel. Your assistant and a proud breeder of horses. You may look to me whenever you need help tending to the ranch, or whenever you need a horse bred.",
+    "greet_achievement": "love_in_bloom",
+    "visible_trigger": {
+      "type": "not_moon_phase",
+      "phase": "full_moon"
+    },
+    "sprite_path": "assets/npcs/kel_copy.png",
+    "buys_items": false
   }
 ]
