@@ -238,11 +238,6 @@
         "key": "duel",
         "kind": "none",
         "label": "\u2694\ufe0f Duel"
-      },
-      {
-        "key": "mancala",
-        "kind": "none",
-        "label": "\ud83d\udfe4 Mancala"
       }
     ]
   },
