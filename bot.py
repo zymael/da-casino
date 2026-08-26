@@ -48,6 +48,12 @@ from connect4_view import (
     build_connect4_target_picker,
     start_connect4,
 )
+from icebreak_view import (
+    IceBreakChallengeView,
+    build_icebreak_challenge_embed,
+    build_icebreak_target_picker,
+    start_icebreak,
+)
 from mancala_view import (
     MancalaChallengeView,
     build_mancala_challenge_embed,
@@ -1080,6 +1086,52 @@ async def connect4_cmd(ctx, member: discord.Member = None, wager: int = 0):
     await _connect4_challenge(ctx, member, wager)
 
 
+async def _icebreak_challenge(ctx, member: discord.Member, wager: int) -> None:
+    """The actual challenge-creation logic for a resolved (member, wager) pair -- shared by
+    icebreak_cmd's typed invocation and the icebreak picker's Select->Modal flow (icebreak_view.
+    build_icebreak_target_picker), same shape as _mancala_challenge/_connect4_challenge above."""
+    if member.id == ctx.author.id:
+        await ctx.send("You can't play Don't Break the Ice against yourself.")
+        return
+    if member.bot:
+        await ctx.send("You can't play Don't Break the Ice against a bot.")
+        return
+    if wager < 0:
+        await ctx.send("Wager can't be negative.")
+        return
+    if ctx.author.id in active_delves or ctx.author.id in holdem_busy_players:
+        await ctx.send("Finish up whatever you're already doing first.")
+        return
+    if member.id in active_delves or member.id in holdem_busy_players:
+        await ctx.send(f"{member.display_name} is already tied up in something else right now.")
+        return
+
+    currency = db.get_currency_name(ctx.guild.id)
+    if wager:
+        balance = await asyncio.to_thread(db.get_balance, ctx.guild.id, ctx.author.id)
+        if balance < wager:
+            await ctx.send(f"You only have **{balance}** {currency} — you can't wager **{wager}**.")
+            return
+
+    challenge = await start_icebreak(ctx.guild.id, ctx.author.id, ctx.author.display_name, member.id, member.display_name, wager)
+    view = IceBreakChallengeView(challenge)
+    challenge.message = await ctx.send(content=member.mention, embed=build_icebreak_challenge_embed(challenge), view=view)
+
+
+@bot.command(name="icebreak")
+async def icebreak_cmd(ctx, member: discord.Member = None, wager: int = 0):
+    """Challenge another player to Don't Break the Ice: !icebreak @user [wager], or plain
+    !icebreak to pick a target from a dropdown instead (same fallback shape as !duel/!mancala/
+    !connect4). They have to Accept before it starts."""
+    if await _reject_if_at_poker_table(ctx):
+        return
+    if member is None:
+        view = build_icebreak_target_picker(_icebreak_challenge)
+        await ctx.send("Pick who you want to play Don't Break the Ice with:", view=view)
+        return
+    await _icebreak_challenge(ctx, member, wager)
+
+
 @bot.command(name="inventory")
 async def inventory_cmd(ctx):
     """See your quest items and dungeon gear (equipped + stored): !inventory"""
@@ -1683,6 +1735,7 @@ room_commands.COMMANDS.update({
     "duel": duel_cmd.callback,
     "mancala": mancala_cmd.callback,
     "connect4": connect4_cmd.callback,
+    "icebreak": icebreak_cmd.callback,
     "craft": craft_cmd.callback,
     "train": train_cmd.callback,
     "boost": boost_cmd.callback,

@@ -188,6 +188,14 @@ ACHIEVEMENTS = [
         "description": "Win a game of Connect 4 against another player.",
         "reward": 25,
     },
+    {
+        "kind": "win_icebreak",
+        "scope": "personal",
+        "emoji": "🧊",
+        "name": "Ice Cold",
+        "description": "Win a game of Don't Break the Ice against another player.",
+        "reward": 25,
+    },
 ]
 
 # Maps each game bucket to its emoji/title and the db.log_bet() `game` string(s) that feed it
@@ -205,6 +213,7 @@ GAMES = {
     "duel": {"emoji": "⚔️", "title": "Duels", "log_keys": ["duel"], "first_win_kind": "win_duel"},
     "mancala": {"emoji": "🟤", "title": "Mancala", "log_keys": ["mancala"], "first_win_kind": "win_mancala"},
     "connect4": {"emoji": "🔴", "title": "Connect 4", "log_keys": ["connect4"], "first_win_kind": "win_connect4"},
+    "icebreak": {"emoji": "🧊", "title": "Don't Break the Ice", "log_keys": ["icebreak"], "first_win_kind": "win_icebreak"},
 }
 
 # Win/loss count tiers -- reaching a tier claims that tier's kind ({bucket}_wins_{tier} /
