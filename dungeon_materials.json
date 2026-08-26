@@ -15,6 +15,54 @@
     "unsmashable_message": "I COULD NEVER DESTROY SUCH A BEAUTIFUL ITEM"
   },
   {
+    "id": "scrap_metal",
+    "name": "Scrap Metal",
+    "rarity": "common",
+    "base_value": 5,
+    "flavor": "Not sure what it used to be. Still isn't.",
+    "garbage": true
+  },
+  {
+    "id": "busted_gear",
+    "name": "Busted Gear",
+    "rarity": "common",
+    "base_value": 5,
+    "flavor": "Grinds against nothing in particular.",
+    "garbage": true
+  },
+  {
+    "id": "soggy_cardboard",
+    "name": "Soggy Cardboard",
+    "rarity": "common",
+    "base_value": 5,
+    "flavor": "Structurally more of a rumor at this point.",
+    "garbage": true
+  },
+  {
+    "id": "tangled_wire",
+    "name": "Tangled Wire",
+    "rarity": "common",
+    "base_value": 5,
+    "flavor": "A knot with delusions of being useful someday.",
+    "garbage": true
+  },
+  {
+    "id": "cracked_tile",
+    "name": "Cracked Tile",
+    "rarity": "common",
+    "base_value": 5,
+    "flavor": "One corner made it. The rest did not.",
+    "garbage": true
+  },
+  {
+    "id": "meatball_shrapnel",
+    "name": "Meatball Shrapnel",
+    "rarity": "common",
+    "base_value": 5,
+    "flavor": "Still faintly warm. Do not investigate further.",
+    "garbage": true
+  },
+  {
     "id": "comb",
     "name": "Comb",
     "rarity": "common",

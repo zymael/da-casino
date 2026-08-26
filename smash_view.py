@@ -46,7 +46,7 @@ async def build_smash_display(guild_id: int, user_id: int) -> tuple[discord.Embe
         embed.description = "\n".join(lines)
     else:
         embed.description = "You don't have anything to smash right now."
-    embed.set_footer(text="Destroyed items are gone for good -- no refund.")
+    embed.set_footer(text="Destroyed items are gone for good -- but the wreckage is worth something.")
 
     view = SmashView(guild_id, user_id, holdings)
     return embed, view
@@ -87,8 +87,11 @@ class SmashSelect(discord.ui.Select):
             result_text = item["unsmashable_message"]
         elif not result["success"]:
             result_text = "You don't have that anymore."
+        elif result["byproduct"]:
+            junk = result["byproduct"]
+            result_text = f"💥 Destroyed **{item['name']}**... and salvaged **{junk['name']}** from the wreckage!"
         else:
-            result_text = f"💥 Destroyed **{item['name']}**."
+            result_text = f"💥 Destroyed **{item['name']}**. Nothing worth keeping survived."
 
         embed, view = await build_smash_display(self.guild_id, self.user_id)
         embed.add_field(name="Result", value=result_text, inline=False)

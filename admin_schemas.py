@@ -357,6 +357,11 @@ CONTENT_TYPES = {
                 "hint": "sell.py's basis for this item's sell price (half of this, rounded down) at any "
                         "NPC with \"buys_items\" checked",
             },
+            {
+                "name": "garbage", "type": "bool", "required": False, "default": False, "group": "Drop Info",
+                "hint": "if checked, smash.py can grant a random copy of this material as the byproduct "
+                        "of destroying something with !smash",
+            },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
             {
                 "name": "unsmashable_message", "type": "text", "required": False, "group": "Flavor Text",
