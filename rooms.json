@@ -142,9 +142,9 @@
   },
   {
     "id": "dungeon",
-    "name": "\ud83d\udde1\ufe0f The Dungeon",
-    "description": "Pick a class, then delve for loot and XP. The `!class`/`!delve` commands still work too.",
-    "background_path": "assets/dungeon_banner.png",
+    "name": "\ud83d\udde1\ufe0f Mondor's Tower",
+    "description": "The implausibly tall and challenging Tower of Mondor stands before you.  For some reason Mondor himself is just sort of wandering around outside.",
+    "background_path": "assets/rooms/dungeon.jpg",
     "exits": [
       {
         "room_id": "town_square",
