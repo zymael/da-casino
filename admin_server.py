@@ -495,6 +495,49 @@ function wireEquipmentTriggerSelects(root) {
     });
 }
 
+// A skill/consumable/monster-skill authors EXACTLY ONE of "effects" or "effect_groups" (see
+// dungeon._validate_effects_or_groups) -- this switches which fieldset is even visible, replacing
+// the old "both boxes shown at once, fill in only one" warning-only UI. Only clears the
+// now-hidden side's rows when a person actually flips the switch (`alsoClear`), never on the
+// initial wire-time call -- an existing entry loaded with real data in one box must not lose it
+// just because the page rendered.
+function updateEffectsMode(select, alsoClear) {
+    var wrap = select.closest('[data-effects-mode-wrap]');
+    if (!wrap) return;
+    var mode = select.value;
+    var effectsBox = wrap.querySelector('[data-effects-box]');
+    var groupsBox = wrap.querySelector('[data-groups-box]');
+    if (effectsBox) {
+        effectsBox.style.display = mode === 'effects' ? '' : 'none';
+        if (alsoClear && mode !== 'effects') clearRepeatablesIn(effectsBox);
+    }
+    if (groupsBox) {
+        groupsBox.style.display = mode === 'groups' ? '' : 'none';
+        if (alsoClear && mode !== 'groups') clearRepeatablesIn(groupsBox);
+    }
+    updateSkillOdds();
+    updateGroupOdds();
+}
+
+// Empties every repeatable's row container within `box` (back to zero rows) -- used when a mode
+// toggle hides a side, so its now-invisible rows don't still ride along in the submitted form and
+// trip the server's exactly-one-of XOR check.
+function clearRepeatablesIn(box) {
+    box.querySelectorAll('[data-repeat-add]').forEach(function (btn) {
+        var container = document.getElementById(btn.dataset.repeatAdd);
+        if (container) container.innerHTML = '';
+    });
+}
+
+function wireEffectsModeToggles(root) {
+    root.querySelectorAll('select.effects-mode-select').forEach(function (select) {
+        if (select.dataset.modeWired) return;
+        select.dataset.modeWired = '1';
+        updateEffectsMode(select, false);
+        select.addEventListener('change', function () { updateEffectsMode(select, true); });
+    });
+}
+
 // A cascaded_id select's options depend on a sibling kind/output_kind select's value -- see
 // admin_schemas.py's "cascaded_id" field type docs. The sibling carries data-cascade="<name>"
 // (a key into CASCADE_OPTIONS); the target select carries data-cascade-target="<name>" and is
@@ -613,18 +656,41 @@ function updateGroupOdds() {
     });
 }
 
+// Substitutes ONE nesting level's ROWIDX placeholder with `index` across name/id/data-repeat-add
+// attributes under `root` -- ONLY the first ROWIDX occurrence in each attribute (no /g flag),
+// since a doubly-nested repeatable's deeper placeholder (e.g. a skill's own
+// "effectgroup_ROWIDX_effects_ROWIDX_type") has TWO ROWIDX tokens stacked in one string, one per
+// level, and only the OUTERMOST (leftmost, since prefixes nest left-to-right) one belongs to
+// *this* level -- the rest must stay untouched for whichever future "+ Add" click resolves that
+// deeper level. Also recurses into any nested <template>'s .content, which a plain
+// querySelectorAll on `root` would never reach (template content lives in a separate inert
+// document) -- without this recursion a freshly-added outer row's own nested template keeps BOTH
+// its ROWIDX placeholders live, so the *next* level's "+ Add" click (global-replacing every
+// ROWIDX it can see) stomps the still-unresolved outer one with its own index too, silently
+// renaming the row into a slot some other outer row already owns (the bug this fixes: two
+// effect_groups' first effect each landing on "effectgroup_0_effects_0_..." instead of
+// "effectgroup_0_..." / "effectgroup_1_...", so only one group's effects ever reached the server).
+function substituteRowIdx(root, index) {
+    root.querySelectorAll('[name]').forEach(function (el) {
+        el.name = el.name.replace(/ROWIDX/, String(index));
+    });
+    root.querySelectorAll('[id]').forEach(function (el) {
+        el.id = el.id.replace(/ROWIDX/, String(index));
+    });
+    root.querySelectorAll('[data-repeat-add]').forEach(function (el) {
+        el.dataset.repeatAdd = el.dataset.repeatAdd.replace(/ROWIDX/, String(index));
+    });
+    root.querySelectorAll('template').forEach(function (tpl) {
+        substituteRowIdx(tpl.content, index);
+    });
+}
+
 // Wires every [data-repeat-add] button under `root` that isn't already wired -- called once at
 // page load (root=document) and again on every freshly-cloned row (root=that row), since a clone
 // can itself introduce a new "+ Add" button one level down (a delve room's own "+ Add monster"/
-// "+ Add action" buttons, nested inside the "+ Add Room" template -- the only nested repeatables
-// in this schema, see admin_server._render_room_detail_panel) that only exist from this point on
-// and need their own click handler wired. ROWIDX substitution covers name/id/data-repeat-add --
-// id/data-repeat-add matter once a repeatable can nest, so a newly-added room's own "+ Add
-// monster" button ends up pointing at that room's own freshly-renamed container/template, not a
-// colliding shared one. A nested <template>'s own content is inert to querySelectorAll run from
-// an ancestor's clone (a standard DOM quirk -- template content lives in a separate document, not
-// the light tree), so its own ROWIDX placeholders are left untouched until that inner template is
-// itself cloned later -- the same "ROWIDX" token works at any nesting depth without collision.
+// "+ Add action" buttons, nested inside the "+ Add Room" template, or a skill/consumable's own
+// "+ Add group"'s nested "+ Add effect") that only exist from this point on and need their own
+// click handler wired. See substituteRowIdx above for how ROWIDX resolves one level at a time.
 function wireRepeatAdd(root) {
     root.querySelectorAll('[data-repeat-add]').forEach(function (button) {
         if (button.dataset.repeatWired) return;
@@ -634,15 +700,7 @@ function wireRepeatAdd(root) {
         var nextIndex = container.children.length;
         button.addEventListener('click', function () {
             var clone = template.content.cloneNode(true);
-            clone.querySelectorAll('[name]').forEach(function (el) {
-                el.name = el.name.replace(/ROWIDX/g, String(nextIndex));
-            });
-            clone.querySelectorAll('[id]').forEach(function (el) {
-                el.id = el.id.replace(/ROWIDX/g, String(nextIndex));
-            });
-            clone.querySelectorAll('[data-repeat-add]').forEach(function (el) {
-                el.dataset.repeatAdd = el.dataset.repeatAdd.replace(/ROWIDX/g, String(nextIndex));
-            });
+            substituteRowIdx(clone, nextIndex);
             container.appendChild(clone);
             wireTriggerSelects(container.lastElementChild);
             wireEffectSelects(container.lastElementChild);
@@ -652,6 +710,7 @@ function wireRepeatAdd(root) {
             wireImagePreviews(container.lastElementChild);
             wireRoomTypeSelects(container.lastElementChild);
             wireRoomExitSelects(container.lastElementChild);
+            wireEffectsModeToggles(container.lastElementChild);
             wireRepeatAdd(container.lastElementChild);
             // Flowchart-only hooks -- no-ops everywhere else (window.wireFlowchartNode only
             // exists on a delve's edit page, see the flowchart script below). Handles both a
@@ -674,6 +733,7 @@ wireEquipmentTriggerSelects(document);
 wireRoomTypeSelects(document);
 wireCascadingSelects(document);
 wireRoomExitSelects(document);
+wireEffectsModeToggles(document);
 wireRepeatAdd(document);
 updateSkillOdds();
 updateGroupOdds();
@@ -1756,7 +1816,9 @@ def _render_monster_skill_row(prefix: str, skill: dict) -> str:
     player skill/consumable's own effect vocabulary (dungeon.py's module comment above
     _validate_monster_skill), so this reuses _render_effect_row/_render_effect_group_row directly --
     exactly one of the two fields should be filled in, same XOR dungeon._validate_effects_or_groups
-    enforces for a player skill/consumable."""
+    enforces for a player skill/consumable. The two are wrapped in the same mode toggle
+    (_render_effects_toggle) a top-level skill/consumable's own effects/effect_groups pair uses, so
+    only one is ever visible/submitted here too."""
     effects_container = f"{prefix}_effects"
     effects = list(skill.get("effects") or [])
     effect_rows_html = [
@@ -1774,6 +1836,11 @@ def _render_monster_skill_row(prefix: str, skill: dict) -> str:
         '<div class="skill-odds-summary" data-group-odds-summary>'
         "Live odds appear here once groups are filled in.</div>"
     )
+    effects_groups_toggle = _render_effects_toggle(
+        f'<div>{effects_repeatable}</div>',
+        f'<fieldset data-group-odds>{groups_odds_summary}{groups_repeatable}</fieldset>',
+        bool(groups),
+    )
 
     return (
         f'<fieldset class="row-group" data-skill-row><legend>Skill</legend>'
@@ -1788,11 +1855,7 @@ def _render_monster_skill_row(prefix: str, skill: dict) -> str:
         f'<span class="skill-odds-pct" data-skill-pct>—</span>'
         f'<label class="checkbox-label"><input type="checkbox" name="{prefix}_special"'
         f'{" checked" if skill.get("special") else ""}> Special (rolls SpAtk/SpDef instead of ATK/DEF)</label>'
-        f'<div data-tooltip="Fill in EITHER Effects OR Effect Groups below, never both.">'
-        f'<p class="field-hint">Effects (independent per-effect chance) OR Effect Groups '
-        f'(mutually-exclusive 50/50-style alternatives) -- fill in exactly one.</p></div>'
-        f'<div>{effects_repeatable}</div>'
-        f'<fieldset data-group-odds>{groups_odds_summary}{groups_repeatable}</fieldset>'
+        f'{effects_groups_toggle}'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove skill</button></fieldset>'
     )
 
@@ -2587,6 +2650,32 @@ def _render_field(field: dict, value, entry: dict | None = None, problems: list[
     raise ValueError(f"admin_schemas.py: unknown field type {ftype!r}")
 
 
+def _render_effects_toggle(effects_html: str, groups_html: str, has_groups: bool) -> str:
+    """Wraps a plain "effects" fieldset and its "effect_groups" alternative in a mode toggle --
+    dungeon._validate_effects_or_groups still enforces exactly one of the two server-side (in case
+    JS never ran), but client-side this replaces the old "both boxes always visible, a hint says
+    fill in only one" UI with an actual switch (wireEffectsModeToggles/updateEffectsMode in
+    _dynamic_script) that shows one at a time and clears the other's rows on switch, so a normal
+    save can't accidentally submit both. `has_groups` (whether the entry being edited already has
+    a non-empty "effect_groups") picks which side starts visible."""
+    initial_mode = "groups" if has_groups else "effects"
+    options = (
+        f'<option value="effects"{" selected" if initial_mode == "effects" else ""}>'
+        f'Effects (independent per-effect chance)</option>'
+        f'<option value="groups"{" selected" if initial_mode == "groups" else ""}>'
+        f'Effect Groups (mutually-exclusive alternatives)</option>'
+    )
+    effects_display = "" if initial_mode == "effects" else "display:none"
+    groups_display = "" if initial_mode == "groups" else "display:none"
+    return (
+        f'<div data-effects-mode-wrap>'
+        f'<label>Mode<select class="effects-mode-select">{options}</select></label>'
+        f'<div data-effects-box style="{effects_display}">{effects_html}</div>'
+        f'<div data-groups-box style="{groups_display}">{groups_html}</div>'
+        f'</div>'
+    )
+
+
 def _render_field_with_hint(field: dict, value, entry: dict | None = None, problems: list[dict] | None = None) -> str:
     """_render_field, plus that field's optional schema-level "hint" (see admin_schemas.py's
     module docstring) as small print underneath -- for a top-level box like "npc" whose meaning
@@ -2606,15 +2695,35 @@ def _render_fields(fields: list[dict], entry: dict, problems: list[dict] | None 
     field's "group" (see admin_schemas.py's module docstring) differs from the previous field's --
     turns a flat stack of same-weight boxes into sections ("Identity", "Stats", "Loot", ...).
     Fields with no "group" (typically compound types like effects/materials/trigger, which already
-    render inside their own labeled <fieldset>) just flow without a heading."""
+    render inside their own labeled <fieldset>) just flow without a heading.
+
+    A schema's "effects" field immediately followed by its "effect_groups" alternative (skills,
+    consumables -- see admin_schemas.py) is special-cased into one combined mode-toggle block
+    (_render_effects_toggle) instead of two independent fieldsets, so only one is ever visible/
+    submitted at a time. Every other field renders exactly as before."""
     parts = []
     last_group = None
-    for field in fields:
+    i = 0
+    while i < len(fields):
+        field = fields[i]
         group = field.get("group")
         if group and group != last_group:
             parts.append(f'<div class="field-group-heading">{html.escape(group)}</div>')
         last_group = group
+        if (
+            field["type"] == "effects"
+            and i + 1 < len(fields)
+            and fields[i + 1]["type"] == "effect_groups"
+        ):
+            groups_field = fields[i + 1]
+            effects_html = _render_field(field, entry.get(field["name"]), entry, problems)
+            groups_html = _render_field_with_hint(groups_field, entry.get(groups_field["name"]), entry, problems)
+            has_groups = bool(entry.get(groups_field["name"]))
+            parts.append(_render_effects_toggle(effects_html, groups_html, has_groups))
+            i += 2
+            continue
         parts.append(_render_field_with_hint(field, entry.get(field["name"]), entry, problems))
+        i += 1
     return "".join(parts)
 
 
