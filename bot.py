@@ -114,7 +114,7 @@ RUB_GIF = "https://images-ext-1.discordapp.net/external/1P77ZqLgK4rKSPC0sX4o7VjL
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents, help_command=None, case_insensitive=True)
+bot = commands.Bot(command_prefix=["!", "! "], intents=intents, help_command=None, case_insensitive=True)
 
 HELP_CATEGORIES = [
     ("💰 Economy", ["balance", "stats", "rest", "mine", "tip", "transfer", "pizza", "leaderboard"]),
