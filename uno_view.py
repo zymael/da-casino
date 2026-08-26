@@ -263,6 +263,7 @@ async def _finalize_play(
     actor_name = game.seats[seat_idx].name
     result = uno.apply_play(game, seat_idx, card, chosen_color)
     try:
+        await interaction.response.defer()
         await interaction.delete_original_response()
     except discord.HTTPException:
         pass
@@ -315,6 +316,7 @@ class UnoDrawnCardChoiceView(discord.ui.View):
         actor_name = self.table.game.seats[self.seat_idx].name
         uno.pass_turn(self.table.game)
         try:
+            await interaction.response.defer()
             await interaction.delete_original_response()
         except discord.HTTPException:
             pass
@@ -350,6 +352,7 @@ class UnoDrawButton(discord.ui.Button):
             return
         uno.pass_turn(game)
         try:
+            await interaction.response.defer()
             await interaction.delete_original_response()
         except discord.HTTPException:
             pass
