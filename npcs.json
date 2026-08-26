@@ -4,7 +4,9 @@
     "name": "Mondor",
     "room": "dungeon",
     "greet_message": "I HAVE MANY CHALLENGES FOR YOU. DARE YOU BE CHALLENGED BY MONDOR?",
-    "greet_achievement": "dared_by_mondor"
+    "greet_achievement": "dared_by_mondor",
+    "sprite_path": "assets/npcs/mondor.png",
+    "buys_items": false
   },
   {
     "id": "kel",
