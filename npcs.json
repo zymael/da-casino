@@ -142,5 +142,13 @@
     },
     "sprite_path": "assets/npcs/kel_copy.png",
     "buys_items": false
+  },
+  {
+    "id": "vic",
+    "name": "Vic",
+    "room": "vic_junkyard",
+    "greet_message": "*The statue grows arms and gestures furiously at you, speaking a gibberish language you don't understand.*",
+    "sprite_path": "assets/npcs/vic.png",
+    "buys_items": false
   }
 ]
