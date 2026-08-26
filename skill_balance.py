@@ -234,111 +234,173 @@ def _delve_fight_sequence(delve_id: str) -> list[dict]:
     return fights
 
 
+# A "rotation" is just the strategy a build uses to decide which skill to cast each turn, given
+# whatever Chips it has left -- these are the candidate strategies real players might plausibly
+# follow, not an exhaustive search of every possible turn order (that's combinatorially enormous
+# and not what a balance overview needs). Each maps to a human-readable one-line description shown
+# directly on the admin page, so "rotation" never has to be explained via a separate glossary --
+# picking a policy from this dict IS the explanation.
+ROTATION_POLICIES = {
+    "burst": "Always casts the single strongest affordable skill (ranked by isolated avg damage) -- "
+             "spends Chips as fast as possible for the biggest hit available each turn.",
+    "efficient": "Always casts the best-value affordable skill (ranked by damage per Chip) -- trades "
+                 "some peak damage for more total casts across the delve.",
+    "paced": "Splits the Chip pool evenly across the delve's fights up front, then bursts within "
+             "just that fight's slice -- won't blow the whole pool on an early fight.",
+}
+
+
+def _rank_damage_skills(damage_skills: list[dict], stats: dict, ref_def: float, ref_spdef: float, key: str) -> list[dict]:
+    """damage_skills sorted best-first by `key` ("avg_damage" for "burst"/"paced", "dmg_per_chip"
+    for "efficient") -- both computed once, isolated, against the game's real median monster
+    defense (see per_skill_table), not re-simulated every turn of every trial."""
+    scored = []
+    for skill in damage_skills:
+        result = simulate_skill_cast(
+            skill, stats["atk"], stats["spatk"], ref_def, ref_spdef, stats["hp"], trials=50,
+        )
+        value = result["avg_damage"] if key == "avg_damage" else (
+            result["avg_damage"] / skill["chip_cost"] if skill["chip_cost"] else 0.0
+        )
+        scored.append((value, skill))
+    return [skill for _, skill in sorted(scored, key=lambda pair: pair[0], reverse=True)]
+
+
+def _run_fight(
+    atk: float, spatk: float, def_: float, spdef: float, hp: float, ranked: list[dict], chips: float,
+) -> tuple[float, int, float]:
+    """Simulates one fight turn-by-turn (dodge, DoT ticks, permanent-for-fight ATK/SpATK buffs and
+    DEF shred, same effect handling simulate_skill_cast uses for a single isolated cast) using
+    `ranked`'s ordering to pick each turn's skill from whatever's affordable out of `chips`,
+    falling back to a free plain Attack once nothing is. Returns (damage dealt, turns taken, Chips
+    left over) -- `chips` here is whatever this fight is allowed to spend, which for "paced" is a
+    per-fight slice, not the build's whole remaining pool (see simulate_build_rotations)."""
+    dot_ticks: list[list[float]] = []
+    turns = 0
+    damage_this_fight = 0.0
+    while hp > 0 and turns < ROTATION_TURN_CAP:
+        turns += 1
+        for tick in dot_ticks:
+            hp -= tick[0]
+            damage_this_fight += tick[0]
+            tick[1] -= 1
+        dot_ticks = [t for t in dot_ticks if t[1] > 0]
+        if hp <= 0:
+            break
+
+        affordable = [s for s in ranked if s["chip_cost"] <= chips]
+        skill = affordable[0] if affordable else None
+        if skill is None:
+            if random.random() < dungeon.dodge_chance(def_):
+                continue
+            dmg = dungeon.roll_damage(atk, def_, 1.0)
+            hp -= dmg
+            damage_this_fight += dmg
+            continue
+
+        chips -= skill["chip_cost"]
+        is_special = skill.get("special", False)
+        base_atk = spatk if is_special else atk
+        eff_def = spdef if is_special else def_
+        if random.random() < dungeon.dodge_chance(eff_def):
+            continue
+        multiplier, extras, is_dmg = 1.0, [], False
+        for effect in dungeon.resolve_cast_effects(skill):
+            etype = effect["type"]
+            if etype == "damage_multiplier":
+                multiplier *= effect["value"]
+                is_dmg = True
+            elif etype == "extra_attack":
+                extras.append(effect.get("multiplier", 1.0))
+                is_dmg = True
+            elif etype == "atk_buff":
+                atk += effect["value"]
+            elif etype == "spatk_buff":
+                spatk += effect["value"]
+            elif etype == "def_shred":
+                def_ = max(0, def_ - effect["value"])
+            elif etype == "dot":
+                dot_ticks.append([effect["value"], effect["duration"]])
+        if is_dmg:
+            dmg = dungeon.roll_damage(base_atk, eff_def, multiplier)
+            for extra in extras:
+                dmg += dungeon.roll_damage(base_atk, eff_def, extra)
+            hp -= dmg
+            damage_this_fight += dmg
+
+    return damage_this_fight, turns, chips
+
+
 def simulate_build_through_delve(
-    main_class: str, subclass: str, delve_id: str, trials: int = SIMULATION_TRIALS,
-) -> list[float]:
-    """Average damage/turn per fight-position (index 0 = the delve's first fight, index 1 = the
-    second, ...) for this build walking straight through delve_id's representative fight sequence
-    with ONE Chip pool spent across the whole delve (not refilled between fights -- exercises the
-    behavior dungeon_view.py's Chips-reset fix now produces for real). Each fight runs a simple
-    greedy rotation -- the strongest affordable damage skill this turn (ranked once, up front, by
-    isolated avg_damage against the game's real median monster defense -- see per_skill_table),
-    else a free plain Attack -- until the fight's monster HP hits 0 or ROTATION_TURN_CAP is reached.
-    A chip-hungry burst-oriented build's output visibly tapering off in later fight positions (vs. a
-    sustain-oriented build staying flat) is exactly what this is for."""
+    main_class: str, subclass: str, delve_id: str, policy: str = "burst", trials: int = SIMULATION_TRIALS,
+) -> dict:
+    """Runs `policy` (a key of ROTATION_POLICIES) for this build straight through delve_id's
+    representative fight sequence, with ONE Chip pool spent across the whole delve -- never
+    refilled between fights (exercises the behavior dungeon_view.py's Chips-reset fix now produces
+    for real). Returns {"per_fight_dpt": [avg dmg/turn per fight position], "overall_dpt": mean of
+    that, "chips_leftover": avg unspent Chips at delve end}. "burst"/"efficient" rank once, up
+    front, and spend from the build's single running pool; "paced" additionally splits that pool
+    into an even per-fight slice before ranking within each fight, so it never front-loads."""
     stats = dungeon.compute_stats(main_class, subclass)
     ref_def, ref_spdef = _reference_defense()
     damage_skills = [
         s for s in dungeon.unlocked_skills(main_class, subclass, SIMULATION_LEVEL)
         if classify_skill(s) == "damage"
     ]
-    ranked = sorted(
-        damage_skills,
-        key=lambda s: simulate_skill_cast(
-            s, stats["atk"], stats["spatk"], ref_def, ref_spdef, stats["hp"], trials=50,
-        )["avg_damage"],
-        reverse=True,
-    )
     fights = _delve_fight_sequence(delve_id)
     if not fights:
-        return []
+        return {"per_fight_dpt": [], "overall_dpt": 0.0, "chips_leftover": 0.0}
+
+    rank_key = "dmg_per_chip" if policy == "efficient" else "avg_damage"
+    ranked = _rank_damage_skills(damage_skills, stats, ref_def, ref_spdef, rank_key)
+    fight_budget = stats["chips"] / len(fights) if policy == "paced" else None
+
     per_fight_dpt: list[list[float]] = [[] for _ in fights]
+    leftover_samples: list[float] = []
 
     for _ in range(trials):
         chips = stats["chips"]
         atk, spatk = stats["atk"], stats["spatk"]
         for fight_index, monster in enumerate(fights):
-            hp = monster["hp"]
-            def_, spdef = monster["def"], monster["spdef"]
-            dot_ticks: list[list[float]] = []  # [value, remaining_turns] pairs
-            turns = 0
-            damage_this_fight = 0.0
-            while hp > 0 and turns < ROTATION_TURN_CAP:
-                turns += 1
-                for tick in dot_ticks:
-                    hp -= tick[0]
-                    damage_this_fight += tick[0]
-                    tick[1] -= 1
-                dot_ticks = [t for t in dot_ticks if t[1] > 0]
-                if hp <= 0:
-                    break
+            spend_limit = min(chips, fight_budget) if fight_budget is not None else chips
+            dmg, turns, remaining = _run_fight(
+                atk, spatk, monster["def"], monster["spdef"], monster["hp"], ranked, spend_limit,
+            )
+            chips -= (spend_limit - remaining)
+            per_fight_dpt[fight_index].append(dmg / max(1, turns))
+        leftover_samples.append(chips)
 
-                affordable = [s for s in ranked if s["chip_cost"] <= chips]
-                skill = affordable[0] if affordable else None
-                if skill is None:
-                    if random.random() < dungeon.dodge_chance(def_):
-                        continue
-                    dmg = dungeon.roll_damage(atk, def_, 1.0)
-                    hp -= dmg
-                    damage_this_fight += dmg
-                    continue
+    return {
+        "per_fight_dpt": [statistics.mean(vals) for vals in per_fight_dpt],
+        "overall_dpt": statistics.mean([v for vals in per_fight_dpt for v in vals]),
+        "chips_leftover": statistics.mean(leftover_samples),
+    }
 
-                chips -= skill["chip_cost"]
-                is_special = skill.get("special", False)
-                base_atk = spatk if is_special else atk
-                eff_def = spdef if is_special else def_
-                if random.random() < dungeon.dodge_chance(eff_def):
-                    continue
-                multiplier, extras, is_dmg = 1.0, [], False
-                for effect in dungeon.resolve_cast_effects(skill):
-                    etype = effect["type"]
-                    if etype == "damage_multiplier":
-                        multiplier *= effect["value"]
-                        is_dmg = True
-                    elif etype == "extra_attack":
-                        extras.append(effect.get("multiplier", 1.0))
-                        is_dmg = True
-                    elif etype == "atk_buff":
-                        atk += effect["value"]
-                    elif etype == "spatk_buff":
-                        spatk += effect["value"]
-                    elif etype == "def_shred":
-                        def_ = max(0, def_ - effect["value"])
-                    elif etype == "dot":
-                        dot_ticks.append([effect["value"], effect["duration"]])
-                if is_dmg:
-                    dmg = dungeon.roll_damage(base_atk, eff_def, multiplier)
-                    for extra in extras:
-                        dmg += dungeon.roll_damage(base_atk, eff_def, extra)
-                    hp -= dmg
-                    damage_this_fight += dmg
 
-            per_fight_dpt[fight_index].append(damage_this_fight / max(1, turns))
-
-    return [statistics.mean(vals) for vals in per_fight_dpt]
+def simulate_build_rotations(main_class: str, subclass: str, delve_id: str, trials: int = SIMULATION_TRIALS) -> dict:
+    """{policy: simulate_build_through_delve(...)} for every ROTATION_POLICIES key -- the full
+    comparison the admin page's Rotation Explorer section shows for one build."""
+    return {
+        policy: simulate_build_through_delve(main_class, subclass, delve_id, policy=policy, trials=trials)
+        for policy in ROTATION_POLICIES
+    }
 
 
 def per_build_delve_table(delve_id: str) -> list[dict]:
-    """One row per build: {main_class, subclass, build_label, per_fight_dpt (list, one avg
-    damage/turn per fight position), overall_dpt (mean across all fight positions), outlier}."""
+    """One row per build, each using whichever ROTATION_POLICIES entry actually scores highest for
+    THAT build in THIS delve (its "detected optimal rotation") -- comparing every build at its own
+    best strategy rather than one fixed policy applied uniformly, since a chip-hungry burst build
+    and a chip-light sustain build don't necessarily share the same optimal play. Row shape:
+    {main_class, subclass, build_label, policy (the winning one's key), per_fight_dpt, overall_dpt,
+    outlier}."""
     rows = []
     for main_class, subclass in all_builds():
-        per_fight = simulate_build_through_delve(main_class, subclass, delve_id)
-        overall = statistics.mean(per_fight) if per_fight else 0.0
+        by_policy = simulate_build_rotations(main_class, subclass, delve_id)
+        best_policy, best = max(by_policy.items(), key=lambda kv: kv[1]["overall_dpt"])
         rows.append({
             "main_class": main_class, "subclass": subclass,
             "build_label": build_label(main_class, subclass),
-            "per_fight_dpt": per_fight, "overall_dpt": overall,
+            "policy": best_policy, "per_fight_dpt": best["per_fight_dpt"], "overall_dpt": best["overall_dpt"],
         })
     _flag_outliers(rows, "overall_dpt", "outlier")
     return rows

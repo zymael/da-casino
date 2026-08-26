@@ -4368,13 +4368,36 @@ def _delve_balance_table_html(rows: list[dict]) -> str:
     for r in sorted(rows, key=lambda r: -r["overall_dpt"]):
         per_fight = " &nbsp; ".join(f"{v:.1f}" for v in r["per_fight_dpt"])
         body_rows.append(
-            f'<tr><td>{html.escape(r["build_label"])}</td><td>{html.escape(per_fight)}</td>'
+            f'<tr><td>{html.escape(r["build_label"])}</td>'
+            f'<td><span class="effect-tag">{html.escape(r["policy"])}</span></td>'
+            f'<td>{html.escape(per_fight)}</td>'
             f'<td>{r["overall_dpt"]:.1f} {_bar_html(r["overall_dpt"], max_overall)}'
             f'{_outlier_badge(r["outlier"])}</td></tr>'
         )
     return (
         '<div class="table-scroll"><table><thead><tr>'
-        "<th>Build</th><th>Damage/turn per fight (in delve order)</th><th>Overall avg</th>"
+        "<th>Build</th><th>Best rotation</th><th>Damage/turn per fight (in delve order)</th><th>Overall avg</th>"
+        "</tr></thead><tbody>" + "".join(body_rows) + "</tbody></table></div>"
+    )
+
+
+def _rotation_explorer_table_html(by_policy: dict) -> str:
+    best_policy = max(by_policy, key=lambda p: by_policy[p]["overall_dpt"])
+    max_overall = max((r["overall_dpt"] for r in by_policy.values()), default=0)
+    body_rows = []
+    for policy, result in by_policy.items():
+        per_fight = " &nbsp; ".join(f"{v:.1f}" for v in result["per_fight_dpt"]) or "&mdash;"
+        winner_badge = ' <span class="outlier-flag">★ best</span>' if policy == best_policy else ""
+        body_rows.append(
+            f'<tr><td><strong>{html.escape(policy)}</strong>{winner_badge}'
+            f'<div class="field-hint">{html.escape(skill_balance.ROTATION_POLICIES[policy])}</div></td>'
+            f'<td>{per_fight}</td>'
+            f'<td>{result["overall_dpt"]:.1f} {_bar_html(result["overall_dpt"], max_overall)}</td>'
+            f'<td>{result["chips_leftover"]:.1f}</td></tr>'
+        )
+    return (
+        '<div class="table-scroll"><table><thead><tr>'
+        "<th>Rotation</th><th>Damage/turn per fight</th><th>Overall avg</th><th>Chips left at delve end</th>"
         "</tr></thead><tbody>" + "".join(body_rows) + "</tbody></table></div>"
     )
 
@@ -4391,6 +4414,12 @@ async def skill_balance_view(request: web.Request) -> web.Response:
     requested_delve = request.query.get("delve")
     delve_id = requested_delve if requested_delve in dungeon.DELVES else skill_balance.default_delve_id()
 
+    all_builds = skill_balance.all_builds()
+    requested_build = request.query.get("build")
+    build = tuple(requested_build.split(":", 1)) if requested_build else None
+    if build not in all_builds:
+        build = all_builds[0]
+
     skill_rows = skill_balance.per_skill_table()
     skill_table = _skill_balance_table_html(skill_rows)
 
@@ -4398,9 +4427,12 @@ async def skill_balance_view(request: web.Request) -> web.Response:
         delve_rows = skill_balance.per_build_delve_table(delve_id)
         delve_table = _delve_balance_table_html(delve_rows)
         delve_name = html.escape(dungeon.DELVES[delve_id].get("name", delve_id))
+        explorer_result = skill_balance.simulate_build_rotations(build[0], build[1], delve_id)
+        explorer_table = _rotation_explorer_table_html(explorer_result)
     else:
         delve_table = "<p>No delves defined.</p>"
         delve_name = "(none)"
+        explorer_table = "<p>No delves defined.</p>"
 
     delve_options = "".join(
         f'<option value="{html.escape(did)}"{" selected" if did == delve_id else ""}>'
@@ -4408,30 +4440,54 @@ async def skill_balance_view(request: web.Request) -> web.Response:
         f'{"" if dungeon.DELVES[did].get("active", True) else " (inactive)"}</option>'
         for did in delve_ids
     )
+    build_options = "".join(
+        f'<option value="{mc}:{sc}"{" selected" if (mc, sc) == build else ""}>'
+        f'{html.escape(skill_balance.build_label(mc, sc))} ({mc}/{sc})</option>'
+        for mc, sc in all_builds
+    )
 
     body = f"""
     <h1>📊 Skill Balance</h1>
     <p>Simulated, not measured from real play -- every build's raw class+subclass stats (no
     equipment/housing), simulated at a level high enough to unlock its full current skill kit.
     Models a build's own output (damage dealt, Chip economy) only, not incoming damage or
-    survivability. <span class="outlier-flag">⚠</span> flags a skill or build whose value sits
-    more than {skill_balance.OUTLIER_THRESHOLD:.0%} from its cohort's median -- worth a look, not
-    necessarily a bug.</p>
+    survivability.</p>
+    <p class="field-hint">
+        <strong>⚠ flag</strong> &mdash; this skill or build's value is more than
+        {skill_balance.OUTLIER_THRESHOLD:.0%} away from the typical (median) value among everything
+        else in that same table -- worth a look, not automatically a bug.<br>
+        <strong>Rotation</strong> &mdash; the strategy a build uses to pick which skill to cast each
+        turn, given whatever Chips it has left. See "Rotation Explorer" below to compare strategies
+        side by side for any one build.
+    </p>
 
     <h2>Per-skill damage (isolated, vs. the game's real median monster DEF/SpDef)</h2>
     {skill_table}
 
     <h2>Per-build rotation through a whole delve ({delve_name})</h2>
     <p>Chips are spent across the delve's real fight sequence in order, never refilled mid-delve --
-    watch how each build's damage/turn holds up (or falls off) fight to fight. A branching delve's
-    choice rooms follow their first listed outcome only -- one representative path, not full
-    coverage.</p>
+    watch how each build's damage/turn holds up (or falls off) fight to fight. Each build here is
+    shown at its own best-scoring rotation (see "Best rotation" column) rather than one strategy
+    forced on every build -- a chip-hungry build and a chip-light one don't necessarily play the
+    same way. A branching delve's choice rooms follow their first listed outcome only -- one
+    representative path, not full coverage.</p>
     <form method="get" class="delve-picker">
         <label style="flex-direction:row;align-items:center;gap:8px;">Delve
             <select name="delve" onchange="this.form.submit()">{delve_options}</select>
         </label>
     </form>
     {delve_table}
+
+    <h2>Rotation Explorer</h2>
+    <p>Pick one build to see how each candidate rotation strategy actually plays out for it in the
+    delve selected above -- this is what "Best rotation" in the table above is chosen from.</p>
+    <form method="get" class="delve-picker">
+        <input type="hidden" name="delve" value="{html.escape(delve_id or '')}">
+        <label style="flex-direction:row;align-items:center;gap:8px;">Build
+            <select name="build" onchange="this.form.submit()">{build_options}</select>
+        </label>
+    </form>
+    {explorer_table}
     """
     return _html_response(
         _page("Skill Balance", body, active="skill-balance", breadcrumbs=[("Home", "/"), ("Skill Balance", None)])
