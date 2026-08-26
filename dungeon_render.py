@@ -60,6 +60,12 @@ def _load_monster_sprite(sprite_path: str, target_height: int = SPRITE_HEIGHT) -
     if not sprite_path or not os.path.exists(sprite_path):
         return None
     sprite = Image.open(sprite_path).convert("RGBA")
+    # Trim transparent canvas margin first -- render_room anchors a sprite's bottom edge to the
+    # floor line, so any blank padding an artist's canvas happens to have below the character's
+    # feet would otherwise render as a gap, making them look like they're floating.
+    bbox = sprite.getbbox()
+    if bbox:
+        sprite = sprite.crop(bbox)
     scale = target_height / sprite.height
     new_size = (max(1, round(sprite.width * scale)), target_height)
     return sprite.resize(new_size, Image.NEAREST)
