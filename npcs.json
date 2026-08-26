@@ -94,7 +94,8 @@
     "name": "Slug",
     "room": "slug_dome",
     "greet_message": "I hope you're stronger than you look.",
-    "sprite_path": "assets/npcs/slug.png"
+    "sprite_path": "assets/npcs/slug.png",
+    "buys_items": false
   },
   {
     "id": "leto",
