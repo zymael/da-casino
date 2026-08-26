@@ -69,6 +69,7 @@ import rooms
 from roulette_view import active_rounds, start_roulette_table
 import slots_view
 from slots_view import SlotsView
+from uno_view import active_tables as active_uno_tables, start_uno_table
 import video_poker
 import video_poker_view
 from video_poker_view import VideoPokerView
@@ -1463,6 +1464,22 @@ async def holdem_cmd(ctx, buy_in: int = None):
     await start_holdem_table(ctx, buy_in)
 
 
+@bot.command(name="uno")
+async def uno_cmd(ctx, buy_in: int = 0):
+    """Open a 2-4 player UNO table: !uno [buy_in] — others join with the Join button, the host
+    starts once at least 2 are seated, first to empty their hand takes the pot."""
+    if await _reject_if_at_poker_table(ctx):
+        return
+    if buy_in < 0:
+        await ctx.send("Buy-in can't be negative.")
+        return
+    if ctx.channel.id in active_uno_tables:
+        await ctx.send("An UNO table is already open here — click **Join** on it to sit down!")
+        return
+
+    await start_uno_table(ctx, buy_in)
+
+
 async def _fetch_member(guild: discord.Guild, user_id: int) -> discord.Member | None:
     member = guild.get_member(user_id)
     if member is not None:
@@ -1736,6 +1753,7 @@ room_commands.COMMANDS.update({
     "mancala": mancala_cmd.callback,
     "connect4": connect4_cmd.callback,
     "icebreak": icebreak_cmd.callback,
+    "uno": uno_cmd.callback,
     "craft": craft_cmd.callback,
     "train": train_cmd.callback,
     "boost": boost_cmd.callback,
