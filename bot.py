@@ -645,7 +645,7 @@ async def roy_cmd(ctx):
 @bot.command(name="deletebot")
 async def deletebot_cmd(ctx):
     """Deletes the bot forever: !deletebot"""
-    embed = discord.Embed(description="AH SUCK MY FAT CL*T", color=discord.Color.red())
+    embed = discord.Embed(description="# AH SUCK MY FAT CL*T", color=discord.Color.red())
     embed.set_image(url=DELETEBOT_GIF)
     await ctx.send(embed=embed)
 
