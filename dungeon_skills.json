@@ -1568,6 +1568,17 @@
           }
         ],
         "chance": 1
+      },
+      {
+        "effects": [
+          {
+            "type": "sap",
+            "duration": 1,
+            "target": "enemy",
+            "chance": 1.0
+          }
+        ],
+        "chance": 1
       }
     ],
     "chip_cost": 11,
