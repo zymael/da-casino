@@ -15,7 +15,9 @@
     "visible_trigger": {
       "type": "not_moon_phase",
       "phase": "full_moon"
-    }
+    },
+    "sprite_path": "assets/npcs/kel.png",
+    "buys_items": false
   },
   {
     "id": "kel_werewolf",
