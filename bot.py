@@ -69,6 +69,7 @@ import rooms
 from roulette_view import active_rounds, start_roulette_table
 import slots_view
 from slots_view import SlotsView
+import smash_view
 from uno_view import active_tables as active_uno_tables, start_uno_table
 import video_poker
 import video_poker_view
@@ -1154,6 +1155,13 @@ async def craft_cmd(ctx):
     await ctx.send(embed=embed, view=view)
 
 
+@bot.command(name="smash")
+async def smash_cmd(ctx):
+    """Permanently destroy an item from your inventory: !smash"""
+    embed, view = await smash_view.build_smash_display(ctx.guild.id, ctx.author.id)
+    await ctx.send(embed=embed, view=view)
+
+
 @bot.command(name="quests")
 async def quests_cmd(ctx):
     """See your active and completed quests: !quests"""
@@ -1742,6 +1750,7 @@ room_commands.COMMANDS.update({
     "horserace": horserace_cmd.callback,
     "balance": balance.callback,
     "rest": rest_cmd.callback,
+    "smash": smash_cmd.callback,
     "mine": mine.callback,
     "pizza": pizza.callback,
     "leaderboard": leaderboard.callback,

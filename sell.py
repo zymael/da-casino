@@ -4,6 +4,12 @@ shop.py/dreams.py grant except quest_item is sellable (quest items are narrative
 economy items -- selling one could silently break whatever quest is waiting on it, so they're left
 out of SELLABLE_REGISTRIES entirely rather than gated some other way).
 
+SELLABLE_REGISTRIES, sellable_holdings, horse_clothes_in_use, and consume_free_horse_clothes are
+all public (not sell.py-private) because smash.py (destroying an item for no payout) needs the
+exact same "what does this player actually own, free and clear" logic -- only what happens after
+ownership is confirmed differs between the two, which each module's own top-level function handles
+on its own.
+
 Nothing currently in active use can be sold, but "in use" means something different per kind, since
 ownership is tracked differently per kind:
   - equipment: only ever sold from equipment_inventory (db.sell_equipment_item never touches
@@ -19,9 +25,9 @@ ownership is tracked differently per kind:
     it" as a foreseeable risk this exact feature is that future feature). An owned copy stays in
     the generic `inventory` table at full qty even while equipped on one or more horses, so
     horse_clothes needs its own explicit "how many of my own horses currently have this exact item
-    equipped" count (see _horse_clothes_in_use), subtracted from what's offered for sale, with the
-    same count re-checked at actual sale time in case a horse got dressed in the gap between
-    opening the sell popup and clicking an option.
+    equipped" count (see horse_clothes_in_use), subtracted from what's offered for sale, with the
+    same count re-checked at actual sale/smash time in case a horse got dressed in the gap between
+    opening the popup and clicking an option.
 """
 
 import asyncio
@@ -47,10 +53,11 @@ def sell_price(item: dict) -> int:
     return item["base_value"] // 2
 
 
-def _horse_clothes_in_use(guild_id: int, user_id: int) -> dict[str, int]:
+def horse_clothes_in_use(guild_id: int, user_id: int) -> dict[str, int]:
     """{item_id: count} for how many of this player's own horses currently have that exact
     cosmetic equipped, across both slots -- see the module docstring for why horse_clothes needs
-    this and nothing else does."""
+    this and nothing else does. Public (not sell-specific): smash.py needs the exact same
+    "how much is actually free to dispose of" check smash.py's own module docstring describes."""
     horses = db.get_ranch_horses(guild_id, user_id)
     equipped_by_horse = db.get_guild_horse_clothes(guild_id)
     counts: dict[str, int] = {}
@@ -67,7 +74,7 @@ def sellable_holdings(
     SELLABLE_REGISTRIES kind recognizes -- `held` is db.get_inventory's shape (material/
     consumable/horse_clothes/housing_item all share that one generic table), `stored_equipment` is
     db.get_equipment_inventory's shape (equipment only, never anything currently worn),
-    `horse_clothes_in_use` is _horse_clothes_in_use's shape (defaults to none currently in use).
+    `horse_clothes_in_use` is horse_clothes_in_use's shape (defaults to none currently in use).
     A quest item or anything else unrecognized is simply not sellable, not an error here -- unlike
     inventory_view._inventory_sections, this isn't the place that catches a genuine content-id
     collision bug; that's already caught elsewhere, every time !inventory renders."""
@@ -97,7 +104,7 @@ async def sell(guild_id: int, user_id: int, kind: str, item_id: str) -> dict:
     if kind == "equipment":
         removed = await asyncio.to_thread(db.sell_equipment_item, guild_id, user_id, item_id, 1)
     elif kind == "horse_clothes":
-        removed = await asyncio.to_thread(_sell_horse_clothes, guild_id, user_id, item_id)
+        removed = await asyncio.to_thread(consume_free_horse_clothes, guild_id, user_id, item_id)
     else:
         removed = await asyncio.to_thread(db.consume_inventory_item, guild_id, user_id, item_id, 1)
     if not removed:
@@ -107,14 +114,16 @@ async def sell(guild_id: int, user_id: int, kind: str, item_id: str) -> dict:
     return {"success": True, "item": item, "kind": kind, "price": price, "balance": new_balance}
 
 
-def _sell_horse_clothes(guild_id: int, user_id: int, item_id: str) -> bool:
-    """Re-checks _horse_clothes_in_use right before consuming, not just at picker-build time, so a
-    horse dressed in this exact item in the gap between opening the sell popup and picking an
-    option can't have it sold out from under it -- consume_inventory_item alone has no way to know
-    a copy is "reserved" this way, since the wardrobe model never marks it unavailable in
-    `inventory` the way an equipped weapon leaves equipment_inventory entirely."""
+def consume_free_horse_clothes(guild_id: int, user_id: int, item_id: str) -> bool:
+    """Re-checks horse_clothes_in_use right before consuming, not just at picker-build time, so a
+    horse dressed in this exact item in the gap between opening the sell/smash popup and picking
+    an option can't have it removed out from under it -- consume_inventory_item alone has no way
+    to know a copy is "reserved" this way, since the wardrobe model never marks it unavailable in
+    `inventory` the way an equipped weapon leaves equipment_inventory entirely. Public: shared by
+    both sell.sell (payout) and smash.smash (no payout) -- same ownership check either way, only
+    what happens after consuming differs, which lives in each caller, not here."""
     held = db.get_inventory(guild_id, user_id)
-    in_use = _horse_clothes_in_use(guild_id, user_id).get(item_id, 0)
+    in_use = horse_clothes_in_use(guild_id, user_id).get(item_id, 0)
     if held.get(item_id, 0) - in_use < 1:
         return False
     return db.consume_inventory_item(guild_id, user_id, item_id, 1)

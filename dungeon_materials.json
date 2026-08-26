@@ -7,6 +7,14 @@
     "flavor": "Sturdy enough. Barely."
   },
   {
+    "id": "spaghetti_noodle",
+    "name": "Spaghetti Noodle",
+    "rarity": "common",
+    "base_value": 15,
+    "flavor": "Perfectly al dente. A masterpiece, honestly.",
+    "unsmashable_message": "I COULD NEVER DESTROY SUCH A BEAUTIFUL ITEM"
+  },
+  {
     "id": "comb",
     "name": "Comb",
     "rarity": "common",

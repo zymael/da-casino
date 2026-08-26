@@ -329,6 +329,11 @@ CONTENT_TYPES = {
                         "NPC with \"buys_items\" checked",
             },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
+            {
+                "name": "unsmashable_message", "type": "text", "required": False, "group": "Flavor Text",
+                "hint": "optional -- if set, !smash refuses to destroy this item and shows this message "
+                        "instead of removing it",
+            },
         ],
     },
     "materials": {
@@ -353,6 +358,11 @@ CONTENT_TYPES = {
                         "NPC with \"buys_items\" checked",
             },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
+            {
+                "name": "unsmashable_message", "type": "text", "required": False, "group": "Flavor Text",
+                "hint": "optional -- if set, !smash refuses to destroy this item and shows this message "
+                        "instead of removing it",
+            },
         ],
     },
     "consumables": {
@@ -378,6 +388,11 @@ CONTENT_TYPES = {
                         "NPC with \"buys_items\" checked",
             },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
+            {
+                "name": "unsmashable_message", "type": "text", "required": False, "group": "Flavor Text",
+                "hint": "optional -- if set, !smash refuses to destroy this item and shows this message "
+                        "instead of removing it",
+            },
             {
                 "name": "effects", "type": "effects", "required": False,
                 "hint": "fill in EITHER this OR effect_groups below, never both -- see effect_groups' "
@@ -570,6 +585,11 @@ CONTENT_TYPES = {
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
             {"name": "emoji", "type": "str", "required": True, "group": "Identity"},
             {"name": "description", "type": "text", "required": True, "group": "Flavor Text"},
+            {
+                "name": "unsmashable_message", "type": "text", "required": False, "group": "Flavor Text",
+                "hint": "optional -- if set, !smash refuses to destroy this item and shows this message "
+                        "instead of removing it",
+            },
             {
                 "name": "image_path", "type": "image", "required": False, "subdir": "housing/items",
                 "group": "Identity",
@@ -768,6 +788,11 @@ CONTENT_TYPES = {
                         "NPC with \"buys_items\" checked",
             },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
+            {
+                "name": "unsmashable_message", "type": "text", "required": False, "group": "Flavor Text",
+                "hint": "optional -- if set, !smash refuses to destroy this item and shows this message "
+                        "instead of removing it",
+            },
         ],
     },
 }
