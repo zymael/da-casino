@@ -14,10 +14,8 @@ FRAME = (150, 110, 60, 255)      # the sturdy wooden frame -- never breaks
 FRAME_EDGE = (100, 72, 38, 255)
 ICE = (198, 232, 240, 255)       # intact cell, still holding a chain back to a wall
 ICE_EDGE = (140, 190, 205, 255)
-UNSUPPORTED_ICE = (176, 108, 130, 255)  # intact, but cut off from every wall -- floating loose
-UNSUPPORTED_EDGE = (120, 60, 78, 255)
-WATER = (32, 110, 168, 255)      # broken cell -- open water underneath
-WATER_EDGE = (18, 70, 112, 255)
+WATER = (32, 110, 168, 255)      # broken cell -- open water, whether hammered directly or fallen
+WATER_EDGE = (18, 70, 112, 255) # through in a cascade once its own support gave out
 WAVE = (110, 175, 220, 255)
 TEXT = (255, 250, 235, 255)
 COORD_TEXT = (230, 240, 235, 255)
@@ -116,15 +114,13 @@ def _centered_text(draw: ImageDraw.ImageDraw, cx: float, cy: float, text: str, f
 
 def render_board(
     board: list[list[int]], challenger_name: str, opponent_name: str, challenger_turn: bool,
-    unsupported: set[tuple[int, int]] | None = None, game_over: bool = False,
+    game_over: bool = False,
 ) -> io.BytesIO:
-    """`unsupported` -- icebreak.MoveResult.unsupported, the intact cells (if any) with no
-    remaining path back to a wall. Only CENTER actually ending up in this set is what can end the
-    game (see icebreak.apply_move), but any other cell in it is real information too -- an
-    honestly floating, doomed chunk of ice that just doesn't happen to threaten the penguin. `None`
-    is fine pre-game, before any move has produced a MoveResult to read this from.
-    `game_over` swaps the penguin from standing on the platform to toppled into the water --
-    that's the entire point of the game (don't be the one who dunks him)."""
+    """`board` is authoritative -- every cell that's lost its support is already water by the time
+    this is called (icebreak.apply_move cascades that itself), so there's no separate "doomed but
+    still standing" state left to render. `game_over` swaps the penguin from standing on the
+    platform to toppled into the water -- that's the entire point of the game (don't be the one
+    who dunks him)."""
     img = Image.new("RGBA", (WIDTH, HEIGHT), FELT)
     draw = ImageDraw.Draw(img)
 
@@ -140,8 +136,6 @@ def render_board(
         cy = GRID_Y0 + r * CELL + CELL / 2
         _centered_text(draw, GRID_X0 - COORD_GUTTER / 2, cy, COL_LETTERS[r], _coord_font, COORD_TEXT)
 
-    unsupported = unsupported or set()
-
     for row in range(icebreak.ROWS):
         for col in range(icebreak.COLS):
             box = _cell_box(row, col)
@@ -150,8 +144,6 @@ def render_board(
                 cy = (box[1] + box[3]) / 2
                 for dy in (-6, 5):
                     draw.arc([box[0] + 6, cy + dy - 5, box[2] - 6, cy + dy + 5], start=200, end=340, fill=WAVE, width=2)
-            elif (row, col) in unsupported:
-                draw.rounded_rectangle(box, radius=8, fill=UNSUPPORTED_ICE, outline=UNSUPPORTED_EDGE, width=2)
             else:
                 draw.rounded_rectangle(box, radius=8, fill=ICE, outline=ICE_EDGE, width=2)
 

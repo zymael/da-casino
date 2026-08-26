@@ -3,11 +3,18 @@
 The physical model: the sturdy outer frame (never breaks, not part of the grid) is the only real
 anchor -- it's bolted to the table. A perimeter cell is pressed directly against that frame, so it
 stays put on its own regardless of what happens elsewhere. Every other cell is only held up by
-being pressed against its neighbors in an unbroken chain leading back to some perimeter cell --
-that's the "tension" propagating inward from the walls. The penguin stands on a fixed cell at dead
-center; the moment that cell is broken, or loses every remaining chain back to a wall, there's
-nothing left holding his footing and he falls -- whoever's break caused that is the loser. No
-draws are possible.
+being pressed against its neighbors -- straight up/down/left/right, never diagonally, since these
+are square cubes pushing against square cubes -- in an unbroken chain leading back to some
+perimeter cell. That chain can run through a full row supporting a partial column, a full column
+supporting a partial row, or any mix of both; only the shape of the remaining connected chain
+matters, not which direction it runs.
+
+Any cube that loses that chain falls immediately, for real -- not a cosmetic warning, it becomes
+open water right along with the cube that got hammered, and losing it can just as immediately
+strand its own neighbors, which fall too, cascading until everything left standing has a route
+back to a wall again. The penguin stands on a fixed cell at dead center; the only fall that
+actually matters is his -- whoever's break puts him in the water (directly or by starting a chain
+reaction that reaches him) is the loser. No draws are possible.
 """
 
 ROWS = 5
@@ -51,21 +58,30 @@ def supported_cells(board: list[list[int]]) -> set[tuple[int, int]]:
 
 
 class MoveResult:
-    def __init__(self, collapsed: bool, unsupported: set[tuple[int, int]]):
+    def __init__(self, collapsed: bool, fallen: set[tuple[int, int]]):
         self.collapsed = collapsed
-        self.unsupported = unsupported
+        self.fallen = fallen
 
 
 def apply_move(board: list[list[int]], row: int, col: int) -> MoveResult:
-    """Breaks (row, col), mutating `board` in place. Caller is responsible for having checked
-    (row, col) is one of legal_moves(board)'s entries. `unsupported` is every remaining intact
-    cell with no path back to a wall -- always includes CENTER when `collapsed` is true, and is
-    otherwise just flavor for rendering which (if any) unrelated pockets have quietly come loose
-    without threatening the penguin himself."""
+    """Breaks (row, col) and then cascades: any cube left standing with no remaining chain back to
+    a wall falls too (mutating `board` in place, same as the direct break), which can strand
+    further cubes in turn, repeating until everything left standing is genuinely supported. Caller
+    is responsible for having checked (row, col) is one of legal_moves(board)'s entries.
+    `fallen` is every cube that went into the water this turn, including (row, col) itself --
+    `collapsed` is just whether CENTER (the penguin) ended up among them, by direct hit or by the
+    cascade reaching him."""
+    fallen = {(row, col)}
     board[row][col] = 0
-    supported = supported_cells(board)
-    unsupported = {
-        (r, c) for r in range(ROWS) for c in range(COLS) if board[r][c] == 1 and (r, c) not in supported
-    }
-    collapsed = board[CENTER[0]][CENTER[1]] == 0 or CENTER in unsupported
-    return MoveResult(collapsed=collapsed, unsupported=unsupported)
+    while True:
+        supported = supported_cells(board)
+        newly_fallen = {
+            (r, c) for r in range(ROWS) for c in range(COLS) if board[r][c] == 1 and (r, c) not in supported
+        }
+        if not newly_fallen:
+            break
+        for r, c in newly_fallen:
+            board[r][c] = 0
+        fallen |= newly_fallen
+    collapsed = CENTER in fallen
+    return MoveResult(collapsed=collapsed, fallen=fallen)

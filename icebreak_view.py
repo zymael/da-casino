@@ -80,13 +80,13 @@ def build_icebreak_challenge_embed(challenge: IceBreakChallenge) -> discord.Embe
     )
 
 
-def _icebreak_embed(session: IceBreakSession, log_text: str, unsupported=None) -> tuple[discord.Embed, discord.File]:
+def _icebreak_embed(session: IceBreakSession, log_text: str) -> tuple[discord.Embed, discord.File]:
     embed = discord.Embed(title="🧊 Don't Break the Ice", description=log_text, color=discord.Color.teal())
     if session.wager:
         embed.add_field(name="💰 Wager", value=f"{session.wager} each ({session.wager * 2} to the winner)", inline=False)
     embed.add_field(name="Turn", value=f"➡️ **{session.current_name()}**", inline=False)
     buf = icebreak_render.render_board(
-        session.board, session.challenger_name, session.opponent_name, session.challenger_turn, unsupported=unsupported,
+        session.board, session.challenger_name, session.opponent_name, session.challenger_turn,
     )
     file = discord.File(buf, filename="icebreak.png")
     embed.set_image(url="attachment://icebreak.png")
@@ -113,7 +113,7 @@ async def _send_icebreak_update(
 
 
 async def _end_icebreak(
-    interaction: discord.Interaction | None, session: IceBreakSession, loser_is_challenger: bool, unsupported=None,
+    interaction: discord.Interaction | None, session: IceBreakSession, loser_is_challenger: bool,
 ) -> None:
     """Ends the game, pays out the wager (if any), and logs both players' outcomes as bets
     (db.log_bet, game="icebreak") -- same tiered win/loss achievement tracking every wagered game
@@ -142,8 +142,7 @@ async def _end_icebreak(
     description = f"**{loser_name}** breaks the ice and falls through!{payout_line}"
     embed = discord.Embed(title=title, description=description, color=discord.Color.gold())
     buf = icebreak_render.render_board(
-        session.board, session.challenger_name, session.opponent_name, session.challenger_turn,
-        unsupported=unsupported, game_over=True,
+        session.board, session.challenger_name, session.opponent_name, session.challenger_turn, game_over=True,
     )
     file = discord.File(buf, filename="icebreak.png")
     embed.set_image(url="attachment://icebreak.png")
@@ -171,12 +170,14 @@ class IceCellButton(discord.ui.Button):
         result = icebreak.apply_move(session.board, self.cell_row, self.cell_col)
 
         if result.collapsed:
-            await _end_icebreak(interaction, session, loser_is_challenger=is_challenger, unsupported=result.unsupported)
+            await _end_icebreak(interaction, session, loser_is_challenger=is_challenger)
             return
 
         session.challenger_turn = not session.challenger_turn
-        log_text = f"**{actor_name}** breaks **{self.label}**. The ice holds... for now."
-        embed, file = _icebreak_embed(session, log_text, unsupported=result.unsupported)
+        extra_falls = len(result.fallen) - 1
+        cascade_note = f" {extra_falls} more cube{'s' if extra_falls != 1 else ''} lose their footing and go under!" if extra_falls else ""
+        log_text = f"**{actor_name}** breaks **{self.label}**.{cascade_note} The ice holds... for now."
+        embed, file = _icebreak_embed(session, log_text)
         view = IceBreakBoardView(session)
         await _send_icebreak_update(interaction, session, embed, file, view)
 
