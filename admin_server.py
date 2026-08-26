@@ -3094,6 +3094,13 @@ def _auto_commit_content_save(path: str, spec: dict) -> None:
     working-tree state or sitting locally-committed-but-unpushed indefinitely (these JSON files are
     edited live, constantly, exactly the kind of continuously-changing production data that's most
     exposed by sitting uncommitted/unpushed -- see CLAUDE.md/git history for why this exists).
+    Also sweeps in every assets/ subdir this content type's "image"/"delve_flowchart" fields write
+    to (e.g. "npcs", "rooms") -- a save that included a new or overwritten sprite/background would
+    otherwise commit the JSON's new path while leaving the actual image file it points to
+    uncommitted/unpushed, which looks like nothing went wrong (the save itself always succeeds --
+    see _save_uploaded_image) until the image turns out missing wherever this repo gets pulled.
+    Filtered to subdirs that actually exist, since `git add` on a path with no matches errors out
+    (and would otherwise take the JSON `add` down with it in the same call).
     Best-effort and silent: never raises and never blocks a save from succeeding -- a git failure
     here (no repo, nothing actually changed, a lock held by something else, no network for the
     push) is a missed checkpoint, not a reason to reject content an admin just successfully
@@ -3101,10 +3108,17 @@ def _auto_commit_content_save(path: str, spec: dict) -> None:
     whatever branch this checkout happens to be on; a 15s timeout keeps a stalled connection from
     hanging the save request instead of just skipping the push."""
     repo_dir = os.path.dirname(__file__)
+    asset_dirs = sorted({
+        os.path.join(ASSETS_DIR, field["subdir"])
+        for field in spec.get("fields", [])
+        if field["type"] in ("image", "delve_flowchart")
+    })
+    asset_dirs = [d for d in asset_dirs if os.path.isdir(d)]
+    paths = [path, *asset_dirs]
     try:
-        subprocess.run(["git", "add", "--", path], cwd=repo_dir, check=True, capture_output=True)
+        subprocess.run(["git", "add", "--", *paths], cwd=repo_dir, check=True, capture_output=True)
         subprocess.run(
-            ["git", "commit", "-m", f"content: save {os.path.basename(path)} via admin panel", "--", path],
+            ["git", "commit", "-m", f"content: save {os.path.basename(path)} via admin panel", "--", *paths],
             cwd=repo_dir, capture_output=True,
         )
         subprocess.run(["git", "push", "origin", "HEAD"], cwd=repo_dir, capture_output=True, timeout=15)
