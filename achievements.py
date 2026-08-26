@@ -172,6 +172,14 @@ ACHIEVEMENTS = [
         "description": "Win a 1v1 duel against another player.",
         "reward": 25,
     },
+    {
+        "kind": "win_mancala",
+        "scope": "personal",
+        "emoji": "🟤",
+        "name": "Pit Boss",
+        "description": "Win a game of Mancala against another player.",
+        "reward": 25,
+    },
 ]
 
 # Maps each game bucket to its emoji/title and the db.log_bet() `game` string(s) that feed it
@@ -187,6 +195,7 @@ GAMES = {
         "first_win_kind": "win_video_poker",
     },
     "duel": {"emoji": "⚔️", "title": "Duels", "log_keys": ["duel"], "first_win_kind": "win_duel"},
+    "mancala": {"emoji": "🟤", "title": "Mancala", "log_keys": ["mancala"], "first_win_kind": "win_mancala"},
 }
 
 # Win/loss count tiers -- reaching a tier claims that tier's kind ({bucket}_wins_{tier} /
