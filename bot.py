@@ -111,7 +111,7 @@ PIZZA_GIFS = [
 
 ROY_GIF = "https://media.giphy.com/media/ywGp4PMJdeLyuRq7vJ/giphy.gif"
 
-DELETEBOT_GIF = "https://media1.tenor.com/m/EWZCUGkCcIsAAAAd/old-man-my-computer.gif"
+DELETEBOT_GIF = "https://media.giphy.com/media/P7PmvHY6kzAqY/giphy.gif"
 
 RUB_GIF = "https://images-ext-1.discordapp.net/external/1P77ZqLgK4rKSPC0sX4o7VjLSbabwB22RU3dP_2OEPU/https/static.klipy.com/ii/35ccce3d852f7995dd2da910f2abd795/62/ec/kAMWSWzV.mp4"
 
