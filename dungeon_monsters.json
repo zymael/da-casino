@@ -1,7 +1,7 @@
 [
   {
     "id": "goblin_grunt",
-    "name": "Goblin Grunt",
+    "name": "Goblin Groover",
     "hp": 27,
     "atk": 9,
     "def": 2,
@@ -11,7 +11,7 @@
     "intended_level": 1,
     "shape": "triangle",
     "color": "#4a7c3c",
-    "flavor": "A scrawny goblin snarls and raises a rusty knife.",
+    "flavor": "A shiny goblin spins around menacingly on the dance floor, yet it's moves are far from fly.  You move in to show him how to break it down.",
     "loot_min": 15,
     "loot_max": 39,
     "drops": [
@@ -86,6 +86,7 @@
         "chance": 0.05
       }
     ],
+    "skills": [],
     "sprite_path": "assets/dungeon/monsters/goblin_grunt.png"
   },
   {
