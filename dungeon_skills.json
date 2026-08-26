@@ -1548,40 +1548,5 @@
     ],
     "chip_cost": 8,
     "special": false
-  },
-  {
-    "id": "test",
-    "main_class": "rogue",
-    "subclass": "diamonds",
-    "unlock_level": 15,
-    "name": "test",
-    "flavor": "test",
-    "effect_groups": [
-      {
-        "effects": [
-          {
-            "type": "dot",
-            "duration": 1,
-            "value": 1,
-            "target": "enemy",
-            "chance": 1.0
-          }
-        ],
-        "chance": 1
-      },
-      {
-        "effects": [
-          {
-            "type": "sap",
-            "duration": 1,
-            "target": "enemy",
-            "chance": 1.0
-          }
-        ],
-        "chance": 1
-      }
-    ],
-    "chip_cost": 11,
-    "special": false
   }
 ]
