@@ -1909,13 +1909,26 @@ def _render_drop_row(prefix: str, drop: dict) -> str:
     )
 
 
+def _asset_src(rel_path: str) -> str:
+    """Builds an /assets/... URL for a repo-root-relative asset path, with a cache-busting
+    ?v=<mtime> query param -- the path itself doesn't change when a sprite is re-uploaded under
+    the same filename, so without this a browser's HTTP cache can keep serving the old image
+    bytes indefinitely after a replace."""
+    abs_path = os.path.join(os.path.dirname(__file__), rel_path)
+    try:
+        version = int(os.path.getmtime(abs_path))
+    except OSError:
+        return f"/{rel_path}"
+    return f"/{rel_path}?v={version}"
+
+
 def _render_image_input(name: str, label: str, value: str | None) -> str:
     """The <label>+preview+file-input markup for one image upload -- shared by _render_field's
     top-level "image" case and _render_room_detail_panel's per-room background field, since both
     need the exact same live-preview wiring (see wireImagePreviews) and "keep existing on no
     upload" semantics (see _save_uploaded_image / _parse_delve_flowchart)."""
     preview_id = f"preview_{name}"
-    src = f"/{value}" if value else ""
+    src = _asset_src(value) if value else ""
     display = "block" if value else "none"
     return (
         f'<label>{label}'
@@ -4046,7 +4059,7 @@ async def assets_view(request: web.Request) -> web.Response:
             error = "".join(f'<p class="error">{html.escape(e)}</p>' for e in errors)
 
     rows = "".join(
-        f'<tr><td><img src="/{path}" class="asset-thumb" loading="lazy"></td>'
+        f'<tr><td><img src="{html.escape(_asset_src(path))}" class="asset-thumb" loading="lazy"></td>'
         f'<td><code>{html.escape(path)}</code></td>'
         f'<td>{size_kb:.1f} KB</td>'
         f'<td><form method="post" action="/assets/delete" '
