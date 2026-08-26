@@ -83,7 +83,8 @@
         "item_id": "bowler_derby",
         "price": 1000
       }
-    ]
+    ],
+    "buys_items": false
   },
   {
     "id": "slug",
