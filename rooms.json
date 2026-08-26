@@ -199,6 +199,10 @@
       {
         "room_id": "kreachur_emporium",
         "label": "\ud83e\uddcd\u200d\u2642\ufe0fDa Emporium"
+      },
+      {
+        "room_id": "vic_junkyard",
+        "label": "\ud83c\udf5d Vic's Italian Junkyard and Pastatorium"
       }
     ],
     "commands": []
