@@ -282,6 +282,12 @@
         "label": "\ud83c\udf44Gnomish Night Market"
       }
     ],
-    "commands": []
+    "commands": [
+      {
+        "key": "smash",
+        "kind": "none",
+        "label": "\ud83d\uddff SMASH"
+      }
+    ]
   }
 ]
