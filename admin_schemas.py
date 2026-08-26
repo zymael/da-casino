@@ -234,7 +234,7 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "MONSTERS",
         "loader": dungeon._load_monsters,
-        "list_columns": ["id", "name", "intended_level", "hp", "atk", "def", "spatk", "spdef"],
+        "list_columns": ["id", "name", "intended_level", "hp", "atk", "def", "spatk", "spdef", "spd"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
@@ -249,6 +249,7 @@ CONTENT_TYPES = {
                 "name": "spdef", "type": "int", "required": True, "min": 0, "group": "Stats",
                 "hint": "Special Defense -- used instead of def against an attacker's special skills",
             },
+            {"name": "spd", "type": "int", "required": True, "min": 0, "group": "Stats"},
             {
                 "name": "intended_level", "type": "int", "required": False, "min": 1, "group": "Stats",
                 "hint": "optional -- the player level this monster is meant to be a fair fight for. "
