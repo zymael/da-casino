@@ -451,6 +451,7 @@
         "y": 184.0
       }
     },
-    "start_room": "Coat Check"
+    "start_room": "Coat Check",
+    "background_path": "assets/dungeon/backgrounds/goblin_disco_copy.jpg"
   }
 ]
