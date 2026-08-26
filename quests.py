@@ -29,6 +29,7 @@ import random
 import db
 import dungeon
 import horse_clothes
+import moon
 import npcs
 
 _QUEST_ITEMS_PATH = os.path.join(os.path.dirname(__file__), "quest_items.json")
@@ -68,6 +69,14 @@ TRIGGER_SCHEMAS = {
     # check; the actual deduction is special-cased in turn_in(), same split turn_in_item has with
     # db.consume_inventory_item).
     "pay_currency": ({"amount"}, set()),
+    # Real-world lunar phase (moon.py, already backing a secret odds nudge elsewhere) rather than
+    # any player state -- self-contained like every type above it, just reading moon.current_phase()
+    # instead of the db. not_moon_phase is the only trigger type with a negated counterpart, added
+    # alongside moon_phase (rather than a generic "not" wrapper around any trigger) so an NPC's
+    # presence can be made mutually exclusive with another's on the same condition without inventing
+    # a whole second condition-combinator concept for one use.
+    "moon_phase": ({"phase"}, set()),
+    "not_moon_phase": ({"phase"}, set()),
 }
 
 # event_type -> does this trigger match the event's data. Only the *counted* trigger types
@@ -220,6 +229,8 @@ def _validate_trigger(trigger: dict, context: str):
         raise ValueError(f"{context} trigger references unknown class {trigger['main_class']!r}")
     if "subclass" in params and trigger["subclass"] not in dungeon.SUBCLASSES:
         raise ValueError(f"{context} trigger references unknown subclass {trigger['subclass']!r}")
+    if "phase" in params and trigger["phase"] not in {p[0] for p in moon.PHASES}:
+        raise ValueError(f"{context} trigger references unknown moon phase {trigger['phase']!r}")
 
 
 def _load_quests(path: str = _QUESTS_PATH) -> dict[str, dict]:
@@ -556,6 +567,10 @@ async def trigger_satisfied(
             and character["main_class"] == trigger["main_class"]
             and (trigger.get("subclass") is None or character["subclass"] == trigger["subclass"])
         )
+    if trigger_type == "moon_phase":
+        return moon.current_phase()[0] == trigger["phase"]
+    if trigger_type == "not_moon_phase":
+        return moon.current_phase()[0] != trigger["phase"]
     # Counted types (kill_monster, craft_item) -- scoped to one quest stage's own counter flag.
     count = await asyncio.to_thread(db.get_flag, guild_id, user_id, _stage_counter_key(quest_id, stage))
     return count >= trigger["count"]

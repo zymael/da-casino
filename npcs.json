@@ -11,7 +11,23 @@
     "name": "Kel",
     "room": "ranch",
     "greet_message": "Yes, I am Kel. Your assistant and a proud breeder of horses. You may look to me whenever you need help tending to the ranch, or whenever you need a horse bred.",
-    "greet_achievement": "love_in_bloom"
+    "greet_achievement": "love_in_bloom",
+    "visible_trigger": {
+      "type": "not_moon_phase",
+      "phase": "full_moon"
+    }
+  },
+  {
+    "id": "kel_werewolf",
+    "name": "The Wolf (Definitely Not Kel)",
+    "room": "ranch",
+    "greet_message": "*A terrifying, yet strikingly handsome creature stands suspiciously where Kel usually does. As you approach it speaks to you in a gruff, sensual voice.*\n\nKit...ten... Come to your... Alpha...\n\n*It then proceeds to beat the ever loving shit out of you. Ouch.*",
+    "greet_achievement": "morbed_by_kel",
+    "talk_label": "🐺 Get Morbed",
+    "visible_trigger": {
+      "type": "moon_phase",
+      "phase": "full_moon"
+    }
   },
   {
     "id": "roy",

@@ -125,6 +125,14 @@ ACHIEVEMENTS = [
         "reward": 25,
     },
     {
+        "kind": "morbed_by_kel",
+        "scope": "personal",
+        "emoji": "🐺",
+        "name": "Morbed",
+        "description": "Your Alpha called you \"kitten,\" then beat the ever loving shit out of you.",
+        "reward": 25,
+    },
+    {
         "kind": "dared_by_mondor",
         "scope": "personal",
         "emoji": "🧙",

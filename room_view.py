@@ -141,7 +141,8 @@ class RoomView(discord.ui.View):
 
         for npc_id in present_npcs:
             self._add(npc_view.TalkToNpcButton(
-                npc_id, room["background_path"], self._rebuild, row=0, label=npc_talk_labels.get(npc_id),
+                npc_id, room["background_path"], self._rebuild, row=0,
+                label=npc_talk_labels.get(npc_id) or npcs.NPCS[npc_id].get("talk_label"),
             ))
             if npcs.NPCS[npc_id].get("shop"):
                 self._add(npc_view.ShopButton(npc_id, row=0))

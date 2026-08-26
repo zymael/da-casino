@@ -192,7 +192,7 @@ TRIGGER_PARAM_KINDS = {
     "item_id": "quest_item", "drop_monster": "monster", "monster_id": "monster",
     "recipe_id": "recipe", "kind": "achievement", "quest_id": "quest",
     "count": "int", "value": "int", "key": "str", "amount": "int",
-    "main_class": "main_class", "subclass": "subclass",
+    "main_class": "main_class", "subclass": "subclass", "phase": "moon_phase",
 }
 # One-line explanations shown under each trigger param box -- the params themselves (tier vs
 # monster_id, drop_monster vs item_id) are easy to mix up out of context, especially since every
@@ -213,6 +213,8 @@ TRIGGER_PARAM_HINTS = {
     "amount": "how much currency must be paid to advance this stage",
     "main_class": "the player's dungeon class (e.g. mage) -- required for the \"class\" trigger",
     "subclass": "optional -- narrows to one specific subclass; blank means any subclass of main_class",
+    "phase": "which of the 8 lunar phases (moon.py) must (moon_phase) or must not (not_moon_phase) "
+              "currently be showing",
 }
 
 DUNGEON_CONTENT = "Dungeon Content"
@@ -684,6 +686,11 @@ CONTENT_TYPES = {
                 "name": "greet_achievement", "type": "enum", "required": False, "group": "Dialogue",
                 "choices": [a["kind"] for a in achievements.ACHIEVEMENTS],
                 "hint": "granted (once, idempotently) the first time this NPC is talked to -- optional",
+            },
+            {
+                "name": "talk_label", "type": "str", "required": False, "group": "Dialogue",
+                "hint": "optional -- overrides the Talk button's default \"Talk to X\" label. A "
+                        "quest's own button_label (while that quest is active) still wins over this.",
             },
             {
                 "name": "visible_trigger", "type": "trigger", "required": False,

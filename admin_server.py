@@ -34,6 +34,7 @@ import db
 import dungeon
 import horse_clothes
 import housing
+import moon
 import quests
 import room_commands
 import rooms
@@ -55,6 +56,7 @@ _TRIGGER_PARAM_CHOICES = {
     "quest": lambda: sorted(quests.QUESTS_BY_ID.keys()),
     "main_class": lambda: sorted(dungeon.CLASSES.keys()),
     "subclass": lambda: sorted(dungeon.SUBCLASSES.keys()),
+    "moon_phase": lambda: [p[0] for p in moon.PHASES],
 }
 
 load_dotenv()
