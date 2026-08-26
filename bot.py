@@ -42,6 +42,12 @@ from horserace_view import HorseRaceView, active_races
 import hub_ui
 import inventory_view
 import jackpot
+from connect4_view import (
+    Connect4ChallengeView,
+    build_connect4_challenge_embed,
+    build_connect4_target_picker,
+    start_connect4,
+)
 from mancala_view import (
     MancalaChallengeView,
     build_mancala_challenge_embed,
@@ -1028,6 +1034,52 @@ async def mancala_cmd(ctx, member: discord.Member = None, wager: int = 0):
     await _mancala_challenge(ctx, member, wager)
 
 
+async def _connect4_challenge(ctx, member: discord.Member, wager: int) -> None:
+    """The actual challenge-creation logic for a resolved (member, wager) pair -- shared by
+    connect4_cmd's typed invocation and the connect4 picker's Select->Modal flow (connect4_view.
+    build_connect4_target_picker), same shape as _mancala_challenge above."""
+    if member.id == ctx.author.id:
+        await ctx.send("You can't play Connect 4 against yourself.")
+        return
+    if member.bot:
+        await ctx.send("You can't play Connect 4 against a bot.")
+        return
+    if wager < 0:
+        await ctx.send("Wager can't be negative.")
+        return
+    if ctx.author.id in active_delves or ctx.author.id in holdem_busy_players:
+        await ctx.send("Finish up whatever you're already doing first.")
+        return
+    if member.id in active_delves or member.id in holdem_busy_players:
+        await ctx.send(f"{member.display_name} is already tied up in something else right now.")
+        return
+
+    currency = db.get_currency_name(ctx.guild.id)
+    if wager:
+        balance = await asyncio.to_thread(db.get_balance, ctx.guild.id, ctx.author.id)
+        if balance < wager:
+            await ctx.send(f"You only have **{balance}** {currency} — you can't wager **{wager}**.")
+            return
+
+    challenge = await start_connect4(ctx.guild.id, ctx.author.id, ctx.author.display_name, member.id, member.display_name, wager)
+    view = Connect4ChallengeView(challenge)
+    challenge.message = await ctx.send(content=member.mention, embed=build_connect4_challenge_embed(challenge), view=view)
+
+
+@bot.command(name="connect4")
+async def connect4_cmd(ctx, member: discord.Member = None, wager: int = 0):
+    """Challenge another player to Connect 4: !connect4 @user [wager], or plain !connect4 to pick
+    a target from a dropdown instead (same fallback shape as !duel/!mancala). They have to Accept
+    before it starts."""
+    if await _reject_if_at_poker_table(ctx):
+        return
+    if member is None:
+        view = build_connect4_target_picker(_connect4_challenge)
+        await ctx.send("Pick who you want to play Connect 4 with:", view=view)
+        return
+    await _connect4_challenge(ctx, member, wager)
+
+
 @bot.command(name="inventory")
 async def inventory_cmd(ctx):
     """See your quest items and dungeon gear (equipped + stored): !inventory"""
@@ -1630,6 +1682,7 @@ room_commands.COMMANDS.update({
     "delve": delve_cmd.callback,
     "duel": duel_cmd.callback,
     "mancala": mancala_cmd.callback,
+    "connect4": connect4_cmd.callback,
     "craft": craft_cmd.callback,
     "train": train_cmd.callback,
     "boost": boost_cmd.callback,
