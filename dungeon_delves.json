@@ -325,5 +325,132 @@
       }
     },
     "start_room": "test"
+  },
+  {
+    "id": "goblin_disco_copy",
+    "name": "Goblin Discoth\u00e8que",
+    "active": false,
+    "flavor": "A wild goblin party that you were not invited to. ",
+    "rooms": [
+      {
+        "id": "Coat Check",
+        "type": "combat",
+        "monster_groups": [
+          {
+            "monsters": [
+              "goblin_grunt"
+            ]
+          },
+          {
+            "monsters": [
+              "goblin_scavenger"
+            ]
+          }
+        ],
+        "next": "Dance Floor"
+      },
+      {
+        "id": "Dance Floor",
+        "type": "combat",
+        "monster_groups": [
+          {
+            "monsters": [
+              "goblin_skirmisher"
+            ]
+          },
+          {
+            "monsters": [
+              "goblin_archer"
+            ]
+          }
+        ],
+        "next": "DANCE FEVER"
+      },
+      {
+        "id": "DANCE FEVER",
+        "type": "choice",
+        "prompt": "That last fight really got you moving!  Something is off though... are the beats being played most ungroovy, or are you just not drunk enough for this shit?",
+        "actions": [
+          {
+            "label": "This music sucks!",
+            "on_success": {
+              "next": "The DJ Booth"
+            },
+            "x": 826.0,
+            "y": 88.0
+          },
+          {
+            "label": "I am too sober for this",
+            "on_success": {
+              "next": "The Bar"
+            },
+            "x": 804.0,
+            "y": 276.0
+          }
+        ]
+      },
+      {
+        "id": "The DJ Booth",
+        "type": "combat",
+        "monster_groups": [
+          {
+            "monsters": [
+              "goblin_chief"
+            ]
+          }
+        ],
+        "next": "The Back Office"
+      },
+      {
+        "id": "The Bar",
+        "type": "combat",
+        "monster_groups": [
+          {
+            "monsters": [
+              "goblin_warlord"
+            ]
+          }
+        ],
+        "next": "The Back Office"
+      },
+      {
+        "id": "The Back Office",
+        "type": "combat",
+        "monster_groups": [
+          {
+            "monsters": [
+              "goblin_chief"
+            ]
+          }
+        ]
+      }
+    ],
+    "layout": {
+      "Coat Check": {
+        "x": 13.0,
+        "y": 108.0
+      },
+      "Dance Floor": {
+        "x": 276.0,
+        "y": 133.0
+      },
+      "DANCE FEVER": {
+        "x": 530.0,
+        "y": 169.0
+      },
+      "The DJ Booth": {
+        "x": 1230.0,
+        "y": 77.0
+      },
+      "The Bar": {
+        "x": 1226.0,
+        "y": 281.0
+      },
+      "The Back Office": {
+        "x": 1538.0,
+        "y": 184.0
+      }
+    },
+    "start_room": "Coat Check"
   }
 ]
