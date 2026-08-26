@@ -201,7 +201,7 @@ def render_room(
         mx = cx + x_offset
         sprite = _load_monster_sprite(monster.get("sprite_path"), sprite_height)
         if sprite:
-            pos = (round(mx - sprite.width / 2), round(cy + 75 - sprite.height))
+            pos = (round(mx - sprite.width / 2), round(cy + 110 - sprite.height))
             img.alpha_composite(sprite, pos)
         else:
             draw = ImageDraw.Draw(img)
