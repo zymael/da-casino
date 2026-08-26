@@ -1,4 +1,7 @@
 import asyncio
+import random
+import traceback
+from collections import Counter
 
 import discord
 
@@ -9,7 +12,8 @@ import uno_render
 from holdem_view import busy_players
 
 LOBBY_TIMEOUT = 180  # 3 minutes to gather 2-4 players before the table auto-cancels and refunds
-HAND_VIEW_TIMEOUT = 120
+TURN_TIMEOUT = 60  # a stalled turn auto-resolves rather than freezing the table forever (see the
+# on_timeout handlers below) -- no votekick needed since the auto-resolution itself is low-stakes
 MAX_HAND_BUTTONS = 24  # leaves room for the Draw button within Discord's 25-components-per-view cap
 
 COLOR_EMOJI = {"red": "🟥", "yellow": "🟨", "green": "🟩", "blue": "🟦", "wild": "⬛"}
@@ -45,6 +49,9 @@ class UnoTable:
         self.message: discord.Message | None = None
         self.game: uno.UnoGame | None = None
         self.started = False
+        self.render_seq = 0  # bumped per public render so each attachment gets a fresh filename
+        # -- Discord's CDN can cache an attachment by filename, so reusing "uno.png" on every edit
+        # risks a client showing a stale image even though the message genuinely updated.
 
     def seat_for(self, user_id: int) -> UnoSeat | None:
         return next((s for s in self.seats if s.member.id == user_id), None)
@@ -194,17 +201,20 @@ def build_table_display(table: UnoTable, log_text: str | None = None) -> tuple[d
     description = log_text or f"**{game.current_seat().name}**'s turn — click 🎴 Your Hand below."
     embed = discord.Embed(title="🎴 UNO", description=description, color=discord.Color.teal())
     buf = uno_render.render_table(game, pot=table.pot())
-    file = discord.File(buf, filename="uno.png")
-    embed.set_image(url="attachment://uno.png")
+    table.render_seq += 1
+    filename = f"uno_{table.render_seq}.png"  # unique per render -- see UnoTable.render_seq's own comment
+    file = discord.File(buf, filename=filename)
+    embed.set_image(url=f"attachment://{filename}")
     return embed, file
 
 
 async def _update_public_table(table: UnoTable, log_text: str) -> None:
-    embed, file = build_table_display(table, log_text)
     try:
+        embed, file = build_table_display(table, log_text)
         await table.message.edit(embed=embed, attachments=[file])
-    except discord.HTTPException:
-        pass
+    except Exception:
+        print(f"[uno] failed to update public table in channel {table.channel_id}:")
+        traceback.print_exc()
 
 
 async def _end_uno_round(table: UnoTable, winner_seat_idx: int) -> None:
@@ -239,8 +249,10 @@ async def _end_uno_round(table: UnoTable, winner_seat_idx: int) -> None:
         color=discord.Color.gold(),
     )
     buf = uno_render.render_table(game, pot=0)
-    file = discord.File(buf, filename="uno.png")
-    embed.set_image(url="attachment://uno.png")
+    table.render_seq += 1
+    filename = f"uno_{table.render_seq}.png"
+    file = discord.File(buf, filename=filename)
+    embed.set_image(url=f"attachment://{filename}")
     _cleanup(table)
     try:
         await table.message.edit(embed=embed, attachments=[file], view=None)
@@ -256,24 +268,40 @@ async def _end_uno_round(table: UnoTable, winner_seat_idx: int) -> None:
             await achievements.try_award_many(send, table.guild_id, seat.user_id, seat.name, lk)
 
 
-async def _finalize_play(
-    interaction: discord.Interaction, table: UnoTable, seat_idx: int, card: "uno.Card", chosen_color: str | None,
-) -> None:
+async def _resolve_play(table: UnoTable, seat_idx: int, card: "uno.Card", chosen_color: str | None, prefix: str = "") -> None:
+    """Applies a play and broadcasts the result to the public table (or ends the round on a win)
+    -- shared by the interactive path (_finalize_play) and the color-picker's on_timeout, which
+    has no interaction to clean up but otherwise resolves exactly the same way."""
     game = table.game
     actor_name = game.seats[seat_idx].name
     result = uno.apply_play(game, seat_idx, card, chosen_color)
+    if result.winner:
+        await _end_uno_round(table, seat_idx)
+        return
+    log = f"{prefix}**{actor_name}** plays {_card_label(card)}."
+    if result.announce_uno:
+        log += f" 🔔 **{actor_name}** has UNO!"
+    await _update_public_table(table, log)
+
+
+async def _finalize_play(
+    interaction: discord.Interaction, table: UnoTable, seat_idx: int, card: "uno.Card", chosen_color: str | None,
+) -> None:
     try:
         await interaction.response.defer()
         await interaction.delete_original_response()
     except discord.HTTPException:
         pass
-    if result.winner:
-        await _end_uno_round(table, seat_idx)
-        return
-    log = f"**{actor_name}** plays {_card_label(card)}."
-    if result.announce_uno:
-        log += f" 🔔 **{actor_name}** has UNO!"
-    await _update_public_table(table, log)
+    await _resolve_play(table, seat_idx, card, chosen_color)
+
+
+def _default_color(hand: list["uno.Card"]) -> str:
+    """A reasonable auto-pick for a stalled wild-color choice -- whichever color the player is
+    holding the most of, falling back to random if their hand is nothing but wilds."""
+    colors = [c.color for c in hand if c.color != "wild"]
+    if not colors:
+        return random.choice(uno.COLORS)
+    return Counter(colors).most_common(1)[0][0]
 
 
 class UnoColorButton(discord.ui.Button):
@@ -288,17 +316,29 @@ class UnoColorButton(discord.ui.Button):
 
 class UnoColorPickerView(discord.ui.View):
     def __init__(self, table: UnoTable, seat_idx: int, card: "uno.Card"):
-        super().__init__(timeout=HAND_VIEW_TIMEOUT)
+        super().__init__(timeout=TURN_TIMEOUT)
         self.table = table
         self.seat_idx = seat_idx
         self.card = card
         for color in uno.COLORS:
             self.add_item(UnoColorButton(color))
 
+    async def on_timeout(self):
+        table = self.table
+        game = table.game
+        # table.channel_id leaving active_tables is the authoritative "round already over" signal
+        # (see _end_uno_round/_cleanup) -- current_index alone isn't enough, since a *winning*
+        # play never advances it, so a stale timeout on the exact card that just won could
+        # otherwise try to replay a card no longer in anyone's hand.
+        if table.channel_id not in active_tables or self.seat_idx != game.current_index:
+            return
+        color = _default_color(game.seats[self.seat_idx].hand)
+        await _resolve_play(table, self.seat_idx, self.card, color, prefix="⌛ ")
+
 
 class UnoDrawnCardChoiceView(discord.ui.View):
     def __init__(self, table: UnoTable, seat_idx: int, card: "uno.Card"):
-        super().__init__(timeout=HAND_VIEW_TIMEOUT)
+        super().__init__(timeout=TURN_TIMEOUT)
         self.table = table
         self.seat_idx = seat_idx
         self.card = card
@@ -321,6 +361,15 @@ class UnoDrawnCardChoiceView(discord.ui.View):
         except discord.HTTPException:
             pass
         await _update_public_table(self.table, f"**{actor_name}** draws a card and keeps it — turn passes.")
+
+    async def on_timeout(self):
+        table = self.table
+        game = table.game
+        if table.channel_id not in active_tables or self.seat_idx != game.current_index:
+            return
+        actor_name = game.seats[self.seat_idx].name
+        uno.pass_turn(game)
+        await _update_public_table(table, f"⌛ **{actor_name}** took too long — keeps the drawn card, turn passes.")
 
 
 class UnoDrawButton(discord.ui.Button):
@@ -388,7 +437,7 @@ class UnoCardButton(discord.ui.Button):
 
 class UnoHandView(discord.ui.View):
     def __init__(self, table: UnoTable, seat_idx: int):
-        super().__init__(timeout=HAND_VIEW_TIMEOUT)
+        super().__init__(timeout=TURN_TIMEOUT)
         self.table = table
         self.seat_idx = seat_idx
         game = table.game
@@ -402,6 +451,16 @@ class UnoHandView(discord.ui.View):
         for card in hand[:MAX_HAND_BUTTONS]:
             self.add_item(UnoCardButton(card, playable=card in legal))
         self.add_item(UnoDrawButton())
+
+    async def on_timeout(self):
+        table = self.table
+        game = table.game
+        if table.channel_id not in active_tables or self.seat_idx != game.current_index:
+            return
+        actor_name = game.seats[self.seat_idx].name
+        uno.draw_card(game, self.seat_idx)
+        uno.pass_turn(game)
+        await _update_public_table(table, f"⌛ **{actor_name}** took too long — auto-draws a card and passes.")
 
 
 def build_hand_embed(table: UnoTable, seat_idx: int) -> tuple[discord.Embed, discord.File]:
