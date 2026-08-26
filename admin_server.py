@@ -4402,6 +4402,32 @@ def _rotation_explorer_table_html(by_policy: dict) -> str:
     )
 
 
+def _damage_ramp_html(report: dict) -> str:
+    """report: {policy: {tier_label: [dmg turn 1..N]}} from skill_balance.damage_ramp_report --
+    one small table per policy, tiers as rows, turns as columns, so a "burst then fizzle" or
+    "ramps up once debuffed" shape reads directly left-to-right."""
+    tiers_info = skill_balance.monster_tiers()
+    sections = []
+    for policy, tiers in report.items():
+        if not tiers:
+            continue
+        turn_count = len(next(iter(tiers.values())))
+        header = "".join(f"<th>T{i + 1}</th>" for i in range(turn_count))
+        rows = "".join(
+            f'<tr><td>{html.escape(label)} <span class="field-hint">'
+            f'(n={tiers_info[label]["monster_count"]} monster(s), DEF/SpDef {tiers_info[label]["def"]:g})'
+            f"</span></td>" + "".join(f"<td>{v:.1f}</td>" for v in values) + "</tr>"
+            for label, values in tiers.items()
+        )
+        sections.append(
+            f'<h4>{html.escape(policy)} <span class="field-hint">'
+            f'{html.escape(skill_balance.ROTATION_POLICIES[policy])}</span></h4>'
+            f'<div class="table-scroll"><table><thead><tr><th>Tier</th>{header}</tr></thead>'
+            f"<tbody>{rows}</tbody></table></div>"
+        )
+    return "".join(sections)
+
+
 async def skill_balance_view(request: web.Request) -> web.Response:
     """Read-only balance report for every class+subclass build and skill -- no content edits, no
     POST, recomputed fresh on every load the same way horserace.current_probabilities is (a Monte-
@@ -4433,6 +4459,9 @@ async def skill_balance_view(request: web.Request) -> web.Response:
         delve_table = "<p>No delves defined.</p>"
         delve_name = "(none)"
         explorer_table = "<p>No delves defined.</p>"
+
+    ramp_report = skill_balance.damage_ramp_report(build[0], build[1])
+    ramp_html = _damage_ramp_html(ramp_report) if any(ramp_report.values()) else "<p>No monster tiers defined.</p>"
 
     delve_options = "".join(
         f'<option value="{html.escape(did)}"{" selected" if did == delve_id else ""}>'
@@ -4479,15 +4508,27 @@ async def skill_balance_view(request: web.Request) -> web.Response:
     {delve_table}
 
     <h2>Rotation Explorer</h2>
-    <p>Pick one build to see how each candidate rotation strategy actually plays out for it in the
-    delve selected above -- this is what "Best rotation" in the table above is chosen from.</p>
+    <p>Pick one build to see how each candidate rotation strategy actually plays out for it -- this
+    is what "Best rotation" in the table above is chosen from.</p>
     <form method="get" class="delve-picker">
         <input type="hidden" name="delve" value="{html.escape(delve_id or '')}">
         <label style="flex-direction:row;align-items:center;gap:8px;">Build
             <select name="build" onchange="this.form.submit()">{build_options}</select>
         </label>
     </form>
+
+    <h3>Across a whole delve ({delve_name})</h3>
     {explorer_table}
+
+    <h3>Damage ramp vs. monster tiers</h3>
+    <p>Instead of a specific delve's rooms, this pits the selected build against three imagined
+    monster difficulty tiers (Early/Mid/Late -- median DEF/SpDef of the game's own real monsters at
+    that intended level range) and charts damage turn by turn (T1, T2, ...) across one continuous
+    fight per tier, full Chips at the start. Buffs, DEF/SpDef-lowering debuffs, and DoT ticks all
+    carry forward turn to turn, so a rotation that opens with a debuff before its big hits should
+    visibly ramp up rather than hit the same every turn -- and a build that can barely dent a Late-
+    tier monster's defense shows up as a near-flat, low line the same way it would in real play.</p>
+    {ramp_html}
     """
     return _html_response(
         _page("Skill Balance", body, active="skill-balance", breadcrumbs=[("Home", "/"), ("Skill Balance", None)])

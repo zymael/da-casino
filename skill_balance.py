@@ -23,6 +23,14 @@ import dungeon
 SIMULATION_TRIALS = 300
 SIMULATION_LEVEL = 999  # unlocks every skill regardless of unlock_level -- see module docstring
 ROTATION_TURN_CAP = 40  # safety cap on one simulated fight, in case output can't outpace monster HP
+RAMP_TURN_COUNT = 8  # how many turns the damage-ramp chart (damage_ramp_for_build) covers
+# Synthetic monster difficulty tiers -- (label, min intended_level, max intended_level), grounded in
+# dungeon_monsters.json's own real content (median DEF/SpDef of every monster whose intended_level
+# falls in the band) rather than invented numbers, so "how does this rotation's damage ramp against
+# an early/mid/late-game monster" reads directly off the game's own actual difficulty curve instead
+# of needing a specific delve authored to test against. Adjust the bands here if the monster
+# roster's own level spread shifts enough to leave one sparse/empty -- see monster_tiers.
+MONSTER_TIER_LEVEL_BANDS = [("Early", 1, 7), ("Mid", 8, 20), ("Late", 21, 40)]
 # A skill or build whose damage/turn or damage/chip sits further than this fraction from its
 # cohort's median gets flagged in the balance tables -- starting number, tune after playtesting,
 # same "documented, adjustable constant" style as horserace.TARGET_RTP/FAVORITE_LONGSHOT_BIAS.
@@ -266,69 +274,161 @@ def _rank_damage_skills(damage_skills: list[dict], stats: dict, ref_def: float, 
     return [skill for _, skill in sorted(scored, key=lambda pair: pair[0], reverse=True)]
 
 
+def _take_turn(state: dict, ranked: list[dict]) -> float:
+    """Resolves exactly one turn against `state` (a mutable {"atk", "spatk", "def_", "spdef",
+    "chips", "dot_ticks"} dict, updated in place) using `ranked`'s ordering to pick the strongest/
+    most-affordable skill out of state["chips"], falling back to a free plain Attack once nothing
+    is affordable. Returns the total damage dealt this turn (DoT ticks + this turn's own action).
+
+    Ordering matches dungeon_view._resolve_player_action exactly, not just approximately: dodge is
+    rolled ONCE per cast, against the target's defense as it stood BEFORE this cast's own effects
+    (mirrors production reading eff_def for the dodge roll before handler_effects apply) -- so a
+    successful dodge blocks this cast's damage AND any enemy-targeted debuff it carried (def_shred/
+    spdef_debuff/dot) alike, while a self-targeted buff (atk_buff/spatk_buff) is never dodge-gated,
+    same "self/ally effects don't care about the enemy's dodge roll" rule production follows. Any
+    def_shred/spdef_debuff/atk_buff/spatk_buff THIS SAME cast applies still affects THIS SAME cast's
+    own damage roll (buffs/debuffs resolve before the roll reads atk/spatk/def_/spdef, same as
+    production) -- this is what makes a "soften them up then swing" skill (single cast, both
+    effects) actually ramp within its own turn, not just on some later cast."""
+    damage = 0.0
+    for tick in state["dot_ticks"]:
+        damage += tick[0]
+        tick[1] -= 1
+    state["dot_ticks"] = [t for t in state["dot_ticks"] if t[1] > 0]
+
+    affordable = [s for s in ranked if s["chip_cost"] <= state["chips"]]
+    skill = affordable[0] if affordable else None
+    if skill is None:
+        if random.random() < dungeon.dodge_chance(state["def_"]):
+            return damage
+        return damage + dungeon.roll_damage(state["atk"], state["def_"], 1.0)
+
+    state["chips"] -= skill["chip_cost"]
+    is_special = skill.get("special", False)
+    dodged = random.random() < dungeon.dodge_chance(state["spdef"] if is_special else state["def_"])
+
+    multiplier, extras, is_dmg = 1.0, [], False
+    for effect in dungeon.resolve_cast_effects(skill):
+        etype = effect["type"]
+        if etype == "atk_buff":
+            state["atk"] += effect["value"]
+            continue  # self-targeted -- never dodge-gated
+        if etype == "spatk_buff":
+            state["spatk"] += effect["value"]
+            continue  # self-targeted -- never dodge-gated
+        if dodged:
+            continue  # every remaining type here (damage/extra_attack/def_shred/spdef_debuff/dot) is enemy-targeted
+        if etype == "damage_multiplier":
+            multiplier *= effect["value"]
+            is_dmg = True
+        elif etype == "extra_attack":
+            extras.append(effect.get("multiplier", 1.0))
+            is_dmg = True
+        elif etype == "def_shred":
+            state["def_"] = max(0, state["def_"] - effect["value"])
+        elif etype == "spdef_debuff":
+            state["spdef"] = max(0, state["spdef"] - effect["value"])
+        elif etype == "dot":
+            state["dot_ticks"].append([effect["value"], effect["duration"]])
+
+    if is_dmg:
+        base_atk = state["spatk"] if is_special else state["atk"]
+        eff_def = state["spdef"] if is_special else state["def_"]
+        dmg = dungeon.roll_damage(base_atk, eff_def, multiplier)
+        for extra in extras:
+            dmg += dungeon.roll_damage(base_atk, eff_def, extra)
+        damage += dmg
+    return damage
+
+
 def _run_fight(
     atk: float, spatk: float, def_: float, spdef: float, hp: float, ranked: list[dict], chips: float,
 ) -> tuple[float, int, float]:
-    """Simulates one fight turn-by-turn (dodge, DoT ticks, permanent-for-fight ATK/SpATK buffs and
-    DEF shred, same effect handling simulate_skill_cast uses for a single isolated cast) using
-    `ranked`'s ordering to pick each turn's skill from whatever's affordable out of `chips`,
-    falling back to a free plain Attack once nothing is. Returns (damage dealt, turns taken, Chips
-    left over) -- `chips` here is whatever this fight is allowed to spend, which for "paced" is a
-    per-fight slice, not the build's whole remaining pool (see simulate_build_rotations)."""
-    dot_ticks: list[list[float]] = []
+    """Simulates one fight turn-by-turn via _take_turn until `hp` reaches 0 or ROTATION_TURN_CAP is
+    hit. Returns (damage dealt, turns taken, Chips left over) -- `chips` here is whatever this fight
+    is allowed to spend, which for "paced" is a per-fight slice, not the build's whole remaining
+    pool (see simulate_build_rotations)."""
+    state = {"atk": atk, "spatk": spatk, "def_": def_, "spdef": spdef, "chips": chips, "dot_ticks": []}
     turns = 0
-    damage_this_fight = 0.0
+    damage_total = 0.0
     while hp > 0 and turns < ROTATION_TURN_CAP:
         turns += 1
-        for tick in dot_ticks:
-            hp -= tick[0]
-            damage_this_fight += tick[0]
-            tick[1] -= 1
-        dot_ticks = [t for t in dot_ticks if t[1] > 0]
-        if hp <= 0:
-            break
+        dmg = _take_turn(state, ranked)
+        hp -= dmg
+        damage_total += dmg
+    return damage_total, turns, state["chips"]
 
-        affordable = [s for s in ranked if s["chip_cost"] <= chips]
-        skill = affordable[0] if affordable else None
-        if skill is None:
-            if random.random() < dungeon.dodge_chance(def_):
-                continue
-            dmg = dungeon.roll_damage(atk, def_, 1.0)
-            hp -= dmg
-            damage_this_fight += dmg
+
+def _run_ramp(atk: float, spatk: float, def_: float, spdef: float, chips: float, ranked: list[dict], turns: int) -> list[float]:
+    """Same per-turn mechanics as _run_fight (via _take_turn) but always runs exactly `turns` turns
+    against an undying target -- no HP tracked at all -- for charting how a rotation's own damage
+    output ramps turn to turn (buffs/debuffs stacking, Chips running dry, ...) independent of how
+    long a real fight at that difficulty would actually last. See damage_ramp_for_build."""
+    state = {"atk": atk, "spatk": spatk, "def_": def_, "spdef": spdef, "chips": chips, "dot_ticks": []}
+    return [_take_turn(state, ranked) for _ in range(turns)]
+
+
+def monster_tiers() -> dict[str, dict]:
+    """{tier_label: {"def", "spdef", "monster_count"}} for every non-empty MONSTER_TIER_LEVEL_BANDS
+    entry, computed live from dungeon.MONSTERS (never cached) so a monsters.json edit through the
+    admin panel is reflected the next time this is called, same "read the live registry inside the
+    function body" rule skill_balance_view itself follows."""
+    tiers = {}
+    for label, lo, hi in MONSTER_TIER_LEVEL_BANDS:
+        group = [m for m in dungeon.MONSTERS.values() if lo <= m.get("intended_level", 0) <= hi]
+        if not group:
             continue
+        tiers[label] = {
+            "def": statistics.median(m["def"] for m in group),
+            "spdef": statistics.median(m["spdef"] for m in group),
+            "monster_count": len(group),
+        }
+    return tiers
 
-        chips -= skill["chip_cost"]
-        is_special = skill.get("special", False)
-        base_atk = spatk if is_special else atk
-        eff_def = spdef if is_special else def_
-        if random.random() < dungeon.dodge_chance(eff_def):
-            continue
-        multiplier, extras, is_dmg = 1.0, [], False
-        for effect in dungeon.resolve_cast_effects(skill):
-            etype = effect["type"]
-            if etype == "damage_multiplier":
-                multiplier *= effect["value"]
-                is_dmg = True
-            elif etype == "extra_attack":
-                extras.append(effect.get("multiplier", 1.0))
-                is_dmg = True
-            elif etype == "atk_buff":
-                atk += effect["value"]
-            elif etype == "spatk_buff":
-                spatk += effect["value"]
-            elif etype == "def_shred":
-                def_ = max(0, def_ - effect["value"])
-            elif etype == "dot":
-                dot_ticks.append([effect["value"], effect["duration"]])
-        if is_dmg:
-            dmg = dungeon.roll_damage(base_atk, eff_def, multiplier)
-            for extra in extras:
-                dmg += dungeon.roll_damage(base_atk, eff_def, extra)
-            hp -= dmg
-            damage_this_fight += dmg
 
-    return damage_this_fight, turns, chips
+def damage_ramp_for_build(
+    main_class: str, subclass: str, policy: str = "burst", trials: int = SIMULATION_TRIALS,
+) -> dict[str, list[float]]:
+    """{tier_label: [avg damage turn 1, avg damage turn 2, ..., turn RAMP_TURN_COUNT]} for this
+    build+policy against every monster_tiers() tier. Each tier is an independent, fresh engagement
+    (full Chips, no monster HP/death tracked -- always runs the full RAMP_TURN_COUNT turns) rather
+    than a delve's real, sequential fight-to-fight walk, so this reads on the game's overall
+    difficulty curve without needing a specific delve authored long/varied enough to explore it.
+    Complements (not replaces) simulate_build_through_delve/per_build_delve_table, which instead
+    shows Chip economy carrying across several REAL, sequential fights in one specific delve -- two
+    different questions ("how does a rotation's own output ramp turn to turn against tougher
+    monsters" vs. "how does a rotation hold up across a whole real run"), both worth keeping.
+    `policy` is "burst" or "efficient" only -- "paced" splits Chips across several DISTINCT fights,
+    which a single continuous engagement doesn't have; see simulate_build_rotations for that one."""
+    stats = dungeon.compute_stats(main_class, subclass)
+    ref_def, ref_spdef = _reference_defense()
+    damage_skills = [
+        s for s in dungeon.unlocked_skills(main_class, subclass, SIMULATION_LEVEL)
+        if classify_skill(s) == "damage"
+    ]
+    rank_key = "dmg_per_chip" if policy == "efficient" else "avg_damage"
+    ranked = _rank_damage_skills(damage_skills, stats, ref_def, ref_spdef, rank_key)
+
+    result = {}
+    for label, tier in monster_tiers().items():
+        per_turn_samples: list[list[float]] = [[] for _ in range(RAMP_TURN_COUNT)]
+        for _ in range(trials):
+            turn_damages = _run_ramp(
+                stats["atk"], stats["spatk"], tier["def"], tier["spdef"], stats["chips"], ranked, RAMP_TURN_COUNT,
+            )
+            for i, dmg in enumerate(turn_damages):
+                per_turn_samples[i].append(dmg)
+        result[label] = [statistics.mean(vals) for vals in per_turn_samples]
+    return result
+
+
+def damage_ramp_report(main_class: str, subclass: str, trials: int = SIMULATION_TRIALS) -> dict[str, dict[str, list[float]]]:
+    """{policy: damage_ramp_for_build(...)} for "burst" and "efficient" -- the full comparison the
+    admin page's Rotation Explorer shows for one build's damage-ramp charts."""
+    return {
+        policy: damage_ramp_for_build(main_class, subclass, policy=policy, trials=trials)
+        for policy in ("burst", "efficient")
+    }
 
 
 def simulate_build_through_delve(
