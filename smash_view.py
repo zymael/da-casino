@@ -84,9 +84,10 @@ class SmashSelect(discord.ui.Select):
         item = result["item"]
 
         if result["protected"]:
-            # Falls back to a generic line for a garbage item with no unsmashable_message of its
-            # own -- see smash.smash's docstring for why one could reach here at all (stale picker).
-            result_text = item.get("unsmashable_message") or "It's already garbage. There's nothing left to smash."
+            # Falls back to Vic's own line for a garbage item with no unsmashable_message of its
+            # own ("I already smashed that idiot to pieces") -- see smash.smash's docstring for why
+            # one could reach here at all (stale picker).
+            result_text = item.get("unsmashable_message") or "*Vic grunts.* \"Ho già fatto a pezzi quell'idiota.\""
         elif not result["success"]:
             result_text = "You don't have that anymore."
         elif result["byproduct"]:
