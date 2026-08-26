@@ -111,6 +111,13 @@ PIZZA_GIFS = [
 
 ROY_GIF = "https://media.giphy.com/media/ywGp4PMJdeLyuRq7vJ/giphy.gif"
 
+# A Tenor *page* link, not a direct media asset -- unlike ROY_GIF/RUB_GIF, this can't go through
+# discord.Embed.set_image (Discord validates the embed image url actually serves image content,
+# and tenor.com/view/... serves an html page, not the gif itself). Sent as plain message text
+# instead, which Discord's client already special-cases: pasting a tenor.com/giphy.com link
+# unfurls the actual gif client-side with no embed needed on our end.
+DELETEBOT_GIF = "https://tenor.com/view/old-man-my-computer-recycle-bin-computer-disappear-gif-4830834"
+
 RUB_GIF = "https://images-ext-1.discordapp.net/external/1P77ZqLgK4rKSPC0sX4o7VjLSbabwB22RU3dP_2OEPU/https/static.klipy.com/ii/35ccce3d852f7995dd2da910f2abd795/62/ec/kAMWSWzV.mp4"
 
 intents = discord.Intents.default()
@@ -121,9 +128,9 @@ HELP_CATEGORIES = [
     ("💰 Economy", ["balance", "stats", "rest", "mine", "tip", "transfer", "pizza", "leaderboard"]),
     ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
     ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost", "horseequip"]),
-    ("🗡️ Dungeon", ["class", "delve", "inventory", "equipment", "craft", "quests"]),
+    ("🗡️ Dungeon", ["class", "delve", "inventory", "equipment", "craft", "smash", "quests"]),
     ("🏆 Achievements", ["achievements"]),
-    ("⚙️ Utility", ["ping", "setcasino", "setcurrency", "setdelvetest", "rub", "roy"]),
+    ("⚙️ Utility", ["ping", "setcasino", "setcurrency", "setdelvetest", "rub", "roy", "deletebot"]),
 ]
 
 _SYNCED_GUILD_IDS: set[int] = set()
@@ -638,6 +645,12 @@ async def roy_cmd(ctx):
     embed = discord.Embed(color=discord.Color.gold())
     embed.set_image(url=ROY_GIF)
     await ctx.send(embed=embed)
+
+
+@bot.command(name="deletebot")
+async def deletebot_cmd(ctx):
+    """Deletes the bot forever: !deletebot"""
+    await ctx.send(f"AH SUCK MY FAT CL*T\n{DELETEBOT_GIF}")
 
 
 @bot.command(name="transfer", aliases=["give", "pay"])
