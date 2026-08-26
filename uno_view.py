@@ -59,6 +59,9 @@ class UnoTable:
         # this, an earlier view's timer expiring would auto-resolve the turn out from under a
         # player actively deciding on a newer one. Same "stale view" guard shape as mancala_view.py
         # /connect4_view.py/icebreak_view.py's own session.current_view.
+        self.turns_since_repost = 0  # once this reaches len(self.seats) -- a full lap of the
+        # table -- _update_public_table deletes and reposts the table message instead of editing
+        # it in place, so it doesn't get buried under a growing wall of other channel chat.
 
     def seat_for(self, user_id: int) -> UnoSeat | None:
         return next((s for s in self.seats if s.member.id == user_id), None)
@@ -218,7 +221,20 @@ def build_table_display(table: UnoTable, log_text: str | None = None) -> tuple[d
 async def _update_public_table(table: UnoTable, log_text: str) -> None:
     try:
         embed, file = build_table_display(table, log_text)
-        await table.message.edit(embed=embed, attachments=[file])
+        table.turns_since_repost += 1
+        if table.turns_since_repost >= len(table.seats):
+            # A full lap of the table -- repost fresh at the bottom of the channel instead of
+            # editing in place, so the table doesn't end up buried above a wall of chat.
+            table.turns_since_repost = 0
+            old_message = table.message
+            table.message = await table.channel.send(embed=embed, file=file, view=UnoTableView(table))
+            if old_message is not None:
+                try:
+                    await old_message.delete()
+                except discord.HTTPException:
+                    pass
+        else:
+            await table.message.edit(embed=embed, attachments=[file])
     except Exception:
         print(f"[uno] failed to update public table in channel {table.channel_id}:")
         traceback.print_exc()
