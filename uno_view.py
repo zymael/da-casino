@@ -12,7 +12,7 @@ import uno_render
 from holdem_view import busy_players
 
 LOBBY_TIMEOUT = 180  # 3 minutes to gather 2-4 players before the table auto-cancels and refunds
-TURN_TIMEOUT = 60  # a stalled turn auto-resolves rather than freezing the table forever (see the
+TURN_TIMEOUT = 300  # a stalled turn auto-resolves rather than freezing the table forever (see the
 # on_timeout handlers below) -- no votekick needed since the auto-resolution itself is low-stakes
 MAX_HAND_BUTTONS = 24  # leaves room for the Draw button within Discord's 25-components-per-view cap
 
@@ -52,6 +52,13 @@ class UnoTable:
         self.render_seq = 0  # bumped per public render so each attachment gets a fresh filename
         # -- Discord's CDN can cache an attachment by filename, so reusing "uno.png" on every edit
         # risks a client showing a stale image even though the message genuinely updated.
+        self.current_turn_view: discord.ui.View | None = None  # whichever ephemeral view (hand,
+        # color picker, drawn-card choice) is the LATEST one for the current turn -- a player can
+        # click "Your Hand" more than once (e.g. reopening after losing track of the first one),
+        # which creates a separate view with its own independent timeout timer each time; without
+        # this, an earlier view's timer expiring would auto-resolve the turn out from under a
+        # player actively deciding on a newer one. Same "stale view" guard shape as mancala_view.py
+        # /connect4_view.py/icebreak_view.py's own session.current_view.
 
     def seat_for(self, user_id: int) -> UnoSeat | None:
         return next((s for s in self.seats if s.member.id == user_id), None)
@@ -322,6 +329,7 @@ class UnoColorPickerView(discord.ui.View):
         self.card = card
         for color in uno.COLORS:
             self.add_item(UnoColorButton(color))
+        table.current_turn_view = self
 
     async def on_timeout(self):
         table = self.table
@@ -329,8 +337,14 @@ class UnoColorPickerView(discord.ui.View):
         # table.channel_id leaving active_tables is the authoritative "round already over" signal
         # (see _end_uno_round/_cleanup) -- current_index alone isn't enough, since a *winning*
         # play never advances it, so a stale timeout on the exact card that just won could
-        # otherwise try to replay a card no longer in anyone's hand.
-        if table.channel_id not in active_tables or self.seat_idx != game.current_index:
+        # otherwise try to replay a card no longer in anyone's hand. current_turn_view catches the
+        # other stale case: this exact seat reopened "Your Hand" (or redrew) since this view was
+        # created, so a newer view is what they're actually looking at now.
+        if (
+            table.channel_id not in active_tables
+            or self.seat_idx != game.current_index
+            or table.current_turn_view is not self
+        ):
             return
         color = _default_color(game.seats[self.seat_idx].hand)
         await _resolve_play(table, self.seat_idx, self.card, color, prefix="⌛ ")
@@ -342,6 +356,7 @@ class UnoDrawnCardChoiceView(discord.ui.View):
         self.table = table
         self.seat_idx = seat_idx
         self.card = card
+        table.current_turn_view = self
 
     @discord.ui.button(label="Play it", style=discord.ButtonStyle.success)
     async def play_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -365,7 +380,11 @@ class UnoDrawnCardChoiceView(discord.ui.View):
     async def on_timeout(self):
         table = self.table
         game = table.game
-        if table.channel_id not in active_tables or self.seat_idx != game.current_index:
+        if (
+            table.channel_id not in active_tables
+            or self.seat_idx != game.current_index
+            or table.current_turn_view is not self
+        ):
             return
         actor_name = game.seats[self.seat_idx].name
         uno.pass_turn(game)
@@ -451,11 +470,16 @@ class UnoHandView(discord.ui.View):
         for card in hand[:MAX_HAND_BUTTONS]:
             self.add_item(UnoCardButton(card, playable=card in legal))
         self.add_item(UnoDrawButton())
+        table.current_turn_view = self
 
     async def on_timeout(self):
         table = self.table
         game = table.game
-        if table.channel_id not in active_tables or self.seat_idx != game.current_index:
+        if (
+            table.channel_id not in active_tables
+            or self.seat_idx != game.current_index
+            or table.current_turn_view is not self
+        ):
             return
         actor_name = game.seats[self.seat_idx].name
         uno.draw_card(game, self.seat_idx)
