@@ -207,7 +207,7 @@
     "id": "goo_store",
     "name": "\ud83e\udee0 The Goo's Second Hand Pet Store",
     "description": "Everything in the place has a strange, sticky pink residue on it.   Still, despite the cacophony of various animal noises, the store is filled with happy looking pets that would be even happier to find a home.",
-    "background_path": "assets/rooms/goo_store.png",
+    "background_path": "assets/rooms/goo_store.jpg",
     "exits": [
       {
         "room_id": "gnomish_night_market",
