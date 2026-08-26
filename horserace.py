@@ -93,6 +93,16 @@ DYNAMIC_ODDS_TRIALS = 500
 # "favorite-longshot bias" (bettors don't wager in exact proportion to true win rate). 0 leaves
 # the raw simulated probability untouched; see _crowd_shares for the exact transform.
 FAVORITE_LONGSHOT_BIAS = 0.15
+# Final guardrail on top of _crowd_shares -- expressed as a multiple of "fair share" (that pool's
+# raw_total / field size) rather than an absolute percent, so it scales sensibly with field size and
+# with win's (~1) vs place's (~2) vs show's (~3) different pool totals. Without this, a sufficiently
+# dominant horse (or just a lopsided lineup) can get priced *above* TARGET_RTP itself -- flipping its
+# displayed odds negative (payout multiplier < 1) -- while _crowd_shares' own reshaping compresses
+# the weakest horses' already-tiny probabilities even further, into absurd four-figure odds. Better
+# stats should always earn a horse the best odds slot in the field, never a guaranteed win (and worse
+# stats the worst slot, never a guaranteed loss) -- see _bounded_shares.
+MIN_PROB_OF_FAIR = 0.35
+MAX_PROB_OF_FAIR = 3.0
 
 # Ownership: horses are expensive, priced off how likely they are to win (a proven favorite
 # costs the most since it pays its owner a cut most often; a long shot is a cheap speculative
@@ -299,6 +309,22 @@ def _crowd_shares(rates: list[float], bias: float = FAVORITE_LONGSHOT_BIAS) -> l
     return [s / sharpened_total * raw_total for s in sharpened]
 
 
+def _bounded_shares(rates: list[float]) -> list[float]:
+    """Final guardrail after _crowd_shares: clamps every rate into [MIN_PROB_OF_FAIR, MAX_PROB_OF_FAIR]
+    x that pool's own fair share (raw_total / field size), then renormalizes back to raw_total --
+    same trick _crowd_shares uses to keep place/show's own ~2x/~3x totals intact. Purely elementwise
+    and monotonic, so it can never invert a field's stat-based ranking, only compress its extremes --
+    "better stats" still always earns the better odds slot, just never an outright lock (and never an
+    outright impossibility) regardless of how lopsided the lineup is."""
+    n = len(rates)
+    fair = sum(rates) / n
+    floor, cap = MIN_PROB_OF_FAIR * fair, MAX_PROB_OF_FAIR * fair
+    clamped = [min(max(r, floor), cap) for r in rates]
+    raw_total = sum(rates)
+    clamped_total = sum(clamped)
+    return [c / clamped_total * raw_total for c in clamped]
+
+
 def current_probabilities(
     guild_id: int, field: list[int] | None = None
 ) -> tuple[dict[int, dict], list[int], dict[str, dict[int, float]]]:
@@ -321,9 +347,9 @@ def current_probabilities(
     ]
     sim_win, sim_place, sim_show = _simulate_stat_probabilities(stat_roster)
     probabilities = {
-        "win": dict(zip(positions, _crowd_shares(sim_win))),
-        "place": dict(zip(positions, _crowd_shares(sim_place))),
-        "show": dict(zip(positions, _crowd_shares(sim_show))),
+        "win": dict(zip(positions, _bounded_shares(_crowd_shares(sim_win)))),
+        "place": dict(zip(positions, _bounded_shares(_crowd_shares(sim_place)))),
+        "show": dict(zip(positions, _bounded_shares(_crowd_shares(sim_show)))),
     }
     return roster, eligible, probabilities
 
