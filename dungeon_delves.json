@@ -8,7 +8,6 @@
       {
         "id": "room1",
         "type": "combat",
-        "next": "room2",
         "monster_groups": [
           {
             "monsters": [
@@ -20,12 +19,12 @@
               "goblin_scavenger"
             ]
           }
-        ]
+        ],
+        "next": "room2"
       },
       {
         "id": "room2",
         "type": "combat",
-        "next": "room3",
         "monster_groups": [
           {
             "monsters": [
@@ -37,7 +36,8 @@
               "goblin_archer"
             ]
           }
-        ]
+        ],
+        "next": "room3"
       },
       {
         "id": "room3",
@@ -71,7 +71,7 @@
       }
     },
     "start_room": "room1",
-    "background_path": "assets/dungeon/backgrounds/goblin_disco.png"
+    "background_path": "assets/dungeon/backgrounds/goblin_disco.jpg"
   },
   {
     "id": "gnome_bathhouse",
