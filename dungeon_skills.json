@@ -1830,7 +1830,7 @@
     "id": "ante_up",
     "main_class": "fighter",
     "subclass": "clubs",
-    "unlock_level": 5,
+    "unlock_level": 7,
     "name": "Ante Up",
     "flavor": "I don't know what to write",
     "effects": [
