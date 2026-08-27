@@ -1443,7 +1443,7 @@
     "id": "gut_punch",
     "main_class": "rogue",
     "subclass": "spades",
-    "unlock_level": 5,
+    "unlock_level": 7,
     "name": "Gut Punch",
     "flavor": "That gotta hurt!",
     "effects": [
