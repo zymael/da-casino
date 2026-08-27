@@ -1862,7 +1862,7 @@
     "id": "get_behind_me_clubs",
     "main_class": "fighter",
     "subclass": "clubs",
-    "unlock_level": 8,
+    "unlock_level": 5,
     "name": "Get Behind Me!",
     "flavor": "Leave it to the professionals!",
     "effects": [
