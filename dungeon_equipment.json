@@ -618,5 +618,27 @@
     "intended_level": 1,
     "base_value": 100,
     "flavor": "This wig is utterly tasteless, and everyone can see it.  Makes you more likely to be attacked."
+  },
+  {
+    "id": "disco_stick",
+    "name": "Disco Stick",
+    "slot": "weapon",
+    "rarity": "common",
+    "effects": [
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 2
+      },
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 1
+      }
+    ],
+    "special": true,
+    "intended_level": 3,
+    "base_value": 100,
+    "flavor": "Everyone wants to take a ride on this.  It's so shiny and exudes Disco Magic baybee."
   }
 ]
