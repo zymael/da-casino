@@ -1,23 +1,5 @@
 [
   {
-    "id": "barbarian_skullcrusher_swing",
-    "main_class": "fighter",
-    "subclass": "clubs",
-    "unlock_level": 8,
-    "name": "Skullcrusher Swing",
-    "flavor": "One big overhead swing, then another for good measure.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.6
-      },
-      {
-        "type": "extra_attack"
-      }
-    ],
-    "chip_cost": 20
-  },
-  {
     "id": "duelist_riposte_strike",
     "main_class": "fighter",
     "subclass": "spades",
