@@ -339,6 +339,9 @@
         "actions": [
           {
             "label": "Kick their ass",
+            "cost": {
+              "currency": 1
+            },
             "check": {
               "stat": "atk",
               "dc": 10
@@ -365,7 +368,8 @@
             "x": 200.0,
             "y": 364.0
           }
-        ]
+        ],
+        "background_path": "assets/dungeon/backgrounds/goblin_disco_copy_room_Coat Check.jpg"
       },
       {
         "id": "Dance Floor",
@@ -415,7 +419,7 @@
         "monster_groups": [
           {
             "monsters": [
-              "goblin_chief"
+              "goblin_dj"
             ]
           }
         ],
@@ -439,7 +443,8 @@
         "monster_groups": [
           {
             "monsters": [
-              "goblin_chief"
+              "goblin_scavenger",
+              "goblin_grunt"
             ]
           }
         ]
@@ -459,8 +464,8 @@
     ],
     "layout": {
       "Coat Check": {
-        "x": -5.0,
-        "y": 157.0
+        "x": -21.0,
+        "y": 224.0
       },
       "Dance Floor": {
         "x": 470.0,
