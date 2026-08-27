@@ -334,20 +334,31 @@
     "rooms": [
       {
         "id": "Coat Check",
-        "type": "combat",
-        "monster_groups": [
+        "type": "choice",
+        "prompt": "This nerdy looking goblin at the door is trying to tell you that you're not allowed to enter with your weapons and armor that you are clearly brandishing.",
+        "actions": [
           {
-            "monsters": [
-              "goblin_grunt"
-            ]
+            "label": "Kick his ass",
+            "on_success": {
+              "next": "Dance Floor",
+              "message": "He doesn't even try to fight, and curls into a ball.  You move on."
+            },
+            "x": 194.0,
+            "y": 57.0
           },
           {
-            "monsters": [
-              "goblin_scavenger"
-            ]
+            "label": "Bribe him",
+            "cost": {
+              "currency": 10
+            },
+            "on_success": {
+              "next": "Dance Floor",
+              "message": "He looks the other way and you pass on through"
+            },
+            "x": 183.0,
+            "y": 278.0
           }
-        ],
-        "next": "Dance Floor"
+        ]
       },
       {
         "id": "Dance Floor",
@@ -427,16 +438,16 @@
     ],
     "layout": {
       "Coat Check": {
-        "x": 13.0,
-        "y": 108.0
+        "x": -5.0,
+        "y": 157.0
       },
       "Dance Floor": {
-        "x": 276.0,
+        "x": 382.0,
         "y": 133.0
       },
       "DANCE FEVER": {
-        "x": 530.0,
-        "y": 169.0
+        "x": 633.0,
+        "y": 158.0
       },
       "The DJ Booth": {
         "x": 1230.0,
