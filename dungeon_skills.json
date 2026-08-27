@@ -1,21 +1,5 @@
 [
   {
-    "id": "enchanter_fireball",
-    "main_class": "mage",
-    "subclass": "hearts",
-    "unlock_level": 1,
-    "name": "Arcane Flame",
-    "flavor": "A carefully woven spell, warm at the edges.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.8
-      }
-    ],
-    "chip_cost": 10,
-    "special": true
-  },
-  {
     "id": "artificer_fireball",
     "main_class": "mage",
     "subclass": "diamonds",
