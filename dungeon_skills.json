@@ -1633,5 +1633,28 @@
     ],
     "chip_cost": 9,
     "special": false
+  },
+  {
+    "id": "knockout_round",
+    "main_class": "fighter",
+    "subclass": "spades",
+    "unlock_level": 5,
+    "name": "Knockout Round",
+    "flavor": "Sbadabing sbadadeng!",
+    "effects": [
+      {
+        "type": "atk_buff",
+        "value": 3,
+        "target": "self"
+      },
+      {
+        "type": "damage_multiplier",
+        "value": 1.4,
+        "aoe": true,
+        "target": "enemy"
+      }
+    ],
+    "chip_cost": 15,
+    "special": false
   }
 ]
