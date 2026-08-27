@@ -17,72 +17,12 @@
     "drops": [
       {
         "kind": "equipment",
-        "item_id": "rusty_dagger",
+        "item_id": "funky_bellbottoms",
         "chance": 0.03
       },
       {
         "kind": "equipment",
-        "item_id": "wooden_club",
-        "chance": 0.03
-      },
-      {
-        "kind": "equipment",
-        "item_id": "gladius",
-        "chance": 0.03
-      },
-      {
-        "kind": "equipment",
-        "item_id": "spear",
-        "chance": 0.03
-      },
-      {
-        "kind": "equipment",
-        "item_id": "leather_vest",
-        "chance": 0.03
-      },
-      {
-        "kind": "equipment",
-        "item_id": "shield",
-        "chance": 0.03
-      },
-      {
-        "kind": "equipment",
-        "item_id": "lucky_coin",
-        "chance": 0.03
-      },
-      {
-        "kind": "equipment",
-        "item_id": "copper_ring",
-        "chance": 0.03
-      },
-      {
-        "kind": "material",
-        "item_id": "stick",
-        "chance": 0.05
-      },
-      {
-        "kind": "material",
-        "item_id": "pan",
-        "chance": 0.05
-      },
-      {
-        "kind": "material",
-        "item_id": "razor",
-        "chance": 0.05
-      },
-      {
-        "kind": "material",
-        "item_id": "pointy_rock",
-        "chance": 0.05
-      },
-      {
-        "kind": "material",
-        "item_id": "nail",
-        "chance": 0.05
-      },
-      {
-        "kind": "material",
-        "item_id": "charcoal",
+        "item_id": "afro_wig",
         "chance": 0.05
       }
     ],
@@ -90,13 +30,14 @@
       {
         "name": "Spotlight Solo",
         "chance": 0.3,
-        "flavor": "They catch an invisible spotlight, strike a pose, and turn the pose into a haymaker before the beat drops.",
+        "special": false,
         "effects": [
           {
             "type": "extra_attack",
             "multiplier": 0.6
           }
-        ]
+        ],
+        "flavor": "They catch an invisible spotlight, strike a pose, and turn the pose into a haymaker before the beat drops."
       }
     ],
     "sprite_path": "assets/dungeon/monsters/goblin_grunt.png"
