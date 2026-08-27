@@ -76,5 +76,49 @@
         "value": 3
       }
     ]
+  },
+  {
+    "id": "painkiller_colada",
+    "name": "Painkiller Colada",
+    "kind": "consumable",
+    "base_value": 47,
+    "flavor": "Coconut cream, pineapple juice, and just enough dark rum to make the wounds feel like someone else's problem.",
+    "effects": [
+      {
+        "type": "heal_fraction",
+        "value": 0.35
+      }
+    ]
+  },
+  {
+    "id": "zombies_revenge",
+    "name": "Zombie's Revenge",
+    "kind": "consumable",
+    "base_value": 60,
+    "flavor": "Five rums, one grudge, zero survivors. Hits harder than it should. So do you, right up until you trip over your own feet.",
+    "effects": [
+      {
+        "type": "atk_buff",
+        "value": 5
+      },
+      {
+        "type": "speed_debuff",
+        "value": 2
+      }
+    ]
+  },
+  {
+    "id": "blue_hawaiian_haze",
+    "name": "Blue Hawaiian Haze",
+    "kind": "consumable",
+    "base_value": 55,
+    "flavor": "Blue curacao and rum, served with a little umbrella that does absolutely nothing. Somehow, neither do incoming attacks.",
+    "effects": [
+      {
+        "type": "dodge_buff",
+        "value": 0.25,
+        "duration": 3
+      }
+    ]
   }
 ]
