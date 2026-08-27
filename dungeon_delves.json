@@ -339,9 +339,16 @@
         "actions": [
           {
             "label": "Kick his ass",
+            "check": {
+              "stat": "atk",
+              "dc": 10
+            },
             "on_success": {
               "next": "Dance Floor",
               "message": "He doesn't even try to fight, and curls into a ball.  You move on."
+            },
+            "on_fail": {
+              "next": "Fight the Doorman"
             },
             "x": 194.0,
             "y": 57.0
@@ -434,6 +441,18 @@
             ]
           }
         ]
+      },
+      {
+        "id": "Fight the Doorman",
+        "type": "combat",
+        "monster_groups": [
+          {
+            "monsters": [
+              "goblin_grunt"
+            ]
+          }
+        ],
+        "next": "Dance Floor"
       }
     ],
     "layout": {
@@ -442,12 +461,12 @@
         "y": 157.0
       },
       "Dance Floor": {
-        "x": 382.0,
+        "x": 438.0,
         "y": 133.0
       },
       "DANCE FEVER": {
-        "x": 633.0,
-        "y": 158.0
+        "x": 720.0,
+        "y": 156.0
       },
       "The DJ Booth": {
         "x": 1230.0,
@@ -460,6 +479,10 @@
       "The Back Office": {
         "x": 1538.0,
         "y": 184.0
+      },
+      "Fight the Doorman": {
+        "x": 217.0,
+        "y": 133.0
       }
     },
     "start_room": "Coat Check",
