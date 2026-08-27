@@ -1,23 +1,5 @@
 [
   {
-    "id": "treasure_hunter_smash_and_grab",
-    "main_class": "rogue",
-    "subclass": "diamonds",
-    "unlock_level": 8,
-    "name": "Smash and Grab",
-    "flavor": "Hit it twice, take the loot, be gone.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.6
-      },
-      {
-        "type": "extra_attack"
-      }
-    ],
-    "chip_cost": 20
-  },
-  {
     "id": "commanding_voice_spades",
     "main_class": "healer",
     "subclass": "spades",
