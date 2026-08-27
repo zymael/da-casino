@@ -1,20 +1,5 @@
 [
   {
-    "id": "charlatan_placebo_rush",
-    "main_class": "healer",
-    "subclass": "diamonds",
-    "unlock_level": 4,
-    "name": "Placebo Rush",
-    "flavor": "Fake medicine, real confidence. Somehow it works.",
-    "effects": [
-      {
-        "type": "atk_buff",
-        "value": 2
-      }
-    ],
-    "chip_cost": 15
-  },
-  {
     "id": "charlatan_miracle_tonic",
     "main_class": "healer",
     "subclass": "diamonds",
