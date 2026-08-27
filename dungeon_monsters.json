@@ -824,18 +824,18 @@
     "loot_max": 60,
     "drops": [
       {
-        "kind": "equipment",
-        "item_id": "iron_sword",
+        "kind": "consumable",
+        "item_id": "blue_hawaiian_haze",
         "chance": 0.08
       },
       {
-        "kind": "equipment",
-        "item_id": "chainmail",
+        "kind": "consumable",
+        "item_id": "painkiller_colada",
         "chance": 0.08
       },
       {
-        "kind": "equipment",
-        "item_id": "jade_pendant",
+        "kind": "consumable",
+        "item_id": "zombies_revenge",
         "chance": 0.08
       }
     ],
@@ -843,24 +843,26 @@
       {
         "name": "86'd!",
         "chance": 0.4,
-        "flavor": "\"You're cut off!\" they bellow, hauling you toward the door with a shove you didn't see coming twice.",
+        "special": false,
         "effects": [
           {
             "type": "extra_attack",
             "multiplier": 0.6
           }
-        ]
+        ],
+        "flavor": "\"You're cut off!\" they bellow, hauling you toward the door with a shove you didn't see coming twice."
       },
       {
         "name": "On the House",
         "chance": 0.3,
-        "flavor": "They pour themselves a shot mid-fight, throw it back, and keep swinging like nothing happened.",
+        "special": false,
         "effects": [
           {
             "type": "lifesteal_fraction",
             "value": 0.3
           }
-        ]
+        ],
+        "flavor": "They pour themselves a shot mid-fight, throw it back, and keep swinging like nothing happened."
       }
     ],
     "sprite_path": "assets/dungeon/monsters/goblin_archer_copy.png"
