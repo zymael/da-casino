@@ -1,20 +1,5 @@
 [
   {
-    "id": "artificer_overclock",
-    "main_class": "mage",
-    "subclass": "diamonds",
-    "unlock_level": 4,
-    "name": "Overclock",
-    "flavor": "The warranty definitely does not cover this.",
-    "effects": [
-      {
-        "type": "atk_buff",
-        "value": 3
-      }
-    ],
-    "chip_cost": 15
-  },
-  {
     "id": "artificer_payload_detonation",
     "main_class": "mage",
     "subclass": "diamonds",
