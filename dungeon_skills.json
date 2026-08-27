@@ -1,24 +1,5 @@
 [
   {
-    "id": "charlatan_miracle_tonic",
-    "main_class": "healer",
-    "subclass": "diamonds",
-    "unlock_level": 8,
-    "name": "Miracle Tonic",
-    "flavor": "Guaranteed to work, or double your money back.",
-    "effects": [
-      {
-        "type": "heal_fraction",
-        "value": 0.35
-      },
-      {
-        "type": "lifesteal_fraction",
-        "value": 0.1
-      }
-    ],
-    "chip_cost": 20
-  },
-  {
     "id": "war_mage_arcane_smash",
     "main_class": "mage",
     "subclass": "clubs",
