@@ -922,40 +922,5 @@
       }
     ],
     "sprite_path": "assets/dungeon/monsters/goblin_mob_boss.png"
-  },
-  {
-    "id": "goblin_bartender_copy",
-    "name": "Goblin Bartender",
-    "hp": 34,
-    "atk": 11,
-    "def": 9,
-    "spatk": 18,
-    "spdef": 18,
-    "spd": 12,
-    "intended_level": 5,
-    "shape": "pentagon",
-    "color": "#2f6b57",
-    "flavor": "The Goblin Bartender attempts to 86 you.  You prepare to show him the tip of a lifetime.",
-    "loot_min": 30,
-    "loot_max": 60,
-    "drops": [
-      {
-        "kind": "consumable",
-        "item_id": "blue_hawaiian_haze",
-        "chance": 0.08
-      },
-      {
-        "kind": "consumable",
-        "item_id": "painkiller_colada",
-        "chance": 0.08
-      },
-      {
-        "kind": "consumable",
-        "item_id": "zombies_revenge",
-        "chance": 0.08
-      }
-    ],
-    "skills": [],
-    "sprite_path": "assets/dungeon/monsters/goblin_archer_copy.png"
   }
 ]
