@@ -1,25 +1,5 @@
 [
   {
-    "id": "enchanter_radiant_burst",
-    "main_class": "mage",
-    "subclass": "hearts",
-    "unlock_level": 8,
-    "name": "Radiant Burst",
-    "flavor": "Warm light, sharp edges.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.6
-      },
-      {
-        "type": "heal_fraction",
-        "value": 0.15
-      }
-    ],
-    "chip_cost": 20,
-    "special": true
-  },
-  {
     "id": "artificer_overclock",
     "main_class": "mage",
     "subclass": "diamonds",
