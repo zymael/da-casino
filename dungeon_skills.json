@@ -1,20 +1,5 @@
 [
   {
-    "id": "treasure_hunter_sneak_attack",
-    "main_class": "rogue",
-    "subclass": "diamonds",
-    "unlock_level": 1,
-    "name": "Grab and Go",
-    "flavor": "Strike first, loot the corpse, ask questions never.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.5
-      }
-    ],
-    "chip_cost": 10
-  },
-  {
     "id": "barbarian_berserkers_fury",
     "main_class": "fighter",
     "subclass": "clubs",
