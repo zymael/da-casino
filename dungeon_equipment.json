@@ -640,5 +640,27 @@
     "intended_level": 3,
     "base_value": 100,
     "flavor": "Everyone wants to take a ride on this.  It's so shiny and exudes Disco Magic baybee."
+  },
+  {
+    "id": "funky_bellbottoms",
+    "name": "Funky Bellbottoms",
+    "slot": "armor",
+    "rarity": "uncommon",
+    "effects": [
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 3
+      },
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 2
+      }
+    ],
+    "special": false,
+    "intended_level": 3,
+    "base_value": 160,
+    "flavor": "These pants make you feel like you can blaze across the dance floor. Safely even!"
   }
 ]
