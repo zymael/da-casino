@@ -1,24 +1,5 @@
 [
   {
-    "id": "assassin_vital_strike",
-    "main_class": "rogue",
-    "subclass": "spades",
-    "unlock_level": 4,
-    "name": "Vital Strike",
-    "flavor": "Knows exactly where it hurts, and takes a little back.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.5
-      },
-      {
-        "type": "lifesteal_fraction",
-        "value": 0.15
-      }
-    ],
-    "chip_cost": 15
-  },
-  {
     "id": "assassin_death_mark",
     "main_class": "rogue",
     "subclass": "spades",
