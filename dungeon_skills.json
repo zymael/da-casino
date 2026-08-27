@@ -1199,7 +1199,7 @@
     "id": "doom_spear",
     "main_class": "mage",
     "subclass": "spades",
-    "unlock_level": 5,
+    "unlock_level": 7,
     "name": "Doom Spear",
     "flavor": "BIG SPEAR",
     "effects": [
