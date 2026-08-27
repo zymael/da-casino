@@ -1,20 +1,5 @@
 [
   {
-    "id": "bar_fighter_sneak_attack",
-    "main_class": "rogue",
-    "subclass": "clubs",
-    "unlock_level": 1,
-    "name": "Haymaker",
-    "flavor": "Not sneaky. Just fast, and thrown while nobody's looking.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.5
-      }
-    ],
-    "chip_cost": 10
-  },
-  {
     "id": "assassin_sneak_attack",
     "main_class": "rogue",
     "subclass": "spades",
