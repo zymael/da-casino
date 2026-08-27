@@ -2310,7 +2310,7 @@
     "id": "get_behind_me_base_spades",
     "main_class": "fighter",
     "subclass": "spades",
-    "unlock_level": 4,
+    "unlock_level": 5,
     "name": "Get Behind Me!",
     "flavor": "Leave it to the professionals!",
     "effects": [
