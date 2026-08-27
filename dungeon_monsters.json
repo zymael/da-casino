@@ -205,7 +205,7 @@
     "sprite_path": "assets/dungeon/monsters/goblin_scavenger.png"
   },
   {
-    "id": "goblin_skirmisher",
+    "id": "goblin_dj",
     "name": "Goblin DJ",
     "hp": 37,
     "atk": 12,
