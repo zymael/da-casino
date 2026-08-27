@@ -203,6 +203,28 @@ def compute_stats(main_class: str, subclass: str) -> dict:
     }
 
 
+def compute_stats_at_level(main_class: str, subclass: str, level: int) -> dict:
+    """Full permanent stats (hp/atk/def/spatk/spdef/speed) for a character of this class/subclass
+    at an arbitrary level -- compute_stats' level-1 base plus (level-1) levels' worth of the
+    class's own level_*_gain growth (CLASSES[main_class], no subclass component -- a subclass
+    modifier only ever applies once, at creation, same as compute_stats itself), the same formula
+    add_xp applies incrementally through normal play (dungeon_view._award_kill) just computed
+    directly for a target level instead of walked level-up by level-up. Used by the admin panel's
+    Player Debug page so setting a character's level there keeps atk/def/etc consistent with it,
+    rather than leaving them at whatever they were before."""
+    base = compute_stats(main_class, subclass)
+    growth = CLASSES[main_class]
+    levels = max(0, level - 1)
+    return {
+        "hp": base["hp"] + growth["level_hp_gain"] * levels,
+        "atk": base["atk"] + growth["level_atk_gain"] * levels,
+        "def": base["def"] + growth["level_def_gain"] * levels,
+        "spatk": base["spatk"] + growth["level_spatk_gain"] * levels,
+        "spdef": base["spdef"] + growth["level_spdef_gain"] * levels,
+        "speed": base["speed"] + growth["level_speed_gain"] * levels,
+    }
+
+
 # --- Monster content -------------------------------------------------------------------------
 # Loaded once at import time from dungeon_monsters.json, which is meant to be hand-edited to add
 # new monsters -- no code change should ever be required just to add content. Validated loudly

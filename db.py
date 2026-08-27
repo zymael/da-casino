@@ -1941,16 +1941,26 @@ def set_current_hp(guild_id: int, user_id: int, hp: int) -> None:
         conn.close()
 
 
-def set_character_progress(guild_id: int, user_id: int, level: int, xp: int, current_hp: int) -> None:
-    """Admin-panel direct override for a character's level/xp/current_hp -- unlike add_xp (which
-    also grows hp/atk/def as a side effect of leveling through normal play), this only touches
-    these three fields, so an admin can un-stick a bad delve state without silently reshaping the
-    character's permanent stats too. A no-op if this user has no character."""
+def set_character_progress(
+    guild_id: int, user_id: int, level: int, xp: int, current_hp: int,
+    hp: int, atk: int, def_: int, spatk: int, spdef: int, speed: int,
+) -> None:
+    """Admin-panel direct override for a character's level/xp/current_hp AND permanent stats --
+    hp/atk/def/spatk/spdef/speed are caller-supplied (dungeon.compute_stats_at_level, keyed off
+    the level being set here) rather than derived in this function, same "db.py doesn't own
+    game-content formulas" split add_xp already uses. Callers always pass stats matching the level
+    they're setting, so an admin changing Level on the Player Debug page keeps attributes
+    consistent with it automatically rather than leaving them stale. A no-op if this user has no
+    character."""
     conn = _connect()
     try:
         conn.execute(
-            "UPDATE characters SET level = ?, xp = ?, current_hp = ? WHERE guild_id = ? AND user_id = ?",
-            (max(1, level), max(0, xp), max(0, current_hp), guild_id, user_id),
+            "UPDATE characters SET level = ?, xp = ?, current_hp = ?, hp = ?, atk = ?, def = ?, "
+            "spatk = ?, spdef = ?, speed = ? WHERE guild_id = ? AND user_id = ?",
+            (
+                max(1, level), max(0, xp), max(0, current_hp), hp, atk, def_, spatk, spdef, speed,
+                guild_id, user_id,
+            ),
         )
         conn.commit()
     finally:

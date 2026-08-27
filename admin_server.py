@@ -4365,10 +4365,26 @@ async def player_debug_view(request: web.Request) -> web.Response:
             await asyncio.to_thread(db.set_balance, gid, uid, int(form.get("balance") or 0))
             await asyncio.to_thread(db.set_energy, gid, uid, int(form.get("energy") or 0))
             if "level" in form and "xp" in form and "current_hp" in form:
-                await asyncio.to_thread(
-                    db.set_character_progress, gid, uid,
-                    int(form["level"]), int(form["xp"]), int(form["current_hp"]),
-                )
+                character = db.get_character(gid, uid)
+                if character is not None:
+                    level = int(form["level"])
+                    # Recomputed from the class's own leveling curve, not just persisted as typed --
+                    # this is the whole point of this feature, see dungeon.compute_stats_at_level's
+                    # own docstring: an admin setting Level here should never leave atk/def/etc stale.
+                    new_stats = dungeon.compute_stats_at_level(character["main_class"], character["subclass"], level)
+                    equipped = db.get_equipped_items(gid, uid)
+                    housing_bonuses = housing.get_house_bonuses(gid, uid)
+                    effective_character = {**character, **new_stats}
+                    max_hp = dungeon.compute_effective_stats(
+                        effective_character, equipped, housing_bonuses.get("stat_bonus", {})
+                    )["hp"]
+                    current_hp = max(0, min(int(form["current_hp"]), max_hp))
+                    await asyncio.to_thread(
+                        db.set_character_progress, gid, uid,
+                        level, int(form["xp"]), current_hp,
+                        new_stats["hp"], new_stats["atk"], new_stats["def"],
+                        new_stats["spatk"], new_stats["spdef"], new_stats["speed"],
+                    )
             raise web.HTTPFound(f"/player-debug?guild_id={gid}&user_id={uid}&saved=1")
 
     # On the grant-item error fall-through above, guild_id/user_id came from the POSTed form, not
@@ -4420,12 +4436,23 @@ async def player_debug_view(request: web.Request) -> web.Response:
                 housing_bonuses = housing.get_house_bonuses(gid, uid)
                 max_hp = dungeon.compute_effective_stats(character, equipped, housing_bonuses.get("stat_bonus", {}))["hp"]
                 current_hp = min(character["current_hp"], max_hp)
+                stats_line = (
+                    f'ATK {character["atk"]} · DEF {character["def"]} · SpATK {character["spatk"]} · '
+                    f'SpDEF {character["spdef"]} · Speed {character["speed"]} (base, before equipment)'
+                )
                 character_fields = (
-                    f'<label>Level<input type="number" min="1" name="level" value="{character["level"]}"></label>'
+                    f'<label>Level<input type="number" min="1" name="level" value="{character["level"]}">'
+                    f'<small class="field-hint">Saving recomputes attributes from '
+                    f'{html.escape(character["main_class"])}/{html.escape(character["subclass"])}\'s own '
+                    f'leveling curve for whatever level is entered here -- not just this character\'s own '
+                    f'level-up history, so this also fixes a character with stale/mismatched stats.</small>'
+                    f'</label>'
                     f'<label>XP<input type="number" min="0" name="xp" value="{character["xp"]}"></label>'
-                    f'<label>Current HP <small class="field-hint">max {max_hp}</small>'
+                    f'<label>Current HP <small class="field-hint">max {max_hp}, clamped down on save if the '
+                    f'new level\'s max HP is lower</small>'
                     f'<input type="number" min="0" max="{max_hp}" name="current_hp" '
                     f'value="{current_hp}"></label>'
+                    f'<p class="field-hint">{stats_line}</p>'
                 )
             else:
                 character_fields = "<p><em>No dungeon character yet.</em></p>"
