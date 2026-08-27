@@ -727,5 +727,23 @@
         ]
       }
     ]
+  },
+  {
+    "id": "goblin_doorman",
+    "name": "Goblin Doorman",
+    "hp": 13,
+    "atk": 6,
+    "def": 3,
+    "spatk": 13,
+    "spdef": 6,
+    "spd": 14,
+    "intended_level": 1,
+    "shape": "circle",
+    "color": "#000000",
+    "flavor": "They really look like they don't want to do this...",
+    "loot_min": 10,
+    "loot_max": 20,
+    "drops": [],
+    "skills": []
   }
 ]
