@@ -686,6 +686,11 @@
         "kind": "consumable",
         "item_id": "zombies_revenge",
         "chance": 0.08
+      },
+      {
+        "kind": "housing_item",
+        "item_id": "groovy_lava_lamp",
+        "chance": 0.01
       }
     ],
     "skills": [
