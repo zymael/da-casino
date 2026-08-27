@@ -2129,5 +2129,34 @@
     ],
     "chip_cost": 5,
     "special": true
+  },
+  {
+    "id": "supercharge_hearts",
+    "main_class": "mage",
+    "subclass": "hearts",
+    "unlock_level": 5,
+    "name": "Supercharge",
+    "flavor": "I shall show you, peasant!",
+    "effects": [
+      {
+        "type": "dodge_buff",
+        "duration": 3,
+        "value": 0.3,
+        "target": "self"
+      },
+      {
+        "type": "resist_buff",
+        "duration": 3,
+        "value": 0.3,
+        "target": "self"
+      },
+      {
+        "type": "spatk_buff",
+        "value": 7,
+        "target": "self"
+      }
+    ],
+    "chip_cost": 5,
+    "special": true
   }
 ]
