@@ -1,24 +1,5 @@
 [
   {
-    "id": "mercenary_efficient_strike",
-    "main_class": "fighter",
-    "subclass": "diamonds",
-    "unlock_level": 4,
-    "name": "Efficient Strike",
-    "flavor": "No wasted motion -- this job pays by the kill, not the hour.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.3
-      },
-      {
-        "type": "lifesteal_fraction",
-        "value": 0.1
-      }
-    ],
-    "chip_cost": 15
-  },
-  {
     "id": "mercenary_contract_killer",
     "main_class": "fighter",
     "subclass": "diamonds",
