@@ -17,7 +17,7 @@ STEAL_NAMES = ["Lady of the evening", "Classy Escort"]
 # target as bot.py's RUB_LUCKY_TARGET_ID. Rolled once per round (not per losing bet) against this
 # one user's aggregate net for the round, not any single bet.
 DAUGHTERS_TARGET_ID = 272816170749526027
-DAUGHTERS_CHANCE = 1.0  # temporarily 100% for testing -- drop to 0.25 once confirmed working
+DAUGHTERS_CHANCE = 0.05  # rare enough to stay funny instead of predictable
 DAUGHTERS_IMAGE_PATH = "assets/sickly victorian daughters.png"
 
 
