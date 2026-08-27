@@ -1,24 +1,5 @@
 [
   {
-    "id": "priest_divine_ward",
-    "main_class": "healer",
-    "subclass": "hearts",
-    "unlock_level": 8,
-    "name": "Divine Ward",
-    "flavor": "A shield of faith, and the strength to hold it.",
-    "effects": [
-      {
-        "type": "guard",
-        "reduction": 0.6
-      },
-      {
-        "type": "heal_fraction",
-        "value": 0.2
-      }
-    ],
-    "chip_cost": 20
-  },
-  {
     "id": "charlatan_placebo_rush",
     "main_class": "healer",
     "subclass": "diamonds",
