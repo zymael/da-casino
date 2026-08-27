@@ -1,20 +1,5 @@
 [
   {
-    "id": "duelist_guard",
-    "main_class": "fighter",
-    "subclass": "spades",
-    "unlock_level": 1,
-    "name": "Riposte Guard",
-    "flavor": "A guard stance built for a counter, not just a block.",
-    "effects": [
-      {
-        "type": "guard",
-        "reduction": 0.5
-      }
-    ],
-    "chip_cost": 10
-  },
-  {
     "id": "guardian_guard",
     "main_class": "fighter",
     "subclass": "hearts",
