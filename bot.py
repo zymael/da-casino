@@ -66,7 +66,7 @@ import ranch_view
 import room_commands
 import room_view
 import rooms
-from roulette_view import active_rounds, start_roulette_table
+from roulette_view import DAUGHTERS_NEGLECT_FLAG, DAUGHTERS_TARGET_ID, active_rounds, start_roulette_table
 import slots_view
 from slots_view import SlotsView
 import smash_view
@@ -447,6 +447,10 @@ async def stats_cmd(ctx):
         embed.add_field(name=f"🐴 Horses Owned ({len(owned_horses)})", value="\n".join(horse_lines), inline=False)
     else:
         embed.add_field(name="🐴 Horses Owned", value="None yet — try `!buyhorse` or `!buyfoal`.", inline=False)
+
+    if user_id == DAUGHTERS_TARGET_ID:
+        neglect_count = max(1, await asyncio.to_thread(db.get_flag, guild_id, user_id, DAUGHTERS_NEGLECT_FLAG))
+        embed.add_field(name="Times Daughter's Neglected", value=str(neglect_count), inline=True)
 
     await ctx.send(embed=embed)
 

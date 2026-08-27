@@ -29,6 +29,12 @@ DAUGHTERS_WIN_MESSAGE = (
     "Your starving, forlorn daughters approach and ask you if you can spare flakes for Quimbo's "
     "Eurasian Goiter medication."
 )
+# Bumped only when DAUGHTERS_TARGET_ID is the one who actually clicks the dismiss button (see
+# SicklyVictorianDaughtersView.push_away) -- someone else clicking to clear the channel doesn't
+# count as *him* neglecting anyone. Shown on his own !stats only (bot.py's stats_cmd), floored at 1
+# there rather than seeded in the DB, so it reads as "at least once" from the start with no
+# per-guild migration needed.
+DAUGHTERS_NEGLECT_FLAG = "daughters_neglected"
 
 
 class SicklyVictorianDaughtersView(discord.ui.View):
@@ -41,6 +47,8 @@ class SicklyVictorianDaughtersView(discord.ui.View):
     @discord.ui.button(label="Push your daughters away", style=discord.ButtonStyle.danger)
     async def push_away(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
+        if interaction.user.id == DAUGHTERS_TARGET_ID:
+            await asyncio.to_thread(db.increment_flag, interaction.guild_id, interaction.user.id, DAUGHTERS_NEGLECT_FLAG)
         try:
             await interaction.message.delete()
         except discord.HTTPException:
