@@ -2063,7 +2063,7 @@
     "special": true
   },
   {
-    "id": "supercharge_spades",
+    "id": "supercharge_base_spades",
     "main_class": "mage",
     "subclass": "spades",
     "unlock_level": 5,
