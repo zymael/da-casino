@@ -1,20 +1,5 @@
 [
   {
-    "id": "guardian_fortify",
-    "main_class": "fighter",
-    "subclass": "hearts",
-    "unlock_level": 4,
-    "name": "Fortify",
-    "flavor": "Sets their shoulders and simply refuses to move.",
-    "effects": [
-      {
-        "type": "def_buff",
-        "value": 2
-      }
-    ],
-    "chip_cost": 15
-  },
-  {
     "id": "guardian_last_stand",
     "main_class": "fighter",
     "subclass": "hearts",
