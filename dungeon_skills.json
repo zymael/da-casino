@@ -1216,10 +1216,10 @@
     "special": true
   },
   {
-    "id": "queen_aoe_buff",
+    "id": "reassuring_voice",
     "main_class": "mage",
     "subclass": "hearts",
-    "unlock_level": 5,
+    "unlock_level": 7,
     "name": "Reassuring Voice",
     "flavor": "Your Queen is here.",
     "effects": [
@@ -1241,7 +1241,7 @@
         "target": "self"
       }
     ],
-    "chip_cost": 8,
+    "chip_cost": 7,
     "special": true
   },
   {
