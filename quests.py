@@ -227,7 +227,7 @@ def _validate_trigger(trigger: dict, context: str):
         raise ValueError(f"{context} trigger {trigger_type!r} amount must be > 0")
     if "main_class" in params and trigger["main_class"] not in dungeon.CLASSES:
         raise ValueError(f"{context} trigger references unknown class {trigger['main_class']!r}")
-    if "subclass" in params and trigger["subclass"] not in dungeon.SUBCLASSES:
+    if "subclass" in params and trigger["subclass"] not in dungeon.SUBCLASSES and trigger["subclass"] != dungeon.NO_SUBCLASS:
         raise ValueError(f"{context} trigger references unknown subclass {trigger['subclass']!r}")
     if "phase" in params and trigger["phase"] not in {p[0] for p in moon.PHASES}:
         raise ValueError(f"{context} trigger references unknown moon phase {trigger['phase']!r}")

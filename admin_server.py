@@ -56,7 +56,7 @@ _TRIGGER_PARAM_CHOICES = {
     "achievement": lambda: sorted(a["kind"] for a in achievements.ACHIEVEMENTS),
     "quest": lambda: sorted(quests.QUESTS_BY_ID.keys()),
     "main_class": lambda: sorted(dungeon.CLASSES.keys()),
-    "subclass": lambda: sorted(dungeon.SUBCLASSES.keys()),
+    "subclass": lambda: sorted(dungeon.SUBCLASSES.keys()) + [dungeon.NO_SUBCLASS],
     "moon_phase": lambda: [p[0] for p in moon.PHASES],
 }
 
@@ -347,19 +347,35 @@ def _cascade_options() -> dict:
             "quest_item": _choices(quests.QUEST_ITEMS),
         },
         # A skill's own subclass options depend on its main_class -- keyed by main_class the same
-        # way every other cascade here is keyed by a sibling "kind" select, just backing a fixed
-        # 5-item registry (dungeon.SUBCLASSES, including the dungeon.NO_SUBCLASS sentinel) instead
-        # of a dynamic content one. Each real-suit option shows the actual 16-name-grid build name
-        # plus its card (rank letter + suit symbol) rather than the bare suit id, e.g.
-        # "The Muscle (A♣)" instead of "clubs" -- NO_SUBCLASS gets its own label instead, since it
-        # has no suit glyph and display_name falls back to the bare main-class name for it.
+        # way every other cascade here is keyed by a sibling "kind" select, backing the 4 real
+        # dungeon.SUBCLASSES rows plus dungeon.NO_SUBCLASS (added explicitly -- NO_SUBCLASS is
+        # deliberately not a member of SUBCLASSES itself, see that registry's own comment). Each
+        # real-suit option shows the actual 16-name-grid build name plus its card (rank letter +
+        # suit symbol) rather than the bare suit id, e.g. "The Muscle (A♣)" instead of "clubs" --
+        # NO_SUBCLASS gets its own label instead, since it has no suit glyph and display_name falls
+        # back to the bare main-class name for it.
         "skill_subclass": {
             main_class: [
                 [
                     subclass,
                     "— Base (no subclass yet) —" if subclass == dungeon.NO_SUBCLASS else
                     f"{dungeon.display_name(main_class, subclass)} "
-                    f"({dungeon.CLASSES[main_class]['rank']}{dungeon.SUIT_SYMBOLS[subclass]})",
+                    f"({dungeon.CLASSES[main_class]['rank']}{dungeon.SUBCLASSES[subclass]['symbol']})",
+                ]
+                for subclass in list(dungeon.SUBCLASSES) + [dungeon.NO_SUBCLASS]
+            ]
+            for main_class in dungeon.CLASSES
+        },
+        # A class build's (dungeon_class_builds.json's) own subclass options -- same shape as
+        # skill_subclass above but without the NO_SUBCLASS option, since a build's display name is
+        # never "none" (that state is handled by display_name's own CLASSES fallback, not a
+        # class_builds row).
+        "class_build_subclass": {
+            main_class: [
+                [
+                    subclass,
+                    f"{dungeon.display_name(main_class, subclass)} "
+                    f"({dungeon.CLASSES[main_class]['rank']}{dungeon.SUBCLASSES[subclass]['symbol']})",
                 ]
                 for subclass in dungeon.SUBCLASSES
             ]
@@ -2547,11 +2563,12 @@ def _render_field(field: dict, value, entry: dict | None = None, problems: list[
     name, ftype = field["name"], field["type"]
     label = html.escape(name)
 
-    if ftype in ("str", "int", "color"):
-        input_type = {"str": "text", "int": "number", "color": "color"}[ftype]
+    if ftype in ("str", "int", "float", "color"):
+        input_type = {"str": "text", "int": "number", "float": "number", "color": "color"}[ftype]
+        step_attr = ' step="any"' if ftype == "float" else ""
         v = "" if value is None else value
         return (
-            f'<label>{label}<input type="{input_type}" name="{html.escape(name)}" '
+            f'<label>{label}<input type="{input_type}"{step_attr} name="{html.escape(name)}" '
             f'value="{html.escape(str(v))}"></label>'
         )
 
@@ -2928,6 +2945,12 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
         if not v:
             return (name, field["default"]) if "default" in field else None
         return (name, int(v))
+
+    if ftype == "float":
+        v = form.get(name, "").strip()
+        if not v:
+            return (name, field["default"]) if "default" in field else None
+        return (name, float(v))
 
     if ftype == "enum":
         # Same blank-is-always-omitted reasoning as "str" above -- matters most for an optional

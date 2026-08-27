@@ -1,0 +1,58 @@
+[
+  {
+    "id": "clubs",
+    "symbol": "♣",
+    "archetype_label": "Brawler",
+    "picker_blurb": "More HP/ATK.",
+    "hp": 4,
+    "atk": 2,
+    "def": 0,
+    "spatk": 0,
+    "spdef": 0,
+    "chips": -5,
+    "speed": -2,
+    "loot_mult": 1.0
+  },
+  {
+    "id": "spades",
+    "symbol": "♠",
+    "archetype_label": "Lethal",
+    "picker_blurb": "More ATK, less DEF.",
+    "hp": 0,
+    "atk": 3,
+    "def": -1,
+    "spatk": 2,
+    "spdef": -1,
+    "chips": 5,
+    "speed": 2,
+    "loot_mult": 1.0
+  },
+  {
+    "id": "hearts",
+    "symbol": "♥",
+    "archetype_label": "Loyal",
+    "picker_blurb": "More HP/DEF.",
+    "hp": 4,
+    "atk": 0,
+    "def": 2,
+    "spatk": 0,
+    "spdef": 2,
+    "chips": 10,
+    "speed": 0,
+    "loot_mult": 1.0
+  },
+  {
+    "id": "diamonds",
+    "symbol": "♦",
+    "archetype_label": "Greedy",
+    "picker_blurb": "Better loot rolls.",
+    "hp": 0,
+    "atk": 1,
+    "def": 0,
+    "spatk": 1,
+    "spdef": 0,
+    "chips": 0,
+    "speed": 1,
+    "loot_mult": 1.25
+  }
+]

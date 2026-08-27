@@ -26,6 +26,9 @@ Field types the generic form-builder knows how to render:
   - "str"    -- a single-line text input
   - "text"   -- a multi-line textarea (flavor text and the like)
   - "int"    -- a number input
+  - "float"  -- a number input allowing decimals (step="any"), for a genuine fractional scalar like
+    a subclass's loot_mult -- "int" fields elsewhere stay ints on purpose (chip_cost, unlock_level,
+    ...); this is only for a field that's actually meant to hold a fraction.
   - "color"  -- a text input rendered as an HTML5 color picker
   - "bool"   -- a checkbox. Unchecked is simply absent from the submitted form (never a "false"
     string), so _parse_field's "bool" case always writes a real True/False -- the one field type
@@ -451,6 +454,155 @@ CONTENT_TYPES = {
             {"name": "flavor", "type": "text", "required": False, "group": "Flavor Text"},
         ],
     },
+    "classes": {
+        "label": "Classes",
+        "category": DUNGEON_CONTENT,
+        "icon": "🎭",
+        "json_path": "dungeon_classes.json",
+        "module": dungeon,
+        "registry_attr": "CLASSES",
+        "loader": dungeon._load_classes,
+        # Lowering a class's own chips below what an already-saved skill costs would otherwise only
+        # be caught the next time dungeon_skills.json itself is saved (or, worse, at the next bot
+        # restart) -- same "rooms"/"recipes"/"npcs" extra_validators pattern as elsewhere in this
+        # file, see dungeon.validate_class_chip_costs' own docstring.
+        "extra_validators": [
+            lambda new_registry: dungeon.validate_class_chip_costs(new_registry, dungeon.SUBCLASSES),
+        ],
+        "list_columns": ["id", "display_name", "rank", "hp", "atk", "def", "speed"],
+        "fields": [
+            {
+                "name": "id", "type": "str", "required": True, "group": "Identity",
+                "hint": "must stay exactly one of: fighter, healer, mage, rogue -- the roster is "
+                        "fixed (referenced by skills/characters/quests), only the other fields below "
+                        "are editable",
+            },
+            {"name": "display_name", "type": "str", "required": True, "group": "Identity"},
+            {
+                "name": "rank", "type": "str", "required": True, "group": "Identity",
+                "hint": "single-letter card rank (A/K/Q/J today) -- must be unique across all 4 classes",
+            },
+            {
+                "name": "picker_blurb", "type": "str", "required": True, "group": "Flavor Text",
+                "hint": "short one-line description shown on the !class picker",
+            },
+            {"name": "hp", "type": "int", "required": True, "min": 1, "group": "Base Stats"},
+            {"name": "atk", "type": "int", "required": True, "min": 0, "group": "Base Stats"},
+            {"name": "def", "type": "int", "required": True, "min": 0, "group": "Base Stats"},
+            {"name": "spatk", "type": "int", "required": True, "min": 0, "group": "Base Stats"},
+            {"name": "spdef", "type": "int", "required": True, "min": 0, "group": "Base Stats"},
+            {
+                "name": "chips", "type": "int", "required": True, "min": 0, "group": "Base Stats",
+                "hint": "max Chips pool before subclass modifiers -- lowering this can strand an "
+                        "existing skill's chip_cost, checked at save time",
+            },
+            {"name": "speed", "type": "int", "required": True, "min": 0, "group": "Base Stats"},
+            {
+                "name": "level_hp_gain", "type": "int", "required": True, "min": 0, "group": "Leveling",
+                "hint": "flat HP gained by this class on every level-up",
+            },
+            {"name": "level_atk_gain", "type": "int", "required": True, "min": 0, "group": "Leveling"},
+            {"name": "level_def_gain", "type": "int", "required": True, "min": 0, "group": "Leveling"},
+            {"name": "level_spatk_gain", "type": "int", "required": True, "min": 0, "group": "Leveling"},
+            {"name": "level_spdef_gain", "type": "int", "required": True, "min": 0, "group": "Leveling"},
+            {"name": "level_speed_gain", "type": "int", "required": True, "min": 0, "group": "Leveling"},
+        ],
+    },
+    "subclasses": {
+        "label": "Subclasses",
+        "category": DUNGEON_CONTENT,
+        "icon": "🃏",
+        "json_path": "dungeon_subclasses.json",
+        "module": dungeon,
+        "registry_attr": "SUBCLASSES",
+        "loader": dungeon._load_subclasses,
+        "extra_validators": [
+            lambda new_registry: dungeon.validate_class_chip_costs(dungeon.CLASSES, new_registry),
+        ],
+        "list_columns": ["id", "symbol", "archetype_label", "loot_mult"],
+        "fields": [
+            {
+                "name": "id", "type": "str", "required": True, "group": "Identity",
+                "hint": "must stay exactly one of: clubs, spades, hearts, diamonds -- the roster is "
+                        "fixed, only the other fields below are editable",
+            },
+            {"name": "symbol", "type": "str", "required": True, "group": "Identity", "hint": "suit glyph, e.g. ♣"},
+            {
+                "name": "archetype_label", "type": "str", "required": True, "group": "Identity",
+                "hint": "short archetype tag, e.g. \"Brawler\"",
+            },
+            {
+                "name": "picker_blurb", "type": "str", "required": True, "group": "Flavor Text",
+                "hint": "short one-line description shown on the subclass picker",
+            },
+            {
+                "name": "hp", "type": "int", "required": True, "group": "Stat Modifiers",
+                "hint": "added on top of the class's own base stat -- can be negative",
+            },
+            {"name": "atk", "type": "int", "required": True, "group": "Stat Modifiers"},
+            {"name": "def", "type": "int", "required": True, "group": "Stat Modifiers"},
+            {"name": "spatk", "type": "int", "required": True, "group": "Stat Modifiers"},
+            {"name": "spdef", "type": "int", "required": True, "group": "Stat Modifiers"},
+            {
+                "name": "chips", "type": "int", "required": True, "group": "Stat Modifiers",
+                "hint": "lowering this can strand an existing skill's chip_cost, checked at save time",
+            },
+            {"name": "speed", "type": "int", "required": True, "group": "Stat Modifiers"},
+            {
+                "name": "loot_mult", "type": "float", "required": True, "group": "Stat Modifiers",
+                "hint": "credit-roll multiplier, e.g. 1.25 for +25% loot",
+            },
+        ],
+    },
+    "class_builds": {
+        "label": "Class Builds",
+        "category": DUNGEON_CONTENT,
+        "icon": "🏷️",
+        "json_path": "dungeon_class_builds.json",
+        "module": dungeon,
+        "registry_attr": "CLASS_BUILDS",
+        "loader": dungeon._load_class_builds,
+        "list_columns": ["id", "main_class", "subclass", "display_name"],
+        "fields": [
+            {
+                "name": "id", "type": "str", "required": True, "group": "Identity",
+                "hint": "must be exactly \"{main_class}_{subclass}\" -- e.g. \"fighter_clubs\"",
+            },
+            {
+                "name": "main_class", "type": "enum", "required": True, "group": "Identity",
+                "choices": lambda: [(cid, e["display_name"]) for cid, e in dungeon.CLASSES.items()],
+                "cascades_to": "class_build_subclass",
+            },
+            {
+                "name": "subclass", "type": "cascaded_id", "required": True, "group": "Identity",
+                "cascade": "class_build_subclass", "cascade_from": "main_class",
+            },
+            {
+                "name": "display_name", "type": "str", "required": True, "group": "Identity",
+                "hint": "the build's own name, e.g. \"The Muscle\" for fighter+clubs",
+            },
+        ],
+    },
+    "leveling": {
+        "label": "Leveling",
+        "category": DUNGEON_CONTENT,
+        "icon": "📈",
+        "json_path": "dungeon_leveling.json",
+        "module": dungeon,
+        "registry_attr": "LEVELING",
+        "loader": dungeon._load_leveling,
+        "list_columns": ["id", "xp_per_level"],
+        "fields": [
+            {
+                "name": "id", "type": "str", "required": True, "group": "Identity",
+                "hint": "must stay exactly \"global\" -- this is the one shared setting, not a per-class row",
+            },
+            {
+                "name": "xp_per_level", "type": "int", "required": True, "min": 1, "group": "Pacing",
+                "hint": "XP to advance from level N to N+1 is this number times N, shared by every class",
+            },
+        ],
+    },
     "skills": {
         "label": "Skills",
         "category": DUNGEON_CONTENT,
@@ -464,7 +616,11 @@ CONTENT_TYPES = {
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {
                 "name": "main_class", "type": "enum", "required": True, "group": "Class",
-                "choices": list(dungeon.MAIN_CLASS_DISPLAY.items()),
+                # A callable, not a frozen list -- dungeon.CLASSES is hot-reloadable now (the
+                # Classes content type below), so a plain list here would go stale the moment a
+                # display_name gets edited, same class of bug the module docstring's "enum" entry
+                # warns about for every other hot-reloadable choices list.
+                "choices": lambda: [(cid, e["display_name"]) for cid, e in dungeon.CLASSES.items()],
                 "cascades_to": "skill_subclass",
                 "hint": "a character's broad class -- must match how characters are built elsewhere",
             },

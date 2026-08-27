@@ -27,105 +27,162 @@ import random
 
 import horse_clothes
 
-# Base HP/ATK/DEF/SpAtk/SpDef/Chips per class, before subclass modifiers. Archetypes: Fighter
-# tanks (high HP/DEF, modest ATK, low Chips -- it leans on raw stats, not repeat skill casts) and
-# is purely martial (low SpAtk, but SpDef matches its overall tankiness). Mage nukes physically
-# (high ATK, fragile, highest Chips pool) AND is the premier spellcaster -- SpAtk (14) is even
-# higher than its own ATK (10), while SpDef stays as fragile as DEF, matching its glass-cannon
-# flavor either way. Rogue is balanced/quick with the second-highest Chips pool, mostly physical/
-# martial in its skill flavor (Haymaker, Gut Strike, ...) so SpAtk/SpDef stay modest. Healer leans
-# on HP + its Heal ability (modest Chips -- enough for a couple of heals) to outlast fights, and is
-# the secondary spellcaster (solid SpAtk/SpDef, a support/caster archetype). Healer's ATK was
-# originally 4, which combined with tougher monsters' DEF made roll_damage floor at 1 almost every
-# hit -- an unwinnable slog regardless of how tanky Healer otherwise is. Bumped to 6 so Healer can
-# still meaningfully damage things; simulated combat confirms this fixed it without needing to
-# touch any other class. Each class's signature skill(s) now live in SKILLS below, keyed by
-# (main_class, subclass) rather than on this dict.
-#
-# Chips pools (here and in SUBCLASSES below) are set so that even the worst-case build (fighter +
-# clubs, whose -5 Chips modifier is the largest penalty) can still afford its own most expensive
-# skill (an unlock_level=8 skill, costing 20 Chips per _load_skills' tier formula) at least once a
-# fight -- see _load_skills' chip_cost validation, which enforces this for every build/skill pair
-# rather than leaving it to be noticed live.
-#
-# `speed` drives turn order (see preview_next_turns below) -- a first design pass with no prior
-# balance testing behind it (unlike the other five stats), so treat these numbers as a starting
-# point, not a settled value. Rogue gets the highest base on purpose: its own flavor text already
-# calls it "balanced/quick," so speed is the stat that actually cashes that description in rather
-# than just being a slogan. Fighter is lowest, matching its heavy-armor tank identity; mage sits
-# in the middle rather than at either extreme (a glass cannon isn't necessarily agile); healer is
-# a flat average.
-CLASSES = {
-    "fighter": {"rank": "A", "hp": 32, "atk": 6, "def": 6, "spatk": 3, "spdef": 6, "chips": 25, "speed": 8},
-    "healer": {"rank": "K", "hp": 26, "atk": 6, "def": 5, "spatk": 9, "spdef": 7, "chips": 30, "speed": 10},
-    "mage": {"rank": "Q", "hp": 16, "atk": 10, "def": 2, "spatk": 14, "spdef": 3, "chips": 45, "speed": 9},
-    "rogue": {"rank": "J", "hp": 22, "atk": 7, "def": 3, "spatk": 4, "spdef": 4, "chips": 40, "speed": 14},
+# Base stats, display identity, and per-level growth for the four main classes -- editable through
+# the admin panel's Classes page (dungeon_classes.json) rather than hardcoded here, same "content is
+# data" pattern as every other registry in this file. Fixed 4-id roster (fighter/healer/mage/rogue):
+# a class's fields can be edited but the id itself can't be added/removed/renamed, since it's
+# referenced everywhere (dungeon_skills.json's main_class, every characters DB row, quest triggers)
+# -- see _load_classes' id-set check. Growth (level_hp_gain etc.) used to be one flat rate shared by
+# every class; it's per-class now, looked up by dungeon_view._award_kill on each level-up.
+_CLASSES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_classes.json")
+_REQUIRED_CLASS_FIELDS = {
+    "id", "display_name", "rank", "picker_blurb",
+    "hp", "atk", "def", "spatk", "spdef", "chips", "speed",
+    "level_hp_gain", "level_atk_gain", "level_def_gain",
+    "level_spatk_gain", "level_spdef_gain", "level_speed_gain",
 }
-RANK_TO_CLASS = {info["rank"]: name for name, info in CLASSES.items()}
+_REQUIRED_CLASS_IDS = {"fighter", "healer", "mage", "rogue"}
 
-# Casino-flavored display names for the four main classes themselves (distinct from NAMES' 16
-# subclass-combo names below, e.g. "The Muscle" -- this is the class alone, before a subclass is
-# even chosen). Single source of truth for dungeon_view.CLASS_OPTIONS (the character-creation
-# picker) and admin_schemas.py's "skills" main_class dropdown, so the two surfaces can't drift.
-MAIN_CLASS_DISPLAY = {
-    "fighter": "The Enforcer (Ace)",
-    "healer": "The Pit Boss (King)",
-    "mage": "The Oracle (Queen)",
-    "rogue": "The Hustler (Jack)",
-}
 
-# Subclass (suit) modifiers layered on top of the class base -- the same attitude framework used
-# for the 16 display names: clubs (brawler) adds raw power but leans on brute force over finesse
-# (lowest Chips, and no SpAtk/SpDef lean either -- pure muscle, no magic flavor, and the slowest
-# suit to match), spades (lethal) trades defense for offense both physically and magically (SpAtk
-# up, SpDef down, mirroring its ATK/DEF trade) and is the fastest suit -- a striker archetype
-# (rogue+spades is literally "Assassin"), hearts (loyal) adds survivability and the most Chips (a
-# support-leaning suit that most wants extra casts) plus the best SpDef (protective flavor), speed
-# left neutral, diamonds (greedy) trades a little combat edge for meaningfully better loot, stays
-# Chips-neutral, gets a small SpAtk bump mirroring its small ATK one, and a small speed bump too
-# (an opportunist who gets in and out fast).
-# Sentinel for "hasn't picked a subclass yet" -- a real, zero-modifier member of SUBCLASSES rather
-# than None/"" threaded through every call site, so every existing SUBCLASSES[subclass]-keyed
-# lookup (compute_stats, SKILLS_BY_COMBO, PartyMember/DelveSession's loot_mult/max_chips, the admin
-# panel's skill_subclass cascade, quest trigger validation) keeps working unmodified for a
-# base-class character. A character is created with this subclass (db.create_character), then
-# db.choose_subclass swaps it for a real suit once at SUBCLASS_UNLOCK_LEVEL, applying that suit's
-# modifiers onto their already-leveled stats -- see db.choose_subclass's own docstring.
-NO_SUBCLASS = "none"
-SUBCLASSES = {
-    "clubs": {"hp": 4, "atk": 2, "def": 0, "spatk": 0, "spdef": 0, "loot_mult": 1.0, "chips": -5, "speed": -2},
-    "spades": {"hp": 0, "atk": 3, "def": -1, "spatk": 2, "spdef": -1, "loot_mult": 1.0, "chips": 5, "speed": 2},
-    "hearts": {"hp": 4, "atk": 0, "def": 2, "spatk": 0, "spdef": 2, "loot_mult": 1.0, "chips": 10, "speed": 0},
-    # A -1 DEF here originally, on top of an already-below-average build, made a couple of
-    # specific class+diamonds combos nearly unwinnable in simulation. A small +1 ATK (a
-    # mercenary/treasure hunter still fights competently, just prioritizes the score) fixed that
-    # without diamonds needing to be a pure stat no-op alongside its loot bonus.
-    "diamonds": {"hp": 0, "atk": 1, "def": 0, "spatk": 1, "spdef": 0, "loot_mult": 1.25, "chips": 0, "speed": 1},
-    NO_SUBCLASS: {"hp": 0, "atk": 0, "def": 0, "spatk": 0, "spdef": 0, "loot_mult": 1.0, "chips": 0, "speed": 0},
+def _load_classes(path: str = _CLASSES_PATH) -> dict[str, dict]:
+    with open(path) as f:
+        raw = json.load(f)
+    classes: dict[str, dict] = {}
+    ranks_seen: dict[str, str] = {}
+    for entry in raw:
+        entry_id = entry.get("id", "?")
+        missing = _REQUIRED_CLASS_FIELDS - entry.keys()
+        if missing:
+            raise ValueError(f"dungeon_classes.json: class {entry_id!r} missing field(s): {sorted(missing)}")
+        if entry_id in classes:
+            raise ValueError(f"dungeon_classes.json: duplicate class id {entry_id!r}")
+        if entry["rank"] in ranks_seen:
+            raise ValueError(
+                f"dungeon_classes.json: rank {entry['rank']!r} used by both "
+                f"{ranks_seen[entry['rank']]!r} and {entry_id!r}"
+            )
+        ranks_seen[entry["rank"]] = entry_id
+        if entry["hp"] < 1:
+            raise ValueError(f"dungeon_classes.json: class {entry_id!r} hp must be >= 1")
+        classes[entry_id] = entry
+    ids = set(classes)
+    if ids != _REQUIRED_CLASS_IDS:
+        raise ValueError(
+            f"dungeon_classes.json must contain exactly these ids: {sorted(_REQUIRED_CLASS_IDS)} "
+            f"(got {sorted(ids)}) -- classes can be edited but not added, removed, or renamed"
+        )
+    return classes
+
+
+CLASSES = _load_classes()
+
+# Subclass (suit) stat modifiers and display identity -- editable through the admin panel's
+# Subclasses page (dungeon_subclasses.json). Fixed 4-id roster like CLASSES above (clubs/spades/
+# hearts/diamonds), same reasoning -- see _load_subclasses.
+#
+# dungeon.NO_SUBCLASS below is a synthetic zero-modifier pseudo-entry for "hasn't picked a subclass
+# yet", deliberately NOT one of the 4 JSON rows: injecting it into this same registry would leak a
+# ghost 5th row into the admin panel's Subclasses list, and saving that row would bake "none" into
+# the file as a real id, which the fixed-roster check above would then reject on next load. Use
+# subclass_entry(subclass_id) instead of indexing SUBCLASSES directly wherever a subclass-less
+# character must also work (compute_stats, a build's loot_mult/max_chips, its suit symbol) --
+# SUBCLASSES[subclass_id] directly is only safe where subclass is already known to be a real pick.
+_SUBCLASSES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_subclasses.json")
+_REQUIRED_SUBCLASS_FIELDS = {
+    "id", "symbol", "archetype_label", "picker_blurb",
+    "hp", "atk", "def", "spatk", "spdef", "chips", "speed", "loot_mult",
 }
-SUIT_SYMBOLS = {"clubs": "♣", "spades": "♠", "hearts": "♥", "diamonds": "♦", NO_SUBCLASS: ""}
+_REQUIRED_SUBCLASS_IDS = {"clubs", "spades", "hearts", "diamonds"}
+
+
+def _load_subclasses(path: str = _SUBCLASSES_PATH) -> dict[str, dict]:
+    with open(path) as f:
+        raw = json.load(f)
+    subclasses: dict[str, dict] = {}
+    for entry in raw:
+        entry_id = entry.get("id", "?")
+        missing = _REQUIRED_SUBCLASS_FIELDS - entry.keys()
+        if missing:
+            raise ValueError(f"dungeon_subclasses.json: subclass {entry_id!r} missing field(s): {sorted(missing)}")
+        if entry_id in subclasses:
+            raise ValueError(f"dungeon_subclasses.json: duplicate subclass id {entry_id!r}")
+        if entry["loot_mult"] <= 0:
+            raise ValueError(f"dungeon_subclasses.json: subclass {entry_id!r} loot_mult must be > 0")
+        subclasses[entry_id] = entry
+    ids = set(subclasses)
+    if ids != _REQUIRED_SUBCLASS_IDS:
+        raise ValueError(
+            f"dungeon_subclasses.json must contain exactly these ids: {sorted(_REQUIRED_SUBCLASS_IDS)} "
+            f"(got {sorted(ids)}) -- subclasses can be edited but not added, removed, or renamed"
+        )
+    return subclasses
+
+
+SUBCLASSES = _load_subclasses()
 
 # Level a character can first use !class again to pick a subclass -- a level gate for now, meant to
-# eventually become a quest requirement instead (see NO_SUBCLASS above).
+# eventually become a quest requirement instead.
 SUBCLASS_UNLOCK_LEVEL = 5
 
-# The 16-name grid, worked out with the product owner: (class, subclass) -> display name.
-NAMES = {
-    ("fighter", "clubs"): "The Muscle", ("fighter", "spades"): "The Duelist",
-    ("fighter", "hearts"): "The Minder", ("fighter", "diamonds"): "The Mercenary",
-    ("healer", "clubs"): "The Cutman", ("healer", "spades"): "The Fixer",
-    ("healer", "hearts"): "The Chaplain", ("healer", "diamonds"): "The Charlatan",
-    ("mage", "clubs"): "The Wildcard", ("mage", "spades"): "The Jinx",
-    ("mage", "hearts"): "The Enchanter", ("mage", "diamonds"): "The Mechanic",
-    ("rogue", "clubs"): "The Bar Fighter", ("rogue", "spades"): "The Hitman",
-    ("rogue", "hearts"): "The Heartbreaker", ("rogue", "diamonds"): "The Treasure Hunter",
+NO_SUBCLASS = "none"
+_NO_SUBCLASS_ENTRY = {
+    "id": NO_SUBCLASS, "symbol": "", "archetype_label": "", "picker_blurb": "",
+    "hp": 0, "atk": 0, "def": 0, "spatk": 0, "spdef": 0, "chips": 0, "speed": 0, "loot_mult": 1.0,
 }
+
+
+def subclass_entry(subclass_id: str) -> dict:
+    """SUBCLASSES[subclass_id], except for NO_SUBCLASS -- see SUBCLASSES' own comment for why that
+    sentinel is never actually a member of SUBCLASSES itself."""
+    return _NO_SUBCLASS_ENTRY if subclass_id == NO_SUBCLASS else SUBCLASSES[subclass_id]
+
+
+# The 16-name grid -- editable through the admin panel's Class Builds page
+# (dungeon_class_builds.json). Fixed roster: exactly one row per real (main_class, subclass) combo,
+# id "{main_class}_{subclass}" -- see _load_class_builds.
+_CLASS_BUILDS_PATH = os.path.join(os.path.dirname(__file__), "dungeon_class_builds.json")
+_REQUIRED_BUILD_FIELDS = {"id", "main_class", "subclass", "display_name"}
+
+
+def _load_class_builds(path: str = _CLASS_BUILDS_PATH) -> dict[str, dict]:
+    with open(path) as f:
+        raw = json.load(f)
+    builds: dict[str, dict] = {}
+    for entry in raw:
+        entry_id = entry.get("id", "?")
+        missing = _REQUIRED_BUILD_FIELDS - entry.keys()
+        if missing:
+            raise ValueError(f"dungeon_class_builds.json: build {entry_id!r} missing field(s): {sorted(missing)}")
+        if entry_id in builds:
+            raise ValueError(f"dungeon_class_builds.json: duplicate build id {entry_id!r}")
+        if entry["main_class"] not in CLASSES:
+            raise ValueError(
+                f"dungeon_class_builds.json: build {entry_id!r} has unknown main_class {entry['main_class']!r}"
+            )
+        if entry["subclass"] not in SUBCLASSES:
+            raise ValueError(
+                f"dungeon_class_builds.json: build {entry_id!r} has unknown subclass {entry['subclass']!r}"
+            )
+        expected_id = f"{entry['main_class']}_{entry['subclass']}"
+        if entry_id != expected_id:
+            raise ValueError(f"dungeon_class_builds.json: build id {entry_id!r} must be {expected_id!r}")
+        builds[entry_id] = entry
+    required_ids = {f"{mc}_{sc}" for mc in CLASSES for sc in SUBCLASSES}
+    if set(builds) != required_ids:
+        raise ValueError(
+            f"dungeon_class_builds.json must contain exactly these ids: {sorted(required_ids)} "
+            f"(got {sorted(builds)}) -- builds can be edited but not added, removed, or renamed"
+        )
+    return builds
+
+
+CLASS_BUILDS = _load_class_builds()
 
 
 def display_name(main_class: str, subclass: str) -> str:
     if subclass == NO_SUBCLASS:
-        return MAIN_CLASS_DISPLAY[main_class]
-    return NAMES[(main_class, subclass)]
+        return CLASSES[main_class]["display_name"]
+    return CLASS_BUILDS[f"{main_class}_{subclass}"]["display_name"]
 
 
 def compute_stats(main_class: str, subclass: str) -> dict:
@@ -133,7 +190,7 @@ def compute_stats(main_class: str, subclass: str) -> dict:
     on every read, so a character's power stays stable even if these base numbers get
     rebalanced later."""
     base = CLASSES[main_class]
-    mod = SUBCLASSES[subclass]
+    mod = subclass_entry(subclass)
     return {
         "hp": base["hp"] + mod["hp"],
         "atk": base["atk"] + mod["atk"],
@@ -580,12 +637,35 @@ def monsters_for_room(room: dict) -> list[dict]:
 # XP is awarded per monster kill, scaled by monster difficulty (deeper/tougher = more XP, same
 # "push deeper pays off more" logic already driving loot). Leveling grants automatic flat stat
 # growth -- no player choice -- applied by mutating the character's stored stats in place
-# (db.add_xp), the same way horse training already grows a horse's stats via db.train_horse.
-# Subclass-specific skills unlocked by level are a deferred follow-up; `level` is tracked now
-# specifically so that pass won't need a data-model change.
-LEVEL_HP_GAIN, LEVEL_ATK_GAIN, LEVEL_DEF_GAIN = 2, 1, 1
-LEVEL_SPATK_GAIN, LEVEL_SPDEF_GAIN = 1, 1  # matches ATK/DEF's growth rate
-LEVEL_SPEED_GAIN = 1  # same growth rate again -- speed grows proportionally, not disproportionately
+# (db.add_xp), the same way horse training already grows a horse's stats via db.train_horse. Growth
+# itself is per-class now (CLASSES' own level_hp_gain/level_atk_gain/... fields above, looked up by
+# dungeon_view._award_kill on each level-up) -- xp_per_level below is the one number still shared by
+# every class, editable through the admin panel's Leveling page (dungeon_leveling.json) since it's a
+# pacing knob, not a balance-between-classes one, so it doesn't fit as a per-class field.
+_LEVELING_PATH = os.path.join(os.path.dirname(__file__), "dungeon_leveling.json")
+_REQUIRED_LEVELING_FIELDS = {"id", "xp_per_level"}
+
+
+def _load_leveling(path: str = _LEVELING_PATH) -> dict[str, dict]:
+    with open(path) as f:
+        raw = json.load(f)
+    leveling: dict[str, dict] = {}
+    for entry in raw:
+        entry_id = entry.get("id", "?")
+        missing = _REQUIRED_LEVELING_FIELDS - entry.keys()
+        if missing:
+            raise ValueError(f"dungeon_leveling.json: entry {entry_id!r} missing field(s): {sorted(missing)}")
+        if entry["xp_per_level"] < 1:
+            raise ValueError(f"dungeon_leveling.json: entry {entry_id!r} xp_per_level must be >= 1")
+        leveling[entry_id] = entry
+    if set(leveling) != {"global"}:
+        raise ValueError(
+            f'dungeon_leveling.json must contain exactly one entry with id "global" (got {sorted(leveling)})'
+        )
+    return leveling
+
+
+LEVELING = _load_leveling()
 
 
 def xp_for_monster(monster: dict) -> int:
@@ -600,7 +680,7 @@ def xp_for_monster(monster: dict) -> int:
 
 def xp_to_next_level(level: int) -> int:
     """XP required to advance from `level` to `level + 1`."""
-    return 50 * level
+    return LEVELING["global"]["xp_per_level"] * level
 
 
 # --- Skills ----------------------------------------------------------------------------------
@@ -944,7 +1024,7 @@ def _load_skills(path: str = _SKILLS_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_skills.json: duplicate skill id {entry_id!r}")
         if entry["main_class"] not in CLASSES:
             raise ValueError(f"dungeon_skills.json: skill {entry_id!r} has unknown main_class {entry['main_class']!r}")
-        if entry["subclass"] not in SUBCLASSES:
+        if entry["subclass"] not in SUBCLASSES and entry["subclass"] != NO_SUBCLASS:
             raise ValueError(f"dungeon_skills.json: skill {entry_id!r} has unknown subclass {entry['subclass']!r}")
         if entry["unlock_level"] < 1:
             raise ValueError(f"dungeon_skills.json: skill {entry_id!r} has invalid unlock_level")
@@ -982,7 +1062,7 @@ def _build_skills_by_combo(skills: dict[str, dict]) -> dict[tuple[str, str], lis
     # SKILLS/the admin panel's own list for whoever owns content to find and fix), and log it
     # loudly so the mistake doesn't go unnoticed just because it stopped being fatal.
     for main_class in CLASSES:
-        for subclass in SUBCLASSES:
+        for subclass in list(SUBCLASSES) + [NO_SUBCLASS]:
             combo = (main_class, subclass)
             level_ones = [s for s in by_combo.get(combo, []) if s["unlock_level"] == 1]
             if not level_ones:
@@ -1010,6 +1090,33 @@ def unlocked_skills(main_class: str, subclass: str, level: int) -> list[dict]:
     """All skills this build has unlocked by `level`, sorted by unlock_level ascending (so
     index 0 is always the level-1 base skill)."""
     return [s for s in SKILLS_BY_COMBO[(main_class, subclass)] if s["unlock_level"] <= level]
+
+
+def validate_class_chip_costs(classes: dict, subclasses: dict) -> None:
+    """Re-checks every already-saved skill's chip_cost against its build's max Chips, using the
+    CANDIDATE classes/subclasses about to be saved (compute_stats can't be reused here -- it reads
+    the live CLASSES/SUBCLASSES globals, not a not-yet-committed candidate dict). Wired as an
+    extra_validator on both the "classes" and "subclasses" admin_schemas.py content types, so
+    lowering a class's or subclass's chips below what an existing skill costs is caught right at
+    Save -- otherwise it'd only be noticed the next time dungeon_skills.json itself is saved, or
+    worse, at the next bot restart, when _load_skills would refuse to boot at all."""
+    for skill in SKILLS.values():
+        base = classes.get(skill["main_class"])
+        if base is None:
+            continue  # an unknown main_class is validated elsewhere, not this check's job
+        if skill["subclass"] == NO_SUBCLASS:
+            mod = _NO_SUBCLASS_ENTRY
+        else:
+            mod = subclasses.get(skill["subclass"])
+            if mod is None:
+                continue
+        max_chips = base["chips"] + mod["chips"]
+        if skill["chip_cost"] > max_chips:
+            raise ValueError(
+                f"{skill['main_class']}/{skill['subclass']} skill {skill['id']!r} costs "
+                f"{skill['chip_cost']} chips but would only have {max_chips} max chips with this "
+                f"change -- fix the skill's chip_cost first"
+            )
 
 
 # --- Equipment -----------------------------------------------------------------------------

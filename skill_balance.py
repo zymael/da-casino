@@ -9,10 +9,10 @@ module's EFFECT_HANDLERS).
 Scope: this models a build's own OUTPUT (damage dealt, Chip economy) -- not incoming monster
 damage, HP-over-time survivability, equipment, or housing bonuses (raw class+subclass stats only).
 dungeon.compute_stats takes no level parameter -- stats are level-independent, only which skills
-are *unlocked* changes with level, and dungeon.LEVEL_*_GAIN growth is flat and identical across
-every build, so it doesn't affect *relative* balance between builds either. This module simulates
-every build at SIMULATION_LEVEL (high enough to unlock its full current skill kit), as if fully
-built out.
+are *unlocked* changes with level. Leveling growth (dungeon.CLASSES' own level_hp_gain etc.) is
+per-class now, but still doesn't affect *relative* balance between builds within the same class
+(clubs vs. spades on the same class levels identically) -- this module simulates every build at
+SIMULATION_LEVEL (high enough to unlock its full current skill kit), as if fully built out.
 """
 
 import random
@@ -51,14 +51,16 @@ _DEBUFF_CC_TYPES = {
 
 
 def all_builds() -> list[tuple[str, str]]:
-    """Every real (main_class, subclass) combo -- 16 today (4 classes x 4 subclasses). Excludes
-    dungeon.NO_SUBCLASS -- that's a transient pre-level-5 state, not a real endgame build worth
-    balancing against the other 16."""
-    return [(mc, sc) for mc in dungeon.CLASSES for sc in dungeon.SUBCLASSES if sc != dungeon.NO_SUBCLASS]
+    """Every real (main_class, subclass) combo -- 16 today (4 classes x 4 subclasses).
+    dungeon.SUBCLASSES never includes dungeon.NO_SUBCLASS (that's a transient pre-level-5 state
+    synthesized separately, see dungeon.subclass_entry), so this is naturally just the 16 real
+    builds worth balancing against each other."""
+    return [(mc, sc) for mc in dungeon.CLASSES for sc in dungeon.SUBCLASSES]
 
 
 def build_label(main_class: str, subclass: str) -> str:
-    return dungeon.NAMES.get((main_class, subclass), f"{main_class}/{subclass}")
+    entry = dungeon.CLASS_BUILDS.get(f"{main_class}_{subclass}")
+    return entry["display_name"] if entry else f"{main_class}/{subclass}"
 
 
 def _reference_defense() -> tuple[float, float]:

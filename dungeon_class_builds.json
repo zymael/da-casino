@@ -1,0 +1,18 @@
+[
+  {"id": "fighter_clubs", "main_class": "fighter", "subclass": "clubs", "display_name": "The Muscle"},
+  {"id": "fighter_spades", "main_class": "fighter", "subclass": "spades", "display_name": "The Duelist"},
+  {"id": "fighter_hearts", "main_class": "fighter", "subclass": "hearts", "display_name": "The Minder"},
+  {"id": "fighter_diamonds", "main_class": "fighter", "subclass": "diamonds", "display_name": "The Mercenary"},
+  {"id": "healer_clubs", "main_class": "healer", "subclass": "clubs", "display_name": "The Cutman"},
+  {"id": "healer_spades", "main_class": "healer", "subclass": "spades", "display_name": "The Fixer"},
+  {"id": "healer_hearts", "main_class": "healer", "subclass": "hearts", "display_name": "The Chaplain"},
+  {"id": "healer_diamonds", "main_class": "healer", "subclass": "diamonds", "display_name": "The Charlatan"},
+  {"id": "mage_clubs", "main_class": "mage", "subclass": "clubs", "display_name": "The Wildcard"},
+  {"id": "mage_spades", "main_class": "mage", "subclass": "spades", "display_name": "The Jinx"},
+  {"id": "mage_hearts", "main_class": "mage", "subclass": "hearts", "display_name": "The Enchanter"},
+  {"id": "mage_diamonds", "main_class": "mage", "subclass": "diamonds", "display_name": "The Mechanic"},
+  {"id": "rogue_clubs", "main_class": "rogue", "subclass": "clubs", "display_name": "The Bar Fighter"},
+  {"id": "rogue_spades", "main_class": "rogue", "subclass": "spades", "display_name": "The Hitman"},
+  {"id": "rogue_hearts", "main_class": "rogue", "subclass": "hearts", "display_name": "The Heartbreaker"},
+  {"id": "rogue_diamonds", "main_class": "rogue", "subclass": "diamonds", "display_name": "The Treasure Hunter"}
+]

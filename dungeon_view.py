@@ -32,18 +32,23 @@ def _moon_combat_multiplier(effect: str | None, favors: str) -> float:
 # at once regardless of which of the three types it is.
 active_delves: dict[int, "DelveSession | PartyLobby | PartyDelveSession"] = {}
 
-CLASS_OPTIONS = [
-    ("fighter", dungeon.MAIN_CLASS_DISPLAY["fighter"], "Tank — high HP/DEF. Skill varies by subclass."),
-    ("healer", dungeon.MAIN_CLASS_DISPLAY["healer"], "Support — balanced spread. Skill varies by subclass."),
-    ("mage", dungeon.MAIN_CLASS_DISPLAY["mage"], "High ATK, fragile. Skill varies by subclass."),
-    ("rogue", dungeon.MAIN_CLASS_DISPLAY["rogue"], "Balanced/quick. Skill varies by subclass."),
-]
-SUBCLASS_OPTIONS = [
-    ("clubs", "♣ Brawler", "More HP/ATK."),
-    ("spades", "♠ Lethal", "More ATK, less DEF."),
-    ("hearts", "♥ Loyal", "More HP/DEF."),
-    ("diamonds", "♦ Greedy", "Better loot rolls."),
-]
+def _class_options() -> list[tuple[str, str, str]]:
+    """(id, label, description) for every main class, read live from dungeon.CLASSES on every call
+    (not frozen at import time) -- dungeon.CLASSES is hot-reloadable through the admin panel's
+    Classes page, and this is only ever built fresh anyway (ClassSelect is constructed new on every
+    !class invocation), so there's no reason to risk it going stale."""
+    return [(cid, entry["display_name"], entry["picker_blurb"]) for cid, entry in dungeon.CLASSES.items()]
+
+
+def _subclass_options() -> list[tuple[str, str, str]]:
+    """(id, label, description) for every real subclass, read live from dungeon.SUBCLASSES on every
+    call -- same hot-reload-safety reasoning as _class_options above. Never includes
+    dungeon.NO_SUBCLASS -- this backs the actual subclass-picking Select, where "none" isn't a
+    choice."""
+    return [
+        (sid, f"{entry['symbol']} {entry['archetype_label']}", entry["picker_blurb"])
+        for sid, entry in dungeon.SUBCLASSES.items()
+    ]
 
 
 class MonsterInstance:
@@ -127,7 +132,7 @@ class DelveSession:
         # alongside chips at every combat-room entry (see _goto_room), same "once per fight"
         # reset point.
         self.used_item_effects: set[str] = set()
-        self.loot_mult = dungeon.SUBCLASSES[self.subclass]["loot_mult"]
+        self.loot_mult = dungeon.subclass_entry(self.subclass)["loot_mult"]
         self.display_name = dungeon.display_name(self.main_class, self.subclass)
         # Level-1 skill is guaranteed to exist for every build (validated at import time in
         # dungeon.py) and is always sorted first, so unlocked_skills is never empty.
@@ -236,7 +241,7 @@ class PartyMember:
         # Same "start wherever the last delve left off" rule as DelveSession -- see its own hp
         # comment for why.
         self.hp = min(character["current_hp"], self.max_hp)
-        self.loot_mult = dungeon.SUBCLASSES[self.subclass]["loot_mult"]
+        self.loot_mult = dungeon.subclass_entry(self.subclass)["loot_mult"]
         self.build_name = dungeon.display_name(self.main_class, self.subclass)
         self.unlocked_skills = dungeon.unlocked_skills(self.main_class, self.subclass, self.level)
         self.is_leader = is_leader
@@ -383,7 +388,7 @@ def _player_card(name: str, main_class: str, subclass: str) -> dict:
     return {
         "kind": "player",
         "rank": dungeon.CLASSES[main_class]["rank"],
-        "suit": dungeon.SUIT_SYMBOLS[subclass],
+        "suit": dungeon.subclass_entry(subclass)["symbol"],
         "initial": name[0].upper() if name else "?",
     }
 
@@ -1063,20 +1068,22 @@ async def _award_kill(
 
     xp_gain = dungeon.xp_for_monster(monster)
     xp_gain = round(xp_gain * (1 + housing_bonuses.get("dungeon_xp_bonus", 0) / 100))
+    growth = dungeon.CLASSES[actor.main_class]
     level_result = await asyncio.to_thread(
         db.add_xp, guild_id, actor.user_id, xp_gain,
-        dungeon.LEVEL_HP_GAIN, dungeon.LEVEL_ATK_GAIN, dungeon.LEVEL_DEF_GAIN,
-        dungeon.LEVEL_SPATK_GAIN, dungeon.LEVEL_SPDEF_GAIN, dungeon.LEVEL_SPEED_GAIN,
+        growth["level_hp_gain"], growth["level_atk_gain"], growth["level_def_gain"],
+        growth["level_spatk_gain"], growth["level_spdef_gain"], growth["level_speed_gain"],
+        dungeon.LEVELING["global"]["xp_per_level"],
     )
     log_lines.append(f"+{xp_gain} XP")
     if level_result["levels_gained"] > 0:
         actor.level = level_result["new_level"]
-        hp_delta = dungeon.LEVEL_HP_GAIN * level_result["levels_gained"]
-        atk_delta = dungeon.LEVEL_ATK_GAIN * level_result["levels_gained"]
-        def_delta = dungeon.LEVEL_DEF_GAIN * level_result["levels_gained"]
-        spatk_delta = dungeon.LEVEL_SPATK_GAIN * level_result["levels_gained"]
-        spdef_delta = dungeon.LEVEL_SPDEF_GAIN * level_result["levels_gained"]
-        speed_delta = dungeon.LEVEL_SPEED_GAIN * level_result["levels_gained"]
+        hp_delta = growth["level_hp_gain"] * level_result["levels_gained"]
+        atk_delta = growth["level_atk_gain"] * level_result["levels_gained"]
+        def_delta = growth["level_def_gain"] * level_result["levels_gained"]
+        spatk_delta = growth["level_spatk_gain"] * level_result["levels_gained"]
+        spdef_delta = growth["level_spdef_gain"] * level_result["levels_gained"]
+        speed_delta = growth["level_speed_gain"] * level_result["levels_gained"]
         actor.max_hp += hp_delta
         actor.hp += hp_delta
         actor.atk += atk_delta
@@ -3731,7 +3738,7 @@ class ClassSelect(discord.ui.Select):
     def __init__(self, picker: "ClassPickerView"):
         options = [
             discord.SelectOption(label=label, value=value, description=desc)
-            for value, label, desc in CLASS_OPTIONS
+            for value, label, desc in _class_options()
         ]
         super().__init__(placeholder="Choose your class...", options=options, row=0)
         self.picker = picker
@@ -3747,7 +3754,7 @@ class SubclassSelect(discord.ui.Select):
     def __init__(self, picker: "SubclassPickerView"):
         options = [
             discord.SelectOption(label=label, value=value, description=desc)
-            for value, label, desc in SUBCLASS_OPTIONS
+            for value, label, desc in _subclass_options()
         ]
         super().__init__(placeholder="Choose your subclass...", options=options, row=1)
         self.picker = picker

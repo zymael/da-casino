@@ -404,7 +404,7 @@ async def stats_cmd(ctx):
     if character is not None:
         name = dungeon.display_name(character["main_class"], character["subclass"])
         rank = dungeon.CLASSES[character["main_class"]]["rank"]
-        suit_symbol = dungeon.SUIT_SYMBOLS[character["subclass"]]
+        suit_symbol = dungeon.subclass_entry(character["subclass"])["symbol"]
         equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
         housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, guild_id, user_id)
         effective = dungeon.compute_effective_stats(character, equipped, housing_bonuses.get("stat_bonus", {}))
@@ -900,7 +900,7 @@ async def class_cmd(ctx):
 
     name = dungeon.display_name(character["main_class"], character["subclass"])
     rank = dungeon.CLASSES[character["main_class"]]["rank"]
-    suit_symbol = dungeon.SUIT_SYMBOLS[character["subclass"]]
+    suit_symbol = dungeon.subclass_entry(character["subclass"])["symbol"]
     equipped = await asyncio.to_thread(db.get_equipped_items, ctx.guild.id, ctx.author.id)
     housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, ctx.guild.id, ctx.author.id)
     effective = dungeon.compute_effective_stats(character, equipped, housing_bonuses.get("stat_bonus", {}))

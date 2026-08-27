@@ -118,8 +118,8 @@ _RED_SUITS = {"♥", "♦"}
 
 def _draw_player_card(draw: ImageDraw.ImageDraw, x: float, y: float, rank: str, suit: str) -> None:
     """A player/party-member card: existing rank letter (A/K/Q/J, dungeon.CLASSES[...]["rank"]) +
-    suit symbol (♠♥♦♣, dungeon.SUIT_SYMBOLS[...]), suit-colored red/black per standard card
-    convention -- zero new art, reuses the exact pairing that already names every build."""
+    suit symbol (♠♥♦♣, dungeon.subclass_entry(...)["symbol"]), suit-colored red/black per standard
+    card convention -- zero new art, reuses the exact pairing that already names every build."""
     color = (190, 25, 25, 255) if suit in _RED_SUITS else (20, 20, 20, 255)
     draw.rounded_rectangle(
         [x, y, x + CARD_WIDTH, y + CARD_HEIGHT], radius=5, fill=(245, 242, 230, 255), outline=(0, 0, 0, 255), width=2

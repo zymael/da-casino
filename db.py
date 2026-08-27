@@ -1957,11 +1957,17 @@ def set_character_progress(guild_id: int, user_id: int, level: int, xp: int, cur
 def add_xp(
     guild_id: int, user_id: int, xp_gain: int,
     hp_gain: int, atk_gain: int, def_gain: int, spatk_gain: int, spdef_gain: int, speed_gain: int,
+    xp_per_level: int,
 ) -> dict:
     """Awards xp_gain, then loops applying level-ups (mutating the character's stored hp/atk/def/
     spatk/spdef/speed in place, same idea as train_horse growing a horse's stats) for as long as
     the accumulated xp clears the next threshold -- so one big award can cross several levels in
     one call, same inclusive-tiers idea used elsewhere in this codebase (e.g. achievement tiers).
+    `hp_gain`/etc and `xp_per_level` are both caller-supplied (dungeon.CLASSES' per-class growth
+    fields and dungeon.LEVELING's shared pacing number, respectively) rather than looked up here --
+    db.py doesn't import game-content modules (dungeon.py already imports db.py; importing back
+    would be circular), same reasoning as horserace.py owning its own constants that db.py's
+    callers pass in.
 
     Returns {new_level, levels_gained, new_hp, new_atk, new_def, new_spatk, new_spdef, new_speed,
     new_xp} so the caller can apply the same deltas to a live delve session immediately rather than
@@ -1975,8 +1981,8 @@ def add_xp(
         ).fetchone()
         xp += xp_gain
         levels_gained = 0
-        while xp >= _xp_to_next_level(level):
-            xp -= _xp_to_next_level(level)
+        while xp >= xp_per_level * level:
+            xp -= xp_per_level * level
             level += 1
             levels_gained += 1
             hp += hp_gain
@@ -1998,13 +2004,6 @@ def add_xp(
         }
     finally:
         conn.close()
-
-
-def _xp_to_next_level(level: int) -> int:
-    """Duplicated from dungeon.xp_to_next_level rather than imported -- db.py doesn't import
-    game-content modules (dungeon.py already imports db.py; importing back would be circular),
-    same reasoning as horserace.py owning its own constants that db.py's callers pass in."""
-    return 50 * level
 
 
 def get_equipped_items(guild_id: int, user_id: int) -> dict[str, str]:
