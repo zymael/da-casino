@@ -450,7 +450,7 @@ async def stats_cmd(ctx):
 
     if user_id == DAUGHTERS_TARGET_ID:
         neglect_count = max(1, await asyncio.to_thread(db.get_flag, guild_id, user_id, DAUGHTERS_NEGLECT_FLAG))
-        embed.add_field(name="Times Daughter's Neglected", value=str(neglect_count), inline=True)
+        embed.add_field(name="Times Daughters Neglected", value=str(neglect_count), inline=True)
 
     await ctx.send(embed=embed)
 
