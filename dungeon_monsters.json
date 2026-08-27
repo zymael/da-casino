@@ -816,5 +816,24 @@
     ],
     "skills": [],
     "sprite_path": "assets/dungeon/monsters/goblin_chief_copy.png"
+  },
+  {
+    "id": "goblin_mob_boss",
+    "name": "Goblin Mob Boss",
+    "hp": 63,
+    "atk": 12,
+    "def": 14,
+    "spatk": 16,
+    "spdef": 38,
+    "spd": 10,
+    "intended_level": 10,
+    "shape": "circle",
+    "color": "#000000",
+    "flavor": "The Goblin Mob Boss starts to talk in an insensitively stereotypical I accent.  You hush them quickly and move to give them a lesson in modern media sensibilities.",
+    "loot_min": 100,
+    "loot_max": 200,
+    "drops": [],
+    "skills": [],
+    "sprite_path": "assets/dungeon/monsters/goblin_mob_boss.png"
   }
 ]
