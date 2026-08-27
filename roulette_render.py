@@ -1,9 +1,8 @@
 import io
 import math
+import os
 
 from PIL import Image, ImageDraw, ImageFont
-
-import roulette
 
 CELL = 60
 ZERO_WIDTH = 60
@@ -23,30 +22,23 @@ GRID_TABLE_HEIGHT = GRID_HEIGHT + DOZEN_HEIGHT + OUTSIDE_HEIGHT
 IMG_WIDTH = GRID_TABLE_WIDTH + 2 * BORDER
 IMG_HEIGHT = GRID_TABLE_HEIGHT + 2 * BORDER
 
-FELT = (10, 90, 40, 255)
-RED = (176, 30, 30, 255)
-BLACK = (25, 25, 25, 255)
-GREEN = (20, 130, 60, 255)
-LINE = (230, 230, 220, 255)
 GOLD = (255, 200, 40, 255)
 CHIP_FILL = (250, 240, 200, 255)
 CHIP_OUTLINE = (60, 40, 10, 255)
-# Wood trim -- a solid walnut base plus a lighter outer bevel and darker inner bevel, the same
-# simple raised-frame trick real picture frames/table rims use, rather than an attempted procedural
-# grain texture (this is a template meant to be repainted into real art anyway, per
-# export_art_templates.py's own docstring -- it only needs to clearly read as "wood trim here").
-WOOD = (92, 51, 23, 255)
-WOOD_HIGHLIGHT = (150, 100, 55, 255)
-WOOD_SHADOW = (55, 28, 10, 255)
 
 _FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-_number_font = ImageFont.truetype(_FONT_PATH, 20)
-_label_font = ImageFont.truetype(_FONT_PATH, 16)
 _chip_font = ImageFont.truetype(_FONT_PATH, 13)
 
 OUTSIDE_BOXES = ["low", "even", "red", "black", "odd", "high"]
-OUTSIDE_LABELS = {"low": "1-18", "even": "EVEN", "red": "RED", "black": "BLACK", "odd": "ODD", "high": "19-36"}
-DOZEN_LABELS = {1: "1st12", 2: "2nd12", 3: "3rd12"}
+
+# The table's whole felt/number-grid/label layer is real painted art now (assets/roulette/
+# roulette.jpg, repainted 1:1 over an exported template at exactly IMG_WIDTH x IMG_HEIGHT -- see
+# export_art_templates.py) -- _base_table below just loads it, same "load once, .copy() per render"
+# pattern slots_render.py's cabinet background already uses. BORDER and every _*_rect function
+# above/below are unchanged and still load-bearing: they're what lines up a bet chip or the
+# winning-number highlight against this art's grid at render time.
+ASSET_DIR = os.path.join(os.path.dirname(__file__), "assets", "roulette")
+_table_background = Image.open(os.path.join(ASSET_DIR, "roulette.jpg")).convert("RGBA").resize((IMG_WIDTH, IMG_HEIGHT))
 
 # Standard European single-zero wheel pocket order, reading around the rim.
 WHEEL_ORDER = [
@@ -57,9 +49,12 @@ WHEEL_ORDER = [
 WHEEL_SIZE = 440
 WHEEL_CENTER = WHEEL_SIZE / 2
 WHEEL_OUTER_R = 210
-WHEEL_INNER_R = 145
-WHEEL_HUB_R = 80
-_wheel_number_font = ImageFont.truetype(_FONT_PATH, 17)
+WHEEL_HUB_R = 80  # still used by export_art_templates.py's standalone hub template export
+
+# Real painted art (assets/roulette/) for both wheel layers -- see render_wheel's own docstring for
+# why this is two composited pieces rather than one flat image.
+_wheel_background = Image.open(os.path.join(ASSET_DIR, "roulette_wheel.png")).convert("RGBA").resize((WHEEL_SIZE, WHEEL_SIZE))
+_wheel_hub = Image.open(os.path.join(ASSET_DIR, "roulette_Base.png")).convert("RGBA")
 
 
 def _cell_rect(number: int) -> tuple[int, int, int, int]:
@@ -99,53 +94,8 @@ def _column_box_rect(value: int) -> tuple[int, int, int, int]:
     return (x0, y0, x0 + COLUMN_BOX_WIDTH, y0 + CELL)
 
 
-def _centered_text(draw: ImageDraw.ImageDraw, rect, text, font, fill):
-    x0, y0, x1, y1 = rect
-    bbox = draw.textbbox((0, 0), text, font=font)
-    w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    draw.text(((x0 + x1 - w) / 2 - bbox[0], (y0 + y1 - h) / 2 - bbox[1]), text, font=font, fill=fill)
-
-
 def _base_table() -> Image.Image:
-    img = Image.new("RGBA", (IMG_WIDTH, IMG_HEIGHT), WOOD)
-    draw = ImageDraw.Draw(img)
-    # A simple raised-bevel look: a lighter highlight near the outer edge, a darker shadow near the
-    # inner edge (where the trim meets the felt) -- reads as a routed wooden rim without needing an
-    # actual grain texture (see BORDER's own comment for why that's fine here).
-    draw.rectangle([2, 2, IMG_WIDTH - 3, IMG_HEIGHT - 3], outline=WOOD_HIGHLIGHT, width=2)
-    draw.rectangle(
-        [BORDER - 7, BORDER - 7, IMG_WIDTH - BORDER + 6, IMG_HEIGHT - BORDER + 6],
-        outline=WOOD_SHADOW, width=3,
-    )
-    # Felt playing surface, inset by BORDER on every side -- everything below this still fills in
-    # its own cell/box color, but the dozen row has small gaps beside the "0" column and beside the
-    # column boxes (see _dozen_rect/_outside_rect) that only this base fill covers.
-    draw.rectangle([BORDER, BORDER, IMG_WIDTH - BORDER, IMG_HEIGHT - BORDER], fill=FELT)
-
-    for n in range(37):
-        rect = _cell_rect(n)
-        color = GREEN if n == 0 else (RED if n in roulette.RED_NUMBERS else BLACK)
-        draw.rectangle(rect, fill=color, outline=LINE, width=1)
-        _centered_text(draw, rect, str(n), _number_font, (255, 255, 255, 255))
-
-    for kind in OUTSIDE_BOXES:
-        rect = _outside_rect(kind)
-        color = RED if kind == "red" else BLACK if kind == "black" else FELT
-        draw.rectangle(rect, fill=color, outline=LINE, width=1)
-        label_rect = (rect[0], rect[1], rect[2], rect[1] + 24)
-        _centered_text(draw, label_rect, OUTSIDE_LABELS[kind], _label_font, (255, 255, 255, 255))
-
-    for value in (1, 2, 3):
-        rect = _dozen_rect(value)
-        draw.rectangle(rect, fill=FELT, outline=LINE, width=1)
-        _centered_text(draw, rect, DOZEN_LABELS[value], _label_font, (255, 255, 255, 255))
-
-    for value in (1, 2, 3):
-        rect = _column_box_rect(value)
-        draw.rectangle(rect, fill=FELT, outline=LINE, width=1)
-        _centered_text(draw, rect, "2:1", _label_font, (255, 255, 255, 255))
-
-    return img
+    return _table_background.copy()
 
 
 def _combo_rect(numbers) -> tuple[int, int, int, int]:
@@ -220,52 +170,26 @@ def render_table(bets: list[dict], winning_number: int | None = None) -> io.Byte
 
 
 def render_wheel(winning_number: int | None = None) -> io.BytesIO:
-    """Draws the wheel with pockets in real wheel order, optionally highlighting the result."""
-    img = Image.new("RGBA", (WHEEL_SIZE, WHEEL_SIZE), (0, 0, 0, 0))
+    """Draws the wheel (real art, pockets/numbers already painted in -- assets/roulette/
+    roulette_wheel.png, plus the hub medallion assets/roulette/roulette_Base.png composited on top
+    of it as its own layer, mirroring the two-piece wheel_background/wheel_hub split
+    export_art_templates.py originally exported) plus the one dynamic per-spin overlay: the
+    winning pocket's gold highlight and the ball, drawn only once a result is known."""
+    img = _wheel_background.copy()
+    img.alpha_composite(
+        _wheel_hub,
+        (int(WHEEL_CENTER - _wheel_hub.width / 2), int(WHEEL_CENTER - _wheel_hub.height / 2)),
+    )
     draw = ImageDraw.Draw(img)
 
-    step = 360 / len(WHEEL_ORDER)
-    bbox_outer = [
-        WHEEL_CENTER - WHEEL_OUTER_R, WHEEL_CENTER - WHEEL_OUTER_R,
-        WHEEL_CENTER + WHEEL_OUTER_R, WHEEL_CENTER + WHEEL_OUTER_R,
-    ]
-
-    for i, number in enumerate(WHEEL_ORDER):
-        mid = -90 + i * step
-        color = GREEN if number == 0 else (RED if number in roulette.RED_NUMBERS else BLACK)
-        draw.pieslice(bbox_outer, mid - step / 2, mid + step / 2, fill=color, outline=LINE, width=1)
-
-    bbox_inner = [
-        WHEEL_CENTER - WHEEL_INNER_R, WHEEL_CENTER - WHEEL_INNER_R,
-        WHEEL_CENTER + WHEEL_INNER_R, WHEEL_CENTER + WHEEL_INNER_R,
-    ]
-    draw.ellipse(bbox_inner, fill=FELT, outline=LINE, width=2)
-
-    bbox_hub = [
-        WHEEL_CENTER - WHEEL_HUB_R, WHEEL_CENTER - WHEEL_HUB_R,
-        WHEEL_CENTER + WHEEL_HUB_R, WHEEL_CENTER + WHEEL_HUB_R,
-    ]
-    draw.ellipse(bbox_hub, fill=(40, 25, 10, 255), outline=GOLD, width=3)
-
-    ring_r = (WHEEL_OUTER_R + WHEEL_INNER_R) / 2
-    for i, number in enumerate(WHEEL_ORDER):
-        mid = -90 + i * step
-        label = Image.new("RGBA", (40, 24), (0, 0, 0, 0))
-        label_draw = ImageDraw.Draw(label)
-        text = str(number)
-        bbox = label_draw.textbbox((0, 0), text, font=_wheel_number_font)
-        w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-        label_draw.text(((40 - w) / 2 - bbox[0], (24 - h) / 2 - bbox[1]), text, font=_wheel_number_font, fill=(255, 255, 255, 255))
-        rotated = label.rotate(-(mid + 90), expand=True)
-        rx = WHEEL_CENTER + ring_r * math.cos(math.radians(mid))
-        ry = WHEEL_CENTER + ring_r * math.sin(math.radians(mid))
-        img.alpha_composite(rotated, (int(rx - rotated.width / 2), int(ry - rotated.height / 2)))
-
-    draw.ellipse(bbox_outer, outline=(200, 170, 90, 255), width=4)
-
     if winning_number is not None:
+        step = 360 / len(WHEEL_ORDER)
         idx = WHEEL_ORDER.index(winning_number)
         mid = -90 + idx * step
+        bbox_outer = [
+            WHEEL_CENTER - WHEEL_OUTER_R, WHEEL_CENTER - WHEEL_OUTER_R,
+            WHEEL_CENTER + WHEEL_OUTER_R, WHEEL_CENTER + WHEEL_OUTER_R,
+        ]
         draw.pieslice(bbox_outer, mid - step / 2, mid + step / 2, outline=GOLD, width=6)
         ball_r = WHEEL_OUTER_R - 14
         bx = WHEEL_CENTER + ball_r * math.cos(math.radians(mid))
