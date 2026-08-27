@@ -1,20 +1,5 @@
 [
   {
-    "id": "healer_base_aid",
-    "main_class": "healer",
-    "subclass": "none",
-    "unlock_level": 1,
-    "name": "First Aid",
-    "flavor": "PLACEHOLDER -- edit me in the admin panel. Slaps a bandage on and hopes for the best.",
-    "effects": [
-      {
-        "type": "heal_fraction",
-        "value": 0.4
-      }
-    ],
-    "chip_cost": 10
-  },
-  {
     "id": "mage_base_spark",
     "main_class": "mage",
     "subclass": "none",
