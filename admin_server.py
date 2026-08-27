@@ -40,9 +40,9 @@ import room_commands
 import rooms
 import skill_balance
 from admin_schemas import (
-    CATEGORIES, CONTENT_TYPES, EFFECT_PARAM_NAMES, EFFECT_PARAMS_BY_TYPE, EFFECT_TYPE_HINTS,
-    EFFECT_TYPES, EQUIPMENT_EFFECT_TRIGGERS, SHOP_KINDS, TRIGGER_PARAM_HINTS, TRIGGER_PARAM_KINDS,
-    TRIGGER_PARAM_NAMES, TRIGGER_TYPES,
+    CATEGORIES, CONTENT_TYPES, EFFECT_PARAM_NAMES, EFFECT_PARAMS_BY_TYPE, EFFECT_SHORT_LABELS,
+    EFFECT_TYPE_HINTS, EFFECT_TYPES, EQUIPMENT_EFFECT_TRIGGERS, SHOP_KINDS, TRIGGER_PARAM_HINTS,
+    TRIGGER_PARAM_KINDS, TRIGGER_PARAM_NAMES, TRIGGER_TYPES,
 )
 
 # kind -> a no-arg callable returning the live sorted list of valid ids for that kind of trigger
@@ -3621,6 +3621,61 @@ async def dashboard(request: web.Request) -> web.Response:
     return _html_response(_page("Content Editor", "".join(sections)))
 
 
+# Effect types whose value reads as a reduction/loss (shown with a "-" in the list view's compact
+# summary) rather than a gain ("+") -- everything else defaults to "+". def_shred/dot/lower_threat
+# are debuffs even though their names don't end in "_debuff".
+_DEBUFF_EFFECT_TYPES = {
+    "atk_debuff", "spatk_debuff", "spdef_debuff", "speed_debuff", "def_shred", "lower_threat", "dot",
+}
+# Shown with a "x" prefix instead of a +/- sign -- these scale an existing number rather than
+# adding/subtracting from one.
+_MULTIPLIER_EFFECT_TYPES = {"damage_multiplier", "extra_attack"}
+# No meaningful value to show at all -- cleanse_* and stun/sap are pure duration/boolean effects.
+_NO_VALUE_EFFECT_TYPES = {"stun", "sap", "cleanse_dot", "cleanse_cc"}
+
+
+def _format_effect(effect: dict) -> str:
+    """One compact fragment for the list view's stats-summary column, e.g. "ATK +3" or "Heal +40%"
+    -- not the full picture (skips trigger/chance/duration), just enough to tell at a glance what
+    an item/skill/consumable roughly does without opening it. Reuses dungeon.EFFECT_PARAM_SCHEMAS'
+    own fraction-param classification (the same one the edit form's validator uses) to decide
+    percent vs. raw-number display, so this can never drift from what the real loader considers a
+    fraction."""
+    etype = effect.get("type", "?")
+    label = EFFECT_SHORT_LABELS.get(etype, etype)
+    if etype in _NO_VALUE_EFFECT_TYPES:
+        return label
+    schema = dungeon.EFFECT_PARAM_SCHEMAS.get(etype)
+    if schema is None:
+        return label
+    _required, _optional, fraction_params = schema
+    param = next((p for p in ("value", "reduction", "multiplier") if p in effect), None)
+    if param is None:
+        return label
+    raw = effect[param]
+    if etype in _MULTIPLIER_EFFECT_TYPES:
+        return f"{label} ×{raw:g}"
+    sign = "-" if etype in _DEBUFF_EFFECT_TYPES else "+"
+    if param in fraction_params:
+        return f"{label} {sign}{round(raw * 100)}%"
+    return f"{label} {sign}{raw:g}"
+
+
+def _list_cell_text(field: dict | None, value) -> str:
+    """Plain text for one list-view cell. Most fields just stringify; the three effects-shaped
+    field types (equipment's "equipment_effects", skills/consumables' "effects", consumables'
+    alternative "effect_groups") get summarized via _format_effect instead of showing their raw
+    [{'type': ..., ...}] repr, which is what a bare str(value) produced before this existed."""
+    if field is None:
+        return "" if value is None else str(value)
+    ftype = field["type"]
+    if ftype in ("effects", "equipment_effects"):
+        return ", ".join(_format_effect(e) for e in (value or []))
+    if ftype == "effect_groups":
+        return ", ".join(_format_effect(e) for group in (value or []) for e in group.get("effects", []))
+    return "" if value is None else str(value)
+
+
 async def list_view(request: web.Request) -> web.Response:
     content_type = request.match_info["content_type"]
     spec = CONTENT_TYPES.get(content_type)
@@ -3628,6 +3683,11 @@ async def list_view(request: web.Request) -> web.Response:
         raise web.HTTPNotFound()
 
     columns = spec["list_columns"]
+    # Looked up per column so _list_cell_text knows an effects-shaped column (equipment_effects/
+    # effects/effect_groups) needs summarizing rather than a bare str() of its raw list-of-dicts --
+    # None for a column name that isn't a real field (there aren't any today, but "" is a saner
+    # fallback than a KeyError if list_columns and fields ever drift).
+    field_by_name = {f["name"]: f for f in spec["fields"]}
     is_delve = content_type == "delves"
     # Delves get one extra column beyond their own: whether there's a draft with unpublished
     # changes, or (for a delve never published at all) whether the row IS only a draft -- see
@@ -3640,7 +3700,9 @@ async def list_view(request: web.Request) -> web.Response:
     )
     rows = []
     for item_id, entry in getattr(spec["module"], spec["registry_attr"]).items():
-        cells = "".join(f"<td>{html.escape(str(entry.get(c, '')))}</td>" for c in columns)
+        cells = "".join(
+            f"<td>{html.escape(_list_cell_text(field_by_name.get(c), entry.get(c)))}</td>" for c in columns
+        )
         if is_delve:
             has_unpublished = item_id in drafts and drafts[item_id] != entry
             status = (

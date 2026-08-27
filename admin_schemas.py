@@ -303,7 +303,7 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "EQUIPMENT",
         "loader": dungeon._load_equipment,
-        "list_columns": ["id", "name", "slot", "rarity", "base_value"],
+        "list_columns": ["id", "name", "slot", "rarity", "effects", "base_value"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
@@ -382,7 +382,7 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "CONSUMABLES",
         "loader": dungeon._load_consumables,
-        "list_columns": ["id", "name", "base_value"],
+        "list_columns": ["id", "name", "effects", "effect_groups", "base_value"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
@@ -469,7 +469,7 @@ CONTENT_TYPES = {
         "extra_validators": [
             lambda new_registry: dungeon.validate_class_chip_costs(new_registry, dungeon.SUBCLASSES),
         ],
-        "list_columns": ["id", "display_name", "rank", "hp", "atk", "def", "speed"],
+        "list_columns": ["id", "display_name", "rank", "hp", "atk", "def", "spatk", "spdef", "chips", "speed"],
         "fields": [
             {
                 "name": "id", "type": "str", "required": True, "group": "Identity",
@@ -519,7 +519,7 @@ CONTENT_TYPES = {
         "extra_validators": [
             lambda new_registry: dungeon.validate_class_chip_costs(dungeon.CLASSES, new_registry),
         ],
-        "list_columns": ["id", "symbol", "archetype_label", "loot_mult"],
+        "list_columns": ["id", "symbol", "archetype_label", "hp", "atk", "def", "spatk", "spdef", "chips", "speed", "loot_mult"],
         "fields": [
             {
                 "name": "id", "type": "str", "required": True, "group": "Identity",
@@ -611,7 +611,7 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "SKILLS",
         "loader": dungeon._load_skills,
-        "list_columns": ["id", "main_class", "subclass", "unlock_level", "name"],
+        "list_columns": ["id", "main_class", "subclass", "unlock_level", "name", "chip_cost", "effects", "effect_groups"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {
@@ -741,7 +741,7 @@ CONTENT_TYPES = {
         "module": housing,
         "registry_attr": "HOUSING_ITEMS",
         "loader": housing._load_housing_items,
-        "list_columns": ["id", "name", "effect_type", "value", "base_value"],
+        "list_columns": ["id", "name", "effect_type", "value", "stat", "base_value"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
@@ -1003,6 +1003,21 @@ EFFECT_TYPE_HINTS = {
     "stun": "duration: how many of the target's own turns it skips -- damage does NOT break it",
     "cleanse_dot": "No params -- removes any active damage-over-time from the caster (or the whole party with aoe)",
     "cleanse_cc": "No params -- removes any active Sap/Stun from the caster (or the whole party with aoe)",
+}
+
+# Compact type -> label used only by the admin list view's stats-summary column
+# (admin_server._format_effect) -- EFFECT_TYPE_HINTS above is the full sentence shown on the edit
+# form; this is deliberately terse since several of these may need to fit in one table cell
+# alongside every other effect the same item has.
+EFFECT_SHORT_LABELS = {
+    "damage_multiplier": "Dmg", "heal_fraction": "Heal", "guard": "Guard",
+    "lifesteal_fraction": "Lifesteal", "def_shred": "DEF Shred", "extra_attack": "Extra Atk",
+    "atk_buff": "ATK", "def_buff": "DEF", "spatk_buff": "SpATK", "spdef_buff": "SpDEF",
+    "hp_buff": "HP", "speed_buff": "SPD",
+    "atk_debuff": "ATK", "spatk_debuff": "SpATK", "spdef_debuff": "SpDEF", "speed_debuff": "SPD",
+    "taunt": "Taunt", "lower_threat": "Threat", "dodge_buff": "Dodge", "resist_buff": "Resist",
+    "dot": "DoT", "hot": "HoT", "sap": "Sap", "stun": "Stun",
+    "cleanse_dot": "Cleanse DoT", "cleanse_cc": "Cleanse CC",
 }
 
 EQUIPMENT_EFFECT_TRIGGERS = list(dungeon.EQUIPMENT_EFFECT_TRIGGERS)
