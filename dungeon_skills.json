@@ -2360,5 +2360,32 @@
     ],
     "chip_cost": 9,
     "special": false
+  },
+  {
+    "id": "get_bonked_base_spades",
+    "main_class": "fighter",
+    "subclass": "spades",
+    "unlock_level": 1,
+    "name": "Get bonked",
+    "flavor": "*BONK*",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1.5,
+        "target": "enemy"
+      },
+      {
+        "type": "atk_debuff",
+        "value": 3,
+        "target": "enemy"
+      },
+      {
+        "type": "speed_buff",
+        "value": 2,
+        "target": "enemy"
+      }
+    ],
+    "chip_cost": 9,
+    "special": false
   }
 ]
