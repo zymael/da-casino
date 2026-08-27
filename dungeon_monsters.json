@@ -24,6 +24,11 @@
         "kind": "equipment",
         "item_id": "afro_wig",
         "chance": 0.05
+      },
+      {
+        "kind": "consumable",
+        "item_id": "mystery_powder",
+        "chance": 0.01
       }
     ],
     "skills": [
