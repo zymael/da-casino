@@ -685,22 +685,22 @@
       {
         "kind": "consumable",
         "item_id": "blue_hawaiian_haze",
-        "chance": 0.08
+        "chance": 0.1
       },
       {
         "kind": "consumable",
         "item_id": "painkiller_colada",
-        "chance": 0.08
+        "chance": 0.1
       },
       {
         "kind": "consumable",
         "item_id": "zombies_revenge",
-        "chance": 0.08
+        "chance": 0.1
       },
       {
         "kind": "housing_item",
         "item_id": "groovy_lava_lamp",
-        "chance": 0.01
+        "chance": 0.05
       }
     ],
     "skills": [
