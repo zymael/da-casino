@@ -1544,5 +1544,61 @@
     ],
     "chip_cost": 8,
     "special": false
+  },
+  {
+    "id": "collection_calls",
+    "main_class": "fighter",
+    "subclass": "diamonds",
+    "unlock_level": 5,
+    "name": "Collection Calls",
+    "flavor": "Let me make a few calls...",
+    "effect_groups": [
+      {
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 1.7
+          },
+          {
+            "type": "taunt",
+            "value": 5,
+            "target": "enemy"
+          }
+        ],
+        "chance": 1
+      },
+      {
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 1.1,
+            "target": "enemy"
+          },
+          {
+            "type": "taunt",
+            "value": 5,
+            "target": "enemy"
+          }
+        ],
+        "chance": 1
+      },
+      {
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 0.7,
+            "target": "enemy"
+          },
+          {
+            "type": "taunt",
+            "value": 5,
+            "target": "enemy"
+          }
+        ],
+        "chance": 1
+      }
+    ],
+    "chip_cost": 7,
+    "special": false
   }
 ]
