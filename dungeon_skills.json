@@ -1560,7 +1560,7 @@
   {
     "id": "get_bonked_base",
     "main_class": "fighter",
-    "subclass": "spades",
+    "subclass": "none",
     "unlock_level": 1,
     "name": "Get bonked",
     "flavor": "*BONK*",
