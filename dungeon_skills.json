@@ -1059,7 +1059,7 @@
     "id": "fireball_base",
     "main_class": "mage",
     "subclass": "none",
-    "unlock_level": 5,
+    "unlock_level": 1,
     "name": "Fireball",
     "flavor": "BIG BOOM",
     "effects": [
