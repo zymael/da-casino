@@ -748,8 +748,8 @@
     "skills": []
   },
   {
-    "id": "goblin_archer_copy",
-    "name": "Goblin Archer",
+    "id": "goblin_bartender",
+    "name": "Goblin Bartender",
     "hp": 34,
     "atk": 11,
     "def": 9,
