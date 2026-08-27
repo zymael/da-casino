@@ -448,7 +448,7 @@
         "monster_groups": [
           {
             "monsters": [
-              "goblin_grunt"
+              "goblin_doorman"
             ]
           }
         ],
