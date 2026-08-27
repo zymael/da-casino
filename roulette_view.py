@@ -13,6 +13,30 @@ BET_TIMEOUT_SECONDS = 30  # a round spins this long after its last bet (or after
 STEAL_CHANCE = 0.01  # 1-in-100 chance a winning payout gets swiped instead of paid out
 STEAL_NAMES = ["Lady of the evening", "Classy Escort"]
 
+# The Sickly Victorian Daughters gag -- purely cosmetic, no game-state hook, same running joke
+# target as bot.py's RUB_LUCKY_TARGET_ID. Rolled once per round (not per losing bet) against this
+# one user's aggregate net for the round, not any single bet.
+DAUGHTERS_TARGET_ID = 272816170749526027
+DAUGHTERS_CHANCE = 1.0  # temporarily 100% for testing -- drop to 0.25 once confirmed working
+DAUGHTERS_IMAGE_PATH = "assets/sickly victorian daughters.png"
+
+
+class SicklyVictorianDaughtersView(discord.ui.View):
+    """One-button dismissal for the Sickly Victorian Daughters popup (see RouletteView.resolve) --
+    purely cosmetic, no game state involved; the button just deletes the popup."""
+
+    def __init__(self):
+        super().__init__(timeout=300)
+
+    @discord.ui.button(label="Push your daughters away", style=discord.ButtonStyle.danger)
+    async def push_away(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        try:
+            await interaction.message.delete()
+        except discord.HTTPException:
+            pass
+
+
 # channel_id -> the currently-open round's RouletteView, so only one open table per channel.
 # Registered/popped for the table's whole persistent lifetime by run_roulette_table -- not by
 # RouletteView itself -- since a table now spins round after round rather than closing after one.
@@ -541,6 +565,7 @@ class RouletteView(discord.ui.View):
             result = roulette.spin()
             lines = []
             achievement_bets = []
+            net_by_user: dict[int, int] = {}
             for bet in self.bets:
                 multiplier = roulette.payout_multiplier(bet["kind"], bet["value"], result)
                 payout = bet["amount"] * multiplier
@@ -558,6 +583,7 @@ class RouletteView(discord.ui.View):
                 else:
                     balance = await asyncio.to_thread(db.get_balance, self.guild_id, bet["user_id"])
                 net = payout - bet["amount"]
+                net_by_user[bet["user_id"]] = net_by_user.get(bet["user_id"], 0) + net
                 await asyncio.to_thread(db.log_bet, self.guild_id, bet["user_id"], "roulette", bet["amount"], net)
                 kinds = achievements.kinds_for_bet("roulette", net)
                 kinds += await achievements.record_and_check(self.guild_id, bet["user_id"], "roulette", net)
@@ -603,6 +629,23 @@ class RouletteView(discord.ui.View):
                     await achievements.try_award_many(
                         self.message.channel.send, self.guild_id, bet["user_id"], bet["display_name"], kinds
                     )
+
+            if (
+                self.message is not None
+                and net_by_user.get(DAUGHTERS_TARGET_ID, 0) < 0
+                and random.random() < DAUGHTERS_CHANCE
+            ):
+                daughters_embed = discord.Embed(
+                    title="Sickly Victorian Daughters",
+                    description="Your three waifish, malnutritioned daughters approach the table and ask if "
+                    "you have lost all the money they had for food.",
+                    color=discord.Color.dark_gray(),
+                )
+                daughters_file = discord.File(DAUGHTERS_IMAGE_PATH, filename="daughters.png")
+                daughters_embed.set_image(url="attachment://daughters.png")
+                await self.message.channel.send(
+                    embed=daughters_embed, file=daughters_file, view=SicklyVictorianDaughtersView()
+                )
         finally:
             self.resolved_event.set()
 
