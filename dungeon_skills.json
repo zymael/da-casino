@@ -1,20 +1,5 @@
 [
   {
-    "id": "assassin_sneak_attack",
-    "main_class": "rogue",
-    "subclass": "spades",
-    "unlock_level": 1,
-    "name": "Gut Strike",
-    "flavor": "A blade finds the gap in the armor.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.5
-      }
-    ],
-    "chip_cost": 10
-  },
-  {
     "id": "con_artist_sneak_attack",
     "main_class": "rogue",
     "subclass": "hearts",
