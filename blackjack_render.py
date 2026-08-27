@@ -1,5 +1,4 @@
 import io
-import math
 import os
 
 from PIL import Image, ImageDraw, ImageFont
@@ -9,8 +8,8 @@ from game import hand_value
 
 MAX_SEATS = 4
 
-WIDTH = 1050
-HEIGHT = 780
+WIDTH = 1100
+HEIGHT = 650
 
 # Wood rail trim -- same beveled-frame technique roulette_render.py uses, for a consistent look
 # across the casino's rendered tables.
@@ -38,9 +37,12 @@ _felt_subtext_font = ImageFont.truetype(_FONT_PATH, 13)
 
 # Cards are drawn smaller here than cards_render's native 100x140 -- up to 4 seats (each possibly
 # showing 2 side-by-side hands after a split) plus the dealer all have to fit on one scene, unlike
-# any single-hand view that only ever draws one hand at native size.
-DEALER_SCALE = 0.8
-SEAT_SCALE = 0.55
+# any single-hand view that only ever draws one hand at native size. Still as large as a flat
+# rectangular layout can fit -- Discord scales a wide embed image down to a fixed display width
+# regardless of its real pixel size, so the win here is spending as much of the canvas as possible
+# on actual cards rather than empty felt, not just cranking WIDTH/HEIGHT up.
+DEALER_SCALE = 0.95
+SEAT_SCALE = 0.85
 DEALER_CARD_W = int(cards_render.CARD_WIDTH * DEALER_SCALE)
 DEALER_CARD_H = int(cards_render.CARD_HEIGHT * DEALER_SCALE)
 SEAT_CARD_W = int(cards_render.CARD_WIDTH * SEAT_SCALE)
@@ -51,19 +53,17 @@ HAND_GAP = 22  # gap between two hands side by side at one seat, after a split
 DEALER_CENTER = (WIDTH / 2, 150)
 
 # Seat slot centers -- fixed positions (not recomputed from however many are actually seated, the
-# way uno_render spaces its seats), arranged along a downward arc below the dealer the same way a
-# real table's curved rail seats players: real casino seats don't slide over when someone leaves,
-# so slot i always corresponds to table.seats[i] (join order = physical seat), never to whichever
-# hands happen to be in round.hands this round.
-_ARC_CENTER = (WIDTH / 2, 40)
-_ARC_R = 520
-_SEAT_ANGLES = (-50, -16, 16, 50)  # degrees either side of straight down
+# way uno_render spaces its seats): a plain rectangular table, one row of MAX_SEATS evenly-spaced
+# slots below the dealer (traded the earlier curved-rail "D" table for this specifically so cards
+# could be drawn bigger -- a flat row wastes far less canvas on empty felt than a curved layout
+# needs for clearance). Real casino seats don't slide over when someone leaves, so slot i always
+# corresponds to table.seats[i] (join order = physical seat), never to whichever hands happen to be
+# in round.hands this round.
+SEAT_ROW_Y = 400
+_seat_slot_w = (WIDTH - 2 * BORDER) / MAX_SEATS
 SEAT_CENTERS = [
-    (
-        _ARC_CENTER[0] + _ARC_R * math.sin(math.radians(a)),
-        _ARC_CENTER[1] + _ARC_R * math.cos(math.radians(a)),
-    )
-    for a in _SEAT_ANGLES
+    (BORDER + _seat_slot_w * (i + 0.5), SEAT_ROW_Y)
+    for i in range(MAX_SEATS)
 ]
 
 ASSET_DIR = os.path.join(os.path.dirname(__file__), "assets", "blackjack")
@@ -78,10 +78,9 @@ def _centered_text(draw: ImageDraw.ImageDraw, cx: float, cy: float, text: str, f
 
 def _base_table() -> Image.Image:
     """Procedural placeholder -- swapped for real painted art (assets/blackjack/
-    table_background.png) the moment that file exists, same as roulette_render.py's table. Draws
-    the actual shape of a real table (a "D": dealer along the flat top edge, players around the
-    curved edge) rather than a plain rectangle, so the template is a meaningful paint-over
-    reference, not just a placeholder color."""
+    table_background.png) the moment that file exists, same as roulette_render.py's table. A plain
+    rectangular felt (not the curved-rail "D" shape a real table has) -- traded for the extra
+    canvas room, so cards can be drawn bigger; see SEAT_CENTERS' own comment."""
     if os.path.exists(_background_path):
         return Image.open(_background_path).convert("RGBA").resize((WIDTH, HEIGHT))
 
@@ -92,23 +91,8 @@ def _base_table() -> Image.Image:
         [BORDER - 7, BORDER - 7, WIDTH - BORDER + 6, HEIGHT - BORDER + 6],
         outline=WOOD_SHADOW, width=3,
     )
-
-    # The felt "D" -- a big circle centered well above the canvas, clipped by the wood rail, so
-    # only its lower arc shows: flat-ish near the top (dealer's edge), curving out toward the
-    # bottom (the players' edge). Radius chosen so the curve passes just inside the seat arc above.
-    felt_center = (WIDTH / 2, _ARC_CENTER[1] - 60)
-    felt_r = _ARC_R + 150
-    felt_box = [
-        felt_center[0] - felt_r, felt_center[1] - felt_r,
-        felt_center[0] + felt_r, felt_center[1] + felt_r,
-    ]
-    mask = Image.new("L", (WIDTH, HEIGHT), 0)
-    mask_draw = ImageDraw.Draw(mask)
-    mask_draw.ellipse(felt_box, fill=255)
-    mask_draw.rectangle([0, 0, WIDTH, BORDER + 40], fill=0)  # keep the top corners wood, not felt
-    felt_layer = Image.new("RGBA", (WIDTH, HEIGHT), FELT)
-    img.paste(felt_layer, (0, 0), mask)
-    draw.ellipse(felt_box, outline=FELT_EDGE, width=3)
+    felt_box = [BORDER, BORDER, WIDTH - BORDER, HEIGHT - BORDER]
+    draw.rounded_rectangle(felt_box, radius=36, fill=FELT, outline=FELT_EDGE, width=3)
 
     _centered_text(draw, WIDTH / 2, BORDER + 30, "BLACKJACK PAYS 3 TO 2", _felt_text_font, GOLD)
     _centered_text(
@@ -124,14 +108,35 @@ def _draw_hand(
 ) -> float:
     """Draws one hand centered on cx starting at top_y, at the given card size. Returns the y just
     below the drawn cards, for whatever gets placed underneath (value/bet/result text)."""
-    n = max(len(cards), 1)
-    width = n * card_w + (n - 1) * CARD_GAP
-    x0 = cx - width / 2
+    offsets = _hand_offsets(len(cards), card_w)
+    x0 = cx - (offsets[-1] + card_w) / 2 if offsets else cx - card_w / 2
     for i, card in enumerate(cards):
         face = cards_render._back_image() if (hide_first and i == 0) else cards_render._card_image(card)
         face = face.resize((card_w, card_h), Image.LANCZOS)
-        img.alpha_composite(face, (int(x0 + i * (card_w + CARD_GAP)), int(top_y)))
+        img.alpha_composite(face, (int(x0 + offsets[i]), int(top_y)))
     return top_y + card_h
+
+
+def _hand_offsets(n: int, card_w: int) -> list[float]:
+    """x-offset (from the hand's own left edge) of each of n cards at card_w. The first 2 cards
+    (every hand's minimum) sit fully spaced; any further hit cards fan out overlapping instead of
+    growing at full card width -- keeps a long or split hand from blowing out its seat's width
+    budget on a row of 4 fixed-width slots, the same trick a real dealer fanning extra hits uses
+    for the same reason. See _hand_span for the matching total-width formula."""
+    n = max(n, 1)
+    step_full = card_w + CARD_GAP
+    overlap_step = card_w * 0.35
+    offsets = [0.0]
+    for i in range(1, n):
+        offsets.append(offsets[-1] + (step_full if i == 1 else overlap_step))
+    return offsets
+
+
+def _hand_span(n: int, card_w: int) -> float:
+    """Total width a hand of n cards occupies at card_w -- matches _hand_offsets, used by the seat
+    layout to place two split hands side by side without re-deriving the same offsets."""
+    offsets = _hand_offsets(n, card_w)
+    return offsets[-1] + card_w
 
 
 def _outcome_color(outcome: str) -> tuple:
@@ -182,9 +187,7 @@ def render_table(
             if not seat_hands:
                 continue
 
-            hand_widths = [
-                len(h.cards) * SEAT_CARD_W + (len(h.cards) - 1) * CARD_GAP for h in seat_hands
-            ]
+            hand_widths = [_hand_span(len(h.cards), SEAT_CARD_W) for h in seat_hands]
             total_w = sum(hand_widths) + HAND_GAP * (len(seat_hands) - 1)
             hand_x = cx - total_w / 2
             for h, hw in zip(seat_hands, hand_widths):
