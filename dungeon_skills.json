@@ -1538,7 +1538,7 @@
     "id": "bar_stool_special",
     "main_class": "rogue",
     "subclass": "clubs",
-    "unlock_level": 7,
+    "unlock_level": 5,
     "name": "Bar Stool Special",
     "flavor": "*BONK*",
     "effects": [
