@@ -2231,5 +2231,28 @@
     ],
     "chip_cost": 10,
     "special": false
+  },
+  {
+    "id": "all_in_base_hearts",
+    "main_class": "rogue",
+    "subclass": "hearts",
+    "unlock_level": 5,
+    "name": "All in",
+    "flavor": "Look over there, a dragon!",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1.5,
+        "target": "enemy"
+      },
+      {
+        "type": "damage_multiplier",
+        "value": 0.7,
+        "target": "enemy",
+        "chance": 0.5
+      }
+    ],
+    "chip_cost": 10,
+    "special": false
   }
 ]
