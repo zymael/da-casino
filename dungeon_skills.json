@@ -1,21 +1,5 @@
 [
   {
-    "id": "mercenary_guard",
-    "main_class": "fighter",
-    "subclass": "diamonds",
-    "unlock_level": 1,
-    "name": "Paid-For Guard",
-    "flavor": "Protecting the client -- themself -- is the whole job.",
-    "effects": [
-      {
-        "type": "guard",
-        "reduction": 0.5
-      }
-    ],
-    "chip_cost": 10,
-    "special": false
-  },
-  {
     "id": "bonesetter_heal",
     "main_class": "healer",
     "subclass": "clubs",
