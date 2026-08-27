@@ -1683,5 +1683,33 @@
     ],
     "chip_cost": 14,
     "special": false
+  },
+  {
+    "id": "steadfast_wrad",
+    "main_class": "fighter",
+    "subclass": "hearts",
+    "unlock_level": 5,
+    "name": "Steadfast Ward",
+    "flavor": "You have to deal with ME!",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 0.5,
+        "target": "enemy"
+      },
+      {
+        "type": "dodge_buff",
+        "duration": 3,
+        "value": 0.3,
+        "target": "self"
+      },
+      {
+        "type": "taunt",
+        "value": 3,
+        "target": "enemy"
+      }
+    ],
+    "chip_cost": 6,
+    "special": false
   }
 ]
