@@ -1143,15 +1143,16 @@ def validate_class_chip_costs(classes: dict, subclasses: dict) -> None:
 #     gated by a per-fight-used flag instead of an inventory quantity. Unrestricted type-wise.
 #   "on_hit": an independent chance (this entry's own `chance`, required, in (0, 1]) to fire when
 #     the wearer lands any damage-dealing hit (dungeon_view.py's _roll_on_hit_procs). Restricted to
-#     ON_HIT_EQUIPMENT_EFFECT_TYPES -- damage_multiplier/guard/extra_attack are excluded because
-#     their handlers don't apply anything themselves, they only populate a `mods` dict a *calling*
-#     combat function reads back at one fixed point in its own body (guard's reduction against
-#     that same action's monster counter-attack a few lines later; extra_attack's multiplier list
-#     drained by a loop right after _apply_effects returns; damage_multiplier has nothing left to
-#     multiply once the triggering hit's damage is already rolled) -- that window has already
-#     closed by the time an on-hit proc could fire. lifesteal_fraction stays allowed despite having
-#     the same "just sets a mods flag" shape, because _roll_on_hit_procs special-cases it to apply
-#     directly against the triggering hit's own already-known damage number.
+#     ON_HIT_EQUIPMENT_EFFECT_TYPES -- damage_multiplier/guard are excluded because their handlers
+#     don't apply anything themselves, they only populate a `mods` dict a *calling* combat function
+#     reads back at one fixed point in its own body (guard's reduction against that same action's
+#     monster counter-attack a few lines later; damage_multiplier has nothing left to multiply once
+#     the triggering hit's damage is already rolled) -- that window has already closed by the time
+#     an on-hit proc could fire. lifesteal_fraction/extra_attack stay allowed despite having the
+#     same "just sets a mods flag" shape everywhere else, because _roll_on_hit_procs special-cases
+#     both: lifesteal applies directly against the triggering hit's own already-known damage
+#     number, extra_attack rolls and deals a genuine second hit of its own right there instead of
+#     relying on a `mods` dict nothing would ever read back for a proc.
 # An item's top-level optional `special` (bool, default False) picks SpAtk/SpDef instead of
 # ATK/DEF for an on_use damage roll -- mirrors a skill/consumable's own optional `special` field
 # exactly; only meaningful if the item has a damage-shaped on_use effect.
@@ -1180,7 +1181,7 @@ CONSTANT_EQUIPMENT_EFFECT_TYPES = {
 # `actor`, same as the other *_buff types already allowed on_hit), no reason to special-case it out.
 # taunt/lower_threat are allowed too -- _roll_on_hit_procs dispatches any type through
 # EFFECT_HANDLERS with a real target already in hand, so their handlers just work unmodified.
-ON_HIT_EQUIPMENT_EFFECT_TYPES = set(EFFECT_PARAM_SCHEMAS) - {"damage_multiplier", "guard", "extra_attack"}
+ON_HIT_EQUIPMENT_EFFECT_TYPES = set(EFFECT_PARAM_SCHEMAS) - {"damage_multiplier", "guard"}
 # type -> which stat constant_stat_bonuses folds it into -- the inverse of generate_item_constant_effects'
 # own mapping below.
 _CONSTANT_EFFECT_STAT = {

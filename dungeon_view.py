@@ -1637,7 +1637,10 @@ def _resolve_player_action(
             # (now possible with an unrestricted "target") has no threat table to update.
             if threat_gain and isinstance(entity, MonsterInstance):
                 entity.threat[actor.user_id] = entity.threat.get(actor.user_id, 0) + dmg * dungeon.THREAT_PER_DAMAGE
-            _roll_on_hit_procs(actor, entity, equipped_items, dmg, log_lines)
+            _roll_on_hit_procs(
+                actor, entity, equipped_items, dmg, log_lines,
+                special=special, moon_mult=moon_mult, threat_gain=threat_gain,
+            )
 
     if mods["lifesteal_fraction"] and total_dmg:
         healed = min(actor.max_hp, actor.hp + round(total_dmg * mods["lifesteal_fraction"])) - actor.hp
@@ -1708,16 +1711,31 @@ def _crowd_control_skip_line(entity, cc_type: str) -> str:
     return f"{_actor_label(entity)} {_verb(entity, 'skip')} {_possessive_pronoun(entity)} turn, {word}!"
 
 
-def _roll_on_hit_procs(actor, monster_state, equipped_items: list[dict], dmg: int, log_lines: list[str]) -> None:
+def _roll_on_hit_procs(
+    actor, monster_state, equipped_items: list[dict], dmg: int, log_lines: list[str],
+    *, special: bool, moon_mult: float, threat_gain: bool,
+) -> None:
     """After a damage-dealing hit lands (never on a dodge or a non-damage action -- callers only
     reach this once `dmg` is known), independently rolls each of `actor`'s equipped items' own
-    on_hit effect (if any) against its own `chance`. `type == "lifesteal_fraction"` is
-    special-cased -- unlike every other on_hit-eligible type, its handler doesn't apply anything
-    itself, it only sets a `mods` flag a caller reads back against a damage number that, for an
-    on-hit proc, is exactly this hit's own already-known `dmg` -- so it's applied directly here
-    with the same formula the primary hit's own lifesteal already uses, instead of going through
-    EFFECT_HANDLERS. Every other on_hit-eligible type is fully self-contained (only ever touches
-    `actor`/`monster_state`), so it dispatches through the normal EFFECT_HANDLERS unchanged."""
+    on_hit effect (if any) against its own `chance`. Two types are special-cased instead of going
+    through EFFECT_HANDLERS, because their handlers don't apply anything themselves -- they only
+    set a `mods` flag a *calling* combat function reads back at one fixed point in its own body,
+    a window that's already closed by the time an on-hit proc fires (see dungeon.py's own comment
+    on ON_HIT_EQUIPMENT_EFFECT_TYPES):
+      - `lifesteal_fraction` applies directly against this hit's own already-known `dmg`, the same
+        formula the primary hit's own lifesteal already uses.
+      - `extra_attack` rolls and deals a genuine second hit against `monster_state` right here
+        (same atk/def/moon formula the primary hit's own extra_attack-from-mods uses, just against
+        a fresh dungeon.roll_damage call of its own), including guard consumption, sap-breaking,
+        and threat gain -- everything the primary hit itself does except a fresh dodge roll (an
+        on-hit proc only ever fires once a hit has already landed, so its own bonus swing is
+        treated as guaranteed too, same as the mods-driven version never gets an independent dodge
+        check either). Deliberately NOT recursive -- this bonus hit doesn't itself roll on_hit
+        procs again, so a proc can't cascade into more procs.
+    Every other on_hit-eligible type is fully self-contained (only ever touches `actor`/
+    `monster_state`), so it dispatches through the normal EFFECT_HANDLERS unchanged. Called once
+    per damaged entity by its caller's own per-target loop, so an AOE action's on_hit procs already
+    resolve independently per target with no special-casing needed here."""
     for item in equipped_items:
         for effect in item["effects"]:
             if effect.get("trigger") != "on_hit" or random.random() >= effect["chance"]:
@@ -1727,6 +1745,22 @@ def _roll_on_hit_procs(actor, monster_state, equipped_items: list[dict], dmg: in
                 actor.hp += healed
                 if healed:
                     log_lines.append(f"{item['name']} drains **{healed}** HP from the strike.")
+            elif effect["type"] == "extra_attack":
+                attacker_atk = (actor.spatk - actor.spatk_debuff) if special else (actor.atk - actor.atk_debuff)
+                eff_def = max(
+                    0,
+                    (monster_state.spdef - monster_state.spdef_debuff) if special
+                    else (monster_state.def_ - monster_state.def_debuff),
+                )
+                extra_dmg = dungeon.roll_damage(attacker_atk, eff_def, effect.get("multiplier", 1.0) * moon_mult)
+                extra_dmg = _consume_guard_charge(monster_state, extra_dmg, log_lines)
+                monster_state.hp -= extra_dmg
+                log_lines.append(f"{item['name']} strikes again at {_combatant_name(monster_state)} for **{extra_dmg}** damage!")
+                _break_sap(monster_state, log_lines)
+                if threat_gain and isinstance(monster_state, MonsterInstance):
+                    monster_state.threat[actor.user_id] = (
+                        monster_state.threat.get(actor.user_id, 0) + extra_dmg * dungeon.THREAT_PER_DAMAGE
+                    )
             else:
                 EFFECT_HANDLERS[effect["type"]](actor, monster_state, effect, log_lines, _default_mods())
 
