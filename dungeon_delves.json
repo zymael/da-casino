@@ -338,14 +338,14 @@
         "prompt": "This nerdy looking goblin at the door is trying to tell you that you're not allowed to enter with your weapons and armor that you are clearly brandishing.",
         "actions": [
           {
-            "label": "Kick his ass",
+            "label": "Kick their ass",
             "check": {
               "stat": "atk",
               "dc": 10
             },
             "on_success": {
               "next": "Dance Floor",
-              "message": "He doesn't even try to fight, and curls into a ball.  You move on."
+              "message": "They don't even try to fight, and curls into a ball.  You move on."
             },
             "on_fail": {
               "next": "Fight the Doorman"
