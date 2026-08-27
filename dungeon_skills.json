@@ -1051,7 +1051,7 @@
   {
     "id": "fireball_base",
     "main_class": "mage",
-    "subclass": "diamonds",
+    "subclass": "none",
     "unlock_level": 5,
     "name": "Fireball",
     "flavor": "BIG BOOM",
