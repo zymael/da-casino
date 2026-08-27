@@ -738,9 +738,10 @@ EFFECT_PARAM_SCHEMAS = {
     # (only current_target's table), "aoe": true hits every living monster's table at once.
     # Player-only: dungeon._validate_monster_skill explicitly rejects both on a monster's own skill
     # (players already pick their own attack target directly, so there's no equivalent "who do I
-    # attack" ambiguity for a monster to need swaying), and both are excluded from equipment
-    # entirely (ON_HIT_EQUIPMENT_EFFECT_TYPES and _validate_equipment_effects' on_use check below)
-    # -- skills/consumables only.
+    # attack" ambiguity for a monster to need swaying). Allowed on equipment under all three
+    # triggers (CONSTANT_EQUIPMENT_EFFECT_TYPES/ON_HIT_EQUIPMENT_EFFECT_TYPES below) -- on_hit/
+    # on_use dispatch through EFFECT_HANDLERS exactly like a skill/consumable cast would; "constant"
+    # is the one case with no in-fight cast to piggyback on, see constant_threat_bonus below.
     "taunt": ({"value"}, set(), set()),
     "lower_threat": ({"value"}, set(), set()),
     # Genuinely temporary effects (N rounds, ticked by dungeon_view._tick_timed_effects) rather
@@ -1128,11 +1129,15 @@ def validate_class_chip_costs(classes: dict, subclasses: dict) -> None:
 # An item's `effects` reuses the exact same {type, ...params} vocabulary skills/consumables
 # already validate via _validate_effects, plus a `trigger` on every entry saying when it fires:
 #   "constant": always active while equipped (what a flat stat_bonuses dict used to be) --
-#     restricted to CONSTANT_EQUIPMENT_EFFECT_TYPES (the *_buff family), the only types with
-#     "always on, no action" semantics. Folded into a character's effective stats by
-#     constant_stat_bonuses below, a pure data fold -- never runs through dungeon_view's
-#     EFFECT_HANDLERS (those log "Your ATK rises..." lines meant for an in-fight cast, which have
-#     nowhere sensible to go for a passive that's just always been on).
+#     restricted to CONSTANT_EQUIPMENT_EFFECT_TYPES (the *_buff family, plus taunt/lower_threat).
+#     The *_buff family is folded into a character's effective stats by constant_stat_bonuses
+#     below, a pure data fold -- never runs through dungeon_view's EFFECT_HANDLERS (those log
+#     "Your ATK rises..." lines meant for an in-fight cast, which have nowhere sensible to go for a
+#     passive that's just always been on). taunt/lower_threat have no equivalent character stat to
+#     fold into -- constant_threat_bonus below sums them instead, and
+#     dungeon_view.PartyDelveSession._enter_room seeds each freshly-rolled monster's threat table
+#     from it the moment the monster is created, so "constant" reads as "you start every fight in
+#     this room already this far up/down the threat table" rather than a one-time application.
 #   "on_use": a combat action the wearer can trigger once per fight (dungeon_view.py's
 #     _handle_cast_item) -- mechanically identical to using a consumable, just not consumed and
 #     gated by a per-fight-used flag instead of an inventory quantity. Unrestricted type-wise.
@@ -1168,19 +1173,14 @@ _EQUIPMENT_PATH = os.path.join(os.path.dirname(__file__), "dungeon_equipment.jso
 _REQUIRED_EQUIPMENT_FIELDS = {"id", "name", "slot", "rarity", "effects", "flavor", "base_value"}
 EQUIPMENT_SLOTS = ("weapon", "armor", "trinket")
 EQUIPMENT_EFFECT_TRIGGERS = ("constant", "on_use", "on_hit")
-CONSTANT_EQUIPMENT_EFFECT_TYPES = {"atk_buff", "def_buff", "spatk_buff", "spdef_buff", "hp_buff", "speed_buff"}
+CONSTANT_EQUIPMENT_EFFECT_TYPES = {
+    "atk_buff", "def_buff", "spatk_buff", "spdef_buff", "hp_buff", "speed_buff", "taunt", "lower_threat",
+}
 # speed_buff is allowed here on purpose ("haste on hit") -- it's self-contained (only ever touches
 # `actor`, same as the other *_buff types already allowed on_hit), no reason to special-case it out.
-# taunt/lower_threat ARE excluded on purpose -- player-only threat manipulation stays scoped to
-# skills/consumables, no equipment support (see EFFECT_PARAM_SCHEMAS' own comment on them).
-ON_HIT_EQUIPMENT_EFFECT_TYPES = set(EFFECT_PARAM_SCHEMAS) - {
-    "damage_multiplier", "guard", "extra_attack", "taunt", "lower_threat",
-}
-# taunt/lower_threat are excluded from equipment everywhere, not just on_hit above -- "constant" is
-# already covered by CONSTANT_EQUIPMENT_EFFECT_TYPES not listing them, but "on_use" has no other
-# type restriction at all (see _validate_equipment_effects' else branch), so it needs this explicit
-# check of its own.
-_ON_USE_EQUIPMENT_EXCLUDED_EFFECT_TYPES = {"taunt", "lower_threat"}
+# taunt/lower_threat are allowed too -- _roll_on_hit_procs dispatches any type through
+# EFFECT_HANDLERS with a real target already in hand, so their handlers just work unmodified.
+ON_HIT_EQUIPMENT_EFFECT_TYPES = set(EFFECT_PARAM_SCHEMAS) - {"damage_multiplier", "guard", "extra_attack"}
 # type -> which stat constant_stat_bonuses folds it into -- the inverse of generate_item_constant_effects'
 # own mapping below.
 _CONSTANT_EFFECT_STAT = {
@@ -1214,8 +1214,6 @@ def _validate_equipment_effects(effects, context: str) -> None:
                 raise ValueError(f"{effect_context} (trigger {trigger!r}) must not set chance")
             if trigger == "constant" and effect_type not in CONSTANT_EQUIPMENT_EFFECT_TYPES:
                 raise ValueError(f"{effect_context} type {effect_type!r} can't be used with trigger 'constant'")
-            if trigger == "on_use" and effect_type in _ON_USE_EQUIPMENT_EXCLUDED_EFFECT_TYPES:
-                raise ValueError(f"{effect_context} type {effect_type!r} can't be used with trigger 'on_use' (player-only threat effect, skills/consumables only)")
     _validate_effects(
         [{k: v for k, v in e.items() if k not in ("trigger", "chance")} for e in effects], context
     )
@@ -1235,6 +1233,25 @@ def constant_stat_bonuses(item: dict) -> dict[str, int]:
         if stat:
             bonuses[stat] = bonuses.get(stat, 0) + effect["value"]
     return bonuses
+
+
+def constant_threat_bonus(item: dict) -> float:
+    """An item's `trigger == "constant"` taunt/lower_threat effects collapsed into one net delta
+    (taunt adds, lower_threat subtracts) -- the threat-table analogue of constant_stat_bonuses
+    above, just a single number instead of a per-stat dict since threat isn't a stat bundle.
+    Summed across a player's equipped items by whoever seeds a fresh MonsterInstance's threat
+    table (dungeon_view.PartyDelveSession._enter_room -- solo delves have no other party member to
+    redirect a monster's attack onto, so a solo player's threat table is never actually read; see
+    MonsterInstance's own docstring)."""
+    bonus = 0.0
+    for effect in item.get("effects", []):
+        if effect.get("trigger") != "constant":
+            continue
+        if effect["type"] == "taunt":
+            bonus += effect["value"]
+        elif effect["type"] == "lower_threat":
+            bonus -= effect["value"]
+    return bonus
 
 
 def _load_equipment(path: str = _EQUIPMENT_PATH) -> dict[str, dict]:

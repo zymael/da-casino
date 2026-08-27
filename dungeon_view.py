@@ -355,11 +355,25 @@ class PartyDelveSession:
         self.member_ally_target_ids = {}
         if room["type"] == "combat":
             mult = dungeon.party_hp_multiplier(len(self.living_members()))
+            # Precomputed once per member, not per monster -- a member's constant-trigger taunt/
+            # lower_threat gear doesn't depend on which monster it's seeding, just summed across
+            # whatever they have equipped right now (dungeon.constant_threat_bonus). This is what
+            # makes "constant" taunt/lower_threat mean "start every fight this far up/down the
+            # threat table" instead of a one-time in-fight application.
+            member_threat_bonuses = {
+                m.user_id: sum(
+                    dungeon.constant_threat_bonus(dungeon.EQUIPMENT[iid]) for iid in m.equipped.values()
+                )
+                for m in self.members
+            }
             self.monsters = []
             for slot, monster in enumerate(dungeon.monsters_for_room(room)):
                 instance = MonsterInstance(monster, slot)
                 instance.max_hp = round(monster["hp"] * mult)
                 instance.hp = instance.max_hp
+                for user_id, bonus in member_threat_bonuses.items():
+                    if bonus:
+                        instance.threat[user_id] = bonus
                 self.monsters.append(instance)
             for m in self.members:
                 m.used_item_effects = set()
