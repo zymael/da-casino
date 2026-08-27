@@ -1480,34 +1480,20 @@ EFFECT_HANDLERS = {
 }
 
 
-def _apply_effects(actor, monster_state, effects: list[dict], log_lines: list[str]) -> dict:
-    """Simple single-target dispatch: every effect in `effects` runs once, against whichever of
-    `actor` (the monster) / `monster_state` (the player being fought) its own "target" (self/ally/
-    enemy, defaulting per type same as dungeon_view._resolve_player_action) resolves to -- "ally"
-    collapses to "self" here, since a monster has no ally pool of its own (no inter-monster
-    targeting exists in this game). Used only by _resolve_monster_attack -- a monster's own skill
-    never needs the multi-target per-effect "aoe" resolution _resolve_player_action implements
-    below (taunt/lower_threat, the one type that used to need broadcasting to every monster, are
-    validation-rejected on monster skills -- dungeon._MONSTER_SKILL_EXCLUDED_EFFECT_TYPES -- so
-    every monster-skill effect really is single-target by construction; this dispatch never needs
-    to know about "aoe" at all). Which positional argument a resolved entity fills is still fixed
-    by the effect's own TYPE (second argument for dungeon.ENEMY_TARGETED_EFFECT_TYPES, first for
-    everything else), exactly like _resolve_player_action -- "target" only changes WHICH entity
-    fills that slot, e.g. a monster's own heal_fraction with target: "enemy" heals the player
-    instead of the monster itself, same "no restrictions" freedom a player skill now has.
-    Returns this-action modifiers the caller still needs for the damage roll: multiplier,
-    lifesteal_fraction (None if no lifesteal), and extra_attack_multipliers (one roll_damage call
-    per entry, on top of the primary hit). Guard is NOT in this dict -- see _effect_guard/
-    _consume_guard_charge for why it's a persistent per-entity field instead."""
-    mods = _default_mods()
+def _apply_self_effects(actor, effects: list[dict], log_lines: list[str], mods: dict) -> None:
+    """Runs every effect in `effects` that does NOT resolve to "enemy" (self/ally, which collapse
+    to the same thing here -- a monster has no ally pool of its own, no inter-monster targeting
+    exists in this game) against `actor`, exactly once regardless of how many enemies this action's
+    own damage-shaped effect(s) end up reaching -- a self-buff shouldn't multiply just because an
+    "aoe" damage effect is hitting the whole party. Mutates `mods` in place for any MODS_ONLY effect
+    among them (a monster's damage_multiplier/extra_attack/lifesteal_fraction are always self-cast,
+    never "enemy", same as a player's). Enemy-targeted effects are NOT run here -- see
+    _resolve_monster_attack's own per-target loop for those."""
     for effect in effects:
         target = effect.get("target") or dungeon.default_effect_target(effect["type"])
-        entity = monster_state if target == "enemy" else actor
-        if effect["type"] in dungeon.ENEMY_TARGETED_EFFECT_TYPES:
-            EFFECT_HANDLERS[effect["type"]](actor, entity, effect, log_lines, mods)
-        else:
-            EFFECT_HANDLERS[effect["type"]](entity, None, effect, log_lines, mods)
-    return mods
+        if target == "enemy":
+            continue
+        EFFECT_HANDLERS[effect["type"]](actor, None, effect, log_lines, mods)
 
 
 def _resolve_player_action(
@@ -1773,40 +1759,80 @@ def _roll_on_hit_procs(
 
 
 def _resolve_monster_attack(
-    attacker: "MonsterInstance", target, moon_effect: str | None, log_lines: list[str],
-) -> tuple[int, dict | None, bool]:
-    """One monster's turn against `target` (anything with `.def_`/`.spdef`/`.hp`/`.timed_effects`
-    -- a DelveSession or PartyMember) -- either its plain attack or one of its own skills
+    attacker: "MonsterInstance", target_pool: list, default_target, moon_effect: str | None, log_lines: list[str],
+) -> tuple[list[tuple[object, int, bool]], dict | None]:
+    """One monster's turn -- either its plain attack or one of its own skills
     (dungeon.pick_monster_action, weighted by the monster's own attack_chance vs. each skill's own
-    chance). `monster_state` is `target` here (not `attacker`) -- a monster skill's effects have
-    full parity with a player's own (dungeon.py's module comment above _validate_monster_skill), so
-    an opponent-targeted effect (def_shred, the *_debuff family) correctly lands on the player
-    being fought, while self-targeted ones (heal/guard/buffs/the timed dodge/resist/dot/hot ones)
-    only ever read `actor`, which is still `attacker` either way. `target` first gets a dodge-chance
-    roll (base DEF/SpDef minus its own debuff, plus any active dodge_buff/resist_buff -- see
-    _defended_dodge_chance) -- a dodge negates the WHOLE action (no effects applied at all, not
-    even the monster's own lifesteal), rolled before _apply_effects runs so a dodged hit truly does
-    nothing. Returns (damage, skill-or-None, dodged) -- callers apply the damage to `target.hp`
-    themselves (solo and party handle the aftermath -- death vs. knockout -- differently) and use
-    skill/dodged to log their own "unleashes X" / "dodges" / "strikes" line."""
+    chance) -- against `default_target` (anything with `.def_`/`.spdef`/`.hp`/`.timed_effects` -- a
+    DelveSession or PartyMember) normally, or every entry in `target_pool` instead when the picked
+    skill's own damage-shaped effect is flagged "aoe" (dungeon_view's own party call site is the
+    only caller that ever passes more than one candidate in `target_pool`; solo always passes a
+    single-entry pool since there's only ever one player to hit). The skill has to be picked here
+    (not by the caller) specifically so this "how many targets" decision can be made from ITS
+    result -- peeking it beforehand would mean rolling dungeon.pick_monster_action's own randomness
+    twice.
+
+    A monster has no ally pool distinct from itself (no inter-monster targeting exists in this
+    game), so any self/ally-targeted effect (heal/guard/buffs/the timed dodge/resist/dot/hot ones,
+    and the mods-only damage_multiplier/extra_attack/lifesteal_fraction trio, which always default
+    to configuring the attacker's own upcoming roll) applies to `attacker` exactly once via
+    _apply_self_effects, regardless of how many entities the enemy-targeted effects go on to reach.
+    Enemy-targeted effects (def_shred, the *_debuff family, and the damage roll itself) repeat once
+    per target -- each gets its own independent dodge roll (base DEF/SpDef minus its own debuff,
+    plus any active dodge_buff/resist_buff -- see _defended_dodge_chance) that negates only that
+    target's own share of the action, not the others'.
+
+    Returns (results, skill-or-None) where results is one (target, damage, dodged) tuple per entry
+    actually targeted, in order -- callers apply damage/knockout themselves (solo and party handle
+    the aftermath differently) and use skill/dodged to log their own "unleashes X" / "dodges" /
+    "strikes" line(s)."""
     skill = dungeon.pick_monster_action(attacker.monster)
     special = bool(skill.get("special")) if skill else False
-    target_def = max(0, (target.spdef - target.spdef_debuff) if special else (target.def_ - target.def_debuff))
-    if random.random() < _defended_dodge_chance(target, target_def, special):
-        return 0, skill, True
     effects = dungeon.resolve_cast_effects(skill) if skill else []
-    mods = _apply_effects(attacker, target, effects, log_lines)
+
+    enemy_effects = []
+    self_effects = []
+    for effect in effects:
+        target = effect.get("target") or dungeon.default_effect_target(effect["type"])
+        (enemy_effects if target == "enemy" else self_effects).append(effect)
+
+    damage_effect = next((e for e in enemy_effects if e["type"] in DAMAGE_EFFECT_TYPES), None)
+    targets = target_pool if (damage_effect and damage_effect.get("aoe")) else [default_target]
+
+    mods = _default_mods()
+    for effect in enemy_effects:
+        if effect["type"] in dungeon.MODS_ONLY_EFFECT_TYPES:
+            EFFECT_HANDLERS[effect["type"]](attacker, None, effect, log_lines, mods)
+    _apply_self_effects(attacker, self_effects, log_lines, mods)
+
+    is_damage_action = skill is None or damage_effect is not None
     monster_moon_mult = _moon_combat_multiplier(moon_effect, "monster")
     attacker_atk = (attacker.spatk - attacker.spatk_debuff) if special else (attacker.atk - attacker.atk_debuff)
-    dmg = dungeon.roll_damage(attacker_atk, target_def, mods["multiplier"] * monster_moon_mult)
-    for extra_multiplier in mods["extra_attack_multipliers"]:
-        dmg += dungeon.roll_damage(attacker_atk, target_def, extra_multiplier * monster_moon_mult)
-    if mods["lifesteal_fraction"]:
-        healed = min(attacker.max_hp, attacker.hp + round(dmg * mods["lifesteal_fraction"])) - attacker.hp
+    non_damage_enemy_effects = [e for e in enemy_effects if e["type"] not in dungeon.MODS_ONLY_EFFECT_TYPES]
+
+    results: list[tuple[object, int, bool]] = []
+    total_dmg = 0
+    for target in targets:
+        target_def = max(0, (target.spdef - target.spdef_debuff) if special else (target.def_ - target.def_debuff))
+        if random.random() < _defended_dodge_chance(target, target_def, special):
+            results.append((target, 0, True))
+            continue
+        for effect in non_damage_enemy_effects:
+            EFFECT_HANDLERS[effect["type"]](attacker, target, effect, log_lines, mods)
+        dmg = 0
+        if is_damage_action:
+            dmg = dungeon.roll_damage(attacker_atk, target_def, mods["multiplier"] * monster_moon_mult)
+            for extra_multiplier in mods["extra_attack_multipliers"]:
+                dmg += dungeon.roll_damage(attacker_atk, target_def, extra_multiplier * monster_moon_mult)
+            total_dmg += dmg
+        results.append((target, dmg, False))
+
+    if mods["lifesteal_fraction"] and total_dmg:
+        healed = min(attacker.max_hp, attacker.hp + round(total_dmg * mods["lifesteal_fraction"])) - attacker.hp
         attacker.hp += healed
         if healed:
             log_lines.append(f"**{attacker.monster['name']}** drains **{healed}** HP from the strike.")
-    return dmg, skill, False
+    return results, skill
 
 
 async def _build_combat_view(session: DelveSession) -> "CombatView":
@@ -1890,13 +1916,16 @@ async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSe
             log_lines.append(_crowd_control_skip_line(monster, monster_cc_type))
             continue
 
-        monster_dmg, monster_skill, dodged = _resolve_monster_attack(monster, session, moon_effect, log_lines)
+        results, monster_skill = _resolve_monster_attack(monster, [session], session, moon_effect, log_lines)
+        _, monster_dmg, dodged = results[0]
         verb = f"unleashes **{monster_skill['name']}**" if monster_skill else "strikes back"
         if dodged:
             log_lines.append(f"You dodge **{monster.monster['name']}**'s attack!")
         else:
             monster_dmg = _consume_guard_charge(session, monster_dmg, log_lines)
             log_lines.append(f"**{monster.monster['name']}** {verb} for **{monster_dmg}**.")
+            if monster_skill and monster_skill.get("flavor"):
+                log_lines.append(f"> {monster_skill['flavor']}")
             session.hp -= monster_dmg
             _break_sap(session, log_lines)
 
@@ -2209,19 +2238,43 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
         target_id = dungeon.pick_target_by_threat(
             [{"id": m.user_id, "threat": monster.threat.get(m.user_id, 0)} for m in living]
         )
-        target = session.members_by_id[target_id]
-        monster_dmg, monster_skill, dodged = _resolve_monster_attack(monster, target, moon_effect, log_lines)
-        if dodged:
-            log_lines.append(f"**{target.label}** dodges **{monster.monster['name']}**'s attack!")
+        threat_target = session.members_by_id[target_id]
+        # `living` is only actually used as the target pool when the picked skill's own damage
+        # effect is flagged "aoe" -- see _resolve_monster_attack's own docstring. Every other
+        # skill (and a plain attack) still resolves to just the threat-picked `threat_target`.
+        results, monster_skill = _resolve_monster_attack(monster, living, threat_target, moon_effect, log_lines)
+        flavor = monster_skill.get("flavor") if monster_skill else None
+        if len(results) > 1:
+            verb = f"unleashes **{monster_skill['name']}** on the whole party!"
+            log_lines.append(f"**{monster.monster['name']}** {verb}")
+            if flavor:
+                log_lines.append(f"> {flavor}")
+            for target, monster_dmg, dodged in results:
+                if dodged:
+                    log_lines.append(f"**{target.label}** dodges the blast!")
+                    continue
+                monster_dmg = _consume_guard_charge(target, monster_dmg, log_lines)
+                log_lines.append(f"**{target.label}** takes **{monster_dmg}** damage.")
+                target.hp -= monster_dmg
+                _break_sap(target, log_lines)
+                if target.hp <= 0:
+                    target.knocked_out = True
+                    log_lines.append(f"💀 **{target.label}** is knocked out!")
         else:
-            monster_dmg = _consume_guard_charge(target, monster_dmg, log_lines)
-            verb = f"unleashes **{monster_skill['name']}** on" if monster_skill else "strikes"
-            log_lines.append(f"**{monster.monster['name']}** {verb} **{target.label}** for **{monster_dmg}**.")
-            target.hp -= monster_dmg
-            _break_sap(target, log_lines)
-            if target.hp <= 0:
-                target.knocked_out = True
-                log_lines.append(f"💀 **{target.label}** is knocked out!")
+            target, monster_dmg, dodged = results[0]
+            if dodged:
+                log_lines.append(f"**{target.label}** dodges **{monster.monster['name']}**'s attack!")
+            else:
+                monster_dmg = _consume_guard_charge(target, monster_dmg, log_lines)
+                verb = f"unleashes **{monster_skill['name']}** on" if monster_skill else "strikes"
+                log_lines.append(f"**{monster.monster['name']}** {verb} **{target.label}** for **{monster_dmg}**.")
+                if flavor:
+                    log_lines.append(f"> {flavor}")
+                target.hp -= monster_dmg
+                _break_sap(target, log_lines)
+                if target.hp <= 0:
+                    target.knocked_out = True
+                    log_lines.append(f"💀 **{target.label}** is knocked out!")
 
 
 async def _resolve_party_turn(

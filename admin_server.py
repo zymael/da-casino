@@ -1891,6 +1891,8 @@ def _render_monster_skill_row(prefix: str, skill: dict) -> str:
         f'<span class="skill-odds-pct" data-skill-pct>—</span>'
         f'<label class="checkbox-label"><input type="checkbox" name="{prefix}_special"'
         f'{" checked" if skill.get("special") else ""}> Special (rolls SpAtk/SpDef instead of ATK/DEF)</label>'
+        f'<label>flavor (optional -- shown in the combat log when this skill is used)'
+        f'<textarea name="{prefix}_flavor" rows="2">{html.escape(skill.get("flavor", ""))}</textarea></label>'
         f'{effects_groups_toggle}'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove skill</button></fieldset>'
     )
@@ -2995,6 +2997,7 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
             effects = _parse_effects_list(f"{prefix}_effects", form)
             groups = _parse_effect_groups(f"{prefix}_effectgroup", form)
             special = f"{prefix}_special" in form
+            flavor = form.get(f"{prefix}_flavor", "").strip()
             if not effects and not groups:
                 continue  # a skill with neither effects nor effect_groups yet isn't meaningful to save
             skill: dict = {"name": skill_name, "chance": chance, "special": special}
@@ -3005,6 +3008,8 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
                 skill["effects"] = effects
             if groups:
                 skill["effect_groups"] = groups
+            if flavor:
+                skill["flavor"] = flavor
             skills.append(skill)
         return (name, skills)
 

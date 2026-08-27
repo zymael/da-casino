@@ -86,7 +86,19 @@
         "chance": 0.05
       }
     ],
-    "skills": [],
+    "skills": [
+      {
+        "name": "Spotlight Solo",
+        "chance": 0.3,
+        "flavor": "They catch an invisible spotlight, strike a pose, and turn the pose into a haymaker before the beat drops.",
+        "effects": [
+          {
+            "type": "extra_attack",
+            "multiplier": 0.6
+          }
+        ]
+      }
+    ],
     "sprite_path": "assets/dungeon/monsters/goblin_grunt.png"
   },
   {
@@ -201,7 +213,19 @@
         "chance": 0.04
       }
     ],
-    "skills": [],
+    "skills": [
+      {
+        "name": "The Hustle",
+        "chance": 0.3,
+        "flavor": "They dance circles around you to the beat of a song only they can hear, skimming a little HP off you with every step.",
+        "effects": [
+          {
+            "type": "lifesteal_fraction",
+            "value": 0.25
+          }
+        ]
+      }
+    ],
     "sprite_path": "assets/dungeon/monsters/goblin_scavenger.png"
   },
   {
@@ -236,7 +260,30 @@
         "chance": 0.08
       }
     ],
-    "skills": [],
+    "skills": [
+      {
+        "name": "Drop the Bass",
+        "chance": 0.5,
+        "flavor": "The subwoofers scream as the beat drops all at once, and so do you.",
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 1.5
+          }
+        ]
+      },
+      {
+        "name": "Record Scratch",
+        "chance": 0.3,
+        "flavor": "A screeching scratch across the vinyl throws off your rhythm -- and your guard -- right before the next drop.",
+        "effects": [
+          {
+            "type": "def_shred",
+            "value": 2
+          }
+        ]
+      }
+    ],
     "sprite_path": "assets/dungeon/monsters/goblin_skirmisher.png"
   },
   {
@@ -745,7 +792,19 @@
     "loot_min": 10,
     "loot_max": 20,
     "drops": [],
-    "skills": [],
+    "skills": [
+      {
+        "name": "Nervous Pepper Spray",
+        "chance": 0.4,
+        "flavor": "They fumble the canister out of their jacket, hands shaking, and empty it in your general direction more out of panic than purpose.",
+        "effects": [
+          {
+            "type": "def_shred",
+            "value": 1
+          }
+        ]
+      }
+    ],
     "sprite_path": "assets/dungeon/monsters/goblin_doorman.png"
   },
   {
@@ -780,7 +839,30 @@
         "chance": 0.08
       }
     ],
-    "skills": [],
+    "skills": [
+      {
+        "name": "86'd!",
+        "chance": 0.4,
+        "flavor": "\"You're cut off!\" they bellow, hauling you toward the door with a shove you didn't see coming twice.",
+        "effects": [
+          {
+            "type": "extra_attack",
+            "multiplier": 0.6
+          }
+        ]
+      },
+      {
+        "name": "On the House",
+        "chance": 0.3,
+        "flavor": "They pour themselves a shot mid-fight, throw it back, and keep swinging like nothing happened.",
+        "effects": [
+          {
+            "type": "lifesteal_fraction",
+            "value": 0.3
+          }
+        ]
+      }
+    ],
     "sprite_path": "assets/dungeon/monsters/goblin_archer_copy.png"
   },
   {
@@ -799,7 +881,44 @@
     "loot_min": 100,
     "loot_max": 200,
     "drops": [],
-    "skills": [],
+    "skills": [
+      {
+        "name": "Call in the Muscle",
+        "chance": 1,
+        "special": true,
+        "flavor": "They snap their fingers and bark an order -- the rest of the crew perks up, hitting noticeably harder.",
+        "effects": [
+          {
+            "type": "spatk_buff",
+            "value": 4,
+            "target": "self"
+          }
+        ]
+      },
+      {
+        "name": "Made Man's Grip",
+        "chance": 0.3,
+        "flavor": "They don't fight fair -- while you're busy with the rest of the crew, they sneak in a second shot.",
+        "effects": [
+          {
+            "type": "extra_attack",
+            "multiplier": 0.5
+          }
+        ]
+      },
+      {
+        "name": "Tommy Gun Spray",
+        "chance": 0.4,
+        "flavor": "They pull a tommy gun out from under the bar and just... spray it across the whole room.",
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 1.2,
+            "aoe": true
+          }
+        ]
+      }
+    ],
     "sprite_path": "assets/dungeon/monsters/goblin_mob_boss.png"
   },
   {

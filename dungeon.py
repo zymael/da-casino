@@ -1004,14 +1004,17 @@ _MONSTER_SKILL_EXCLUDED_EFFECT_TYPES = {"taunt", "lower_threat"}
 
 
 def _validate_monster_skill(skill: dict, context: str) -> None:
-    """One entry in a monster's own optional "skills" list -- {name, chance, effects|effect_groups}.
-    `chance` is a relative WEIGHT, not a strict probability -- see pick_monster_action, which weighs
-    it against the monster's own attack_chance and every other skill's chance via random.choices (so
-    weights never need to be balanced to sum to anything in particular, and a weight of exactly 0 is
-    a legal "this skill is currently disabled" rather than an error). effects/effect_groups reuses
-    the same vocabulary skills/consumables already validate via _validate_effects_or_groups -- full
-    parity with a player skill's own effect vocabulary except _MONSTER_SKILL_EXCLUDED_EFFECT_TYPES,
-    see the comment above this function."""
+    """One entry in a monster's own optional "skills" list -- {name, chance, effects|effect_groups,
+    flavor?}. `chance` is a relative WEIGHT, not a strict probability -- see pick_monster_action,
+    which weighs it against the monster's own attack_chance and every other skill's chance via
+    random.choices (so weights never need to be balanced to sum to anything in particular, and a
+    weight of exactly 0 is a legal "this skill is currently disabled" rather than an error).
+    effects/effect_groups reuses the same vocabulary skills/consumables already validate via
+    _validate_effects_or_groups -- full parity with a player skill's own effect vocabulary except
+    _MONSTER_SKILL_EXCLUDED_EFFECT_TYPES, see the comment above this function. `flavor` is optional
+    (unlike a player skill's own required `flavor`, most existing monster skills predate the field)
+    -- a short line describing what using it looks like, shown in the combat log alongside the
+    normal damage line when present (dungeon_view._resolve_monster_attack)."""
     name = skill.get("name")
     if not name:
         raise ValueError(f"{context} has a skill with no name")
@@ -1020,6 +1023,8 @@ def _validate_monster_skill(skill: dict, context: str) -> None:
         raise ValueError(f"{context} skill {name!r} chance must be a number >= 0")
     if "special" in skill and not isinstance(skill["special"], bool):
         raise ValueError(f"{context} skill {name!r} special must be a bool")
+    if "flavor" in skill and not isinstance(skill["flavor"], str):
+        raise ValueError(f"{context} skill {name!r} flavor must be a string")
     skill_context = f"{context} skill {name!r}"
     _validate_effects_or_groups(skill, skill_context)
     for effects in _effect_lists(skill):
