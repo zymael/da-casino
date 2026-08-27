@@ -745,7 +745,8 @@
     "loot_min": 10,
     "loot_max": 20,
     "drops": [],
-    "skills": []
+    "skills": [],
+    "sprite_path": "assets/dungeon/monsters/goblin_doorman.png"
   },
   {
     "id": "goblin_bartender",
