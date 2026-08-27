@@ -1466,7 +1466,7 @@
     "id": "reshuffle",
     "main_class": "rogue",
     "subclass": "hearts",
-    "unlock_level": 5,
+    "unlock_level": 7,
     "name": "Reshuffle",
     "flavor": "Let's take that one back!",
     "effects": [
