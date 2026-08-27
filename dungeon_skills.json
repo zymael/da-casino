@@ -1,24 +1,5 @@
 [
   {
-    "id": "war_mage_arcane_smash",
-    "main_class": "mage",
-    "subclass": "clubs",
-    "unlock_level": 4,
-    "name": "Arcane Smash",
-    "flavor": "Magic as a blunt instrument, twice in a row.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.5
-      },
-      {
-        "type": "extra_attack"
-      }
-    ],
-    "chip_cost": 15,
-    "special": true
-  },
-  {
     "id": "war_mage_meteor",
     "main_class": "mage",
     "subclass": "clubs",
