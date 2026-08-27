@@ -1092,7 +1092,7 @@
     "id": "fireball_evolved_spades",
     "main_class": "mage",
     "subclass": "spades",
-    "unlock_level": 7,
+    "unlock_level": 5,
     "name": "Fireball",
     "flavor": "BIGGER BOOM",
     "effects": [
