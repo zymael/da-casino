@@ -12,7 +12,8 @@
         "reduction": 0.5
       }
     ],
-    "chip_cost": 10
+    "chip_cost": 10,
+    "special": false
   },
   {
     "id": "bonesetter_heal",
