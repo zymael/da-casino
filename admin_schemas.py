@@ -386,7 +386,7 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "CONSUMABLES",
         "loader": dungeon._load_consumables,
-        "list_columns": ["id", "name", "effects", "effect_groups", "base_value"],
+        "list_columns": ["id", "name", "energy_restore", "effects", "effect_groups", "base_value"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
@@ -407,9 +407,19 @@ CONTENT_TYPES = {
                         "instead of removing it",
             },
             {
+                "name": "energy_restore", "type": "int", "required": False, "min": 1, "group": "Identity",
+                "hint": "makes this a pure out-of-combat item, usable via !inventory's Use button "
+                        "(not mid-delve) instead of effects/effect_groups below -- restores this much "
+                        "energy, capped at db.ENERGY_CAP. Once per calendar day, shared across every "
+                        "energy-restoring consumable a player owns (not tracked per item).",
+            },
+            {
                 "name": "effects", "type": "effects", "required": False,
                 "hint": "fill in EITHER this OR effect_groups below, never both -- see effect_groups' "
-                        "own hint for when you need that instead",
+                        "own hint for when you need that instead. Not needed at all for a pure "
+                        "energy_restore item above. A plain heal_fraction entry here also makes this "
+                        "item usable outside combat via !inventory's Use button, in addition to "
+                        "mid-delve (dungeon.usable_outside_combat).",
             },
             {
                 "name": "effect_groups", "type": "effect_groups", "required": False,
@@ -417,7 +427,9 @@ CONTENT_TYPES = {
                         "one group is chosen (weighted by its own chance) each cast. For \"50% chance "
                         "of X, independently also 75% chance of Y\" (could land both, either, or "
                         "neither), that's just two effects each with their own chance inside the plain "
-                        "effects field above -- no effect_groups needed for that.",
+                        "effects field above -- no effect_groups needed for that. Not usable outside "
+                        "combat even with a heal_fraction inside a group -- see usable_outside_combat's "
+                        "own docstring for why.",
             },
         ],
     },

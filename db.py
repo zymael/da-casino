@@ -43,10 +43,13 @@ def init_db():
         )
         """
     )
-    # users predates last_mine_start/last_mine_claim/last_tip/last_rub -- add them for installs
-    # where CREATE TABLE IF NOT EXISTS above was a no-op against an older schema.
+    # users predates last_mine_start/last_mine_claim/last_tip/last_rub/last_energy_item -- add them
+    # for installs where CREATE TABLE IF NOT EXISTS above was a no-op against an older schema.
+    # last_energy_item is the once-per-calendar-day gate on db.use_energy_item -- same shape as
+    # last_tip (a bare date.today().isoformat(), not a full timestamp), shared across every
+    # energy-restoring consumable a player owns, not tracked per item_id.
     columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
-    for column in ("last_mine_start", "last_mine_claim", "last_tip", "last_rub"):
+    for column in ("last_mine_start", "last_mine_claim", "last_tip", "last_rub", "last_energy_item"):
         if column not in columns:
             conn.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
     # Energy: a delve-gating resource (spent 1 per delve, gained ENERGY_REST_GAIN per !rest, capped
@@ -2416,6 +2419,74 @@ def consume_inventory_item(guild_id: int, user_id: int, item_id: str, qty: int =
         return True
     finally:
         conn.close()
+
+
+def use_energy_item(guild_id: int, user_id: int, item_id: str, energy_amount: int) -> tuple[str, int | float]:
+    """Consumes one of item_id (a dungeon.CONSUMABLES entry with an energy_restore effect --
+    dungeon.usable_outside_combat/inventory_view.py's UseConsumableButton is what a player actually
+    reaches this through) for energy_amount energy, capped at ENERGY_CAP -- once per calendar day,
+    shared across every energy-restoring item a player owns, not tracked per item_id. Same
+    once-a-day gate shape as tip's last_tip (a bare date, not a timestamp), a separate column and
+    separate cooldown from !rest's own last_daily.
+
+    Returns (status, value):
+      - ("cooldown", seconds_remaining) -- already used an energy item today, item NOT consumed
+      - ("no_item", 0) -- doesn't actually have one anymore (lost a race, e.g. a double-click)
+      - ("used", new_energy) -- item consumed, energy granted
+    """
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.commit()
+        today = date.today().isoformat()
+        (last_energy_item,) = conn.execute(
+            "SELECT last_energy_item FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()
+    finally:
+        conn.close()
+    if last_energy_item == today:
+        return "cooldown", _seconds_until_next_day()
+
+    if not consume_inventory_item(guild_id, user_id, item_id):
+        return "no_item", 0
+
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE users SET last_energy_item = ?, energy = MIN(?, energy + ?) WHERE guild_id = ? AND user_id = ?",
+            (today, ENERGY_CAP, energy_amount, guild_id, user_id),
+        )
+        conn.commit()
+        new_energy = conn.execute(
+            "SELECT energy FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
+        return "used", new_energy
+    finally:
+        conn.close()
+
+
+def use_healing_item(guild_id: int, user_id: int, item_id: str, heal_fraction: float) -> tuple[str, int]:
+    """Consumes one of item_id (a dungeon.CONSUMABLES entry with a heal_fraction effect, used
+    outside combat via inventory_view.py's UseConsumableButton) for a heal_fraction-of-max-HP heal
+    to current_hp, capped at max. No daily gate -- healing isn't the scarce economy resource energy
+    is, so this is just a normal inventory consumption, same as it already is in combat.
+
+    Returns (status, value):
+      - ("no_character", 0) -- nothing to heal
+      - ("full", current_hp) -- already at max HP, item NOT consumed
+      - ("no_item", 0) -- doesn't actually have one anymore (lost a race)
+      - ("used", new_current_hp) -- item consumed, healed
+    """
+    character = get_character(guild_id, user_id)
+    if character is None:
+        return "no_character", 0
+    if character["current_hp"] >= character["hp"]:
+        return "full", character["current_hp"]
+    if not consume_inventory_item(guild_id, user_id, item_id):
+        return "no_item", 0
+    new_hp = min(character["hp"], character["current_hp"] + round(character["hp"] * heal_fraction))
+    set_current_hp(guild_id, user_id, new_hp)
+    return "used", new_hp
 
 
 def spend_currency(guild_id: int, user_id: int, cost: int) -> tuple[str, int]:

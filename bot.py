@@ -1165,8 +1165,8 @@ async def icebreak_cmd(ctx, member: discord.Member = None, wager: int = 0):
 @bot.command(name="inventory")
 async def inventory_cmd(ctx):
     """See your quest items and dungeon gear (equipped + stored): !inventory"""
-    embed = await inventory_view.build_inventory_embed(ctx.guild.id, ctx.author.id)
-    await ctx.send(embed=embed)
+    embed, view = await inventory_view.build_inventory_display(ctx.guild.id, ctx.author.id)
+    await ctx.send(embed=embed, view=view)
 
 
 @bot.command(name="equipment")

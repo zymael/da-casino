@@ -165,8 +165,8 @@ class InventoryButton(discord.ui.Button):
         super().__init__(label="🎒 Inventory", style=discord.ButtonStyle.secondary, row=row)
 
     async def callback(self, interaction: discord.Interaction):
-        embed = await inventory_view.build_inventory_embed(interaction.guild.id, interaction.user.id)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        embed, view = await inventory_view.build_inventory_display(interaction.guild.id, interaction.user.id)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 class EquipmentButton(discord.ui.Button):

@@ -1359,12 +1359,37 @@ def _load_consumables(path: str = _CONSUMABLES_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_consumables.json: item {entry_id!r} has kind {entry['kind']!r}, expected 'consumable'")
         if entry["base_value"] < 0:
             raise ValueError(f"dungeon_consumables.json: item {entry_id!r} base_value must be >= 0")
-        _validate_effects_or_groups(entry, f"dungeon_consumables.json: item {entry_id!r}")
+        # energy_restore is an out-of-combat-only effect (inventory_view.py's UseConsumableButton,
+        # via db.use_energy_item) -- a pure energy item has no reason to also carry a combat
+        # effects/effect_groups list, so that XOR requirement only applies when energy_restore is
+        # absent. A consumable with neither is still rejected -- it would do nothing at all.
+        has_energy = "energy_restore" in entry
+        if has_energy and entry["energy_restore"] <= 0:
+            raise ValueError(f"dungeon_consumables.json: item {entry_id!r} energy_restore must be > 0")
+        if "effects" in entry or "effect_groups" in entry:
+            _validate_effects_or_groups(entry, f"dungeon_consumables.json: item {entry_id!r}")
+        elif not has_energy:
+            raise ValueError(
+                f"dungeon_consumables.json: item {entry_id!r} must have energy_restore or exactly "
+                "one of 'effects'/'effect_groups'"
+            )
         consumables[entry_id] = entry
     return consumables
 
 
 CONSUMABLES = _load_consumables()
+
+
+def usable_outside_combat(item: dict) -> bool:
+    """Whether a consumable can be used via inventory_view.py's UseConsumableButton (outside a
+    delve) rather than only mid-combat -- true for an energy_restore item, or one whose plain
+    `effects` list (not `effect_groups` -- an alternatives mechanic that doesn't map onto a single
+    out-of-combat heal, and no existing consumable uses it for healing anyway) contains a
+    heal_fraction entry. The one place this rule lives, so the button-building code never
+    duplicates it."""
+    if item.get("energy_restore"):
+        return True
+    return any(e["type"] == "heal_fraction" for e in item.get("effects", []))
 
 # Loaded here, after EQUIPMENT/MATERIALS/CONSUMABLES: a monster's drops list is cross-validated
 # against them (except "housing_item" drops -- see DROP_KINDS' own comment for why that one's

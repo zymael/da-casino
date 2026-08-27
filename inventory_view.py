@@ -181,7 +181,7 @@ def _inventory_sections(
     return quest_item_ids, material_ids, consumable_ids, horse_clothes_ids, housing_item_ids
 
 
-async def build_inventory_embed(guild_id: int, user_id: int) -> discord.Embed:
+async def build_inventory_display(guild_id: int, user_id: int) -> tuple[discord.Embed, "InventoryView"]:
     held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
     equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
     stored = _stored_excluding_equipped(equipped, await asyncio.to_thread(db.get_equipment_inventory, guild_id, user_id))
@@ -227,8 +227,94 @@ async def build_inventory_embed(guild_id: int, user_id: int) -> discord.Embed:
     else:
         embed.add_field(name="Stored Equipment", value="None yet.", inline=False)
 
-    embed.set_footer(text="Manage your gear with !equipment, craft more with !craft.")
-    return embed
+    if any(dungeon.usable_outside_combat(dungeon.CONSUMABLES[item_id]) for item_id in consumables):
+        embed.set_footer(text="Manage your gear with !equipment, craft more with !craft. Use energy/healing items below.")
+    else:
+        embed.set_footer(text="Manage your gear with !equipment, craft more with !craft.")
+
+    view = InventoryView(guild_id, user_id, consumables)
+    return embed, view
+
+
+class InventoryView(discord.ui.View):
+    """One button per currently-owned consumable usable outside combat (dungeon.
+    usable_outside_combat) -- energy-restoring items and heal_fraction potions alike. Only ever
+    built by build_inventory_display, right alongside the embed it's attached to."""
+
+    def __init__(self, guild_id: int, user_id: int, consumables: dict[str, int]):
+        super().__init__(timeout=300)
+        self.guild_id = guild_id
+        self.user_id = user_id
+        row = 0
+        in_row = 0
+        for item_id in consumables:
+            item = dungeon.CONSUMABLES[item_id]
+            if not dungeon.usable_outside_combat(item):
+                continue
+            self.add_item(UseConsumableButton(item_id, item, row))
+            in_row += 1
+            if in_row >= 5:  # Discord's own per-row button cap
+                in_row = 0
+                row += 1
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't your inventory.", ephemeral=True)
+            return False
+        return True
+
+
+class UseConsumableButton(discord.ui.Button):
+    """Drinks one item_id outside combat -- db.use_energy_item for an energy_restore item,
+    db.use_healing_item for a heal_fraction one (dungeon.usable_outside_combat already guarantees
+    an owned, qualifying item is exactly one or the other). Same "*_view.py button calls db.*
+    directly, then rebuilds+edits the display" shape EquipmentSlotSelect's own callback already
+    uses."""
+
+    def __init__(self, item_id: str, item: dict, row: int):
+        self.item_id = item_id
+        self.is_energy = bool(item.get("energy_restore"))
+        emoji = "⚡" if self.is_energy else "❤️"
+        super().__init__(label=f"{emoji} Drink {item['name']}"[:80], style=discord.ButtonStyle.secondary, row=row)
+
+    async def callback(self, interaction: discord.Interaction):
+        guild_id, user_id = interaction.guild.id, interaction.user.id
+        item = dungeon.CONSUMABLES[self.item_id]
+
+        if self.is_energy:
+            status, value = await asyncio.to_thread(
+                db.use_energy_item, guild_id, user_id, self.item_id, item["energy_restore"]
+            )
+        else:
+            heal_fraction = next(e["value"] for e in item["effects"] if e["type"] == "heal_fraction")
+            status, value = await asyncio.to_thread(
+                db.use_healing_item, guild_id, user_id, self.item_id, heal_fraction
+            )
+
+        if status == "cooldown":
+            hours, minutes = int(value // 3600), int((value % 3600) // 60)
+            await interaction.response.send_message(
+                f"You've already used an energy item today — try again in {hours}h {minutes}m.",
+                ephemeral=True,
+            )
+            return
+        if status == "no_character":
+            await interaction.response.send_message("You don't have a dungeon character to heal yet.", ephemeral=True)
+            return
+        if status == "full":
+            await interaction.response.send_message("You're already at full HP.", ephemeral=True)
+            return
+        if status == "no_item":
+            await interaction.response.send_message("You don't have one of those anymore.", ephemeral=True)
+            return
+
+        if self.is_energy:
+            result_text = f"⚡ Drank **{item['name']}** — energy is now **{value}**/{db.ENERGY_CAP}."
+        else:
+            result_text = f"❤️ Drank **{item['name']}** — HP is now **{value}**."
+        embed, view = await build_inventory_display(guild_id, user_id)
+        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.followup.send(result_text, ephemeral=True)
 
 
 def _equipped_lines(equipped: dict[str, str]) -> str:
