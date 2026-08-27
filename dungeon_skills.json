@@ -1755,7 +1755,7 @@
     "id": "steadfast_wrad",
     "main_class": "fighter",
     "subclass": "hearts",
-    "unlock_level": 5,
+    "unlock_level": 7,
     "name": "Steadfast Ward",
     "flavor": "You have to deal with ME!",
     "effects": [
