@@ -1,20 +1,5 @@
 [
   {
-    "id": "priest_greater_mending",
-    "main_class": "healer",
-    "subclass": "hearts",
-    "unlock_level": 4,
-    "name": "Greater Mending",
-    "flavor": "A longer prayer, and a deeper healing.",
-    "effects": [
-      {
-        "type": "heal_fraction",
-        "value": 0.55
-      }
-    ],
-    "chip_cost": 15
-  },
-  {
     "id": "priest_divine_ward",
     "main_class": "healer",
     "subclass": "hearts",
