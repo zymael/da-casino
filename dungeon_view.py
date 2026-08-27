@@ -426,10 +426,23 @@ def _solo_turn_order_cards(session: DelveSession) -> list[dict]:
     ]
 
 
+def _apply_room_header(embed: discord.Embed, room: dict) -> None:
+    """Stamps a combat embed with which room this fight is in -- unlike log_text (only seeded with
+    the room's own prompt once, at entry, by _combat_intro_text/_build_room_display; later turns'
+    embeds overwrite it with just that turn's log lines), this runs on every _combat_embed/
+    _party_combat_embed rebuild, so the room's identity and intro flavor stay visible for the whole
+    fight instead of scrolling away after the first action."""
+    embed.set_footer(text=f"📍 {room['id']}")
+    if room.get("prompt"):
+        embed.add_field(name="📜", value=room["prompt"], inline=False)
+
+
 def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.Embed, discord.File]:
     living = session.living_monsters()
     title = f"🗡️ {living[0].monster['name']}" if len(living) == 1 else "🗡️ Combat"
     embed = discord.Embed(title=title, description=log_text, color=discord.Color.dark_red())
+    room = session.rooms_by_id[session.current_room_id]
+    _apply_room_header(embed, room)
     embed.add_field(
         name=f"{session.display_name} (You)",
         value=f"❤️ HP {max(session.hp, 0)}/{session.max_hp}\n🪙 Chips {session.chips}/{session.max_chips}",
@@ -439,7 +452,6 @@ def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.Embed, 
     for m in living:
         marker = " ⬅️ target" if len(living) > 1 and m.slot == target_slot else ""
         embed.add_field(name=m.monster["name"], value=f"❤️ HP {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
-    room = session.rooms_by_id[session.current_room_id]
     buf = dungeon_render.render_room(
         session.rooms_visited, [m.monster for m in living], _room_background_path(session.delve, room),
         turn_order=_solo_turn_order_cards(session),
@@ -1954,6 +1966,7 @@ def _party_combat_embed(
     living_monsters = session.living_monsters()
     title = f"🗡️ {living_monsters[0].monster['name']}" if len(living_monsters) == 1 else "🗡️ Combat"
     embed = discord.Embed(title=title, description=log_text, color=discord.Color.dark_red())
+    _apply_room_header(embed, session.rooms_by_id[session.current_room_id])
     for m in session.members:
         if m.knocked_out:
             status = "💀 Knocked out"
