@@ -1378,7 +1378,7 @@
     "id": "all_in_spades",
     "main_class": "rogue",
     "subclass": "spades",
-    "unlock_level": 7,
+    "unlock_level": 5,
     "name": "All in",
     "flavor": "Look over there, a dragon!",
     "effects": [
