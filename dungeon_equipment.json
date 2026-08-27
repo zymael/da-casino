@@ -695,6 +695,14 @@
         "type": "atk_buff",
         "trigger": "constant",
         "value": 6
+      },
+      {
+        "type": "extra_attack",
+        "trigger": "on_hit",
+        "chance": 0.1,
+        "multiplier": 0.3,
+        "aoe": true,
+        "target": "enemy"
       }
     ],
     "special": false,
