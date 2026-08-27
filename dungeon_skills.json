@@ -1134,7 +1134,7 @@
     "special": true
   },
   {
-    "id": "queen_buff_base",
+    "id": "supercharge_base",
     "main_class": "mage",
     "subclass": "none",
     "unlock_level": 4,
