@@ -926,7 +926,7 @@
     "id": "fetch_wine_diamond",
     "main_class": "healer",
     "subclass": "diamonds",
-    "unlock_level": 7,
+    "unlock_level": 5,
     "name": "Healing Wine",
     "flavor": "Squire! Fetch me some (cheap) good wine!",
     "effects": [
@@ -942,7 +942,7 @@
         "aoe": true
       }
     ],
-    "chip_cost": 10,
+    "chip_cost": 7,
     "special": true
   },
   {
