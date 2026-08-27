@@ -1,25 +1,5 @@
 [
   {
-    "id": "nightweaver_drain_bolt",
-    "main_class": "mage",
-    "subclass": "spades",
-    "unlock_level": 4,
-    "name": "Drain Bolt",
-    "flavor": "Siphons life through the dark before it even lands.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.4
-      },
-      {
-        "type": "lifesteal_fraction",
-        "value": 0.25
-      }
-    ],
-    "chip_cost": 15,
-    "special": true
-  },
-  {
     "id": "nightweaver_umbral_collapse",
     "main_class": "mage",
     "subclass": "spades",
