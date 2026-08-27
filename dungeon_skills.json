@@ -1357,6 +1357,16 @@
           }
         ],
         "chance": 1
+      },
+      {
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 0.3,
+            "target": "enemy"
+          }
+        ],
+        "chance": 1
       }
     ],
     "chip_cost": 8,
