@@ -1,25 +1,5 @@
 [
   {
-    "id": "plague_doctor_miasma_strike",
-    "main_class": "healer",
-    "subclass": "spades",
-    "unlock_level": 8,
-    "name": "Miasma Strike",
-    "flavor": "A cane strike that leaves more than a bruise.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.4
-      },
-      {
-        "type": "def_shred",
-        "value": 1
-      }
-    ],
-    "chip_cost": 20,
-    "special": true
-  },
-  {
     "id": "priest_greater_mending",
     "main_class": "healer",
     "subclass": "hearts",
