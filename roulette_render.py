@@ -12,8 +12,16 @@ COLUMN_BOX_WIDTH = 50
 DOZEN_HEIGHT = 36
 GRID_WIDTH = ZERO_WIDTH + 12 * CELL
 GRID_HEIGHT = 3 * CELL
-IMG_WIDTH = GRID_WIDTH + COLUMN_BOX_WIDTH
-IMG_HEIGHT = GRID_HEIGHT + DOZEN_HEIGHT + OUTSIDE_HEIGHT
+# Wood trim border around the felt playing surface -- baked into the 4 primitive rect functions
+# below (_cell_rect/_outside_rect/_dozen_rect/_column_box_rect all add BORDER to their return
+# coordinates) rather than into _base_table alone, so every caller that positions something on the
+# table (render_table's chip placement, the winning-number highlight, _combo_rect) is automatically
+# correct without needing to know a border exists at all.
+BORDER = 26
+GRID_TABLE_WIDTH = GRID_WIDTH + COLUMN_BOX_WIDTH
+GRID_TABLE_HEIGHT = GRID_HEIGHT + DOZEN_HEIGHT + OUTSIDE_HEIGHT
+IMG_WIDTH = GRID_TABLE_WIDTH + 2 * BORDER
+IMG_HEIGHT = GRID_TABLE_HEIGHT + 2 * BORDER
 
 FELT = (10, 90, 40, 255)
 RED = (176, 30, 30, 255)
@@ -23,6 +31,13 @@ LINE = (230, 230, 220, 255)
 GOLD = (255, 200, 40, 255)
 CHIP_FILL = (250, 240, 200, 255)
 CHIP_OUTLINE = (60, 40, 10, 255)
+# Wood trim -- a solid walnut base plus a lighter outer bevel and darker inner bevel, the same
+# simple raised-frame trick real picture frames/table rims use, rather than an attempted procedural
+# grain texture (this is a template meant to be repainted into real art anyway, per
+# export_art_templates.py's own docstring -- it only needs to clearly read as "wood trim here").
+WOOD = (92, 51, 23, 255)
+WOOD_HIGHLIGHT = (150, 100, 55, 255)
+WOOD_SHADOW = (55, 28, 10, 255)
 
 _FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 _number_font = ImageFont.truetype(_FONT_PATH, 20)
@@ -48,37 +63,40 @@ _wheel_number_font = ImageFont.truetype(_FONT_PATH, 17)
 
 
 def _cell_rect(number: int) -> tuple[int, int, int, int]:
-    """Pixel (x0, y0, x1, y1) for a number's cell. Number 0 spans all 3 rows on the left."""
+    """Pixel (x0, y0, x1, y1) for a number's cell, offset by BORDER (see its own comment). Number 0
+    spans all 3 rows on the left."""
     if number == 0:
-        return (0, 0, ZERO_WIDTH, GRID_HEIGHT)
+        return (BORDER, BORDER, BORDER + ZERO_WIDTH, BORDER + GRID_HEIGHT)
     col = (number - 1) // 3
     row_in_col = (number - 1) % 3  # 0 = bottom, 2 = top
     visual_row = 2 - row_in_col
-    x0 = ZERO_WIDTH + col * CELL
-    y0 = visual_row * CELL
+    x0 = BORDER + ZERO_WIDTH + col * CELL
+    y0 = BORDER + visual_row * CELL
     return (x0, y0, x0 + CELL, y0 + CELL)
 
 
 def _outside_rect(kind: str) -> tuple[int, int, int, int]:
     idx = OUTSIDE_BOXES.index(kind)
-    box_w = IMG_WIDTH / len(OUTSIDE_BOXES)
-    x0 = idx * box_w
-    y0 = GRID_HEIGHT + DOZEN_HEIGHT
+    box_w = GRID_TABLE_WIDTH / len(OUTSIDE_BOXES)
+    x0 = BORDER + idx * box_w
+    y0 = BORDER + GRID_HEIGHT + DOZEN_HEIGHT
     return (int(x0), y0, int(x0 + box_w), y0 + OUTSIDE_HEIGHT)
 
 
 def _dozen_rect(value: int) -> tuple[int, int, int, int]:
     """value is 1, 2, or 3 — the three dozen boxes sit under the number grid (not the column boxes)."""
     box_w = (GRID_WIDTH - ZERO_WIDTH) / 3
-    x0 = ZERO_WIDTH + (value - 1) * box_w
-    return (int(x0), GRID_HEIGHT, int(x0 + box_w), GRID_HEIGHT + DOZEN_HEIGHT)
+    x0 = BORDER + ZERO_WIDTH + (value - 1) * box_w
+    y0 = BORDER + GRID_HEIGHT
+    return (int(x0), y0, int(x0 + box_w), y0 + DOZEN_HEIGHT)
 
 
 def _column_box_rect(value: int) -> tuple[int, int, int, int]:
     """value is 1, 2, or 3 — the "2 to 1" boxes to the right of the grid, aligned with that column's row."""
     visual_row = 3 - value
-    y0 = visual_row * CELL
-    return (GRID_WIDTH, y0, GRID_WIDTH + COLUMN_BOX_WIDTH, y0 + CELL)
+    x0 = BORDER + GRID_WIDTH
+    y0 = BORDER + visual_row * CELL
+    return (x0, y0, x0 + COLUMN_BOX_WIDTH, y0 + CELL)
 
 
 def _centered_text(draw: ImageDraw.ImageDraw, rect, text, font, fill):
@@ -89,8 +107,20 @@ def _centered_text(draw: ImageDraw.ImageDraw, rect, text, font, fill):
 
 
 def _base_table() -> Image.Image:
-    img = Image.new("RGBA", (IMG_WIDTH, IMG_HEIGHT), FELT)
+    img = Image.new("RGBA", (IMG_WIDTH, IMG_HEIGHT), WOOD)
     draw = ImageDraw.Draw(img)
+    # A simple raised-bevel look: a lighter highlight near the outer edge, a darker shadow near the
+    # inner edge (where the trim meets the felt) -- reads as a routed wooden rim without needing an
+    # actual grain texture (see BORDER's own comment for why that's fine here).
+    draw.rectangle([2, 2, IMG_WIDTH - 3, IMG_HEIGHT - 3], outline=WOOD_HIGHLIGHT, width=2)
+    draw.rectangle(
+        [BORDER - 7, BORDER - 7, IMG_WIDTH - BORDER + 6, IMG_HEIGHT - BORDER + 6],
+        outline=WOOD_SHADOW, width=3,
+    )
+    # Felt playing surface, inset by BORDER on every side -- everything below this still fills in
+    # its own cell/box color, but the dozen row has small gaps beside the "0" column and beside the
+    # column boxes (see _dozen_rect/_outside_rect) that only this base fill covers.
+    draw.rectangle([BORDER, BORDER, IMG_WIDTH - BORDER, IMG_HEIGHT - BORDER], fill=FELT)
 
     for n in range(37):
         rect = _cell_rect(n)
