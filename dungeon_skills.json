@@ -1,24 +1,5 @@
 [
   {
-    "id": "duelist_perfect_parry",
-    "main_class": "fighter",
-    "subclass": "spades",
-    "unlock_level": 8,
-    "name": "Perfect Parry",
-    "flavor": "Turns the monster's own momentum against it.",
-    "effects": [
-      {
-        "type": "guard",
-        "reduction": 0.75
-      },
-      {
-        "type": "atk_buff",
-        "value": 2
-      }
-    ],
-    "chip_cost": 20
-  },
-  {
     "id": "guardian_fortify",
     "main_class": "fighter",
     "subclass": "hearts",
