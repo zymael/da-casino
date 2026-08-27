@@ -467,21 +467,53 @@ def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.Embed, 
 # -- this is where a delve actually branches, not on combat rooms (which have at most one `next`).
 # See dungeon.py's module docstring for the full action shape.
 
-_CHECK_STAT_LABELS = {"atk": "ATK", "def": "DEF", "hp": "HP"}
+_CHECK_STAT_LABELS = {"hp": "HP", "atk": "ATK", "def": "DEF", "spatk": "SpATK", "spdef": "SpDEF", "speed": "SPD"}
+_CHECK_STAT_ATTRS = {"hp": "max_hp", "atk": "atk", "def": "def_", "spatk": "spatk", "spdef": "spdef", "speed": "speed"}
 
 
 def _stat_value_for_check(actor, stat: str) -> int:
     """The actor's own value for whichever stat a skill check rolls against -- "hp" reads max_hp,
     not current wounded HP, so a check's odds don't depend on unrelated earlier combat damage."""
-    if stat == "hp":
-        return actor.max_hp
-    if stat == "def":
-        return actor.def_
-    return actor.atk
+    return getattr(actor, _CHECK_STAT_ATTRS[stat])
 
 
 def _cost_item_registry(item_kind: str) -> dict:
     return {"material": dungeon.MATERIALS, "consumable": dungeon.CONSUMABLES, "quest_item": quests.QUEST_ITEMS}[item_kind]
+
+
+async def _apply_outcome_rewards(
+    guild_id: int, user_id: int, actor, outcome: dict, log_lines: list[str], *, label: str | None = None,
+) -> None:
+    """Applies an outcome's optional currency_delta and item give/take -- hp_delta is handled by
+    each caller itself, alongside the knockout/HP-cap logic that differs between solo and party.
+    item_qty's sign decides give (positive, db.add_inventory_item) vs. take (negative,
+    db.consume_inventory_item -- silently a no-op if they're not holding enough, since this is a
+    side-effect of a choice already made, not a gate that can reject the action). `label` is None
+    for a solo delve ("You find..."), or a party member's own label for third-person party log
+    lines ("Rogue Sam finds...")."""
+    subject, s = ("You", "") if label is None else (label, "s")
+
+    currency_delta = outcome.get("currency_delta", 0)
+    if currency_delta:
+        before = actor.loot_total
+        actor.loot_total = max(0, actor.loot_total + currency_delta)
+        applied = actor.loot_total - before  # a "take" can be clamped short if loot_total's this low
+        if applied:
+            currency_name = db.get_currency_name(guild_id)
+            verb = ("find" if applied > 0 else "lose") + s
+            log_lines.append(f"{subject} {verb} **{abs(applied)}** {currency_name}.")
+
+    item_id = outcome.get("item_id")
+    if item_id:
+        item_qty = outcome["item_qty"]
+        item_name = _cost_item_registry(outcome["item_kind"]).get(item_id, {}).get("name", item_id)
+        if item_qty > 0:
+            await asyncio.to_thread(db.add_inventory_item, guild_id, user_id, item_id, item_qty)
+            log_lines.append(f"{subject} {'find' + s} **{item_qty}x {item_name}**.")
+        else:
+            took = await asyncio.to_thread(db.consume_inventory_item, guild_id, user_id, item_id, abs(item_qty))
+            if took:
+                log_lines.append(f"{subject} {'lose' + s} **{abs(item_qty)}x {item_name}**.")
 
 
 def _cost_summary(cost: dict | None, currency_name: str) -> str | None:
@@ -627,6 +659,8 @@ async def _handle_choice_action(
         session.hp = min(session.max_hp, session.hp + hp_delta)
         verb = "recover" if hp_delta > 0 else "take"
         log_lines.append(f"You {verb} **{abs(hp_delta)}** HP.")
+
+    await _apply_outcome_rewards(session.guild_id, session.user_id, session, outcome, log_lines)
 
     if session.hp <= 0:
         currency = db.get_currency_name(session.guild_id)
@@ -2547,6 +2581,8 @@ async def _resolve_party_choice_action(
         actor.hp = min(actor.max_hp, actor.hp + hp_delta)
         verb = "recovers" if hp_delta > 0 else "takes"
         log_lines.append(f"{actor.label} {verb} **{abs(hp_delta)}** HP.")
+
+    await _apply_outcome_rewards(session.guild_id, actor.user_id, actor, outcome, log_lines, label=actor.label)
 
     if actor.hp <= 0:
         actor.knocked_out = True

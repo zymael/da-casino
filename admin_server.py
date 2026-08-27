@@ -2051,6 +2051,28 @@ def _render_action_row(prefix: str, action: dict) -> str:
     def _next_hidden(field_name: str, value: str | None) -> str:
         return f'<input type="hidden" name="{prefix}_{field_name}" value="{html.escape(value or "")}">'
 
+    def _outcome_reward_fields(outcome_prefix: str, outcome: dict) -> str:
+        """currency_delta + item give/take fields shared by on_success and on_fail below --
+        item_qty's sign decides give vs. take (positive/negative), same single-field convention as
+        currency_delta and hp_delta, so there's one input to fill in rather than a redundant
+        give-or-take toggle plus a magnitude."""
+        kind_options = "".join(
+            f'<option value="{k}"{" selected" if k == outcome.get("item_kind") else ""}>{k}</option>'
+            for k in [""] + list(dungeon.ACTION_COST_ITEM_KINDS)
+        )
+        reward_item_select = _render_cascaded_select(
+            f"{outcome_prefix}_item_id", "action_cost", outcome.get("item_kind"), outcome.get("item_id")
+        )
+        return (
+            f'<label>currency_delta (optional, +/-)<input type="number" name="{outcome_prefix}_currency_delta" '
+            f'value="{outcome.get("currency_delta", "")}"></label>'
+            f'<label>item_kind<select name="{outcome_prefix}_item_kind" class="cascade-select" '
+            f'data-cascade="action_cost">{kind_options}</select></label>'
+            f'<label>item_id{reward_item_select}</label>'
+            f'<label>item_qty (optional, +/-)<input type="number" name="{outcome_prefix}_item_qty" '
+            f'value="{outcome.get("item_qty", "")}"></label>'
+        )
+
     return (
         f'<div class="row-group action-row">'
         f'<label>label{_text("label", action.get("label"))}'
@@ -2079,6 +2101,7 @@ def _render_action_row(prefix: str, action: dict) -> str:
         f'{_next_hidden("success_next", on_success.get("next"))}'
         f'<label>hp_delta (optional)<input type="number" name="{prefix}_success_hp_delta" value="{on_success.get("hp_delta", "")}"></label>'
         f'<label>message (optional){_text("success_message", on_success.get("message"))}</label>'
+        f'{_outcome_reward_fields(f"{prefix}_success", on_success)}'
         f'</fieldset>'
         f'<fieldset data-tooltip="Only used once a check is set above. Where this action leads if '
         f'the roll fails -- drag the action\'s red handle on the canvas to set it.">'
@@ -2088,6 +2111,7 @@ def _render_action_row(prefix: str, action: dict) -> str:
         f'{_next_hidden("fail_next", on_fail.get("next"))}'
         f'<label>hp_delta (optional)<input type="number" name="{prefix}_fail_hp_delta" value="{on_fail.get("hp_delta", "")}"></label>'
         f'<label>message (optional){_text("fail_message", on_fail.get("message"))}</label>'
+        f'{_outcome_reward_fields(f"{prefix}_fail", on_fail)}'
         f'</fieldset>'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove action</button></div>'
     )
@@ -3246,9 +3270,11 @@ def _build_entry_from_form(spec: dict, form: dict, entry_id_for_upload: str, exi
 
 
 def _parse_outcome(prefix: str, form: dict) -> dict:
-    """An action's on_success/on_fail -- next/hp_delta/message, each omitted (not written as an
-    empty string / null) if left blank, same "blank means absent" convention every other optional
-    field here follows."""
+    """An action's on_success/on_fail -- next/hp_delta/message/currency_delta/item give-or-take,
+    each omitted (not written as an empty string / null) if left blank, same "blank means absent"
+    convention every other optional field here follows. item_qty's sign is what decides give vs.
+    take (see dungeon._ACTION_OUTCOME_KEYS), so it's parsed as-is (a plain negative number), not
+    split into separate give/take inputs."""
     outcome: dict = {}
     next_room = form.get(f"{prefix}_next", "").strip()
     if next_room:
@@ -3259,6 +3285,16 @@ def _parse_outcome(prefix: str, form: dict) -> dict:
     message = form.get(f"{prefix}_message", "").strip()
     if message:
         outcome["message"] = message
+    currency_delta = form.get(f"{prefix}_currency_delta", "").strip()
+    if currency_delta:
+        outcome["currency_delta"] = int(currency_delta)
+    item_id = form.get(f"{prefix}_item_id", "").strip()
+    if item_id:
+        outcome["item_kind"] = form.get(f"{prefix}_item_kind", "").strip()
+        outcome["item_id"] = item_id
+        qty = form.get(f"{prefix}_item_qty", "").strip()
+        if qty:
+            outcome["item_qty"] = int(qty)
     return outcome
 
 

@@ -280,14 +280,19 @@ def roll_drops(monster: dict, chance_mult: float = 1.0) -> list[dict]:
 # costs are shaped like plain dicts, nothing about their actual contents.
 
 ROOM_TYPES = ("combat", "choice")
-CHECK_STATS = ("atk", "def", "hp")  # which of a character's own stats a skill check can roll against
+# which of a character's own stats a skill check can roll against -- every stat compute_effective_stats
+# produces, so a check can be calibrated against any of them, not just the original atk/def/hp trio.
+CHECK_STATS = ("hp", "atk", "def", "spatk", "spdef", "speed")
 ACTION_COST_ITEM_KINDS = ("material", "consumable", "quest_item")
 _REQUIRED_ROOM_FIELDS_BY_TYPE = {"combat": {"monster_groups"}, "choice": {"prompt", "actions"}}
 _OPTIONAL_ROOM_FIELDS_BY_TYPE = {"combat": {"background_path", "next", "prompt"}, "choice": {"background_path"}}
 
 _DELVES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_delves.json")
 _REQUIRED_DELVE_FIELDS = {"id", "name", "flavor", "rooms", "start_room"}
-_ACTION_OUTCOME_KEYS = {"next", "hp_delta", "message"}
+# currency_delta/item_* let an outcome give (positive) or take (negative) currency/an item on top of
+# hp_delta -- item_qty's sign is what decides give vs. take, same single-field convention as
+# hp_delta/currency_delta rather than separate give/take fields.
+_ACTION_OUTCOME_KEYS = {"next", "hp_delta", "message", "currency_delta", "item_kind", "item_id", "item_qty"}
 
 
 def _validate_action(action: dict, context: str) -> None:
@@ -348,6 +353,22 @@ def _validate_action(action: dict, context: str) -> None:
             raise ValueError(f"{context}: {key} has unknown field(s): {sorted(unknown)}")
         if "hp_delta" in outcome and not isinstance(outcome["hp_delta"], int):
             raise ValueError(f"{context}: {key}.hp_delta must be an int")
+        if "currency_delta" in outcome:
+            if not isinstance(outcome["currency_delta"], int) or outcome["currency_delta"] == 0:
+                raise ValueError(f"{context}: {key}.currency_delta must be a nonzero int")
+        if "item_id" in outcome:
+            item_kind = outcome.get("item_kind")
+            if item_kind not in ACTION_COST_ITEM_KINDS:
+                raise ValueError(f"{context}: {key} with an item_id needs item_kind in {ACTION_COST_ITEM_KINDS}")
+            if item_kind == "material" and outcome["item_id"] not in MATERIALS:
+                raise ValueError(f"{context}: {key} references unknown material {outcome['item_id']!r}")
+            if item_kind == "consumable" and outcome["item_id"] not in CONSUMABLES:
+                raise ValueError(f"{context}: {key} references unknown consumable {outcome['item_id']!r}")
+            # quest_item existence is checked by quests.py's cross-validation pass (see module docstring)
+            if not isinstance(outcome.get("item_qty"), int) or outcome["item_qty"] == 0:
+                raise ValueError(f"{context}: {key}.item_qty must be a nonzero int")
+        elif "item_kind" in outcome or "item_qty" in outcome:
+            raise ValueError(f"{context}: {key} has item_kind/item_qty but no item_id")
 
 
 def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:

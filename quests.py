@@ -408,6 +408,12 @@ for _delve in dungeon.DELVES.values():
             _cost = _action.get("cost") or {}
             if _cost.get("item_kind") == "quest_item" and _cost.get("item_id") not in QUEST_ITEMS:
                 raise ValueError(f"{_context} cost references unknown quest item {_cost.get('item_id')!r}")
+            for _outcome_key in ("on_success", "on_fail"):
+                _outcome = _action.get(_outcome_key) or {}
+                if _outcome.get("item_kind") == "quest_item" and _outcome.get("item_id") not in QUEST_ITEMS:
+                    raise ValueError(
+                        f"{_context} {_outcome_key} references unknown quest item {_outcome.get('item_id')!r}"
+                    )
 
 
 def validate_recipe_quest_items(recipes: dict[str, dict]):
