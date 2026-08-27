@@ -1889,5 +1889,25 @@
     ],
     "chip_cost": 10,
     "special": false
+  },
+  {
+    "id": "commanding_voice_base",
+    "main_class": "healer",
+    "subclass": "none",
+    "unlock_level": 1,
+    "name": "Commanding Voice",
+    "flavor": "Let your authority flow through you!",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 0.6
+      },
+      {
+        "type": "stun",
+        "duration": 1
+      }
+    ],
+    "chip_cost": 8,
+    "special": true
   }
 ]
