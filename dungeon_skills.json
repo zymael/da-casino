@@ -1,20 +1,5 @@
 [
   {
-    "id": "con_artist_sneak_attack",
-    "main_class": "rogue",
-    "subclass": "hearts",
-    "unlock_level": 1,
-    "name": "Cheap Shot",
-    "flavor": "\"Wait, is that--\" It was not. It was a fist.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.5
-      }
-    ],
-    "chip_cost": 10
-  },
-  {
     "id": "treasure_hunter_sneak_attack",
     "main_class": "rogue",
     "subclass": "diamonds",
