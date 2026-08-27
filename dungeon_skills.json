@@ -1950,5 +1950,25 @@
     ],
     "chip_cost": 7,
     "special": true
+  },
+  {
+    "id": "commanding_voice_base_clubs",
+    "main_class": "healer",
+    "subclass": "clubs",
+    "unlock_level": 1,
+    "name": "Commanding Voice",
+    "flavor": "Let your authority flow through you!",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 0.6
+      },
+      {
+        "type": "stun",
+        "duration": 1
+      }
+    ],
+    "chip_cost": 8,
+    "special": true
   }
 ]
