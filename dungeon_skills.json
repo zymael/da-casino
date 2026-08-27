@@ -1,20 +1,5 @@
 [
   {
-    "id": "mage_base_spark",
-    "main_class": "mage",
-    "subclass": "none",
-    "unlock_level": 1,
-    "name": "Spark",
-    "flavor": "PLACEHOLDER -- edit me in the admin panel. A basic jolt -- nothing fancy until you specialize.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.8
-      }
-    ],
-    "chip_cost": 10
-  },
-  {
     "id": "rogue_base_jab",
     "main_class": "rogue",
     "subclass": "none",
