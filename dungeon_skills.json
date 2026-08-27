@@ -1,20 +1,5 @@
 [
   {
-    "id": "guardian_guard",
-    "main_class": "fighter",
-    "subclass": "hearts",
-    "unlock_level": 1,
-    "name": "Bulwark",
-    "flavor": "Plants their feet and dares the monster to try again.",
-    "effects": [
-      {
-        "type": "guard",
-        "reduction": 0.5
-      }
-    ],
-    "chip_cost": 10
-  },
-  {
     "id": "mercenary_guard",
     "main_class": "fighter",
     "subclass": "diamonds",
