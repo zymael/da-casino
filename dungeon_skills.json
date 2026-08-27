@@ -1,21 +1,5 @@
 [
   {
-    "id": "artificer_fireball",
-    "main_class": "mage",
-    "subclass": "diamonds",
-    "unlock_level": 1,
-    "name": "Overcharged Bolt",
-    "flavor": "A gadget never rated for this much mana.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.8
-      }
-    ],
-    "chip_cost": 10,
-    "special": true
-  },
-  {
     "id": "bar_fighter_sneak_attack",
     "main_class": "rogue",
     "subclass": "clubs",
