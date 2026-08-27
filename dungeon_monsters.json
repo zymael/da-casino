@@ -888,37 +888,39 @@
         "name": "Call in the Muscle",
         "chance": 1,
         "special": true,
-        "flavor": "They snap their fingers and bark an order -- the rest of the crew perks up, hitting noticeably harder.",
         "effects": [
           {
             "type": "spatk_buff",
             "value": 4,
             "target": "self"
           }
-        ]
+        ],
+        "flavor": "They snap their fingers and bark an order -- the rest of the crew perks up, hitting noticeably harder."
       },
       {
         "name": "Made Man's Grip",
         "chance": 0.3,
-        "flavor": "They don't fight fair -- while you're busy with the rest of the crew, they sneak in a second shot.",
+        "special": false,
         "effects": [
           {
             "type": "extra_attack",
             "multiplier": 0.5
           }
-        ]
+        ],
+        "flavor": "They don't fight fair -- while you're busy with the rest of the crew, they sneak in a second shot."
       },
       {
         "name": "Tommy Gun Spray",
         "chance": 0.4,
-        "flavor": "They pull a tommy gun out from under the bar and just... spray it across the whole room.",
+        "special": false,
         "effects": [
           {
             "type": "damage_multiplier",
             "value": 1.2,
             "aoe": true
           }
-        ]
+        ],
+        "flavor": "They pull a tommy gun out from under their jacket and just... absolutely it across the whole room.\r\n\r\n\"SAY HELLO TO MY LIL' FWIEND\""
       }
     ],
     "sprite_path": "assets/dungeon/monsters/goblin_mob_boss.png"
