@@ -1497,35 +1497,21 @@
     "unlock_level": 1,
     "name": "Get bonked",
     "flavor": "*BONK*",
-    "effect_groups": [
+    "effects": [
       {
-        "effects": [
-          {
-            "type": "damage_multiplier",
-            "value": 1.7,
-            "target": "enemy"
-          }
-        ]
+        "type": "damage_multiplier",
+        "value": 1.5,
+        "target": "enemy"
       },
       {
-        "effects": [
-          {
-            "type": "atk_debuff",
-            "value": 4,
-            "target": "enemy"
-          }
-        ],
-        "chance": 1
+        "type": "atk_debuff",
+        "value": 3,
+        "target": "enemy"
       },
       {
-        "effects": [
-          {
-            "type": "spatk_debuff",
-            "value": 4,
-            "target": "enemy"
-          }
-        ],
-        "chance": 1
+        "type": "speed_buff",
+        "value": 2,
+        "target": "enemy"
       }
     ],
     "chip_cost": 9,
