@@ -1,20 +1,5 @@
 [
   {
-    "id": "plague_doctor_heal",
-    "main_class": "healer",
-    "subclass": "spades",
-    "unlock_level": 1,
-    "name": "Toxic Remedy",
-    "flavor": "Whatever's in this vial, it works. Don't ask what it is.",
-    "effects": [
-      {
-        "type": "heal_fraction",
-        "value": 0.4
-      }
-    ],
-    "chip_cost": 10
-  },
-  {
     "id": "priest_heal",
     "main_class": "healer",
     "subclass": "hearts",
