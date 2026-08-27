@@ -662,5 +662,27 @@
     "intended_level": 3,
     "base_value": 160,
     "flavor": "These pants make you feel like you can blaze across the dance floor. Safely even!"
+  },
+  {
+    "id": "bitchin_shades",
+    "name": "Bitchin' Shades",
+    "slot": "trinket",
+    "rarity": "rare",
+    "effects": [
+      {
+        "type": "spdef_buff",
+        "trigger": "constant",
+        "value": 5
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 5
+      }
+    ],
+    "special": false,
+    "intended_level": 3,
+    "base_value": 200,
+    "flavor": "These shades make it so you can't see your problems.  And if you can't see them they're not there."
   }
 ]
