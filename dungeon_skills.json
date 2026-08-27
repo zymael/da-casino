@@ -1,19 +1,5 @@
 [
   {
-    "id": "con_artist_sleight_of_hand",
-    "main_class": "rogue",
-    "subclass": "hearts",
-    "unlock_level": 4,
-    "name": "Sleight of Hand",
-    "flavor": "A distraction, then a second hit nobody saw coming.",
-    "effects": [
-      {
-        "type": "extra_attack"
-      }
-    ],
-    "chip_cost": 15
-  },
-  {
     "id": "con_artist_master_manipulator",
     "main_class": "rogue",
     "subclass": "hearts",
