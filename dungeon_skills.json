@@ -972,7 +972,7 @@
     "id": "throw_coin",
     "main_class": "healer",
     "subclass": "diamonds",
-    "unlock_level": 5,
+    "unlock_level": 7,
     "name": "Throw fake coins!",
     "flavor": "Oh look, shiney!",
     "effects": [
