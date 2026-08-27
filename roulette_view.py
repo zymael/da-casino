@@ -14,11 +14,21 @@ STEAL_CHANCE = 0.01  # 1-in-100 chance a winning payout gets swiped instead of p
 STEAL_NAMES = ["Lady of the evening", "Classy Escort"]
 
 # The Sickly Victorian Daughters gag -- purely cosmetic, no game-state hook, same running joke
-# target as bot.py's RUB_LUCKY_TARGET_ID. Rolled once per round (not per losing bet) against this
-# one user's aggregate net for the round, not any single bet.
+# target as bot.py's RUB_LUCKY_TARGET_ID. Rolled once per round (not per losing/winning bet)
+# against this one user's aggregate net for the round, not any single bet -- a loss and a win each
+# have their own independent chance/flavor text, sharing the same image and dismiss button.
 DAUGHTERS_TARGET_ID = 272816170749526027
-DAUGHTERS_CHANCE = 0.05  # rare enough to stay funny instead of predictable
+DAUGHTERS_LOSS_CHANCE = 0.05  # rare enough to stay funny instead of predictable
+DAUGHTERS_WIN_CHANCE = 0.05
 DAUGHTERS_IMAGE_PATH = "assets/sickly victorian daughters.png"
+DAUGHTERS_LOSS_MESSAGE = (
+    "Your three waifish, malnutritioned daughters approach the table and ask if you have lost "
+    "all the money they had for food."
+)
+DAUGHTERS_WIN_MESSAGE = (
+    "Your starving, forlorn daughters approach and ask you if you can spare flakes for Quimbo's "
+    "Eurasian Goiter medication."
+)
 
 
 class SicklyVictorianDaughtersView(discord.ui.View):
@@ -35,6 +45,23 @@ class SicklyVictorianDaughtersView(discord.ui.View):
             await interaction.message.delete()
         except discord.HTTPException:
             pass
+
+
+async def _maybe_send_daughters_popup(channel, net_by_user: dict[int, int]) -> None:
+    """Rolls both the loss and win variants of the gag (see the module comment above) against
+    DAUGHTERS_TARGET_ID's aggregate net for this round -- net is never both negative and positive
+    at once, so at most one of these fires."""
+    net = net_by_user.get(DAUGHTERS_TARGET_ID, 0)
+    if net < 0 and random.random() < DAUGHTERS_LOSS_CHANCE:
+        message = DAUGHTERS_LOSS_MESSAGE
+    elif net > 0 and random.random() < DAUGHTERS_WIN_CHANCE:
+        message = DAUGHTERS_WIN_MESSAGE
+    else:
+        return
+    embed = discord.Embed(title="Sickly Victorian Daughters", description=message, color=discord.Color.dark_gray())
+    file = discord.File(DAUGHTERS_IMAGE_PATH, filename="daughters.png")
+    embed.set_image(url="attachment://daughters.png")
+    await channel.send(embed=embed, file=file, view=SicklyVictorianDaughtersView())
 
 
 # channel_id -> the currently-open round's RouletteView, so only one open table per channel.
@@ -630,22 +657,8 @@ class RouletteView(discord.ui.View):
                         self.message.channel.send, self.guild_id, bet["user_id"], bet["display_name"], kinds
                     )
 
-            if (
-                self.message is not None
-                and net_by_user.get(DAUGHTERS_TARGET_ID, 0) < 0
-                and random.random() < DAUGHTERS_CHANCE
-            ):
-                daughters_embed = discord.Embed(
-                    title="Sickly Victorian Daughters",
-                    description="Your three waifish, malnutritioned daughters approach the table and ask if "
-                    "you have lost all the money they had for food.",
-                    color=discord.Color.dark_gray(),
-                )
-                daughters_file = discord.File(DAUGHTERS_IMAGE_PATH, filename="daughters.png")
-                daughters_embed.set_image(url="attachment://daughters.png")
-                await self.message.channel.send(
-                    embed=daughters_embed, file=daughters_file, view=SicklyVictorianDaughtersView()
-                )
+            if self.message is not None:
+                await _maybe_send_daughters_popup(self.message.channel, net_by_user)
         finally:
             self.resolved_event.set()
 
