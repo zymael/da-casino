@@ -60,111 +60,22 @@
     "drops": [
       {
         "kind": "equipment",
-        "item_id": "bonk_stick",
-        "chance": 0.025
-      },
-      {
-        "kind": "equipment",
-        "item_id": "magic_wand",
-        "chance": 0.025
-      },
-      {
-        "kind": "equipment",
-        "item_id": "pugilist_gloves",
-        "chance": 0.025
-      },
-      {
-        "kind": "equipment",
-        "item_id": "shark_punch",
-        "chance": 0.025
-      },
-      {
-        "kind": "equipment",
-        "item_id": "sling",
-        "chance": 0.025
-      },
-      {
-        "kind": "equipment",
-        "item_id": "padded_jerkin",
-        "chance": 0.025
-      },
-      {
-        "kind": "equipment",
-        "item_id": "fancy_cowl",
-        "chance": 0.025
-      },
-      {
-        "kind": "equipment",
-        "item_id": "bulging_tights",
-        "chance": 0.025
-      },
-      {
-        "kind": "equipment",
-        "item_id": "shiny_pin",
-        "chance": 0.025
-      },
-      {
-        "kind": "equipment",
-        "item_id": "magic_amulet",
-        "chance": 0.025
-      },
-      {
-        "kind": "equipment",
-        "item_id": "fancy_hat",
-        "chance": 0.025
-      },
-      {
-        "kind": "material",
-        "item_id": "comb",
-        "chance": 0.04
-      },
-      {
-        "kind": "material",
-        "item_id": "dirty_cloth",
-        "chance": 0.04
-      },
-      {
-        "kind": "material",
-        "item_id": "hair",
-        "chance": 0.04
-      },
-      {
-        "kind": "material",
-        "item_id": "used_thong",
-        "chance": 0.04
-      },
-      {
-        "kind": "material",
-        "item_id": "droppings",
-        "chance": 0.04
-      },
-      {
-        "kind": "material",
-        "item_id": "shiny_rock",
-        "chance": 0.04
-      },
-      {
-        "kind": "material",
-        "item_id": "oversized_hat",
-        "chance": 0.04
-      },
-      {
-        "kind": "material",
-        "item_id": "rat_tooth",
-        "chance": 0.04
+        "item_id": "disco_stick",
+        "chance": 0.1
       }
     ],
     "skills": [
       {
         "name": "The Hustle",
         "chance": 0.3,
-        "flavor": "They dance circles around you to the beat of a song only they can hear, skimming a little HP off you with every step.",
+        "special": false,
         "effects": [
           {
             "type": "lifesteal_fraction",
             "value": 0.25
           }
-        ]
+        ],
+        "flavor": "They dance circles around you to the beat of a song only they can hear, skimming a little HP off you with every step."
       }
     ],
     "sprite_path": "assets/dungeon/monsters/goblin_scavenger.png"
