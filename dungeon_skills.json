@@ -1,23 +1,5 @@
 [
   {
-    "id": "bar_fighter_bottle_it",
-    "main_class": "rogue",
-    "subclass": "clubs",
-    "unlock_level": 4,
-    "name": "Bottle It",
-    "flavor": "Break it over their head, then throw the pieces too.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.3
-      },
-      {
-        "type": "extra_attack"
-      }
-    ],
-    "chip_cost": 15
-  },
-  {
     "id": "bar_fighter_table_flip",
     "main_class": "rogue",
     "subclass": "clubs",
