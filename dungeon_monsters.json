@@ -206,17 +206,17 @@
   },
   {
     "id": "goblin_skirmisher",
-    "name": "Goblin Skirmisher",
-    "hp": 31,
-    "atk": 11,
-    "def": 3,
-    "spatk": 11,
-    "spdef": 3,
-    "spd": 7,
-    "intended_level": 3,
+    "name": "Goblin DJ",
+    "hp": 37,
+    "atk": 12,
+    "def": 10,
+    "spatk": 20,
+    "spdef": 20,
+    "spd": 12,
+    "intended_level": 6,
     "shape": "pentagon",
     "color": "#3c6e4a",
-    "flavor": "A wiry goblin circles you, twin blades flashing.",
+    "flavor": "This is the last time that they play Electrofunk on Italo Disco night, if you have anything to say about it.",
     "loot_min": 30,
     "loot_max": 60,
     "drops": [
@@ -236,6 +236,7 @@
         "chance": 0.08
       }
     ],
+    "skills": [],
     "sprite_path": "assets/dungeon/monsters/goblin_skirmisher.png"
   },
   {
