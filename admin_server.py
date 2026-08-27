@@ -348,13 +348,16 @@ def _cascade_options() -> dict:
         },
         # A skill's own subclass options depend on its main_class -- keyed by main_class the same
         # way every other cascade here is keyed by a sibling "kind" select, just backing a fixed
-        # 4-item registry (dungeon.SUBCLASSES) instead of a dynamic content one. Each option shows
-        # the actual 16-name-grid build name plus its card (rank letter + suit symbol) rather than
-        # the bare suit id, e.g. "The Muscle (A♣)" instead of "clubs".
+        # 5-item registry (dungeon.SUBCLASSES, including the dungeon.NO_SUBCLASS sentinel) instead
+        # of a dynamic content one. Each real-suit option shows the actual 16-name-grid build name
+        # plus its card (rank letter + suit symbol) rather than the bare suit id, e.g.
+        # "The Muscle (A♣)" instead of "clubs" -- NO_SUBCLASS gets its own label instead, since it
+        # has no suit glyph and display_name falls back to the bare main-class name for it.
         "skill_subclass": {
             main_class: [
                 [
                     subclass,
+                    "— Base (no subclass yet) —" if subclass == dungeon.NO_SUBCLASS else
                     f"{dungeon.display_name(main_class, subclass)} "
                     f"({dungeon.CLASSES[main_class]['rank']}{dungeon.SUIT_SYMBOLS[subclass]})",
                 ]

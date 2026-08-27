@@ -51,8 +51,10 @@ _DEBUFF_CC_TYPES = {
 
 
 def all_builds() -> list[tuple[str, str]]:
-    """Every (main_class, subclass) combo -- 16 today (4 classes x 4 subclasses)."""
-    return [(mc, sc) for mc in dungeon.CLASSES for sc in dungeon.SUBCLASSES]
+    """Every real (main_class, subclass) combo -- 16 today (4 classes x 4 subclasses). Excludes
+    dungeon.NO_SUBCLASS -- that's a transient pre-level-5 state, not a real endgame build worth
+    balancing against the other 16."""
+    return [(mc, sc) for mc in dungeon.CLASSES for sc in dungeon.SUBCLASSES if sc != dungeon.NO_SUBCLASS]
 
 
 def build_label(main_class: str, subclass: str) -> str:

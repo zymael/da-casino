@@ -1885,6 +1885,43 @@ def get_character(guild_id: int, user_id: int) -> dict | None:
         conn.close()
 
 
+def choose_subclass(
+    guild_id: int, user_id: int, subclass: str,
+    hp_delta: int, atk_delta: int, def_delta: int, spatk_delta: int, spdef_delta: int, speed_delta: int,
+) -> bool:
+    """Sets a character's subclass for the first time, applying the subclass's flat stat modifiers
+    onto their already-leveled stats (same in-place-delta pattern as add_xp) since compute_stats
+    only ever applied a subclass modifier once, at creation -- a base-class character (dungeon.
+    NO_SUBCLASS) was created with a zero modifier instead. current_hp is bumped by hp_delta too,
+    same as a level-up. Only succeeds while the stored subclass is still dungeon.NO_SUBCLASS --
+    picking a subclass is permanent, same one-shot guard shape as create_character's INSERT OR
+    IGNORE. Returns whether this call was the one that set it."""
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT subclass, hp, atk, def, spatk, spdef, speed, current_hp "
+            "FROM characters WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ).fetchone()
+        if row is None or row[0] != "none":
+            conn.rollback()
+            return False
+        _, hp, atk, def_, spatk, spdef, speed, current_hp = row
+        conn.execute(
+            "UPDATE characters SET subclass = ?, hp = ?, atk = ?, def = ?, spatk = ?, spdef = ?, speed = ?, "
+            "current_hp = ? WHERE guild_id = ? AND user_id = ?",
+            (
+                subclass, hp + hp_delta, atk + atk_delta, def_ + def_delta, spatk + spatk_delta,
+                spdef + spdef_delta, speed + speed_delta, current_hp + hp_delta, guild_id, user_id,
+            ),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
 def set_current_hp(guild_id: int, user_id: int, hp: int) -> None:
     """Persists a character's HP at the end of a delve (retreat, victory, death, or a party wipe)
     -- the value the *next* delve will start from, since HP no longer auto-refills between delves,

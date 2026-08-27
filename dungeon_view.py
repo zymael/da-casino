@@ -3744,7 +3744,7 @@ class ClassSelect(discord.ui.Select):
 
 
 class SubclassSelect(discord.ui.Select):
-    def __init__(self, picker: "ClassPickerView"):
+    def __init__(self, picker: "SubclassPickerView"):
         options = [
             discord.SelectOption(label=label, value=value, description=desc)
             for value, label, desc in SUBCLASS_OPTIONS
@@ -3760,18 +3760,18 @@ class SubclassSelect(discord.ui.Select):
 
 
 class ClassPickerView(discord.ui.View):
-    """One-time character creation -- class and subclass are picked independently (in either
-    order) from two selects on the same message, then confirmed. Permanent once created."""
+    """One-time base-class creation -- picks only the main class (face rank); the subclass (suit)
+    comes later via SubclassPickerView once the character reaches dungeon.SUBCLASS_UNLOCK_LEVEL.
+    Permanent once created -- see dungeon.NO_SUBCLASS for how a subclass-less character's stats/
+    skills resolve in the meantime."""
 
     def __init__(self, guild_id: int, user_id: int):
         super().__init__(timeout=120)
         self.guild_id = guild_id
         self.user_id = user_id
         self.main_class: str | None = None
-        self.subclass: str | None = None
         self.add_item(ClassSelect(self))
-        self.add_item(SubclassSelect(self))
-        self.add_item(ConfirmButton(self))
+        self.add_item(ClassConfirmButton(self))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -3780,12 +3780,15 @@ class ClassPickerView(discord.ui.View):
         return True
 
     def build_embed(self) -> discord.Embed:
-        embed = discord.Embed(title="🗡️ Choose Your Character", color=discord.Color.blurple())
-        embed.description = "This choice is **permanent** — pick a class and a subclass, then confirm."
-        if self.main_class and self.subclass:
-            name = dungeon.display_name(self.main_class, self.subclass)
-            stats = dungeon.compute_stats(self.main_class, self.subclass)
-            skill = dungeon.unlocked_skills(self.main_class, self.subclass, 1)[0]
+        embed = discord.Embed(title="🗡️ Choose Your Class", color=discord.Color.blurple())
+        embed.description = (
+            "This choice is **permanent** — pick a class, then confirm. You'll pick a subclass "
+            f"once you reach level {dungeon.SUBCLASS_UNLOCK_LEVEL} — run `!class` again then."
+        )
+        if self.main_class:
+            name = dungeon.display_name(self.main_class, dungeon.NO_SUBCLASS)
+            stats = dungeon.compute_stats(self.main_class, dungeon.NO_SUBCLASS)
+            skill = dungeon.unlocked_skills(self.main_class, dungeon.NO_SUBCLASS, 1)[0]
             dodge_pct = round(dungeon.dodge_chance(stats["def"]) * 100)
             resist_pct = round(dungeon.dodge_chance(stats["spdef"]) * 100)
             embed.add_field(
@@ -3799,27 +3802,27 @@ class ClassPickerView(discord.ui.View):
         return embed
 
 
-class ConfirmButton(discord.ui.Button):
+class ClassConfirmButton(discord.ui.Button):
     def __init__(self, picker: ClassPickerView):
         super().__init__(label="Confirm", style=discord.ButtonStyle.success, row=2)
         self.picker = picker
 
     async def callback(self, interaction: discord.Interaction):
         picker = self.picker
-        if not picker.main_class or not picker.subclass:
-            await interaction.response.send_message("Pick both a class and a subclass first.", ephemeral=True)
+        if not picker.main_class:
+            await interaction.response.send_message("Pick a class first.", ephemeral=True)
             return
 
-        stats = dungeon.compute_stats(picker.main_class, picker.subclass)
+        stats = dungeon.compute_stats(picker.main_class, dungeon.NO_SUBCLASS)
         created = await asyncio.to_thread(
-            db.create_character, picker.guild_id, picker.user_id, picker.main_class, picker.subclass,
+            db.create_character, picker.guild_id, picker.user_id, picker.main_class, dungeon.NO_SUBCLASS,
             stats["hp"], stats["atk"], stats["def"], stats["spatk"], stats["spdef"], stats["speed"],
         )
         if not created:
             await interaction.response.send_message("You already have a character.", ephemeral=True)
             return
 
-        name = dungeon.display_name(picker.main_class, picker.subclass)
+        name = dungeon.display_name(picker.main_class, dungeon.NO_SUBCLASS)
         dodge_pct = round(dungeon.dodge_chance(stats["def"]) * 100)
         resist_pct = round(dungeon.dodge_chance(stats["spdef"]) * 100)
         embed = discord.Embed(
@@ -3827,7 +3830,95 @@ class ConfirmButton(discord.ui.Button):
             description=f"HP {stats['hp']} / ATK {stats['atk']} / DEF {stats['def']} / "
                         f"SpAtk {stats['spatk']} / SpDef {stats['spdef']} / 🏃 Speed {stats['speed']} / 🪙 Chips {stats['chips']}\n"
                         f"Dodge {dodge_pct}% / Resist {resist_pct}%\n\n"
-                        f"Use `!delve` to enter the dungeon.",
+                        f"Use `!delve` to enter the dungeon. At level {dungeon.SUBCLASS_UNLOCK_LEVEL}, "
+                        f"run `!class` again to pick a subclass.",
+            color=discord.Color.green(),
+        )
+        await interaction.response.edit_message(embed=embed, view=None)
+        picker.stop()
+
+
+class SubclassPickerView(discord.ui.View):
+    """Picks a character's subclass for the first time, once they've reached
+    dungeon.SUBCLASS_UNLOCK_LEVEL. dungeon.unlocked_skills resolves purely off the character's
+    currently-stored subclass, so confirming here fully replaces their base-class skill line with
+    the chosen subclass's own -- nothing needs to merge the two. Permanent once picked, same
+    one-shot guard shape as ClassPickerView/db.create_character (see db.choose_subclass)."""
+
+    def __init__(self, guild_id: int, user_id: int, character: dict):
+        super().__init__(timeout=120)
+        self.guild_id = guild_id
+        self.user_id = user_id
+        self.character = character
+        self.main_class = character["main_class"]
+        self.level = character["level"]
+        self.subclass: str | None = None
+        self.add_item(SubclassSelect(self))
+        self.add_item(SubclassConfirmButton(self))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't your character.", ephemeral=True)
+            return False
+        return True
+
+    def build_embed(self) -> discord.Embed:
+        embed = discord.Embed(title="🎴 Choose Your Subclass", color=discord.Color.blurple())
+        embed.description = (
+            f"Level {self.level} — this choice is **permanent** and replaces your base class's "
+            "skill with your subclass's own skill line. Pick a subclass, then confirm."
+        )
+        if self.subclass:
+            mod = dungeon.SUBCLASSES[self.subclass]
+            name = dungeon.display_name(self.main_class, self.subclass)
+            hp = self.character["hp"] + mod["hp"]
+            atk = self.character["atk"] + mod["atk"]
+            def_ = self.character["def"] + mod["def"]
+            spatk = self.character["spatk"] + mod["spatk"]
+            spdef = self.character["spdef"] + mod["spdef"]
+            speed = self.character["speed"] + mod["speed"]
+            chips = dungeon.compute_stats(self.main_class, self.subclass)["chips"]
+            skill = dungeon.unlocked_skills(self.main_class, self.subclass, self.level)[0]
+            dodge_pct = round(dungeon.dodge_chance(def_) * 100)
+            resist_pct = round(dungeon.dodge_chance(spdef) * 100)
+            embed.add_field(
+                name=f"Preview: {name}",
+                value=f"HP {hp} / ATK {atk} / DEF {def_} / SpAtk {spatk} / SpDef {spdef} / "
+                      f"🏃 Speed {speed} / 🪙 Chips {chips}\n"
+                      f"Dodge {dodge_pct}% / Resist {resist_pct}%\n"
+                      f"New Skill: **{skill['name']}** — {skill['flavor']}",
+                inline=False,
+            )
+        return embed
+
+
+class SubclassConfirmButton(discord.ui.Button):
+    def __init__(self, picker: SubclassPickerView):
+        super().__init__(label="Confirm", style=discord.ButtonStyle.success, row=2)
+        self.picker = picker
+
+    async def callback(self, interaction: discord.Interaction):
+        picker = self.picker
+        if not picker.subclass:
+            await interaction.response.send_message("Pick a subclass first.", ephemeral=True)
+            return
+
+        mod = dungeon.SUBCLASSES[picker.subclass]
+        chosen = await asyncio.to_thread(
+            db.choose_subclass, picker.guild_id, picker.user_id, picker.subclass,
+            mod["hp"], mod["atk"], mod["def"], mod["spatk"], mod["spdef"], mod["speed"],
+        )
+        if not chosen:
+            await interaction.response.send_message("You've already picked a subclass.", ephemeral=True)
+            return
+
+        name = dungeon.display_name(picker.main_class, picker.subclass)
+        skill = dungeon.unlocked_skills(picker.main_class, picker.subclass, picker.level)[0]
+        embed = discord.Embed(
+            title=f"✅ You are now a {name}!",
+            description=f"Your subclass is locked in — your skill line now starts with "
+                        f"**{skill['name']}**, replacing your base class's skill.\n\n"
+                        f"Use `!class` to see your updated character sheet.",
             color=discord.Color.green(),
         )
         await interaction.response.edit_message(embed=embed, view=None)

@@ -84,6 +84,14 @@ MAIN_CLASS_DISPLAY = {
 # left neutral, diamonds (greedy) trades a little combat edge for meaningfully better loot, stays
 # Chips-neutral, gets a small SpAtk bump mirroring its small ATK one, and a small speed bump too
 # (an opportunist who gets in and out fast).
+# Sentinel for "hasn't picked a subclass yet" -- a real, zero-modifier member of SUBCLASSES rather
+# than None/"" threaded through every call site, so every existing SUBCLASSES[subclass]-keyed
+# lookup (compute_stats, SKILLS_BY_COMBO, PartyMember/DelveSession's loot_mult/max_chips, the admin
+# panel's skill_subclass cascade, quest trigger validation) keeps working unmodified for a
+# base-class character. A character is created with this subclass (db.create_character), then
+# db.choose_subclass swaps it for a real suit once at SUBCLASS_UNLOCK_LEVEL, applying that suit's
+# modifiers onto their already-leveled stats -- see db.choose_subclass's own docstring.
+NO_SUBCLASS = "none"
 SUBCLASSES = {
     "clubs": {"hp": 4, "atk": 2, "def": 0, "spatk": 0, "spdef": 0, "loot_mult": 1.0, "chips": -5, "speed": -2},
     "spades": {"hp": 0, "atk": 3, "def": -1, "spatk": 2, "spdef": -1, "loot_mult": 1.0, "chips": 5, "speed": 2},
@@ -93,8 +101,13 @@ SUBCLASSES = {
     # mercenary/treasure hunter still fights competently, just prioritizes the score) fixed that
     # without diamonds needing to be a pure stat no-op alongside its loot bonus.
     "diamonds": {"hp": 0, "atk": 1, "def": 0, "spatk": 1, "spdef": 0, "loot_mult": 1.25, "chips": 0, "speed": 1},
+    NO_SUBCLASS: {"hp": 0, "atk": 0, "def": 0, "spatk": 0, "spdef": 0, "loot_mult": 1.0, "chips": 0, "speed": 0},
 }
-SUIT_SYMBOLS = {"clubs": "♣", "spades": "♠", "hearts": "♥", "diamonds": "♦"}
+SUIT_SYMBOLS = {"clubs": "♣", "spades": "♠", "hearts": "♥", "diamonds": "♦", NO_SUBCLASS: ""}
+
+# Level a character can first use !class again to pick a subclass -- a level gate for now, meant to
+# eventually become a quest requirement instead (see NO_SUBCLASS above).
+SUBCLASS_UNLOCK_LEVEL = 5
 
 # The 16-name grid, worked out with the product owner: (class, subclass) -> display name.
 NAMES = {
@@ -110,6 +123,8 @@ NAMES = {
 
 
 def display_name(main_class: str, subclass: str) -> str:
+    if subclass == NO_SUBCLASS:
+        return MAIN_CLASS_DISPLAY[main_class]
     return NAMES[(main_class, subclass)]
 
 

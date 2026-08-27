@@ -20,6 +20,7 @@ import dungeon
 from dungeon_view import (
     ClassPickerView,
     DuelChallengeView,
+    SubclassPickerView,
     active_delves,
     build_delve_picker_display,
     build_duel_challenge_embed,
@@ -884,28 +885,39 @@ async def achievements_cmd(ctx):
 
 @bot.command(name="class")
 async def class_cmd(ctx):
-    """Pick your permanent dungeon class/subclass (one-time), or check your current one: !class"""
+    """Pick your permanent dungeon class (one-time), pick your subclass once you hit level
+    dungeon.SUBCLASS_UNLOCK_LEVEL (also one-time), or check your current one: !class"""
     character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
-    if character is not None:
-        name = dungeon.display_name(character["main_class"], character["subclass"])
-        rank = dungeon.CLASSES[character["main_class"]]["rank"]
-        suit_symbol = dungeon.SUIT_SYMBOLS[character["subclass"]]
-        equipped = await asyncio.to_thread(db.get_equipped_items, ctx.guild.id, ctx.author.id)
-        housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, ctx.guild.id, ctx.author.id)
-        effective = dungeon.compute_effective_stats(character, equipped, housing_bonuses.get("stat_bonus", {}))
-        max_chips = dungeon.compute_stats(character["main_class"], character["subclass"])["chips"]
-        xp_needed = dungeon.xp_to_next_level(character["level"])
-
-        embed = discord.Embed(title=f"{name} {rank}{suit_symbol}", color=discord.Color.blurple())
-        embed.add_field(name="Level", value=f"{character['level']} ({character['xp']}/{xp_needed} XP)", inline=True)
-        embed.add_field(name="Stats", value=_character_sheet_stats(character, effective, max_chips), inline=True)
-        embed.add_field(name="⚔️ Equipment", value="\n".join(_gear_breakdown_lines(equipped)), inline=False)
-        embed.set_footer(text="Class/subclass is permanent — gear and levels grow from delving.")
-        await ctx.send(embed=embed)
+    if character is None:
+        view = ClassPickerView(ctx.guild.id, ctx.author.id)
+        await ctx.send(embed=view.build_embed(), view=view)
         return
 
-    view = ClassPickerView(ctx.guild.id, ctx.author.id)
-    await ctx.send(embed=view.build_embed(), view=view)
+    if character["subclass"] == dungeon.NO_SUBCLASS and character["level"] >= dungeon.SUBCLASS_UNLOCK_LEVEL:
+        view = SubclassPickerView(ctx.guild.id, ctx.author.id, character)
+        await ctx.send(embed=view.build_embed(), view=view)
+        return
+
+    name = dungeon.display_name(character["main_class"], character["subclass"])
+    rank = dungeon.CLASSES[character["main_class"]]["rank"]
+    suit_symbol = dungeon.SUIT_SYMBOLS[character["subclass"]]
+    equipped = await asyncio.to_thread(db.get_equipped_items, ctx.guild.id, ctx.author.id)
+    housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, ctx.guild.id, ctx.author.id)
+    effective = dungeon.compute_effective_stats(character, equipped, housing_bonuses.get("stat_bonus", {}))
+    max_chips = dungeon.compute_stats(character["main_class"], character["subclass"])["chips"]
+    xp_needed = dungeon.xp_to_next_level(character["level"])
+
+    embed = discord.Embed(title=f"{name} {rank}{suit_symbol}", color=discord.Color.blurple())
+    embed.add_field(name="Level", value=f"{character['level']} ({character['xp']}/{xp_needed} XP)", inline=True)
+    embed.add_field(name="Stats", value=_character_sheet_stats(character, effective, max_chips), inline=True)
+    embed.add_field(name="⚔️ Equipment", value="\n".join(_gear_breakdown_lines(equipped)), inline=False)
+    if character["subclass"] == dungeon.NO_SUBCLASS:
+        embed.set_footer(
+            text=f"Class is permanent — pick your subclass with `!class` at level {dungeon.SUBCLASS_UNLOCK_LEVEL}."
+        )
+    else:
+        embed.set_footer(text="Class/subclass is permanent — gear and levels grow from delving.")
+    await ctx.send(embed=embed)
 
 
 @bot.command(name="delve")
