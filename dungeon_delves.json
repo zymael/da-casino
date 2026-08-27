@@ -362,8 +362,8 @@
               "next": "Dance Floor",
               "message": "He looks the other way and you pass on through"
             },
-            "x": 183.0,
-            "y": 278.0
+            "x": 200.0,
+            "y": 364.0
           }
         ]
       },
@@ -394,16 +394,16 @@
             "on_success": {
               "next": "The DJ Booth"
             },
-            "x": 826.0,
-            "y": 88.0
+            "x": 806.0,
+            "y": 86.0
           },
           {
             "label": "I am too sober for this",
             "on_success": {
               "next": "The Bar"
             },
-            "x": 804.0,
-            "y": 276.0
+            "x": 781.0,
+            "y": 327.0
           }
         ]
       },
@@ -461,12 +461,12 @@
         "y": 157.0
       },
       "Dance Floor": {
-        "x": 438.0,
-        "y": 133.0
+        "x": 470.0,
+        "y": 180.0
       },
       "DANCE FEVER": {
-        "x": 720.0,
-        "y": 156.0
+        "x": 728.0,
+        "y": 181.0
       },
       "The DJ Booth": {
         "x": 1145.0,
@@ -481,8 +481,8 @@
         "y": 185.0
       },
       "Fight the Doorman": {
-        "x": 217.0,
-        "y": 133.0
+        "x": 200.0,
+        "y": 176.0
       }
     },
     "start_room": "Coat Check",
