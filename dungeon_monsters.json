@@ -750,7 +750,17 @@
       {
         "kind": "equipment",
         "item_id": "goblin_tommy_gun",
-        "chance": 0.02
+        "chance": 0.05
+      },
+      {
+        "kind": "housing_item",
+        "item_id": "shag_wall",
+        "chance": 0.05
+      },
+      {
+        "kind": "consumable",
+        "item_id": "mystery_powder",
+        "chance": 0.05
       }
     ],
     "skills": [
