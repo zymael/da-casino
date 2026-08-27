@@ -19,6 +19,39 @@ import housing
 import quests
 
 MAX_SELECT_OPTIONS = 25  # Discord's hard limit on a single Select's options
+EMBED_FIELD_LIMIT = 1024  # Discord's hard cap on one embed field's value length
+
+
+def _add_chunked_field(embed: discord.Embed, name: str, lines: list[str], empty_text: str, *, inline: bool = False) -> None:
+    """Adds one or more embed fields covering all of `lines` (each a pre-built multi-line block,
+    e.g. _material_line's output), joined by blank lines the same way a single add_field call used
+    to join them directly -- except Discord caps one field's value at EMBED_FIELD_LIMIT chars, which
+    a long enough item list blows past (this is exactly what broke !equipment's "Stored" field for
+    a player with enough gear: HTTPException 400, "Must be 1024 or fewer in length"). Packs lines
+    greedily into as few fields as fit, naming every field after the first "<name> (cont.)",
+    "<name> (cont. 2)", etc. `empty_text` is used verbatim (one field, unchunked) when `lines` is
+    empty -- the "None yet." style message every call site already had."""
+    if not lines:
+        embed.add_field(name=name, value=empty_text, inline=inline)
+        return
+    chunks: list[str] = []
+    current = ""
+    for line in lines:
+        # Defensive: a single line longer than the whole field limit gets truncated on its own --
+        # never actually expected from authored content, just keeps this robust either way.
+        if len(line) > EMBED_FIELD_LIMIT:
+            line = line[: EMBED_FIELD_LIMIT - 1] + "…"
+        candidate = f"{current}\n\n{line}" if current else line
+        if len(candidate) > EMBED_FIELD_LIMIT:
+            chunks.append(current)
+            current = line
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    for i, chunk in enumerate(chunks):
+        field_name = name if i == 0 else (f"{name} (cont.)" if i == 1 else f"{name} (cont. {i})")
+        embed.add_field(name=field_name, value=chunk, inline=inline)
 
 
 def stat_bonus_text(item: dict) -> str:
@@ -189,43 +222,33 @@ async def build_inventory_display(guild_id: int, user_id: int) -> tuple[discord.
 
     embed = discord.Embed(title="🎒 Inventory", color=discord.Color.blurple())
 
-    if quest_items:
-        lines = [_quest_item_line(item_id, qty) for item_id, qty in quest_items.items()]
-        embed.add_field(name="Quest Items", value="\n\n".join(lines), inline=False)
-    else:
-        embed.add_field(name="Quest Items", value="None yet.", inline=False)
-
-    if materials:
-        lines = [_material_line(item_id, qty) for item_id, qty in materials.items()]
-        embed.add_field(name="Materials", value="\n\n".join(lines), inline=False)
-    else:
-        embed.add_field(name="Materials", value="None yet.", inline=False)
-
-    if consumables:
-        lines = [_consumable_line(item_id, qty) for item_id, qty in consumables.items()]
-        embed.add_field(name="Consumables", value="\n\n".join(lines), inline=False)
-    else:
-        embed.add_field(name="Consumables", value="None yet.", inline=False)
-
-    if horse_clothes_held:
-        lines = [_horse_clothes_line(item_id, qty) for item_id, qty in horse_clothes_held.items()]
-        embed.add_field(name="Horse Clothes", value="\n\n".join(lines), inline=False)
-    else:
-        embed.add_field(name="Horse Clothes", value="None yet.", inline=False)
-
-    if housing_items_held:
-        lines = [_housing_item_line(item_id, qty) for item_id, qty in housing_items_held.items()]
-        embed.add_field(name="Housing Items", value="\n\n".join(lines), inline=False)
-    else:
-        embed.add_field(name="Housing Items", value="None yet -- see !house.", inline=False)
+    _add_chunked_field(
+        embed, "Quest Items", [_quest_item_line(item_id, qty) for item_id, qty in quest_items.items()],
+        "None yet.",
+    )
+    _add_chunked_field(
+        embed, "Materials", [_material_line(item_id, qty) for item_id, qty in materials.items()],
+        "None yet.",
+    )
+    _add_chunked_field(
+        embed, "Consumables", [_consumable_line(item_id, qty) for item_id, qty in consumables.items()],
+        "None yet.",
+    )
+    _add_chunked_field(
+        embed, "Horse Clothes", [_horse_clothes_line(item_id, qty) for item_id, qty in horse_clothes_held.items()],
+        "None yet.",
+    )
+    _add_chunked_field(
+        embed, "Housing Items", [_housing_item_line(item_id, qty) for item_id, qty in housing_items_held.items()],
+        "None yet -- see !house.",
+    )
 
     embed.add_field(name="Equipped", value=_equipped_lines(equipped), inline=False)
 
-    if stored:
-        lines = [_equipment_line(item_id, qty) for item_id, qty in stored.items()]
-        embed.add_field(name="Stored Equipment", value="\n\n".join(lines), inline=False)
-    else:
-        embed.add_field(name="Stored Equipment", value="None yet.", inline=False)
+    _add_chunked_field(
+        embed, "Stored Equipment", [_equipment_line(item_id, qty) for item_id, qty in stored.items()],
+        "None yet.",
+    )
 
     if any(dungeon.usable_outside_combat(dungeon.CONSUMABLES[item_id]) for item_id in consumables):
         embed.set_footer(text="Manage your gear with !equipment, craft more with !craft. Use energy/healing items below.")
@@ -345,11 +368,10 @@ async def build_equipment_display(guild_id: int, user_id: int) -> tuple[discord.
         color=discord.Color.blurple(),
     )
     embed.add_field(name="Equipped", value=_equipped_lines(equipped), inline=False)
-    if stored:
-        lines = [_equipment_line(item_id, qty) for item_id, qty in stored.items()]
-        embed.add_field(name="Stored", value="\n\n".join(lines), inline=False)
-    else:
-        embed.add_field(name="Stored", value="None yet — extra gear you find gets stored here instead of discarded.", inline=False)
+    _add_chunked_field(
+        embed, "Stored", [_equipment_line(item_id, qty) for item_id, qty in stored.items()],
+        "None yet — extra gear you find gets stored here instead of discarded.",
+    )
 
     view = EquipmentView(guild_id, user_id, equipped, stored)
     return embed, view
