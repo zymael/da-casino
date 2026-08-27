@@ -1672,7 +1672,7 @@
     "id": "get_bonked_diamond",
     "main_class": "fighter",
     "subclass": "diamonds",
-    "unlock_level": 7,
+    "unlock_level": 5,
     "name": "Get bonked!",
     "flavor": "*BONK*",
     "effects": [
