@@ -98,42 +98,39 @@
     "drops": [
       {
         "kind": "equipment",
-        "item_id": "steel_hatchet",
+        "item_id": "bitchin_shades",
         "chance": 0.08
       },
       {
-        "kind": "equipment",
-        "item_id": "reinforced_buckler",
-        "chance": 0.08
-      },
-      {
-        "kind": "equipment",
-        "item_id": "swift_boots",
-        "chance": 0.08
+        "kind": "housing_item",
+        "item_id": "two_turntables_and_a_microphone",
+        "chance": 0.01
       }
     ],
     "skills": [
       {
         "name": "Drop the Bass",
         "chance": 0.5,
-        "flavor": "The subwoofers scream as the beat drops all at once, and so do you.",
+        "special": false,
         "effects": [
           {
             "type": "damage_multiplier",
             "value": 1.5
           }
-        ]
+        ],
+        "flavor": "The subwoofers scream as the beat drops all at once, and so do you."
       },
       {
         "name": "Record Scratch",
         "chance": 0.3,
-        "flavor": "A screeching scratch across the vinyl throws off your rhythm -- and your guard -- right before the next drop.",
+        "special": false,
         "effects": [
           {
             "type": "def_shred",
             "value": 2
           }
-        ]
+        ],
+        "flavor": "A screeching scratch across the vinyl throws off your rhythm -- and your guard -- right before the next drop."
       }
     ],
     "sprite_path": "assets/dungeon/monsters/goblin_skirmisher.png"
