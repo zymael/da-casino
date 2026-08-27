@@ -1656,5 +1656,32 @@
     ],
     "chip_cost": 15,
     "special": false
+  },
+  {
+    "id": "contract_killer",
+    "main_class": "fighter",
+    "subclass": "spades",
+    "unlock_level": 8,
+    "name": "Contract Killer",
+    "flavor": "I know exactly how to get rid of you.",
+    "effects": [
+      {
+        "type": "extra_attack",
+        "multiplier": 1.2,
+        "target": "enemy"
+      },
+      {
+        "type": "extra_attack",
+        "multiplier": 1.2,
+        "target": "enemy"
+      },
+      {
+        "type": "extra_attack",
+        "multiplier": 1.2,
+        "target": "enemy"
+      }
+    ],
+    "chip_cost": 14,
+    "special": false
   }
 ]
