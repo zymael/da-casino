@@ -1933,5 +1933,22 @@
     ],
     "chip_cost": 7,
     "special": true
+  },
+  {
+    "id": "fetch_wine_base_spades",
+    "main_class": "healer",
+    "subclass": "spades",
+    "unlock_level": 4,
+    "name": "Healing Wine",
+    "flavor": "Squire! Fetch me some wine!",
+    "effects": [
+      {
+        "type": "heal_fraction",
+        "value": 0.3,
+        "aoe": true
+      }
+    ],
+    "chip_cost": 7,
+    "special": true
   }
 ]
