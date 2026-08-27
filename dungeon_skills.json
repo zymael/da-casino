@@ -1,24 +1,5 @@
 [
   {
-    "id": "guardian_last_stand",
-    "main_class": "fighter",
-    "subclass": "hearts",
-    "unlock_level": 8,
-    "name": "Last Stand",
-    "flavor": "Draws on sheer stubbornness to stay standing.",
-    "effects": [
-      {
-        "type": "guard",
-        "reduction": 0.75
-      },
-      {
-        "type": "heal_fraction",
-        "value": 0.15
-      }
-    ],
-    "chip_cost": 20
-  },
-  {
     "id": "mercenary_efficient_strike",
     "main_class": "fighter",
     "subclass": "diamonds",
