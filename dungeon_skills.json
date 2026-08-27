@@ -1790,5 +1790,44 @@
     ],
     "chip_cost": 8,
     "special": false
+  },
+  {
+    "id": "get_behind_me_clubs",
+    "main_class": "fighter",
+    "subclass": "clubs",
+    "unlock_level": 8,
+    "name": "Get Behind Me!",
+    "flavor": "Leave it to the professionals!",
+    "effects": [
+      {
+        "type": "taunt",
+        "value": 10,
+        "aoe": true,
+        "target": "self"
+      },
+      {
+        "type": "def_buff",
+        "value": 5,
+        "target": "self"
+      },
+      {
+        "type": "spdef_buff",
+        "value": 5,
+        "target": "self"
+      },
+      {
+        "type": "dodge_buff",
+        "duration": 3,
+        "value": 0.3,
+        "target": "self"
+      },
+      {
+        "type": "atk_buff",
+        "value": 5,
+        "target": "self"
+      }
+    ],
+    "chip_cost": 10,
+    "special": false
   }
 ]
