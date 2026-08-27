@@ -1354,7 +1354,7 @@
   {
     "id": "all_in_base",
     "main_class": "rogue",
-    "subclass": "clubs",
+    "subclass": "none",
     "unlock_level": 1,
     "name": "All in",
     "flavor": "Look over there, a dragon!",
