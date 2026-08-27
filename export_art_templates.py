@@ -63,6 +63,15 @@ def export_roulette():
 
 
 # ---------------------------------------------------------------------------
+# blackjack
+# ---------------------------------------------------------------------------
+def export_blackjack():
+    import blackjack_render as bjr
+
+    _save(bjr._base_table(), "blackjack", "table_background")
+
+
+# ---------------------------------------------------------------------------
 # cards
 # ---------------------------------------------------------------------------
 def export_cards():
@@ -234,6 +243,7 @@ def export_icebreak():
 
 if __name__ == "__main__":
     export_roulette()
+    export_blackjack()
     export_cards()
     export_connect4()
     export_mancala()

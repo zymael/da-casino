@@ -3,7 +3,7 @@ import asyncio
 import discord
 
 import achievements
-import cards_render
+import blackjack_render
 import db
 import moon
 from game import Deck, hand_value, is_blackjack
@@ -13,13 +13,10 @@ JOIN_SECONDS = 45
 ACTION_SECONDS = 45
 BETWEEN_HANDS_SECONDS = 120  # how long to wait for everyone who just played to decide before standing them up
 EPHEMERAL_DELETE_AFTER = 15  # auto-clean up ephemeral (only-you-can-see-it) replies after this long
+# Caps seats to blackjack_render's fixed 4-position table layout (a real table's seats don't slide
+# over to make room for a 5th) -- see blackjack_render.SEAT_CENTERS.
+MAX_SEATS = blackjack_render.MAX_SEATS
 
-OUTCOME_LABELS = {
-    "blackjack": "🂡 Blackjack! You win",
-    "win": "🎉 You win!",
-    "push": "🤝 Push — bet returned",
-    "lose": "💥 You lose",
-}
 OUTCOME_PAYOUT_MULTIPLIERS = {"blackjack": 2.5, "win": 2, "push": 1, "lose": 0}
 
 # channel_id -> BlackjackTable, so only one table can be running per channel
@@ -40,10 +37,16 @@ class BlackjackTable:
         self.guild_id = guild_id
         self.seats: list[BlackjackSeat] = []
         self.control_message: discord.Message | None = None
-        # One message, reused/edited for the table's entire life -- every round's turns,
-        # settlement, and between-hands prompt all land here instead of flooding the channel
-        # with a new message each time. See _send_or_edit_round.
+        # One message, reused/edited for everything WITHIN a round (turns, settlement, the
+        # between-hands prompt) -- see _send_or_edit_round. Reset to None at the start of every
+        # new round (play_round) so a fresh message gets posted instead, the same "edit within,
+        # repost at the natural boundary" shape uno_view.py's own table message uses (there it's
+        # once per lap of turns; here it's simply once per round).
         self.round_message: discord.Message | None = None
+        # Bumped on every render and folded into that render's attachment filename -- Discord's
+        # CDN caches attachments by filename, so reusing a static name risks a client showing a
+        # stale image after an edit. Same fix uno_view.py's own table.render_seq applies.
+        self.render_seq = 0
         # Last settlement's result embeds, kept around so the between-hands prompt can be
         # appended alongside them instead of replacing/clearing them off round_message.
         self.last_result_embeds: list[discord.Embed] = []
@@ -107,8 +110,13 @@ class BlackjackHand:
         # more card to each split ace and stop there -- no further hits, doubles, or resplits --
         # so a hand with this set never gets an interactive turn (see play_round's skip condition).
         self.split_restricted = False
-        # "Hand 1"/"Hand 2" once split, for telling the two apart in embeds; None otherwise.
+        # "Hand 1"/"Hand 2" once split, for telling the two apart on the table image; None otherwise.
         self.label: str | None = None
+        # Set by settle_round once this hand's outcome is known -- blackjack_render.render_table
+        # reads these to draw the result under the hand instead of a separate settlement embed.
+        # Both stay None for the whole "playing"/"dealer_turn" phases.
+        self.outcome: str | None = None
+        self.net: int | None = None
 
 
 class RoundState:
@@ -178,7 +186,7 @@ def outcome_for(hand: BlackjackHand, dealer: list, dealer_natural: bool) -> str:
 
 
 def build_control_embed(table: BlackjackTable) -> discord.Embed:
-    embed = discord.Embed(title="🃏 Blackjack Table", color=discord.Color.dark_green())
+    embed = discord.Embed(title=f"🃏 Blackjack Table ({len(table.seats)}/{MAX_SEATS})", color=discord.Color.dark_green())
     if not table.seats:
         embed.description = "No one's seated yet."
     else:
@@ -190,6 +198,7 @@ def build_control_embed(table: BlackjackTable) -> discord.Embed:
         embed.description = "\n".join(lines)
     embed.set_footer(
         text=f"Shoe: {len(table.shoe.cards)} cards left — only reshuffles when it runs out. "
+        f"Seats up to {MAX_SEATS} players, laid out around the table like a real casino game. "
         "Join Table to sit down, Quit to leave whenever. Between each round, everyone who just "
         "played gets asked to keep their bet or change it before the next one deals."
     )
@@ -250,6 +259,14 @@ class JoinModal(discord.ui.Modal):
         if bet <= 0:
             await interaction.response.send_message("Bet must be positive.", ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER)
             return
+        # Re-checked here (not just in JoinButton) since the modal can sit open long enough for
+        # another player's own join to land first and fill the last seat in the meantime.
+        if self.table.seat_for(interaction.user.id) is None and len(self.table.seats) >= MAX_SEATS:
+            await interaction.response.send_message(
+                f"Table filled up while you were typing ({MAX_SEATS}/{MAX_SEATS}) — wait for a seat to open up.",
+                ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER,
+            )
+            return
 
         self.table.join(interaction.user, bet)
         await interaction.response.send_message("You're seated! You'll be dealt into the next round.", ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER)
@@ -272,6 +289,12 @@ class JoinButton(discord.ui.Button):
         if self.table.seat_for(interaction.user.id) is not None:
             await interaction.response.send_message(
                 "You're already seated — change your bet between hands, after the current round.",
+                ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER,
+            )
+            return
+        if len(self.table.seats) >= MAX_SEATS:
+            await interaction.response.send_message(
+                f"Table is full ({MAX_SEATS}/{MAX_SEATS}) — wait for a seat to open up.",
                 ephemeral=True, delete_after=EPHEMERAL_DELETE_AFTER,
             )
             return
@@ -375,11 +398,10 @@ async def apply_split(
 
 
 class BlackjackTurnView(discord.ui.View):
-    def __init__(self, table: BlackjackTable, hand: BlackjackHand, dealer: list):
+    def __init__(self, table: BlackjackTable, hand: BlackjackHand):
         super().__init__(timeout=ACTION_SECONDS)
         self.table = table
         self.hand = hand
-        self.dealer = dealer
         self.done = False
         self.message: discord.Message | None = None
 
@@ -394,28 +416,25 @@ class BlackjackTurnView(discord.ui.View):
             item.disabled = True
 
     def build_display(self, result_text: str | None = None) -> tuple[list[discord.Embed], list[discord.File]]:
-        files = []
-        currency = db.get_currency_name(self.table.guild_id)
-
-        dealer_buf = cards_render.render_hand(self.dealer, hide_first=True)
-        files.append(discord.File(dealer_buf, filename="dealer.png"))
-        dealer_embed = discord.Embed(title="🃏 Blackjack — Dealer", color=discord.Color.gold())
-        dealer_embed.description = "Value: ?"
-        dealer_embed.set_image(url="attachment://dealer.png")
-
-        player_buf = cards_render.render_hand(self.hand.cards)
-        files.append(discord.File(player_buf, filename="player.png"))
+        """Renders the whole table (blackjack_render.render_table -- dealer plus every seated
+        player's hand(s), not just this one) as a single image, same shape _send_or_edit_round
+        already expects (a 1-element embed/file list rather than the old per-hand pair). Whoever's
+        turn it is gets highlighted on the image itself (see render_table); `result_text` is just
+        this moment's transient status line (a hit/bust/timeout note), not the final settlement
+        outcome -- that lands on the image itself once the round actually settles, see
+        settle_round."""
         title = self.hand.member.display_name
         if self.hand.label:
             title += f" — {self.hand.label}"
-        player_embed = discord.Embed(title=title, color=discord.Color.gold())
-        player_embed.description = f"Value: {hand_value(self.hand.cards)}"
-        player_embed.set_image(url="attachment://player.png")
-        player_embed.add_field(name="Bet", value=f"{self.hand.bet} {currency}", inline=True)
+        embed = discord.Embed(title=f"🃏 Blackjack — {title}'s turn", color=discord.Color.gold())
         if result_text:
-            player_embed.add_field(name="Result", value=result_text, inline=False)
-
-        return [dealer_embed, player_embed], files
+            embed.description = result_text
+        self.table.render_seq += 1
+        filename = f"blackjack_{self.table.render_seq}.png"
+        buf = blackjack_render.render_table(self.table, self.table.round)
+        file = discord.File(buf, filename=filename)
+        embed.set_image(url=f"attachment://{filename}")
+        return [embed], [file]
 
     async def _finish(self, result_text: str, interaction: discord.Interaction | None = None):
         """Ends this turn: disables the buttons, renders the final state, and stop()s the view
@@ -506,47 +525,32 @@ class BlackjackTurnView(discord.ui.View):
 async def settle_round(ctx, table: BlackjackTable, hands: list[BlackjackHand], dealer: list, dealer_natural: bool):
     if table.round is not None:
         table.round.phase = "settled"
-    currency = db.get_currency_name(table.guild_id)
-
-    dealer_buf = cards_render.render_hand(dealer)
-    embeds = [discord.Embed(title="🃏 Blackjack — Dealer", description=f"Value: {hand_value(dealer)}", color=discord.Color.gold())]
-    embeds[0].set_image(url="attachment://dealer.png")
-    files = [discord.File(dealer_buf, filename="dealer.png")]
 
     achievement_hands = []
-    for i, hand in enumerate(hands):
+    for hand in hands:
         outcome = outcome_for(hand, dealer, dealer_natural)
         payout = int(hand.bet * OUTCOME_PAYOUT_MULTIPLIERS[outcome])
         if payout:
-            balance = await asyncio.to_thread(db.update_balance, table.guild_id, hand.member.id, payout)
-        else:
-            balance = await asyncio.to_thread(db.get_balance, table.guild_id, hand.member.id)
+            await asyncio.to_thread(db.update_balance, table.guild_id, hand.member.id, payout)
         net = payout - hand.bet
         await asyncio.to_thread(db.log_bet, table.guild_id, hand.member.id, "blackjack", hand.bet, net)
+        # Read by blackjack_render.render_table to draw this hand's result on the table image
+        # instead of a separate per-hand embed.
+        hand.outcome = outcome
+        hand.net = net
         kinds = achievements.kinds_for_bet("blackjack", net)
         kinds += await achievements.record_and_check(table.guild_id, hand.member.id, "blackjack", net)
         if kinds:
             achievement_hands.append((hand.member, kinds))
 
-        buf = cards_render.render_hand(hand.cards)
-        fname = f"hand{i}.png"
-        files.append(discord.File(buf, filename=fname))
-        color = discord.Color.green() if net > 0 else (discord.Color.red() if net < 0 else discord.Color.greyple())
-        title = hand.member.display_name
-        if hand.label:
-            title += f" — {hand.label}"
-        player_embed = discord.Embed(title=title, description=f"Value: {hand_value(hand.cards)}", color=color)
-        player_embed.set_image(url=f"attachment://{fname}")
-        player_embed.add_field(
-            name="Result", value=f"{OUTCOME_LABELS[outcome]} ({'+' if net >= 0 else ''}{net} {currency})", inline=False
-        )
-        player_embed.set_footer(text=f"Balance: {balance} {currency}")
-        embeds.append(player_embed)
-
-    # Capped to 9 (not 10) so run_between_hands has room to append its status embed to these
-    # same result embeds afterward, rather than needing to replace/clear them.
-    table.last_result_embeds = embeds[:9]
-    await _send_or_edit_round(table, ctx, embeds=table.last_result_embeds, files=files, view=None)
+    table.render_seq += 1
+    filename = f"blackjack_{table.render_seq}.png"
+    buf = blackjack_render.render_table(table, table.round)
+    file = discord.File(buf, filename=filename)
+    embed = discord.Embed(title="🃏 Blackjack — Round Settled", color=discord.Color.gold())
+    embed.set_image(url=f"attachment://{filename}")
+    table.last_result_embeds = [embed]
+    await _send_or_edit_round(table, ctx, embeds=table.last_result_embeds, files=[file], view=None)
     for member, kinds in achievement_hands:
         await achievements.try_award_many(ctx.send, table.guild_id, member.id, member.display_name, kinds)
 
@@ -643,6 +647,16 @@ class BetweenHandsView(discord.ui.View):
 
 
 async def play_round(ctx, table: BlackjackTable, seats: list[BlackjackSeat]) -> set[int]:
+    # Repost fresh for every round instead of reusing the same message for the table's whole life
+    # -- same "edit within, repost at the natural boundary" shape uno_view.py's table message
+    # uses (there it's once per lap of turns; here it's simply once per round).
+    if table.round_message is not None:
+        try:
+            await table.round_message.delete()
+        except discord.HTTPException:
+            pass
+        table.round_message = None
+
     hands = [BlackjackHand(s.member, s.bet) for s in seats]
     busy_players.update(h.member.id for h in hands)
     try:
@@ -669,7 +683,7 @@ async def play_round(ctx, table: BlackjackTable, seats: list[BlackjackSeat]) -> 
                 i += 1
                 continue  # forced-stood split aces, a natural blackjack, or the dealer already has one
             table.round.active_hand_index = i
-            view = BlackjackTurnView(table, hand, dealer)
+            view = BlackjackTurnView(table, hand)
             table.round.active_view = view
             embeds, files = view.build_display()
             view.message = await _send_or_edit_round(table, ctx, embeds=embeds, files=files, view=view)
