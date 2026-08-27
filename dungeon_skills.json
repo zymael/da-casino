@@ -1705,7 +1705,7 @@
     "id": "knockout_round",
     "main_class": "fighter",
     "subclass": "spades",
-    "unlock_level": 5,
+    "unlock_level": 7,
     "name": "Knockout Round",
     "flavor": "Sbadabing sbadadeng!",
     "effects": [
