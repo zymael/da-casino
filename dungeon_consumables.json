@@ -120,5 +120,13 @@
         "duration": 3
       }
     ]
+  },
+  {
+    "id": "mystery_powder",
+    "name": "A bag of mystery powder",
+    "kind": "consumable",
+    "base_value": 500,
+    "flavor": "You saw some goblin's eating this candy with their noses... how strange...",
+    "energy_restore": 1
   }
 ]
