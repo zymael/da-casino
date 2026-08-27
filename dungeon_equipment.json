@@ -623,12 +623,12 @@
     "id": "disco_stick",
     "name": "Disco Stick",
     "slot": "weapon",
-    "rarity": "common",
+    "rarity": "uncommon",
     "effects": [
       {
         "type": "spatk_buff",
         "trigger": "constant",
-        "value": 2
+        "value": 3
       },
       {
         "type": "speed_buff",
