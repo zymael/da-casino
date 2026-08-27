@@ -1160,7 +1160,7 @@
       },
       {
         "type": "spatk_buff",
-        "value": 10,
+        "value": 7,
         "target": "self"
       }
     ],
