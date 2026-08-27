@@ -1115,7 +1115,7 @@
     "id": "fireball_evolved_clubs",
     "main_class": "mage",
     "subclass": "clubs",
-    "unlock_level": 7,
+    "unlock_level": 5,
     "name": "Fireball",
     "flavor": "BIGGER BOOM",
     "effects": [
