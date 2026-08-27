@@ -354,13 +354,13 @@
             "y": 57.0
           },
           {
-            "label": "Bribe him",
+            "label": "Bribe them",
             "cost": {
               "currency": 10
             },
             "on_success": {
               "next": "Dance Floor",
-              "message": "He looks the other way and you pass on through"
+              "message": "They look the other way and you pass on through"
             },
             "x": 200.0,
             "y": 364.0
@@ -373,12 +373,14 @@
         "monster_groups": [
           {
             "monsters": [
-              "goblin_skirmisher"
+              "goblin_grunt",
+              "goblin_grunt"
             ]
           },
           {
             "monsters": [
-              "goblin_archer"
+              "goblin_scavenger",
+              "goblin_scavenger"
             ]
           }
         ],
