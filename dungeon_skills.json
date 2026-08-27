@@ -1267,7 +1267,7 @@
   {
     "id": "marked_card_base",
     "main_class": "rogue",
-    "subclass": "clubs",
+    "subclass": "none",
     "unlock_level": 1,
     "name": "Marked Card",
     "flavor": "Let's use my deck! It's the fanciest one, you know?",
