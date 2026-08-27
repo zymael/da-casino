@@ -1711,5 +1711,52 @@
     ],
     "chip_cost": 6,
     "special": false
+  },
+  {
+    "id": "get_behind_me_hearts",
+    "main_class": "fighter",
+    "subclass": "hearts",
+    "unlock_level": 8,
+    "name": "Get Behind Me!",
+    "flavor": "Leave it to the professionals!",
+    "effects": [
+      {
+        "type": "taunt",
+        "value": 10,
+        "aoe": true,
+        "target": "self"
+      },
+      {
+        "type": "def_buff",
+        "value": 5,
+        "target": "self"
+      },
+      {
+        "type": "spdef_buff",
+        "value": 5,
+        "target": "self"
+      },
+      {
+        "type": "atk_buff",
+        "value": 4,
+        "aoe": true,
+        "target": "ally"
+      },
+      {
+        "type": "spatk_buff",
+        "value": 4,
+        "aoe": true,
+        "target": "ally"
+      },
+      {
+        "type": "dodge_buff",
+        "duration": 3,
+        "value": 0.2,
+        "aoe": true,
+        "target": "ally"
+      }
+    ],
+    "chip_cost": 10,
+    "special": false
   }
 ]
