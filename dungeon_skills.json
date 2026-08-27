@@ -1,24 +1,5 @@
 [
   {
-    "id": "bonesetter_reset_the_bone",
-    "main_class": "healer",
-    "subclass": "clubs",
-    "unlock_level": 4,
-    "name": "Reset the Bone",
-    "flavor": "Hurts a lot less once it's set right.",
-    "effects": [
-      {
-        "type": "heal_fraction",
-        "value": 0.3
-      },
-      {
-        "type": "def_buff",
-        "value": 1
-      }
-    ],
-    "chip_cost": 15
-  },
-  {
     "id": "bonesetter_hammer_and_splint",
     "main_class": "healer",
     "subclass": "clubs",
