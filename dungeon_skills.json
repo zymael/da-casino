@@ -1588,7 +1588,7 @@
     "id": "get_behind_me_base",
     "main_class": "fighter",
     "subclass": "none",
-    "unlock_level": 1,
+    "unlock_level": 4,
     "name": "Get Behind Me!",
     "flavor": "Leave it to the professionals!",
     "effects": [
