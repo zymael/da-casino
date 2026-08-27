@@ -1,20 +1,5 @@
 [
   {
-    "id": "barbarian_guard",
-    "main_class": "fighter",
-    "subclass": "clubs",
-    "unlock_level": 1,
-    "name": "Reckless Guard",
-    "flavor": "Grits teeth and takes the hit on purpose.",
-    "effects": [
-      {
-        "type": "guard",
-        "reduction": 0.5
-      }
-    ],
-    "chip_cost": 10
-  },
-  {
     "id": "duelist_guard",
     "main_class": "fighter",
     "subclass": "spades",
