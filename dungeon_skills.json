@@ -1758,5 +1758,37 @@
     ],
     "chip_cost": 10,
     "special": false
+  },
+  {
+    "id": "ante_up",
+    "main_class": "fighter",
+    "subclass": "clubs",
+    "unlock_level": 5,
+    "name": "Ante Up",
+    "flavor": "I don't know what to write",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 0.8,
+        "target": "enemy"
+      },
+      {
+        "type": "atk_buff",
+        "value": 3,
+        "target": "self"
+      },
+      {
+        "type": "def_buff",
+        "value": 3,
+        "target": "self"
+      },
+      {
+        "type": "taunt",
+        "value": 3,
+        "target": "enemy"
+      }
+    ],
+    "chip_cost": 8,
+    "special": false
   }
 ]
