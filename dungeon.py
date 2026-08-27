@@ -211,14 +211,23 @@ def compute_stats(main_class: str, subclass: str) -> dict:
 #
 # `drops` is an optional list of {kind, item_id, chance} -- each monster's own explicit loot
 # table, replacing the old tier-wide weighted roll (see roll_drops below). Loaded after
-# EQUIPMENT/MATERIALS since a monster's drops get cross-validated against whichever registry its
-# `kind` points into.
+# EQUIPMENT/MATERIALS/CONSUMABLES since a monster's drops get cross-validated against whichever
+# registry its `kind` points into -- except "housing_item", which can't be: dungeon.py can't
+# import housing.py (housing.py already imports this module, and quests.py, which also imports
+# this module -- either reverse direction would be circular). That one kind's item_id is checked
+# later instead, by quests.validate_monster_drop_housing_items, the same deferred "module that can
+# see both" story as npc shop entries/recipe outputs referencing a housing_item.
 
 _MONSTERS_PATH = os.path.join(os.path.dirname(__file__), "dungeon_monsters.json")
 _REQUIRED_MONSTER_FIELDS = {
     "id", "name", "hp", "atk", "def", "spatk", "spdef", "spd", "shape", "color", "flavor", "loot_min", "loot_max",
 }
-DROP_KINDS = ("equipment", "material")
+DROP_KINDS = ("equipment", "material", "consumable", "housing_item")
+# kind -> its registry, for the three kinds dungeon.py can resolve itself ("housing_item" is the
+# one exception -- see DROP_KINDS' own comment). Built fresh on every call rather than once at
+# import time, so it never captures a registry that's since gone stale from a hot-reloaded save.
+def _drop_registries() -> dict[str, dict]:
+    return {"equipment": EQUIPMENT, "material": MATERIALS, "consumable": CONSUMABLES}
 
 
 def _validate_monster_drops(drops, context: str):
@@ -227,14 +236,16 @@ def _validate_monster_drops(drops, context: str):
         if kind not in DROP_KINDS:
             raise ValueError(f"{context} has a drop with unknown kind {kind!r}")
         item_id = drop.get("item_id")
-        registry = EQUIPMENT if kind == "equipment" else MATERIALS
+        chance = drop.get("chance")
+        if not isinstance(chance, (int, float)) or not (0 < chance <= 1):
+            raise ValueError(f"{context} has a drop for {item_id!r} with chance not in (0, 1]")
+        if kind == "housing_item":
+            continue  # deferred -- see quests.validate_monster_drop_housing_items
+        registry = _drop_registries()[kind]
         if item_id not in registry:
             raise ValueError(f"{context} has a drop referencing unknown {kind} {item_id!r}")
         if kind == "equipment" and registry[item_id].get("quest_only"):
             raise ValueError(f"{context} has a drop referencing quest_only equipment {item_id!r}")
-        chance = drop.get("chance")
-        if not isinstance(chance, (int, float)) or not (0 < chance <= 1):
-            raise ValueError(f"{context} has a drop for {item_id!r} with chance not in (0, 1]")
 
 
 def _load_monsters(path: str = _MONSTERS_PATH) -> dict[str, dict]:
@@ -273,13 +284,20 @@ def roll_drops(monster: dict, chance_mult: float = 1.0) -> list[dict]:
     one, or several), unlike the old shared tier table where equipment and material were exactly
     one roll each. Returns the full item dict for each hit, tagged with its `kind` so the caller
     knows which registry (and which downstream handling -- equip-or-store vs. inventory-add) it
-    came from. `chance_mult` scales every configured chance uniformly -- used to halve drop odds
-    for a party delve's non-leader members, 1.0 (unchanged) for everyone else."""
+    came from -- except a "housing_item" hit, which is just {"id": ..., "_drop_kind":
+    "housing_item"} with nothing else filled in, since dungeon.py can't resolve HOUSING_ITEMS
+    itself (see DROP_KINDS' own comment). dungeon_view._award_kill already imports housing
+    directly and resolves the rest (name, ...) itself for that one kind. `chance_mult` scales every
+    configured chance uniformly -- used to halve drop odds for a party delve's non-leader members,
+    1.0 (unchanged) for everyone else."""
     hits = []
     for drop in monster.get("drops", []):
         if random.random() > drop["chance"] * chance_mult:
             continue
-        registry = EQUIPMENT if drop["kind"] == "equipment" else MATERIALS
+        if drop["kind"] == "housing_item":
+            hits.append({"id": drop["item_id"], "_drop_kind": "housing_item"})
+            continue
+        registry = _drop_registries()[drop["kind"]]
         item = dict(registry[drop["item_id"]])
         item["_drop_kind"] = drop["kind"]
         hits.append(item)
@@ -1312,16 +1330,15 @@ def _load_materials(path: str = _MATERIALS_PATH) -> dict[str, dict]:
 
 MATERIALS = _load_materials()
 
-# Loaded here, after EQUIPMENT/MATERIALS: a monster's drops list is cross-validated against them.
-MONSTERS = _load_monsters()
-
 
 # --- Consumables -------------------------------------------------------------------------------
 # One-time-use crafted items, usable mid-combat (dungeon_view.py). Their own registry rather than
 # a flag on EQUIPMENT since they're not gear -- no slot, no character_equipment row, no stats of
 # their own beyond an effects list, using the exact same _validate_effects as SKILLS above so
 # there's one definition of what an effect is for every kind of content that carries one. Held in
-# the same generic `inventory` table as quest items and materials.
+# the same generic `inventory` table as quest items and materials. Loaded here (before MONSTERS,
+# moved up from its previous spot after it) so a monster's drops list can reference a "consumable"
+# kind drop the same way it already does equipment/material -- see DROP_KINDS' own comment.
 
 _CONSUMABLES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_consumables.json")
 _REQUIRED_CONSUMABLE_FIELDS = {"id", "name", "kind", "flavor", "base_value"}
@@ -1348,6 +1365,11 @@ def _load_consumables(path: str = _CONSUMABLES_PATH) -> dict[str, dict]:
 
 
 CONSUMABLES = _load_consumables()
+
+# Loaded here, after EQUIPMENT/MATERIALS/CONSUMABLES: a monster's drops list is cross-validated
+# against them (except "housing_item" drops -- see DROP_KINDS' own comment for why that one's
+# deferred to quests.validate_monster_drop_housing_items instead).
+MONSTERS = _load_monsters()
 
 # DELVES is instantiated down here, after MONSTERS/MATERIALS/CONSUMABLES all exist, even though
 # _load_delves/_validate_action (the functions) are defined much earlier alongside the rest of the

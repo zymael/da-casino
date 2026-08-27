@@ -1803,13 +1803,14 @@ room_commands.COMMANDS.update({
 # earlier (room_commands.COMMANDS is empty until the update() above runs).
 rooms.validate_command_keys(room_commands.COMMANDS.keys())
 # Same "can't run any earlier" story as validate_command_keys above, for a housing_item reference
-# in quests.json/npcs.json/dungeon_recipes.json -- housing.py only registers itself into
-# quests.REWARD_REGISTRIES once its own module-level import runs, which happens above (bot.py
-# imports housing at the top of this file), so it's safe to check now. See each function's own
-# docstring (quests.py) for why none of the three can validate this at their own module import time.
+# in quests.json/npcs.json/dungeon_recipes.json/dungeon_monsters.json -- housing.py only registers
+# itself into quests.REWARD_REGISTRIES once its own module-level import runs, which happens above
+# (bot.py imports housing at the top of this file), so it's safe to check now. See each function's
+# own docstring (quests.py) for why none of the four can validate this at their own module import time.
 quests.validate_reward_item_kinds()
 quests.validate_shop_housing_items()
 quests.validate_recipe_housing_items()
+quests.validate_monster_drop_housing_items()
 
 
 async def in_casino_channel_slash(interaction: discord.Interaction) -> bool:

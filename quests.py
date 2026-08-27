@@ -363,6 +363,23 @@ def validate_recipe_housing_items(recipes: dict[str, dict] | None = None):
             )
 
 
+def validate_monster_drop_housing_items(monsters: dict[str, dict] | None = None):
+    """Same deferred story as validate_recipe_housing_items, for a monster's "housing_item"-kind
+    drop -- dungeon._validate_monster_drops can't check that drop's item_id against HOUSING_ITEMS
+    (dungeon.py can't import housing.py either, same circular-import story). Called later instead,
+    from bot.py once housing.py has loaded, and wired as an additional save-time extra_validator
+    for the "monsters" content type (admin_schemas.py). `monsters` defaults to the live
+    dungeon.MONSTERS, same "candidate override for admin save" shape as the other two."""
+    housing_items = REWARD_REGISTRIES["housing_item"]()
+    for monster_id, entry in (dungeon.MONSTERS if monsters is None else monsters).items():
+        for i, drop in enumerate(entry.get("drops") or []):
+            if drop["kind"] == "housing_item" and drop["item_id"] not in housing_items:
+                raise ValueError(
+                    f"dungeon_monsters.json: monster {monster_id!r} drop {i} item_id {drop['item_id']!r} "
+                    f"not found in HOUSING_ITEMS"
+                )
+
+
 # npcs.py can't validate its own "visible_trigger" field (that needs TRIGGER_SCHEMAS/
 # _validate_trigger, and this module already imports npcs -- the reverse would be circular), so
 # it's cross-validated here instead, right after both registries are loaded. Same "one direction

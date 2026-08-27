@@ -337,6 +337,8 @@ def _cascade_options() -> dict:
             # again at save time by dungeon._validate_monster_drops, in case of a hand JSON edit).
             "equipment": _choices({k: v for k, v in dungeon.EQUIPMENT.items() if not v.get("quest_only")}),
             "material": _choices(dungeon.MATERIALS),
+            "consumable": _choices(dungeon.CONSUMABLES),
+            "housing_item": _choices(housing.HOUSING_ITEMS),
         },
         # A choice-room action's own cost -- backs its item_kind -> item_id select. Equipment isn't
         # here on purpose: costs are qty-based (db.craft_item's {item_id: qty} shape), which
@@ -4105,7 +4107,7 @@ def _delete_blockers(content_type: str, item_id: str) -> list[str]:
 
     Three kinds of cross-reference exist in this content set:
       - Recipes reference materials (by key) and equipment/consumables (by output_id).
-      - Monsters reference equipment/materials in their own `drops` list.
+      - Monsters reference equipment/materials/consumables/housing_items in their own `drops` list.
       - Delves reference individual monster ids within each combat room's monster_groups -- so
         deleting a monster is only unsafe if it's the *only* monster in some group (removing it
         from a group that still has others left, or from a room that has other groups, is fine,
@@ -4119,14 +4121,18 @@ def _delete_blockers(content_type: str, item_id: str) -> list[str]:
         ]
         return recipe_blockers + monster_blockers
     if content_type in ("equipment", "consumables"):
+        drop_kind = "equipment" if content_type == "equipment" else "consumable"
         recipe_blockers = [r["name"] for r in dungeon.RECIPES.values() if r["output_id"] == item_id]
-        monster_blockers = []
-        if content_type == "equipment":
-            monster_blockers = [
-                m["name"] for m in dungeon.MONSTERS.values()
-                if any(d["kind"] == "equipment" and d["item_id"] == item_id for d in m.get("drops", []))
-            ]
+        monster_blockers = [
+            m["name"] for m in dungeon.MONSTERS.values()
+            if any(d["kind"] == drop_kind and d["item_id"] == item_id for d in m.get("drops", []))
+        ]
         return recipe_blockers + monster_blockers
+    if content_type == "housing_items":
+        return [
+            m["name"] for m in dungeon.MONSTERS.values()
+            if any(d["kind"] == "housing_item" and d["item_id"] == item_id for d in m.get("drops", []))
+        ]
     if content_type == "monsters":
         return [
             d["name"] for d in dungeon.DELVES.values()

@@ -1110,13 +1110,20 @@ async def _award_kill(
         log_lines.append(f"🎉 Level up! Now level {actor.level} (+{level_result['levels_gained']} level{plural}).")
 
     for dropped in dungeon.roll_drops(monster, chance_mult):
-        if dropped["_drop_kind"] == "material":
+        kind = dropped["_drop_kind"]
+        if kind == "equipment":
+            await asyncio.to_thread(db.store_equipment_item, guild_id, actor.user_id, dropped["id"])
+            log_lines.append(f"⚔️ Found **{dropped['name']}** — stored in `!equipment`.")
+        elif kind == "material":
             await asyncio.to_thread(db.add_inventory_item, guild_id, actor.user_id, dropped["id"])
             log_lines.append(f"⛏️ You scavenge some **{dropped['name']}**.")
-            continue
-
-        await asyncio.to_thread(db.store_equipment_item, guild_id, actor.user_id, dropped["id"])
-        log_lines.append(f"⚔️ Found **{dropped['name']}** — stored in `!equipment`.")
+        elif kind == "consumable":
+            await asyncio.to_thread(db.add_inventory_item, guild_id, actor.user_id, dropped["id"])
+            log_lines.append(f"🧪 Found **{dropped['name']}** — check `!inventory`.")
+        else:  # "housing_item" -- dungeon.roll_drops couldn't resolve its name itself, see its own docstring
+            item = housing.HOUSING_ITEMS[dropped["id"]]
+            await asyncio.to_thread(db.add_inventory_item, guild_id, actor.user_id, dropped["id"])
+            log_lines.append(f"🛋️ Found **{item['name']}** — check `!inventory`.")
 
     await quests.record_progress(guild_id, actor.user_id, "kill_monster", monster_id=monster["id"])
 

@@ -237,6 +237,10 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "MONSTERS",
         "loader": dungeon._load_monsters,
+        # dungeon._load_monsters can't check a "housing_item"-kind drop's item_id itself (see
+        # dungeon.DROP_KINDS' own comment for why) -- deferred here as an extra save-time check,
+        # same "rooms"/"recipes"/"npcs" pattern above.
+        "extra_validators": [lambda new_registry: quests.validate_monster_drop_housing_items(new_registry)],
         "list_columns": ["id", "name", "intended_level", "hp", "atk", "def", "spatk", "spdef", "spd"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
@@ -273,9 +277,9 @@ CONTENT_TYPES = {
             {"name": "loot_max", "type": "int", "required": True, "min": 0, "group": "Loot"},
             {
                 "name": "drops", "type": "monster_drops", "required": False,
-                "hint": "this monster's own explicit loot table -- each row is one equipment or "
-                        "material item plus its own drop chance (0-1), rolled independently, so a "
-                        "single kill can land any number of them",
+                "hint": "this monster's own explicit loot table -- each row is one equipment, "
+                        "material, consumable, or housing item plus its own drop chance (0-1), "
+                        "rolled independently, so a single kill can land any number of them",
             },
             {
                 "name": "attack_chance", "type": "int", "required": False, "min": 0, "group": "Skills",
