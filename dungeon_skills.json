@@ -1,20 +1,5 @@
 [
   {
-    "id": "bonesetter_heal",
-    "main_class": "healer",
-    "subclass": "clubs",
-    "unlock_level": 1,
-    "name": "Field Dressing",
-    "flavor": "Blunt, effective first aid. Might leave a scar.",
-    "effects": [
-      {
-        "type": "heal_fraction",
-        "value": 0.4
-      }
-    ],
-    "chip_cost": 10
-  },
-  {
     "id": "plague_doctor_heal",
     "main_class": "healer",
     "subclass": "spades",
