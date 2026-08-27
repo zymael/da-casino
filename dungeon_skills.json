@@ -2010,5 +2010,22 @@
     ],
     "chip_cost": 8,
     "special": true
+  },
+  {
+    "id": "fireball_base_hearts",
+    "main_class": "mage",
+    "subclass": "hearts",
+    "unlock_level": 5,
+    "name": "Fireball",
+    "flavor": "BIGGER BOOM",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1.7,
+        "aoe": true
+      }
+    ],
+    "chip_cost": 10,
+    "special": true
   }
 ]
