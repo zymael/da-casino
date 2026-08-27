@@ -1,20 +1,5 @@
 [
   {
-    "id": "priest_heal",
-    "main_class": "healer",
-    "subclass": "hearts",
-    "unlock_level": 1,
-    "name": "Prayer of Mending",
-    "flavor": "A quiet word and the wounds start closing.",
-    "effects": [
-      {
-        "type": "heal_fraction",
-        "value": 0.4
-      }
-    ],
-    "chip_cost": 10
-  },
-  {
     "id": "charlatan_heal",
     "main_class": "healer",
     "subclass": "diamonds",
