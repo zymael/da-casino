@@ -601,5 +601,22 @@
     "special": false,
     "intended_level": 1,
     "flavor": "This thing is lame as heck"
+  },
+  {
+    "id": "afro_wig",
+    "name": "Afro Wig",
+    "slot": "trinket",
+    "rarity": "uncommon",
+    "effects": [
+      {
+        "type": "taunt",
+        "trigger": "constant",
+        "value": 2
+      }
+    ],
+    "special": false,
+    "intended_level": 1,
+    "base_value": 100,
+    "flavor": "This wig is utterly tasteless, and everyone can see it.  Makes you more likely to be attacked."
   }
 ]
