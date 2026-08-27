@@ -39,10 +39,11 @@
     "value": 10
   },
   {
-    "id": "training_dummy",
-    "name": "Training Dummy",
+    "id": "shag_wall",
+    "name": "Shag Wall",
     "emoji": "\ud83e\udd4a",
-    "description": "Shadow-boxing before breakfast keeps your attack sharp.",
+    "description": "Uh... you I guess decided to put up a shag carpet on free standing wall.\r\n\r\nIt kinda looks like a scratching post.  Might make your claws sharper.",
+    "image_path": "assets/housing/items/shag_wall.png",
     "base_value": 400,
     "effect_type": "stat_bonus",
     "value": 3,
