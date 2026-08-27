@@ -110,6 +110,11 @@
         "kind": "housing_item",
         "item_id": "two_turntables_and_a_microphone",
         "chance": 0.01
+      },
+      {
+        "kind": "consumable",
+        "item_id": "mystery_powder",
+        "chance": 0.01
       }
     ],
     "skills": [
