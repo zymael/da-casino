@@ -1,20 +1,5 @@
 [
   {
-    "id": "fighter_base_guard",
-    "main_class": "fighter",
-    "subclass": "none",
-    "unlock_level": 1,
-    "name": "Basic Guard",
-    "flavor": "PLACEHOLDER -- edit me in the admin panel. Standard-issue stance, no fancy footwork yet.",
-    "effects": [
-      {
-        "type": "guard",
-        "reduction": 0.5
-      }
-    ],
-    "chip_cost": 10
-  },
-  {
     "id": "healer_base_aid",
     "main_class": "healer",
     "subclass": "none",
