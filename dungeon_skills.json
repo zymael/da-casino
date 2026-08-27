@@ -1053,7 +1053,7 @@
       }
     ],
     "chip_cost": 10,
-    "special": true
+    "special": false
   },
   {
     "id": "fireball_base",
