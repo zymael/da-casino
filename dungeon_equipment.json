@@ -684,5 +684,22 @@
     "intended_level": 3,
     "base_value": 200,
     "flavor": "These shades make it so you can't see your problems.  And if you can't see them they're not there."
+  },
+  {
+    "id": "goblin_tommy_gun",
+    "name": "Goblin Tommy Gun",
+    "slot": "weapon",
+    "rarity": "rare",
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 6
+      }
+    ],
+    "special": false,
+    "intended_level": 10,
+    "base_value": 700,
+    "flavor": "Say hello to my little friend.\r\n\r\nHas a chance to go nuts and shoot every last motherfucker in the room."
   }
 ]
