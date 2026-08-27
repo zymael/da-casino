@@ -816,5 +816,40 @@
     ],
     "skills": [],
     "sprite_path": "assets/dungeon/monsters/goblin_archer_copy.png"
+  },
+  {
+    "id": "Goblin Mob Boss",
+    "name": "Goblin Mob Boss",
+    "hp": 26,
+    "atk": 19,
+    "def": 2,
+    "spatk": 19,
+    "spdef": 2,
+    "spd": 10,
+    "intended_level": 5,
+    "shape": "hexagon",
+    "color": "#8a3c2a",
+    "flavor": "The Goblin Mob Boss starts to talk in an insensitively stereotypical I accent.  You hush them quickly and move to give them a lesson in modern media sensibilities.",
+    "loot_min": 120,
+    "loot_max": 250,
+    "drops": [
+      {
+        "kind": "equipment",
+        "item_id": "goblin_chiefs_cleaver",
+        "chance": 0.08
+      },
+      {
+        "kind": "equipment",
+        "item_id": "plate_of_the_vanguard",
+        "chance": 0.08
+      },
+      {
+        "kind": "equipment",
+        "item_id": "signet_of_kings",
+        "chance": 0.08
+      }
+    ],
+    "skills": [],
+    "sprite_path": "assets/dungeon/monsters/goblin_chief_copy.png"
   }
 ]
