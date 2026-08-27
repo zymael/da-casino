@@ -1411,7 +1411,7 @@
     "id": "coin_toss",
     "main_class": "rogue",
     "subclass": "diamonds",
-    "unlock_level": 5,
+    "unlock_level": 7,
     "name": "Coin toss",
     "flavor": "LET IT RIIIIDE",
     "effect_groups": [
