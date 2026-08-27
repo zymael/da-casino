@@ -1,24 +1,5 @@
 [
   {
-    "id": "con_artist_master_manipulator",
-    "main_class": "rogue",
-    "subclass": "hearts",
-    "unlock_level": 8,
-    "name": "Master Manipulator",
-    "flavor": "Talks their way into an opening, and out of the damage.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.4
-      },
-      {
-        "type": "heal_fraction",
-        "value": 0.2
-      }
-    ],
-    "chip_cost": 20
-  },
-  {
     "id": "treasure_hunter_opportunist",
     "main_class": "rogue",
     "subclass": "diamonds",
