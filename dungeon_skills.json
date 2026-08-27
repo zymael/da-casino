@@ -1,20 +1,5 @@
 [
   {
-    "id": "plague_doctor_noxious_cloud",
-    "main_class": "healer",
-    "subclass": "spades",
-    "unlock_level": 4,
-    "name": "Noxious Cloud",
-    "flavor": "The mask isn't just for show.",
-    "effects": [
-      {
-        "type": "def_shred",
-        "value": 2
-      }
-    ],
-    "chip_cost": 15
-  },
-  {
     "id": "plague_doctor_miasma_strike",
     "main_class": "healer",
     "subclass": "spades",
