@@ -1355,7 +1355,7 @@
     "id": "all_in_base",
     "main_class": "rogue",
     "subclass": "none",
-    "unlock_level": 1,
+    "unlock_level": 4,
     "name": "All in",
     "flavor": "Look over there, a dragon!",
     "effects": [
