@@ -1,20 +1,5 @@
 [
   {
-    "id": "rogue_base_jab",
-    "main_class": "rogue",
-    "subclass": "none",
-    "unlock_level": 1,
-    "name": "Quick Jab",
-    "flavor": "PLACEHOLDER -- edit me in the admin panel. A plain jab, no tricks up the sleeve yet.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.5
-      }
-    ],
-    "chip_cost": 10
-  },
-  {
     "id": "barbarian_guard",
     "main_class": "fighter",
     "subclass": "clubs",
