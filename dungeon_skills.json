@@ -1,20 +1,5 @@
 [
   {
-    "id": "barbarian_berserkers_fury",
-    "main_class": "fighter",
-    "subclass": "clubs",
-    "unlock_level": 4,
-    "name": "Berserker's Fury",
-    "flavor": "The angrier they get, the harder they hit.",
-    "effects": [
-      {
-        "type": "atk_buff",
-        "value": 3
-      }
-    ],
-    "chip_cost": 15
-  },
-  {
     "id": "barbarian_skullcrusher_swing",
     "main_class": "fighter",
     "subclass": "clubs",
