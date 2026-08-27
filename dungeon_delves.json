@@ -429,7 +429,7 @@
         "monster_groups": [
           {
             "monsters": [
-              "goblin_warlord"
+              "goblin_bartender"
             ]
           }
         ],
@@ -442,6 +442,7 @@
           {
             "monsters": [
               "goblin_scavenger",
+              "goblin_mob_boss",
               "goblin_grunt"
             ]
           }
