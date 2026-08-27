@@ -39,7 +39,9 @@
     "id": "roy",
     "name": "Roy",
     "room": "casino",
-    "greet_message": "LET IT RIDE"
+    "greet_message": "LET IT RIDE",
+    "sprite_path": "assets/npcs/roy.png",
+    "buys_items": false
   },
   {
     "id": "princess",
