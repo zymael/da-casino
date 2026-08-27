@@ -1,23 +1,5 @@
 [
   {
-    "id": "mercenary_contract_killer",
-    "main_class": "fighter",
-    "subclass": "diamonds",
-    "unlock_level": 8,
-    "name": "Contract Killer",
-    "flavor": "Closes the job in two hits, not one.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.5
-      },
-      {
-        "type": "extra_attack"
-      }
-    ],
-    "chip_cost": 20
-  },
-  {
     "id": "bonesetter_reset_the_bone",
     "main_class": "healer",
     "subclass": "clubs",
