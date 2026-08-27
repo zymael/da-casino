@@ -10,10 +10,11 @@
     "value": 1
   },
   {
-    "id": "piggy_bank",
-    "name": "Piggy Bank",
-    "emoji": "\ud83d\udc37",
-    "description": "A few extra coins waiting for you whenever you rest.",
+    "id": "two_turntables_and_a_microphone",
+    "name": "Two Turntables and a Microphone",
+    "emoji": "\ud83c\udfa4",
+    "description": "Everyting you need to keep the party going.  Make a bit of extra money every rest from putting on sick nasty EDM shows at your camp, at Leto's chagrin.",
+    "image_path": "assets/housing/items/two_turntables_and_a_microphone.png",
     "base_value": 150,
     "effect_type": "rest_gold_bonus",
     "value": 25
