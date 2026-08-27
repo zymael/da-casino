@@ -1038,7 +1038,7 @@
     "id": "royal_clubbing",
     "main_class": "healer",
     "subclass": "clubs",
-    "unlock_level": 5,
+    "unlock_level": 7,
     "name": "Royal Clubbing",
     "flavor": "*BONK*",
     "effects": [
@@ -1048,7 +1048,7 @@
       },
       {
         "type": "atk_buff",
-        "value": 13,
+        "value": 10,
         "target": "self"
       }
     ],
