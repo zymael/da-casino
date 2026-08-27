@@ -1,24 +1,5 @@
 [
   {
-    "id": "duelist_riposte_strike",
-    "main_class": "fighter",
-    "subclass": "spades",
-    "unlock_level": 4,
-    "name": "Riposte Strike",
-    "flavor": "Deflects the opening, then cuts through the follow-up.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.4
-      },
-      {
-        "type": "def_shred",
-        "value": 1
-      }
-    ],
-    "chip_cost": 15
-  },
-  {
     "id": "duelist_perfect_parry",
     "main_class": "fighter",
     "subclass": "spades",
