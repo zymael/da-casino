@@ -1,24 +1,5 @@
 [
   {
-    "id": "bar_fighter_table_flip",
-    "main_class": "rogue",
-    "subclass": "clubs",
-    "unlock_level": 8,
-    "name": "Table Flip",
-    "flavor": "Escalation is a valid tactic.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.6
-      },
-      {
-        "type": "atk_buff",
-        "value": 1
-      }
-    ],
-    "chip_cost": 20
-  },
-  {
     "id": "assassin_vital_strike",
     "main_class": "rogue",
     "subclass": "spades",
