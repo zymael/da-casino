@@ -1014,7 +1014,7 @@
     "id": "summon_guards",
     "main_class": "healer",
     "subclass": "hearts",
-    "unlock_level": 5,
+    "unlock_level": 7,
     "name": "Guardsss!",
     "flavor": "Come help your king!",
     "effects": [
@@ -1022,9 +1022,16 @@
         "type": "def_buff",
         "value": 6,
         "aoe": true
+      },
+      {
+        "type": "dot",
+        "duration": 3,
+        "value": 3,
+        "aoe": true,
+        "target": "enemy"
       }
     ],
-    "chip_cost": 14,
+    "chip_cost": 12,
     "special": true
   },
   {
