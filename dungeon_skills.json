@@ -1,20 +1,5 @@
 [
   {
-    "id": "charlatan_heal",
-    "main_class": "healer",
-    "subclass": "diamonds",
-    "unlock_level": 1,
-    "name": "Quack Cure",
-    "flavor": "Snake oil, sincerely applied. It somehow helps.",
-    "effects": [
-      {
-        "type": "heal_fraction",
-        "value": 0.4
-      }
-    ],
-    "chip_cost": 10
-  },
-  {
     "id": "war_mage_fireball",
     "main_class": "mage",
     "subclass": "clubs",
