@@ -1171,9 +1171,9 @@
     "id": "knight_strike",
     "main_class": "mage",
     "subclass": "diamonds",
-    "unlock_level": 5,
+    "unlock_level": 7,
     "name": "Knight's Strike",
-    "flavor": "Men(and woman)! To me!",
+    "flavor": "Men(and women)! To me!",
     "effects": [
       {
         "type": "extra_attack",
