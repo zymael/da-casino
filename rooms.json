@@ -38,8 +38,8 @@
     "id": "casino",
     "name": "\ud83c\udfb0 Casino Hub",
     "description": "Every game and shortcut in one place \u2014 the `!` commands still work too.",
-    "background_path": "assets/casino_banner.png",
     "specialization": "casino",
+    "background_path": "assets/rooms/casino.jpg",
     "exits": [
       {
         "room_id": "town_square",
