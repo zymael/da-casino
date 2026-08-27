@@ -2061,5 +2061,39 @@
     ],
     "chip_cost": 5,
     "special": true
+  },
+  {
+    "id": "supercharge_spades",
+    "main_class": "mage",
+    "subclass": "spades",
+    "unlock_level": 5,
+    "name": "Supercharge",
+    "flavor": "I shall show you, peasant!",
+    "effects": [
+      {
+        "type": "stun",
+        "duration": 1,
+        "target": "self"
+      },
+      {
+        "type": "dodge_buff",
+        "duration": 3,
+        "value": 0.5,
+        "target": "self"
+      },
+      {
+        "type": "resist_buff",
+        "duration": 3,
+        "value": 0.5,
+        "target": "self"
+      },
+      {
+        "type": "spatk_buff",
+        "value": 7,
+        "target": "self"
+      }
+    ],
+    "chip_cost": 5,
+    "special": true
   }
 ]
