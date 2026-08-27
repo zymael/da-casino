@@ -2097,7 +2097,7 @@
     "special": true
   },
   {
-    "id": "supercharge_clubs",
+    "id": "supercharge_base_clubs",
     "main_class": "mage",
     "subclass": "clubs",
     "unlock_level": 5,
