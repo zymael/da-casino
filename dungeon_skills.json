@@ -1616,7 +1616,7 @@
     "id": "collection_calls",
     "main_class": "fighter",
     "subclass": "diamonds",
-    "unlock_level": 5,
+    "unlock_level": 7,
     "name": "Collection Calls",
     "flavor": "Let me make a few calls...",
     "effect_groups": [
