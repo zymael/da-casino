@@ -1,21 +1,5 @@
 [
   {
-    "id": "nightweaver_fireball",
-    "main_class": "mage",
-    "subclass": "spades",
-    "unlock_level": 1,
-    "name": "Shadow Bolt",
-    "flavor": "A bolt of dark flame that swallows the light around it.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.8
-      }
-    ],
-    "chip_cost": 10,
-    "special": true
-  },
-  {
     "id": "enchanter_fireball",
     "main_class": "mage",
     "subclass": "hearts",
