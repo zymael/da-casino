@@ -1,24 +1,5 @@
 [
   {
-    "id": "artificer_payload_detonation",
-    "main_class": "mage",
-    "subclass": "diamonds",
-    "unlock_level": 8,
-    "name": "Payload Detonation",
-    "flavor": "Two charges. Definitely intentional.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 1.7
-      },
-      {
-        "type": "extra_attack"
-      }
-    ],
-    "chip_cost": 20,
-    "special": true
-  },
-  {
     "id": "bar_fighter_bottle_it",
     "main_class": "rogue",
     "subclass": "clubs",
