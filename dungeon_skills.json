@@ -195,7 +195,7 @@
     "special": true
   },
   {
-    "id": "fireball_base_diamond",
+    "id": "fireball_base_clubs",
     "main_class": "mage",
     "subclass": "clubs",
     "unlock_level": 1,
