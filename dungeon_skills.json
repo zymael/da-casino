@@ -96,8 +96,8 @@
     "main_class": "healer",
     "subclass": "diamonds",
     "unlock_level": 7,
-    "name": "Bad Batch",
-    "flavor": "Whatever they took, it wasn't what they paid for.",
+    "name": "Throw fake coins!",
+    "flavor": "Oh look, shiney!",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -117,8 +117,8 @@
     "main_class": "healer",
     "subclass": "spades",
     "unlock_level": 7,
-    "name": "The Fix Is In",
-    "flavor": "By the time you notice something's wrong, it's already decided.",
+    "name": "Royal Slap",
+    "flavor": "Disgusting!",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -138,8 +138,8 @@
     "main_class": "healer",
     "subclass": "hearts",
     "unlock_level": 7,
-    "name": "Speak Now",
-    "flavor": "Nobody objects twice.",
+    "name": "Guardsss!",
+    "flavor": "Come help your king!",
     "effects": [
       {
         "type": "def_buff",
@@ -162,8 +162,8 @@
     "main_class": "healer",
     "subclass": "clubs",
     "unlock_level": 7,
-    "name": "Fixed Fight",
-    "flavor": "The odds were never real to begin with.",
+    "name": "Royal Clubbing",
+    "flavor": "*BONK*",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -295,8 +295,8 @@
     "main_class": "mage",
     "subclass": "diamonds",
     "unlock_level": 7,
-    "name": "Second Dealing",
-    "flavor": "Deals themselves an extra card, and a clean alibi to go with it.",
+    "name": "Knight's Strike",
+    "flavor": "Men(and women)! To me!",
     "effects": [
       {
         "type": "extra_attack",
@@ -323,8 +323,8 @@
     "main_class": "mage",
     "subclass": "spades",
     "unlock_level": 7,
-    "name": "Dead Man's Hand",
-    "flavor": "Aces and eights. Nobody who's dealt this hand gets to complain about the ending.",
+    "name": "Doom Spear",
+    "flavor": "BIG SPEAR",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -343,8 +343,8 @@
     "main_class": "mage",
     "subclass": "hearts",
     "unlock_level": 7,
-    "name": "Nothing Up My Sleeve",
-    "flavor": "He shows you both hands. By the time you look away, the trick's already done.",
+    "name": "Reassuring Voice",
+    "flavor": "Your Queen is here.",
     "effects": [
       {
         "type": "atk_buff",
@@ -372,8 +372,8 @@
     "main_class": "mage",
     "subclass": "clubs",
     "unlock_level": 7,
-    "name": "Wild Card",
-    "flavor": "Anything could happen. Whatever it is, you won't see straight after.",
+    "name": "Meteor Fist",
+    "flavor": "BIG OOGA BOOGA FIST",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -536,7 +536,7 @@
     "subclass": "diamonds",
     "unlock_level": 7,
     "name": "Coin toss",
-    "flavor": "Plan A or Plan B. He never actually decided which.",
+    "flavor": "LET IT RIIIIDE",
     "effect_groups": [
       {
         "effects": [
@@ -567,8 +567,8 @@
     "main_class": "rogue",
     "subclass": "spades",
     "unlock_level": 7,
-    "name": "The Mark",
-    "flavor": "Once they're marked, it's already over. This part's just paperwork.",
+    "name": "Gut Punch",
+    "flavor": "That gotta hurt!",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -591,7 +591,7 @@
     "subclass": "hearts",
     "unlock_level": 7,
     "name": "Reshuffle",
-    "flavor": "Everyone gets dealt back in. On the house.",
+    "flavor": "Let's take that one back!",
     "effects": [
       {
         "type": "hot",
@@ -622,7 +622,7 @@
     "subclass": "hearts",
     "unlock_level": 7,
     "name": "The Long Con",
-    "flavor": "By the time they figure out the game, they've already fallen for the dealer.",
+    "flavor": "The house always wins.",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -663,7 +663,7 @@
     "subclass": "clubs",
     "unlock_level": 1,
     "name": "Bar Stool Special",
-    "flavor": "House rule: whoever's still standing wasn't drinking the same night you were.",
+    "flavor": "*BONK*",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -829,8 +829,8 @@
     "main_class": "fighter",
     "subclass": "spades",
     "unlock_level": 7,
-    "name": "Showdown",
-    "flavor": "Every hand gets shown at once. Only one of them was worth the bet.",
+    "name": "Knockout Round",
+    "flavor": "Sbadabing sbadadeng!",
     "effects": [
       {
         "type": "atk_buff",
@@ -852,8 +852,8 @@
     "main_class": "fighter",
     "subclass": "spades",
     "unlock_level": 5,
-    "name": "Calculated Risk",
-    "flavor": "Every opening has already been mapped three moves ahead.",
+    "name": "Contract Killer",
+    "flavor": "I know exactly how to get rid of you.",
     "effects": [
       {
         "type": "extra_attack",
@@ -879,8 +879,8 @@
     "main_class": "fighter",
     "subclass": "hearts",
     "unlock_level": 7,
-    "name": "Protection",
-    "flavor": "Whatever's coming for you, it goes through him first.",
+    "name": "Steadfast Ward",
+    "flavor": "You have to deal with ME!",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -955,7 +955,7 @@
     "subclass": "clubs",
     "unlock_level": 7,
     "name": "Ante Up",
-    "flavor": "Everyone pays before the first punch even lands.",
+    "flavor": "I don't know what to write",
     "effects": [
       {
         "type": "damage_multiplier",
