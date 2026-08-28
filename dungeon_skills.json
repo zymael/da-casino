@@ -183,8 +183,8 @@
     "main_class": "mage",
     "subclass": "none",
     "unlock_level": 1,
-    "name": "Fireball",
-    "flavor": "BIG BOOM",
+    "name": "Sure Thing",
+    "flavor": "She's not betting. A bet means you could lose.",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -711,8 +711,8 @@
     "main_class": "fighter",
     "subclass": "none",
     "unlock_level": 1,
-    "name": "Get bonked",
-    "flavor": "*BONK*",
+    "name": "House Rules",
+    "flavor": "Everybody agrees to the house rules eventually. Some just need convincing.",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -1051,8 +1051,8 @@
     "main_class": "healer",
     "subclass": "none",
     "unlock_level": 1,
-    "name": "Commanding Voice",
-    "flavor": "Let your authority flow through you!",
+    "name": "Eyes in the Sky",
+    "flavor": "Every move you make, someone upstairs is already writing it down.",
     "effects": [
       {
         "type": "damage_multiplier",
