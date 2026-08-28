@@ -998,6 +998,7 @@ EFFECT_PARAMS_BY_TYPE = {
 # reduction? value?) doesn't say what it does.
 EFFECT_TYPE_HINTS = {
     "damage_multiplier": "value: your attack's damage this hit is multiplied by this (e.g. 1.5 = +50% damage)",
+    "execute_multiplier": "base + scale x the target's missing HP fraction: e.g. base 1.0 / scale 1.7 = x1.0 at full HP, x2.7 against a nearly-dead target. Must be paired with a damage_multiplier/extra_attack in the same effects, and can't share a list with an aoe one.",
     "heal_fraction": "value: fraction of your max HP restored (0-1, e.g. 0.3 = 30%)",
     "guard": "reduction: the monster's next hit is multiplied by this (0-1, e.g. 0.5 = -50% damage taken)",
     "lifesteal_fraction": "value: fraction of the damage you deal that's restored as HP (0-1)",
@@ -1030,7 +1031,7 @@ EFFECT_TYPE_HINTS = {
 # on the edit form; this is deliberately terse since several of these may need to fit in one table
 # cell alongside every other effect the same item has.
 EFFECT_SHORT_LABELS = {
-    "damage_multiplier": "Dmg", "heal_fraction": "Heal", "guard": "Guard",
+    "damage_multiplier": "Dmg", "execute_multiplier": "Execute", "heal_fraction": "Heal", "guard": "Guard",
     "lifesteal_fraction": "Lifesteal", "def_shred": "DEF Shred", "extra_attack": "Extra Atk",
     "atk_buff": "ATK", "def_buff": "DEF", "spatk_buff": "SpATK", "spdef_buff": "SpDEF",
     "hp_buff": "HP", "speed_buff": "SPD",

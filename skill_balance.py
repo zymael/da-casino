@@ -128,6 +128,11 @@ def simulate_skill_cast(
             elif etype == "extra_attack":
                 extra_multipliers.append(effect.get("multiplier", 1.0))
                 is_damage_action = True
+            elif etype == "execute_multiplier":
+                # No live target HP here (this is the isolated "how hard does this skill hit"
+                # reference number, not a real fight) -- assumes full health, i.e. just `base`,
+                # same conservative floor _run_ramp uses for its own undying target below.
+                multiplier *= effect["base"]
             elif etype == "heal_fraction":
                 total_healed += round(max_hp * effect["value"]) / trials
             elif etype == "dot":
@@ -278,11 +283,16 @@ def _rank_damage_skills(damage_skills: list[dict], stats: dict, ref_def: float, 
     return [skill for _, skill in sorted(scored, key=lambda pair: pair[0], reverse=True)]
 
 
-def _take_turn(state: dict, ranked: list[dict]) -> float:
+def _take_turn(state: dict, ranked: list[dict], hp_fraction: float | None = None) -> float:
     """Resolves exactly one turn against `state` (a mutable {"atk", "spatk", "def_", "spdef",
     "chips", "dot_ticks"} dict, updated in place) using `ranked`'s ordering to pick the strongest/
     most-affordable skill out of state["chips"], falling back to a free plain Attack once nothing
     is affordable. Returns the total damage dealt this turn (DoT ticks + this turn's own action).
+
+    `hp_fraction` is the target's own current_hp/max_hp, for execute_multiplier -- None (the
+    default) means "assume full health," what _run_ramp passes for its undying target; _run_fight
+    passes the real live fraction each turn since that's the one place a target's HP actually
+    depletes.
 
     Ordering matches dungeon_view._resolve_player_action exactly, not just approximately: dodge is
     rolled ONCE per cast, against the target's defense as it stood BEFORE this cast's own effects
@@ -332,6 +342,9 @@ def _take_turn(state: dict, ranked: list[dict]) -> float:
             state["def_"] = max(0, state["def_"] - effect["value"])
         elif etype == "spdef_debuff":
             state["spdef"] = max(0, state["spdef"] - effect["value"])
+        elif etype == "execute_multiplier":
+            missing_frac = 1 - (hp_fraction if hp_fraction is not None else 1.0)
+            multiplier *= effect["base"] + effect["scale"] * missing_frac
         elif etype == "dot":
             state["dot_ticks"].append([effect["value"], effect["duration"]])
 
@@ -353,11 +366,12 @@ def _run_fight(
     is allowed to spend, which for "paced" is a per-fight slice, not the build's whole remaining
     pool (see simulate_build_rotations)."""
     state = {"atk": atk, "spatk": spatk, "def_": def_, "spdef": spdef, "chips": chips, "dot_ticks": []}
+    max_hp = hp
     turns = 0
     damage_total = 0.0
     while hp > 0 and turns < ROTATION_TURN_CAP:
         turns += 1
-        dmg = _take_turn(state, ranked)
+        dmg = _take_turn(state, ranked, hp_fraction=hp / max_hp)
         hp -= dmg
         damage_total += dmg
     return damage_total, turns, state["chips"]

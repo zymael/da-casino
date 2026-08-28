@@ -1258,6 +1258,15 @@ def _effect_damage_multiplier(actor, monster_state, effect: dict, log_lines: lis
     mods["multiplier"] *= effect["value"]
 
 
+def _effect_execute_multiplier(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    # ENEMY_TARGETED (not MODS_ONLY), so monster_state here is the real resolved target, not the
+    # None a MODS_ONLY handler gets before targets are even chosen -- see dungeon.EFFECT_PARAM_
+    # SCHEMAS' own comment on this type for why. No log line, same silent style as
+    # _effect_damage_multiplier -- the eventual damage number already reflects the bonus.
+    missing_frac = max(0.0, min(1.0, 1 - monster_state.hp / monster_state.max_hp))
+    mods["multiplier"] *= effect["base"] + effect["scale"] * missing_frac
+
+
 def _effect_heal_fraction(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     healed = min(actor.max_hp, actor.hp + round(actor.max_hp * effect["value"])) - actor.hp
     actor.hp += healed
@@ -1455,6 +1464,7 @@ def _effect_cleanse_cc(actor, monster_state, effect: dict, log_lines: list[str],
 
 EFFECT_HANDLERS = {
     "damage_multiplier": _effect_damage_multiplier,
+    "execute_multiplier": _effect_execute_multiplier,
     "heal_fraction": _effect_heal_fraction,
     "guard": _effect_guard,
     "lifesteal_fraction": _effect_lifesteal_fraction,

@@ -745,6 +745,13 @@ _REQUIRED_SKILL_FIELDS = {"id", "main_class", "subclass", "unlock_level", "name"
 # effect is, used by every kind of content that can carry one.
 EFFECT_PARAM_SCHEMAS = {
     "damage_multiplier": ({"value"}, set(), set()),
+    # Execute-style bonus: multiplies mods["multiplier"] by base + scale * (the target's missing
+    # HP fraction), read live off the resolved target at cast time -- ENEMY_TARGETED (see that set
+    # below), not MODS_ONLY, specifically so its handler receives the real target instead of the
+    # None every MODS_ONLY handler gets before targets are even chosen. Always paired with a
+    # damage_multiplier/extra_attack in the same effects list (enforced in _validate_effects
+    # below) -- alone it's a silent no-op, since it never sets is_damage_action itself.
+    "execute_multiplier": ({"base", "scale"}, set(), set()),
     "heal_fraction": ({"value"}, set(), {"value"}),
     "guard": ({"reduction"}, set(), {"reduction"}),
     "lifesteal_fraction": ({"value"}, set(), {"value"}),
@@ -835,7 +842,7 @@ EFFECT_PARAM_SCHEMAS = {
 MODS_ONLY_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "lifesteal_fraction"}
 ENEMY_TARGETED_EFFECT_TYPES = {
     "atk_debuff", "spatk_debuff", "spdef_debuff", "speed_debuff", "def_shred",
-    "taunt", "lower_threat", "sap", "stun",
+    "taunt", "lower_threat", "sap", "stun", "execute_multiplier",
 }
 
 # Who an effect lands on -- fully decoupled from its type (dungeon_view._resolve_player_action):
@@ -923,6 +930,26 @@ def _validate_effects(effects, context: str):
                 raise ValueError(f"{context} effect {effect_type!r} param {param!r} must be in (0, 1]")
             elif param not in fraction_params and value <= 0:
                 raise ValueError(f"{context} effect {effect_type!r} param {param!r} must be > 0")
+
+    # execute_multiplier only ever mutates mods["multiplier"] for a damage roll another effect in
+    # this same list establishes -- alone it's a silent no-op (dungeon_view.DAMAGE_EFFECT_TYPES
+    # deliberately excludes it from ever setting is_damage_action), so require a real damage effect
+    # alongside it. It also can't safely share a list with an AOE damage effect: mods["multiplier"]
+    # is one shared scalar applied to every AOE target, but execute_multiplier's value is computed
+    # against exactly the one enemy its own target/aoe resolved to -- mixing the two would silently
+    # apply one target's execute bonus to every other AOE target too.
+    if any(e.get("type") == "execute_multiplier" for e in effects):
+        damage_effects = [e for e in effects if e.get("type") in MODS_ONLY_EFFECT_TYPES and e["type"] != "lifesteal_fraction"]
+        if not damage_effects:
+            raise ValueError(
+                f"{context} has an execute_multiplier with no damage_multiplier/extra_attack in "
+                f"the same effects -- it would never do anything"
+            )
+        if any(e.get("aoe") for e in damage_effects):
+            raise ValueError(
+                f"{context} pairs execute_multiplier with an aoe damage_multiplier/extra_attack -- "
+                f"its target-specific bonus can't be shared across multiple AOE targets"
+            )
 
 
 def _validate_effect_groups(effect_groups, context: str) -> None:
