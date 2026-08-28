@@ -920,6 +920,26 @@ async def class_cmd(ctx):
     await ctx.send(embed=embed)
 
 
+@bot.command(name="skill")
+async def skill_cmd(ctx):
+    """See the skills you've unlocked so far: !skill"""
+    character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
+    if character is None:
+        await ctx.send(f"You don't have a character yet, {ctx.author.display_name} — run `!class` to pick one first.")
+        return
+
+    name = dungeon.display_name(character["main_class"], character["subclass"])
+    skills = dungeon.unlocked_skills(character["main_class"], character["subclass"], character["level"])
+    embed = discord.Embed(title=f"{name}'s Skills", color=discord.Color.blurple())
+    for skill in skills:
+        embed.add_field(
+            name=f"{skill['name']} (Lv {skill['unlock_level']}, {skill['chip_cost']} chips)",
+            value=skill["flavor"],
+            inline=False,
+        )
+    await ctx.send(embed=embed)
+
+
 @bot.command(name="delve")
 async def delve_cmd(ctx, delve_id: str = None):
     """Delve the dungeon for a class-biased, push-your-luck payout -- costs 1 ⚡ energy: !delve, or
