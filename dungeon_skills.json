@@ -1183,11 +1183,15 @@
     "subclass": "spades",
     "unlock_level": 1,
     "name": "House Call",
-    "flavor": "Nobody asks a Fixer to make house calls. They make them anyway.",
+    "flavor": "Nobody asks a Fixer to make house calls. They make them anyway -- and they fix everything while they're there.",
     "effects": [
       {
         "type": "heal_fraction",
         "value": 0.3,
+        "aoe": true
+      },
+      {
+        "type": "cleanse_cc",
         "aoe": true
       }
     ],
@@ -1547,9 +1551,15 @@
         "type": "spdef_buff",
         "value": 5,
         "target": "self"
+      },
+      {
+        "type": "atk_debuff",
+        "value": 3,
+        "aoe": true,
+        "target": "enemy"
       }
     ],
-    "chip_cost": 8,
+    "chip_cost": 10,
     "special": false
   },
   {
@@ -1575,9 +1585,15 @@
         "type": "spdef_buff",
         "value": 5,
         "target": "self"
+      },
+      {
+        "type": "speed_debuff",
+        "value": 2,
+        "aoe": true,
+        "target": "enemy"
       }
     ],
-    "chip_cost": 8,
+    "chip_cost": 10,
     "special": false
   },
   {
