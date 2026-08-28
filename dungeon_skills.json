@@ -252,21 +252,46 @@
     "unlock_level": 1,
     "name": "Full Send",
     "flavor": "Every card on the table, face up, all at once.",
-    "effects": [
+    "effect_groups": [
       {
-        "type": "damage_multiplier",
-        "value": 1.8,
-        "aoe": true
+        "chance": 1,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 2.6,
+            "aoe": true
+          },
+          {
+            "type": "def_shred",
+            "value": 3,
+            "aoe": true
+          },
+          {
+            "type": "spdef_debuff",
+            "value": 3,
+            "aoe": true
+          }
+        ]
       },
       {
-        "type": "def_shred",
-        "value": 3,
-        "aoe": true
-      },
-      {
-        "type": "spdef_debuff",
-        "value": 3,
-        "aoe": true
+        "chance": 1,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 1.2,
+            "aoe": true
+          },
+          {
+            "type": "def_shred",
+            "value": 3,
+            "aoe": true
+          },
+          {
+            "type": "spdef_debuff",
+            "value": 3,
+            "aoe": true
+          }
+        ]
       }
     ],
     "chip_cost": 10,
@@ -394,14 +419,41 @@
     "unlock_level": 7,
     "name": "Wild Card",
     "flavor": "Anything could happen. Whatever it is, you won't see straight after.",
-    "effects": [
+    "effect_groups": [
       {
-        "type": "damage_multiplier",
-        "value": 1.9
+        "chance": 1,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 3.2
+          },
+          {
+            "type": "stun",
+            "duration": 2
+          }
+        ]
       },
       {
-        "type": "stun",
-        "duration": 2
+        "chance": 1,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 1.9
+          },
+          {
+            "type": "stun",
+            "duration": 1
+          }
+        ]
+      },
+      {
+        "chance": 1,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 0.9
+          }
+        ]
       }
     ],
     "chip_cost": 12,
@@ -1292,28 +1344,58 @@
     "unlock_level": 5,
     "name": "Overload",
     "flavor": "Nobody's sure what happens when a Wildcard channels this much power. Not even them.",
-    "effects": [
+    "effect_groups": [
       {
-        "type": "stun",
-        "duration": 1,
-        "target": "self"
+        "chance": 1,
+        "effects": [
+          {
+            "type": "spatk_buff",
+            "value": 11,
+            "target": "self"
+          },
+          {
+            "type": "stun",
+            "duration": 1,
+            "target": "self"
+          }
+        ]
       },
       {
-        "type": "dodge_buff",
-        "duration": 3,
-        "value": 0.5,
-        "target": "self"
+        "chance": 1,
+        "effects": [
+          {
+            "type": "spatk_buff",
+            "value": 4,
+            "target": "self"
+          },
+          {
+            "type": "dodge_buff",
+            "duration": 3,
+            "value": 0.5,
+            "target": "self"
+          },
+          {
+            "type": "resist_buff",
+            "duration": 3,
+            "value": 0.5,
+            "target": "self"
+          }
+        ]
       },
       {
-        "type": "resist_buff",
-        "duration": 3,
-        "value": 0.5,
-        "target": "self"
-      },
-      {
-        "type": "spatk_buff",
-        "value": 7,
-        "target": "self"
+        "chance": 1,
+        "effects": [
+          {
+            "type": "spatk_buff",
+            "value": 3,
+            "target": "self"
+          },
+          {
+            "type": "stun",
+            "duration": 2,
+            "target": "self"
+          }
+        ]
       }
     ],
     "chip_cost": 5,
