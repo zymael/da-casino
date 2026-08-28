@@ -709,5 +709,27 @@
     "intended_level": 10,
     "base_value": 700,
     "flavor": "Say hello to my little friend.\r\n\r\nHas a chance to go nuts and shoot every last motherfucker in the room."
+  },
+  {
+    "id": "goblin_pepper_spray",
+    "name": "Goblin Pepper Spray",
+    "slot": "weapon",
+    "rarity": "common",
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 2
+      },
+      {
+        "type": "stun",
+        "trigger": "on_hit",
+        "chance": 0.1,
+        "duration": 1
+      }
+    ],
+    "special": false,
+    "base_value": 100,
+    "flavor": "Is it for Goblins or by Goblins?"
   }
 ]
