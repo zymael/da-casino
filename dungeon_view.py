@@ -3787,7 +3787,14 @@ class DelveModeChoiceView(discord.ui.View):
             await interaction.response.send_message("You're out of energy — run `!rest` to refill it.", ephemeral=True)
             return
         session = await _new_delve_session(self.guild_id, self.user_id, self.character, self.delve)
-        await _build_room_display(interaction, session)
+        try:
+            await _build_room_display(interaction, session)
+        except Exception:
+            # First render can fail (e.g. a stale/expired interaction token) after
+            # registration already claimed active_delves/busy_players -- without this the
+            # player is permanently wedged as "in a delve" with a session that never rendered.
+            _cleanup(session)
+            raise
         session.message = await interaction.original_response()
         self.stop()
 
@@ -3800,7 +3807,11 @@ class DelveModeChoiceView(discord.ui.View):
         active_delves[self.user_id] = lobby
         busy_players.add(self.user_id)
         view = PartyLobbyView(lobby)
-        await interaction.response.edit_message(embed=_build_lobby_embed(lobby), view=view)
+        try:
+            await interaction.response.edit_message(embed=_build_lobby_embed(lobby), view=view)
+        except Exception:
+            _cleanup(lobby)
+            raise
         lobby.message = await interaction.original_response()
         self.stop()
 

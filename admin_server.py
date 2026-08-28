@@ -32,6 +32,7 @@ from dotenv import load_dotenv
 import achievements
 import db
 import dungeon
+import dungeon_view
 import horse_clothes
 import housing
 import moon
@@ -4343,16 +4344,26 @@ async def player_debug_view(request: web.Request) -> web.Response:
     list, and picking a player reveals their editable stats -- same "no bespoke JS beyond a trivial
     onchange" bar the rest of this admin panel holds to.
 
-    Two independent POST forms share this one route (stats vs. grant-item), told apart by a hidden
-    "action" field -- kept separate rather than one combined form so granting an item never also
-    re-submits (and risks zeroing) the balance/energy/character fields, and vice versa."""
+    Three independent POST forms share this one route (stats, grant-item, unstick-delve), told
+    apart by a hidden "action" field -- kept separate rather than one combined form so submitting
+    one never also re-submits (and risks zeroing/undoing) the others' fields. unstick-delve is a
+    live in-memory fix, not a DB write: it just pops dungeon_view.active_delves/busy_players for
+    this user_id, for the case where a delve start crashed after registering the player but before
+    a session ever rendered, permanently wedging them as "already in a delve" (see dungeon_view.py's
+    DelveModeChoiceView.solo_button/party_button, which now clean up after themselves on that same
+    failure -- this form is only for state stuck from before that fix, or any other repeat of the
+    same class of bug)."""
     bot = request.app.get("bot")
     grant_error = None
 
     if request.method == "POST":
         form = await request.post()
         gid, uid = int(form["guild_id"]), int(form["user_id"])
-        if form.get("action") == "grant_item":
+        if form.get("action") == "unstick_delve":
+            dungeon_view.active_delves.pop(uid, None)
+            dungeon_view.busy_players.discard(uid)
+            raise web.HTTPFound(f"/player-debug?guild_id={gid}&user_id={uid}&unstuck=1")
+        elif form.get("action") == "grant_item":
             kind = form.get("grant_kind", "").strip()
             item_id = form.get("grant_item_id", "").strip()
             raw_qty = form.get("grant_qty", "").strip()
@@ -4398,6 +4409,7 @@ async def player_debug_view(request: web.Request) -> web.Response:
     user_id = request.query.get("user_id") or (form.get("user_id") if request.method == "POST" else "") or ""
     saved_notice = '<p class="success">Saved.</p>' if request.query.get("saved") else ""
     granted_notice = '<p class="success">Item granted.</p>' if request.query.get("granted") else ""
+    unstuck_notice = '<p class="success">Cleared.</p>' if request.query.get("unstuck") else ""
 
     guild_options = "".join(
         f'<option value="{g.id}"{" selected" if str(g.id) == guild_id else ""}>{html.escape(g.name)}</option>'
@@ -4412,6 +4424,7 @@ async def player_debug_view(request: web.Request) -> web.Response:
     player_picker = ""
     stats_form = ""
     grant_item_form = ""
+    unstuck_form = ""
     if guild_id and bot:
         gid = int(guild_id)
         known_ids = db.list_known_users(gid)
@@ -4432,6 +4445,32 @@ async def player_debug_view(request: web.Request) -> web.Response:
 
         if user_id:
             uid = int(user_id)
+            in_delve = uid in dungeon_view.active_delves
+            in_busy = uid in dungeon_view.busy_players
+            if in_delve or in_busy:
+                entity = dungeon_view.active_delves.get(uid)
+                status_bits = []
+                if in_delve:
+                    status_bits.append(f"holding an active_delves slot ({type(entity).__name__})")
+                if in_busy:
+                    status_bits.append("marked busy")
+                unstuck_form = (
+                    f'<h3>Delve/Busy State</h3>'
+                    f'<p class="field-hint">Currently {" and ".join(status_bits)}. If this is stale -- e.g. a '
+                    f'delve start that crashed before it could render -- clear it below so they can start a '
+                    f'new delve. This is a live in-memory fix (no restart needed) and only frees this one '
+                    f'player\'s own reservation; it does not touch other party/duel members who share the '
+                    f'same session.</p>'
+                    f'<form method="post">'
+                    f'<input type="hidden" name="action" value="unstick_delve">'
+                    f'<input type="hidden" name="guild_id" value="{gid}">'
+                    f'<input type="hidden" name="user_id" value="{uid}">'
+                    f'<button type="submit">Clear stuck delve state</button></form>'
+                )
+            else:
+                unstuck_form = (
+                    '<h3>Delve/Busy State</h3><p class="field-hint">Not currently registered in a delve.</p>'
+                )
             balance = db.get_balance(gid, uid)
             energy = db.get_energy(gid, uid)
             character = db.get_character(gid, uid)
@@ -4506,8 +4545,10 @@ async def player_debug_view(request: web.Request) -> web.Response:
     un-sticking a bad delve, refilling energy, or fixing a balance issue without shell access.</p>
     {saved_notice}
     {granted_notice}
+    {unstuck_notice}
     {guild_picker}
     {player_picker}
+    {unstuck_form}
     {stats_form}
     {grant_item_form}
     """
