@@ -3,7 +3,7 @@
     "id": "commanding_voice_spades",
     "main_class": "healer",
     "subclass": "spades",
-    "unlock_level": 7,
+    "unlock_level": 5,
     "name": "Commanding Voice",
     "flavor": "Let your authority flow through you!",
     "effects": [
