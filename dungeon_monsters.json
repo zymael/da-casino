@@ -650,18 +650,25 @@
     "flavor": "They really look like they don't want to do this...",
     "loot_min": 10,
     "loot_max": 20,
-    "drops": [],
+    "drops": [
+      {
+        "kind": "equipment",
+        "item_id": "goblin_pepper_spray",
+        "chance": 0.5
+      }
+    ],
     "skills": [
       {
         "name": "Nervous Pepper Spray",
         "chance": 0.4,
-        "flavor": "They fumble the canister out of their jacket, hands shaking, and empty it in your general direction more out of panic than purpose.",
+        "special": false,
         "effects": [
           {
             "type": "def_shred",
             "value": 1
           }
-        ]
+        ],
+        "flavor": "They fumble the canister out of their jacket, hands shaking, and empty it in your general direction more out of panic than purpose."
       }
     ],
     "sprite_path": "assets/dungeon/monsters/goblin_doorman.png"
