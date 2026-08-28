@@ -3,7 +3,7 @@
     "id": "fighter",
     "display_name": "The Enforcer (Ace)",
     "rank": "A",
-    "picker_blurb": "Tank \u2014 high HP/DEF. Skill varies by subclass.",
+    "picker_blurb": "Tank",
     "flavor": "Look, when you're running a casino, sometimes you need a big guy.  The Enforcers are the big guys.  They are tough and they hit hard..",
     "hp": 32,
     "atk": 6,
