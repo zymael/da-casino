@@ -3641,13 +3641,14 @@ _MULTIPLIER_EFFECT_TYPES = {"damage_multiplier", "extra_attack"}
 _NO_VALUE_EFFECT_TYPES = {"stun", "sap", "cleanse_dot", "cleanse_cc"}
 
 
-def _format_effect(effect: dict) -> str:
+def format_effect(effect: dict) -> str:
     """One compact fragment for the list view's stats-summary column, e.g. "ATK +3" or "Heal +40%"
     -- not the full picture (skips trigger/chance/duration), just enough to tell at a glance what
     an item/skill/consumable roughly does without opening it. Reuses dungeon.EFFECT_PARAM_SCHEMAS'
     own fraction-param classification (the same one the edit form's validator uses) to decide
     percent vs. raw-number display, so this can never drift from what the real loader considers a
-    fraction."""
+    fraction. Public (no leading underscore) since bot.py's !skills command reuses this exact
+    formatting for a player-facing skill list too -- one place this vocabulary lives."""
     etype = effect.get("type", "?")
     label = EFFECT_SHORT_LABELS.get(etype, etype)
     if etype in _NO_VALUE_EFFECT_TYPES:
@@ -3671,15 +3672,15 @@ def _format_effect(effect: dict) -> str:
 def _list_cell_text(field: dict | None, value) -> str:
     """Plain text for one list-view cell. Most fields just stringify; the three effects-shaped
     field types (equipment's "equipment_effects", skills/consumables' "effects", consumables'
-    alternative "effect_groups") get summarized via _format_effect instead of showing their raw
+    alternative "effect_groups") get summarized via format_effect instead of showing their raw
     [{'type': ..., ...}] repr, which is what a bare str(value) produced before this existed."""
     if field is None:
         return "" if value is None else str(value)
     ftype = field["type"]
     if ftype in ("effects", "equipment_effects"):
-        return ", ".join(_format_effect(e) for e in (value or []))
+        return ", ".join(format_effect(e) for e in (value or []))
     if ftype == "effect_groups":
-        return ", ".join(_format_effect(e) for group in (value or []) for e in group.get("effects", []))
+        return ", ".join(format_effect(e) for group in (value or []) for e in group.get("effects", []))
     return "" if value is None else str(value)
 
 

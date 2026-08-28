@@ -1025,10 +1025,10 @@ EFFECT_TYPE_HINTS = {
     "cleanse_cc": "No params -- removes any active Sap/Stun from the caster (or the whole party with aoe)",
 }
 
-# Compact type -> label used only by the admin list view's stats-summary column
-# (admin_server._format_effect) -- EFFECT_TYPE_HINTS above is the full sentence shown on the edit
-# form; this is deliberately terse since several of these may need to fit in one table cell
-# alongside every other effect the same item has.
+# Compact type -> label used by the admin list view's stats-summary column and bot.py's !skills
+# command alike (admin_server.format_effect) -- EFFECT_TYPE_HINTS above is the full sentence shown
+# on the edit form; this is deliberately terse since several of these may need to fit in one table
+# cell alongside every other effect the same item has.
 EFFECT_SHORT_LABELS = {
     "damage_multiplier": "Dmg", "heal_fraction": "Heal", "guard": "Guard",
     "lifesteal_fraction": "Lifesteal", "def_shred": "DEF Shred", "extra_attack": "Extra Atk",

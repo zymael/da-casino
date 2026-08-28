@@ -920,9 +920,21 @@ async def class_cmd(ctx):
     await ctx.send(embed=embed)
 
 
-@bot.command(name="skill")
-async def skill_cmd(ctx):
-    """See the skills you've unlocked so far: !skill"""
+def _skill_effect_text(skill: dict) -> str:
+    """One line of compact mechanical fragments (admin_server.format_effect, e.g. 'Dmg x1.8'),
+    ' + '-joined -- or, for a skill using effect_groups instead (weighted random alternatives), one
+    such line per group joined by ' or '."""
+    if skill.get("effects"):
+        return " + ".join(admin_server.format_effect(e) for e in skill["effects"])
+    return " or ".join(
+        " + ".join(admin_server.format_effect(e) for e in group["effects"])
+        for group in skill.get("effect_groups", [])
+    )
+
+
+@bot.command(name="skills")
+async def skills_cmd(ctx):
+    """See the skills you've unlocked so far: !skills"""
     character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
     if character is None:
         await ctx.send(f"You don't have a character yet, {ctx.author.display_name} — run `!class` to pick one first.")
@@ -934,7 +946,7 @@ async def skill_cmd(ctx):
     for skill in skills:
         embed.add_field(
             name=f"{skill['name']} (Lv {skill['unlock_level']}, {skill['chip_cost']} chips)",
-            value=skill["flavor"],
+            value=f"{skill['flavor']}\n{_skill_effect_text(skill)}",
             inline=False,
         )
     await ctx.send(embed=embed)
