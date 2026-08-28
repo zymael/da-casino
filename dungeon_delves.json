@@ -14,7 +14,7 @@
             "label": "Kick their ass",
             "check": {
               "stat": "atk",
-              "dc": 10
+              "dc": 20
             },
             "on_success": {
               "next": "Dance Floor",
