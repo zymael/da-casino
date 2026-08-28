@@ -22,7 +22,7 @@
       }
     ],
     "chip_cost": 10,
-    "special": false
+    "special": true
   },
   {
     "id": "on_the_house",
@@ -107,6 +107,11 @@
         "type": "def_shred",
         "value": 4,
         "aoe": true
+      },
+      {
+        "type": "spdef_debuff",
+        "value": 4,
+        "aoe": true
       }
     ],
     "chip_cost": 10,
@@ -126,6 +131,11 @@
       },
       {
         "type": "def_shred",
+        "value": 3,
+        "aoe": true
+      },
+      {
+        "type": "spdef_debuff",
         "value": 3,
         "aoe": true
       }
@@ -252,6 +262,11 @@
         "type": "def_shred",
         "value": 3,
         "aoe": true
+      },
+      {
+        "type": "spdef_debuff",
+        "value": 3,
+        "aoe": true
       }
     ],
     "chip_cost": 10,
@@ -333,6 +348,10 @@
       },
       {
         "type": "def_shred",
+        "value": 5
+      },
+      {
+        "type": "spdef_debuff",
         "value": 5
       }
     ],
