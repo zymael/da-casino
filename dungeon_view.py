@@ -1666,7 +1666,8 @@ def _tick_timed_effects(entities: list, log_lines: list[str]) -> None:
             if eff["type"] == "dot":
                 # round(), not the raw stored value -- "dot" is documented (admin_schemas.py) as flat
                 # damage, but nothing ever enforced that at content-authoring time, and at least one
-                # skill (fireball_evolved_spades) got authored with a hot-style fraction (0.3) by
+                # skill (mage/spades' evolved fireball, now id curse_the_table) got authored with a
+                # hot-style fraction (0.3) by
                 # mistake. A literal float subtraction here doesn't just show a decimal once -- it
                 # permanently turns entity.hp into a float for the rest of the fight (and beyond,
                 # once db.set_current_hp persists it), so every hp/damage display after that ticks

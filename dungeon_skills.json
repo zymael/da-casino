@@ -1,6 +1,6 @@
 [
   {
-    "id": "commanding_voice_spades",
+    "id": "word_gets_around",
     "main_class": "healer",
     "subclass": "spades",
     "unlock_level": 5,
@@ -25,7 +25,7 @@
     "special": false
   },
   {
-    "id": "fetch_wine_clubs",
+    "id": "on_the_house",
     "main_class": "healer",
     "subclass": "clubs",
     "unlock_level": 5,
@@ -46,7 +46,7 @@
     "special": true
   },
   {
-    "id": "fetch_wine_diamond",
+    "id": "product_sample",
     "main_class": "healer",
     "subclass": "diamonds",
     "unlock_level": 5,
@@ -69,7 +69,7 @@
     "special": true
   },
   {
-    "id": "fetch_wine_heart",
+    "id": "burning_love",
     "main_class": "healer",
     "subclass": "hearts",
     "unlock_level": 5,
@@ -92,7 +92,7 @@
     "special": true
   },
   {
-    "id": "throw_coin",
+    "id": "bad_batch",
     "main_class": "healer",
     "subclass": "diamonds",
     "unlock_level": 7,
@@ -113,7 +113,7 @@
     "special": true
   },
   {
-    "id": "royal_slap",
+    "id": "fix_is_in",
     "main_class": "healer",
     "subclass": "spades",
     "unlock_level": 7,
@@ -134,7 +134,7 @@
     "special": true
   },
   {
-    "id": "summon_guards",
+    "id": "viva_las_vegas",
     "main_class": "healer",
     "subclass": "hearts",
     "unlock_level": 7,
@@ -158,7 +158,7 @@
     "special": true
   },
   {
-    "id": "royal_clubbing",
+    "id": "fixed_fight",
     "main_class": "healer",
     "subclass": "clubs",
     "unlock_level": 7,
@@ -179,7 +179,7 @@
     "special": false
   },
   {
-    "id": "fireball_base",
+    "id": "fireball",
     "main_class": "mage",
     "subclass": "none",
     "unlock_level": 1,
@@ -195,7 +195,7 @@
     "special": true
   },
   {
-    "id": "fireball_base_diamond",
+    "id": "cold_deck",
     "main_class": "mage",
     "subclass": "diamonds",
     "unlock_level": 1,
@@ -212,7 +212,7 @@
     "special": true
   },
   {
-    "id": "fireball_evolved_spades",
+    "id": "curse_the_table",
     "main_class": "mage",
     "subclass": "spades",
     "unlock_level": 1,
@@ -236,7 +236,7 @@
     "special": true
   },
   {
-    "id": "fireball_evolved_clubs",
+    "id": "full_send",
     "main_class": "mage",
     "subclass": "clubs",
     "unlock_level": 1,
@@ -258,7 +258,7 @@
     "special": true
   },
   {
-    "id": "supercharge_base",
+    "id": "supercharge",
     "main_class": "mage",
     "subclass": "none",
     "unlock_level": 4,
@@ -292,7 +292,7 @@
     "special": true
   },
   {
-    "id": "knight_strike",
+    "id": "second_dealing",
     "main_class": "mage",
     "subclass": "diamonds",
     "unlock_level": 7,
@@ -320,7 +320,7 @@
     "special": true
   },
   {
-    "id": "doom_spear",
+    "id": "dead_mans_hand",
     "main_class": "mage",
     "subclass": "spades",
     "unlock_level": 7,
@@ -340,7 +340,7 @@
     "special": true
   },
   {
-    "id": "reassuring_voice",
+    "id": "nothing_up_my_sleeve",
     "main_class": "mage",
     "subclass": "hearts",
     "unlock_level": 7,
@@ -369,7 +369,7 @@
     "special": true
   },
   {
-    "id": "meteor_fist",
+    "id": "wild_card",
     "main_class": "mage",
     "subclass": "clubs",
     "unlock_level": 7,
@@ -389,7 +389,7 @@
     "special": true
   },
   {
-    "id": "marked_card_base",
+    "id": "marked_card",
     "main_class": "rogue",
     "subclass": "none",
     "unlock_level": 1,
@@ -414,7 +414,7 @@
     "special": false
   },
   {
-    "id": "marked_card_diamond",
+    "id": "everybodys_in",
     "main_class": "rogue",
     "subclass": "diamonds",
     "unlock_level": 7,
@@ -440,7 +440,7 @@
     "special": false
   },
   {
-    "id": "marked_card_clubs",
+    "id": "house_deck",
     "main_class": "rogue",
     "subclass": "clubs",
     "unlock_level": 7,
@@ -476,7 +476,7 @@
     "special": false
   },
   {
-    "id": "all_in_base",
+    "id": "all_in",
     "main_class": "rogue",
     "subclass": "none",
     "unlock_level": 4,
@@ -499,7 +499,7 @@
     "special": false
   },
   {
-    "id": "marked_card_base_spades",
+    "id": "insurance",
     "main_class": "rogue",
     "subclass": "spades",
     "unlock_level": 7,
@@ -524,7 +524,7 @@
     "special": false
   },
   {
-    "id": "all_in_spades",
+    "id": "no_half_measures",
     "main_class": "rogue",
     "subclass": "spades",
     "unlock_level": 1,
@@ -589,7 +589,7 @@
     "special": false
   },
   {
-    "id": "gut_punch",
+    "id": "mark",
     "main_class": "rogue",
     "subclass": "spades",
     "unlock_level": 7,
@@ -707,7 +707,7 @@
     "special": false
   },
   {
-    "id": "get_bonked_base",
+    "id": "get_bonked",
     "main_class": "fighter",
     "subclass": "none",
     "unlock_level": 1,
@@ -734,7 +734,7 @@
     "special": false
   },
   {
-    "id": "get_behind_me_base",
+    "id": "get_behind_me",
     "main_class": "fighter",
     "subclass": "none",
     "unlock_level": 4,
@@ -818,7 +818,7 @@
     "special": false
   },
   {
-    "id": "get_bonked_diamond",
+    "id": "first_payment",
     "main_class": "fighter",
     "subclass": "diamonds",
     "unlock_level": 1,
@@ -851,7 +851,7 @@
     "special": false
   },
   {
-    "id": "knockout_round",
+    "id": "showdown",
     "main_class": "fighter",
     "subclass": "spades",
     "unlock_level": 7,
@@ -874,7 +874,7 @@
     "special": false
   },
   {
-    "id": "contract_killer",
+    "id": "calculated_risk",
     "main_class": "fighter",
     "subclass": "spades",
     "unlock_level": 5,
@@ -901,7 +901,7 @@
     "special": false
   },
   {
-    "id": "steadfast_wrad",
+    "id": "protection",
     "main_class": "fighter",
     "subclass": "hearts",
     "unlock_level": 7,
@@ -929,7 +929,7 @@
     "special": false
   },
   {
-    "id": "get_behind_me_hearts",
+    "id": "on_my_watch",
     "main_class": "fighter",
     "subclass": "hearts",
     "unlock_level": 5,
@@ -1008,7 +1008,7 @@
     "special": false
   },
   {
-    "id": "get_behind_me_clubs",
+    "id": "take_a_number",
     "main_class": "fighter",
     "subclass": "clubs",
     "unlock_level": 5,
@@ -1047,7 +1047,7 @@
     "special": false
   },
   {
-    "id": "commanding_voice_base",
+    "id": "commanding_voice",
     "main_class": "healer",
     "subclass": "none",
     "unlock_level": 1,
@@ -1067,7 +1067,7 @@
     "special": true
   },
   {
-    "id": "fetch_wine_base",
+    "id": "healing_wine",
     "main_class": "healer",
     "subclass": "none",
     "unlock_level": 4,
@@ -1084,7 +1084,7 @@
     "special": true
   },
   {
-    "id": "fetch_wine_base_spades",
+    "id": "house_call",
     "main_class": "healer",
     "subclass": "spades",
     "unlock_level": 1,
@@ -1101,7 +1101,7 @@
     "special": true
   },
   {
-    "id": "commanding_voice_base_clubs",
+    "id": "cutmans_orders",
     "main_class": "healer",
     "subclass": "clubs",
     "unlock_level": 1,
@@ -1126,7 +1126,7 @@
     "special": true
   },
   {
-    "id": "commanding_voice_base_hearts",
+    "id": "thank_you_thank_you_very_much",
     "main_class": "healer",
     "subclass": "hearts",
     "unlock_level": 1,
@@ -1151,7 +1151,7 @@
     "special": true
   },
   {
-    "id": "commanding_voice_base_diamond",
+    "id": "word_on_the_street",
     "main_class": "healer",
     "subclass": "diamonds",
     "unlock_level": 1,
@@ -1176,7 +1176,7 @@
     "special": true
   },
   {
-    "id": "fireball_base_hearts",
+    "id": "center_stage",
     "main_class": "mage",
     "subclass": "hearts",
     "unlock_level": 1,
@@ -1199,7 +1199,7 @@
     "special": true
   },
   {
-    "id": "supercharge_diamond",
+    "id": "full_charge",
     "main_class": "mage",
     "subclass": "diamonds",
     "unlock_level": 5,
@@ -1233,7 +1233,7 @@
     "special": true
   },
   {
-    "id": "supercharge_base_spades",
+    "id": "tempting_fate",
     "main_class": "mage",
     "subclass": "spades",
     "unlock_level": 5,
@@ -1267,7 +1267,7 @@
     "special": true
   },
   {
-    "id": "supercharge_base_clubs",
+    "id": "overload",
     "main_class": "mage",
     "subclass": "clubs",
     "unlock_level": 5,
@@ -1301,7 +1301,7 @@
     "special": true
   },
   {
-    "id": "supercharge_hearts",
+    "id": "big_finish",
     "main_class": "mage",
     "subclass": "hearts",
     "unlock_level": 5,
@@ -1330,7 +1330,7 @@
     "special": true
   },
   {
-    "id": "marked_card_base_heart",
+    "id": "stacked_deck",
     "main_class": "rogue",
     "subclass": "hearts",
     "unlock_level": 1,
@@ -1355,7 +1355,7 @@
     "special": false
   },
   {
-    "id": "all_in_base_clubs",
+    "id": "last_rounds_on_me",
     "main_class": "rogue",
     "subclass": "clubs",
     "unlock_level": 5,
@@ -1378,7 +1378,7 @@
     "special": false
   },
   {
-    "id": "all_in_base_hearts",
+    "id": "all_in_darling",
     "main_class": "rogue",
     "subclass": "hearts",
     "unlock_level": 5,
@@ -1401,7 +1401,7 @@
     "special": false
   },
   {
-    "id": "all_in_base_diamond",
+    "id": "going_for_broke",
     "main_class": "rogue",
     "subclass": "diamonds",
     "unlock_level": 1,
@@ -1424,7 +1424,7 @@
     "special": false
   },
   {
-    "id": "get_behind_me_base_diamond",
+    "id": "outstanding_balance",
     "main_class": "fighter",
     "subclass": "diamonds",
     "unlock_level": 5,
@@ -1452,7 +1452,7 @@
     "special": false
   },
   {
-    "id": "get_behind_me_base_spades",
+    "id": "table_stakes",
     "main_class": "fighter",
     "subclass": "spades",
     "unlock_level": 5,
@@ -1480,7 +1480,7 @@
     "special": false
   },
   {
-    "id": "get_bonked_base_clubs",
+    "id": "first_warning",
     "main_class": "fighter",
     "subclass": "clubs",
     "unlock_level": 1,
@@ -1507,7 +1507,7 @@
     "special": false
   },
   {
-    "id": "get_bonked_base_spades",
+    "id": "opening_bet",
     "main_class": "fighter",
     "subclass": "spades",
     "unlock_level": 1,
@@ -1539,7 +1539,7 @@
     "special": false
   },
   {
-    "id": "get_bonked_base_hearts",
+    "id": "not_your_table",
     "main_class": "fighter",
     "subclass": "hearts",
     "unlock_level": 1,
