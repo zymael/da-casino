@@ -3950,8 +3950,8 @@ class ClassPickerView(discord.ui.View):
     def build_embed(self) -> discord.Embed:
         embed = discord.Embed(title="🗡️ Choose Your Class", color=discord.Color.blurple())
         embed.description = (
-            "This choice is **permanent** — pick a class, then confirm. You'll pick a subclass "
-            f"once you reach level {dungeon.SUBCLASS_UNLOCK_LEVEL} — run `!class` again then."
+            "This choice is **permanent** — pick a class, then confirm. Subclass picking isn't "
+            "open yet — stay tuned for an event."
         )
         for cid, entry in dungeon.CLASSES.items():
             skill = dungeon.unlocked_skills(cid, dungeon.NO_SUBCLASS, 1)[0]
@@ -4007,8 +4007,8 @@ class ClassConfirmButton(discord.ui.Button):
             description=f"HP {stats['hp']} / ATK {stats['atk']} / DEF {stats['def']} / "
                         f"SpAtk {stats['spatk']} / SpDef {stats['spdef']} / 🏃 Speed {stats['speed']} / 🪙 Chips {stats['chips']}\n"
                         f"Dodge {dodge_pct}% / Resist {resist_pct}%\n\n"
-                        f"Use `!delve` to enter the dungeon. At level {dungeon.SUBCLASS_UNLOCK_LEVEL}, "
-                        f"run `!class` again to pick a subclass.",
+                        f"Use `!delve` to enter the dungeon. Subclass picking isn't open yet — "
+                        f"stay tuned for an event.",
             color=discord.Color.green(),
         )
         await interaction.response.edit_message(embed=embed, view=None)

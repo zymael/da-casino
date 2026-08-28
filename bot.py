@@ -892,16 +892,13 @@ async def achievements_cmd(ctx):
 
 @bot.command(name="class")
 async def class_cmd(ctx):
-    """Pick your permanent dungeon class (one-time), pick your subclass once you hit level
-    dungeon.SUBCLASS_UNLOCK_LEVEL (also one-time), or check your current one: !class"""
+    """Pick your permanent dungeon class (one-time), or check your current one: !class --
+    subclass picking is disabled here for now (SubclassPickerView is unused, not removed --
+    it's coming back via a dedicated subclass-picking event instead of the old auto-unlock-at-
+    level-N flow)."""
     character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
     if character is None:
         view = ClassPickerView(ctx.guild.id, ctx.author.id)
-        await ctx.send(embed=view.build_embed(), view=view)
-        return
-
-    if character["subclass"] == dungeon.NO_SUBCLASS and character["level"] >= dungeon.SUBCLASS_UNLOCK_LEVEL:
-        view = SubclassPickerView(ctx.guild.id, ctx.author.id, character)
         await ctx.send(embed=view.build_embed(), view=view)
         return
 
@@ -920,7 +917,7 @@ async def class_cmd(ctx):
     embed.add_field(name="⚔️ Equipment", value="\n".join(_gear_breakdown_lines(equipped)), inline=False)
     if character["subclass"] == dungeon.NO_SUBCLASS:
         embed.set_footer(
-            text=f"Class is permanent — pick your subclass with `!class` at level {dungeon.SUBCLASS_UNLOCK_LEVEL}."
+            text="Class is permanent — subclass picking isn't open yet, stay tuned for an event."
         )
     else:
         embed.set_footer(text="Class/subclass is permanent — gear and levels grow from delving.")
