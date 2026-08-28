@@ -590,7 +590,7 @@
     "id": "insurance",
     "main_class": "rogue",
     "subclass": "spades",
-    "unlock_level": 7,
+    "unlock_level": 5,
     "name": "Insurance",
     "flavor": "They never take a job without a way out already planned.",
     "effects": [
@@ -604,11 +604,17 @@
         "duration": 3,
         "value": 0.5,
         "aoe": true,
-        "target": "ally",
-        "chance": 0.5
+        "target": "ally"
+      },
+      {
+        "type": "resist_buff",
+        "duration": 3,
+        "value": 0.5,
+        "aoe": true,
+        "target": "ally"
       }
     ],
-    "chip_cost": 7,
+    "chip_cost": 10,
     "special": false
   },
   {
