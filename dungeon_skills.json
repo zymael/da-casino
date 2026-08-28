@@ -819,7 +819,7 @@
         "target": "enemy"
       },
       {
-        "type": "speed_buff",
+        "type": "speed_debuff",
         "value": 2,
         "target": "enemy"
       }
@@ -930,7 +930,7 @@
         "target": "enemy"
       },
       {
-        "type": "speed_buff",
+        "type": "speed_debuff",
         "value": 2,
         "target": "enemy"
       },
@@ -1615,9 +1615,14 @@
         "target": "enemy"
       },
       {
-        "type": "speed_buff",
+        "type": "speed_debuff",
         "value": 2,
         "target": "enemy"
+      },
+      {
+        "type": "hp_buff",
+        "value": 3,
+        "target": "self"
       }
     ],
     "chip_cost": 9,
@@ -1642,7 +1647,7 @@
         "target": "enemy"
       },
       {
-        "type": "speed_buff",
+        "type": "speed_debuff",
         "value": 2,
         "target": "enemy"
       },
@@ -1674,7 +1679,7 @@
         "target": "enemy"
       },
       {
-        "type": "speed_buff",
+        "type": "speed_debuff",
         "value": 2,
         "target": "enemy"
       },
