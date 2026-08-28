@@ -5,7 +5,7 @@
     "subclass": "spades",
     "unlock_level": 5,
     "name": "Word Gets Around",
-    "flavor": "One phone call, and suddenly everyone at the table is playing his way.",
+    "flavor": "One phone call, and suddenly everyone at the table is playing their way.",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -51,7 +51,7 @@
     "subclass": "diamonds",
     "unlock_level": 5,
     "name": "Product Sample",
-    "flavor": "First one's free. He wants you coming back for more.",
+    "flavor": "First one's free. They want you coming back for more.",
     "effects": [
       {
         "type": "heal_fraction",
@@ -184,7 +184,7 @@
     "subclass": "none",
     "unlock_level": 1,
     "name": "Sure Thing",
-    "flavor": "She's not betting. A bet means you could lose.",
+    "flavor": "They're not betting. A bet means you could lose.",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -345,7 +345,7 @@
     "subclass": "hearts",
     "unlock_level": 7,
     "name": "Nothing Up My Sleeve",
-    "flavor": "He shows you both hands. By the time you look away, the trick's already done.",
+    "flavor": "They show you both hands. By the time you look away, the trick's already done.",
     "effects": [
       {
         "type": "atk_buff",
@@ -445,7 +445,7 @@
     "subclass": "clubs",
     "unlock_level": 7,
     "name": "House Deck",
-    "flavor": "Somehow, every hand he deals himself is a little better than yours.",
+    "flavor": "Somehow, every hand they deal themselves is a little better than yours.",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -504,7 +504,7 @@
     "subclass": "spades",
     "unlock_level": 7,
     "name": "Insurance",
-    "flavor": "He never takes a job without a way out already planned.",
+    "flavor": "They never take a job without a way out already planned.",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -529,7 +529,7 @@
     "subclass": "spades",
     "unlock_level": 1,
     "name": "No Half Measures",
-    "flavor": "A professional doesn't leave a job unfinished. He also doesn't leave witnesses to wonder why.",
+    "flavor": "A professional doesn't leave a job unfinished. They also don't leave witnesses to wonder why.",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -562,7 +562,7 @@
     "subclass": "diamonds",
     "unlock_level": 7,
     "name": "Coin toss",
-    "flavor": "Plan A or Plan B. He never actually decided which.",
+    "flavor": "Plan A or Plan B. They never actually decided which.",
     "effect_groups": [
       {
         "effects": [
@@ -906,7 +906,7 @@
     "subclass": "hearts",
     "unlock_level": 7,
     "name": "Protection",
-    "flavor": "Whatever's coming for you, it goes through him first.",
+    "flavor": "Whatever's coming for you, it goes through them first.",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -934,7 +934,7 @@
     "subclass": "hearts",
     "unlock_level": 5,
     "name": "On My Watch",
-    "flavor": "Nothing happens to anyone at this table. Not while he's standing.",
+    "flavor": "Nothing happens to anyone at this table. Not while they're standing.",
     "effects": [
       {
         "type": "taunt",
@@ -1013,7 +1013,7 @@
     "subclass": "clubs",
     "unlock_level": 5,
     "name": "Take a Number",
-    "flavor": "Everyone wants a piece. The line starts behind him.",
+    "flavor": "Everyone wants a piece. The line starts behind them.",
     "effects": [
       {
         "type": "taunt",
@@ -1089,7 +1089,7 @@
     "subclass": "spades",
     "unlock_level": 1,
     "name": "House Call",
-    "flavor": "Nobody asks a Fixer to make house calls. He makes them anyway.",
+    "flavor": "Nobody asks a Fixer to make house calls. They make them anyway.",
     "effects": [
       {
         "type": "heal_fraction",
@@ -1131,7 +1131,7 @@
     "subclass": "hearts",
     "unlock_level": 1,
     "name": "Thank You, Thank You Very Much",
-    "flavor": "He drops his voice an octave, and the whole room just\u2026 stops.",
+    "flavor": "They drop their voice an octave, and the whole room just\u2026 stops.",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -1204,7 +1204,7 @@
     "subclass": "diamonds",
     "unlock_level": 5,
     "name": "Full Charge",
-    "flavor": "He rigged the batteries himself. They were never rated for this.",
+    "flavor": "They rigged the batteries themselves. The batteries were never rated for this.",
     "effects": [
       {
         "type": "stun",
@@ -1238,7 +1238,7 @@
     "subclass": "spades",
     "unlock_level": 5,
     "name": "Tempting Fate",
-    "flavor": "Pushing this much luck into one place is asking for trouble. He's asking anyway.",
+    "flavor": "Pushing this much luck into one place is asking for trouble. They're asking anyway.",
     "effects": [
       {
         "type": "stun",
@@ -1272,7 +1272,7 @@
     "subclass": "clubs",
     "unlock_level": 5,
     "name": "Overload",
-    "flavor": "Nobody's sure what happens when a Wildcard channels this much power. Not even him.",
+    "flavor": "Nobody's sure what happens when a Wildcard channels this much power. Not even them.",
     "effects": [
       {
         "type": "stun",
@@ -1306,7 +1306,7 @@
     "subclass": "hearts",
     "unlock_level": 5,
     "name": "The Big Finish",
-    "flavor": "Every act builds to one moment. This is his.",
+    "flavor": "Every act builds to one moment. This is theirs.",
     "effects": [
       {
         "type": "dodge_buff",
@@ -1360,7 +1360,7 @@
     "subclass": "clubs",
     "unlock_level": 5,
     "name": "Last Round's On Me",
-    "flavor": "He's not counting drinks anymore. Might as well not count hits either.",
+    "flavor": "They're not counting drinks anymore. Might as well not count hits either.",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -1383,7 +1383,7 @@
     "subclass": "hearts",
     "unlock_level": 5,
     "name": "All In, Darling",
-    "flavor": "He never plays it safe when someone's watching. Especially not then.",
+    "flavor": "They never play it safe when someone's watching. Especially not then.",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -1406,7 +1406,7 @@
     "subclass": "diamonds",
     "unlock_level": 1,
     "name": "Going for Broke",
-    "flavor": "The whole plan comes down to this one move. He already decided it's worth it.",
+    "flavor": "The whole plan comes down to this one move. They already decided it's worth it.",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -1429,7 +1429,7 @@
     "subclass": "diamonds",
     "unlock_level": 5,
     "name": "Outstanding Balance",
-    "flavor": "Nobody walks away from an open account. He'll make sure of it.",
+    "flavor": "Nobody walks away from an open account. They'll make sure of it.",
     "effects": [
       {
         "type": "taunt",
@@ -1457,7 +1457,7 @@
     "subclass": "spades",
     "unlock_level": 5,
     "name": "Table Stakes",
-    "flavor": "He's not leaving until the hand's over. Neither is anyone else.",
+    "flavor": "They're not leaving until the hand's over. Neither is anyone else.",
     "effects": [
       {
         "type": "taunt",
@@ -1512,7 +1512,7 @@
     "subclass": "spades",
     "unlock_level": 1,
     "name": "Opening Bet",
-    "flavor": "Every hand starts somewhere. He likes to start strong.",
+    "flavor": "Every hand starts somewhere. They like to start strong.",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -1544,7 +1544,7 @@
     "subclass": "hearts",
     "unlock_level": 1,
     "name": "Not Your Table",
-    "flavor": "He doesn't ask twice. He didn't ask the first time either.",
+    "flavor": "They don't ask twice. They didn't ask the first time either.",
     "effects": [
       {
         "type": "damage_multiplier",
