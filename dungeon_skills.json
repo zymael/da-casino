@@ -1570,30 +1570,5 @@
     ],
     "chip_cost": 9,
     "special": false
-  },
-  {
-    "id": "word_gets_around_copy",
-    "main_class": "healer",
-    "subclass": "spades",
-    "unlock_level": 5,
-    "name": "Word Gets Around",
-    "flavor": "One phone call, and suddenly everyone at the table is playing the Fixer's way.",
-    "effects": [
-      {
-        "type": "damage_multiplier",
-        "value": 0.6
-      },
-      {
-        "type": "stun",
-        "duration": 1
-      },
-      {
-        "type": "atk_buff",
-        "value": 20,
-        "aoe": true
-      }
-    ],
-    "chip_cost": 10,
-    "special": false
   }
 ]
