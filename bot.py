@@ -517,9 +517,14 @@ async def leaderboard(ctx):
 async def rest_cmd(ctx):
     """Claim your credits and refill your energy (once every 12 hours)."""
     housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, ctx.guild.id, ctx.author.id)
+    character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
+    max_hp = None
+    if character is not None:
+        equipped = await asyncio.to_thread(db.get_equipped_items, ctx.guild.id, ctx.author.id)
+        max_hp = dungeon.compute_effective_stats(character, equipped, housing_bonuses.get("stat_bonus", {}))["hp"]
     result = await asyncio.to_thread(
         db.claim_rest, ctx.guild.id, ctx.author.id, DAILY_AMOUNT,
-        housing_bonuses.get("rest_energy_bonus", 0), housing_bonuses.get("rest_gold_bonus", 0),
+        housing_bonuses.get("rest_energy_bonus", 0), housing_bonuses.get("rest_gold_bonus", 0), max_hp,
     )
     status = result[0]
     if status == "cooldown":

@@ -1594,7 +1594,8 @@ def _seconds_until_refresh(last_timestamp: str | None) -> float | None:
 
 
 def claim_rest(
-    guild_id: int, user_id: int, gold_amount: int, energy_bonus: int = 0, gold_bonus: int = 0
+    guild_id: int, user_id: int, gold_amount: int, energy_bonus: int = 0, gold_bonus: int = 0,
+    max_hp: int | None = None,
 ) -> tuple[str, float | int] | tuple[str, int, int]:
     """Grants `gold_amount` (+ `gold_bonus`) credits, adds ENERGY_REST_GAIN + `energy_bonus` energy
     (capped at ENERGY_CAP -- unspent energy carries over, this is not a use-it-or-lose-it refill),
@@ -1605,7 +1606,12 @@ def claim_rest(
     rises from an in-combat heal skill/item, never automatically between delves -- see
     set_current_hp. `energy_bonus`/`gold_bonus` default to 0 -- the caller (bot.py's rest_cmd) is
     expected to look up any housing rest-bonus items and pass them in, the same way it already
-    computes gold_amount itself before calling this.
+    computes gold_amount itself before calling this. `max_hp` is likewise caller-computed (
+    dungeon.compute_effective_stats, same "db.py doesn't own game-content formulas" split
+    add_xp/set_character_progress already use) -- the row's own `hp` column excludes equipment/
+    housing HP bonuses, so healing to it would shortchange a geared-up character. None (a user with
+    no dungeon character, nothing to compute) falls back to the raw `hp` column, a no-op either way
+    since the UPDATE simply matches no rows.
 
     Returns (status, value) or (status, value, new_energy):
       - ("cooldown", seconds_remaining) — still within REFRESH_HOURS of the last rest
@@ -1629,7 +1635,8 @@ def claim_rest(
             (new_balance, now, ENERGY_CAP, ENERGY_REST_GAIN + energy_bonus, guild_id, user_id),
         )
         conn.execute(
-            "UPDATE characters SET current_hp = hp WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+            "UPDATE characters SET current_hp = COALESCE(?, hp) WHERE guild_id = ? AND user_id = ?",
+            (max_hp, guild_id, user_id),
         )
         new_energy = conn.execute(
             "SELECT energy FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
