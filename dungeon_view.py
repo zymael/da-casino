@@ -3925,6 +3925,15 @@ class ClassPickerView(discord.ui.View):
             "This choice is **permanent** — pick a class, then confirm. You'll pick a subclass "
             f"once you reach level {dungeon.SUBCLASS_UNLOCK_LEVEL} — run `!class` again then."
         )
+        for cid, entry in dungeon.CLASSES.items():
+            skill = dungeon.unlocked_skills(cid, dungeon.NO_SUBCLASS, 1)[0]
+            embed.add_field(
+                name=entry["display_name"],
+                value=f"*{entry['flavor']}*\n"
+                      f"**Role:** {entry['picker_blurb']}\n"
+                      f"**First skill — {skill['name']}:** {skill['flavor']}",
+                inline=False,
+            )
         if self.main_class:
             name = dungeon.display_name(self.main_class, dungeon.NO_SUBCLASS)
             stats = dungeon.compute_stats(self.main_class, dungeon.NO_SUBCLASS)

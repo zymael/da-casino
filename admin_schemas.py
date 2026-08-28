@@ -502,6 +502,10 @@ CONTENT_TYPES = {
                 "name": "picker_blurb", "type": "str", "required": True, "group": "Flavor Text",
                 "hint": "short one-line description shown on the !class picker",
             },
+            {
+                "name": "flavor", "type": "text", "required": True, "group": "Flavor Text",
+                "hint": "longer narrative blurb shown in the !class rundown before a class is picked",
+            },
             {"name": "hp", "type": "int", "required": True, "min": 1, "group": "Base Stats"},
             {"name": "atk", "type": "int", "required": True, "min": 0, "group": "Base Stats"},
             {"name": "def", "type": "int", "required": True, "min": 0, "group": "Base Stats"},

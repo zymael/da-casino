@@ -36,7 +36,7 @@ import horse_clothes
 # every class; it's per-class now, looked up by dungeon_view._award_kill on each level-up.
 _CLASSES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_classes.json")
 _REQUIRED_CLASS_FIELDS = {
-    "id", "display_name", "rank", "picker_blurb",
+    "id", "display_name", "rank", "picker_blurb", "flavor",
     "hp", "atk", "def", "spatk", "spdef", "chips", "speed",
     "level_hp_gain", "level_atk_gain", "level_def_gain",
     "level_spatk_gain", "level_spdef_gain", "level_speed_gain",
