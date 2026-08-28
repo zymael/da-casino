@@ -965,7 +965,11 @@ async def inn_cmd(ctx):
     if ctx.author.id in active_delves:
         await ctx.send("You're already mid-delve — finish that one first!")
         return
-    if character["current_hp"] >= character["hp"]:
+
+    equipped = await asyncio.to_thread(db.get_equipped_items, ctx.guild.id, ctx.author.id)
+    housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, ctx.guild.id, ctx.author.id)
+    max_hp = dungeon.compute_effective_stats(character, equipped, housing_bonuses.get("stat_bonus", {}))["hp"]
+    if character["current_hp"] >= max_hp:
         await ctx.send(f"{ctx.author.display_name}, you're already at full health.")
         return
 
@@ -976,10 +980,10 @@ async def inn_cmd(ctx):
         await ctx.send(f"You need **{cost}** {currency} to rest at the inn (you have **{balance}**).")
         return
 
-    await asyncio.to_thread(db.set_current_hp, ctx.guild.id, ctx.author.id, character["hp"])
+    await asyncio.to_thread(db.set_current_hp, ctx.guild.id, ctx.author.id, max_hp)
     await ctx.send(
         f"🛏️ {ctx.author.display_name} rests up at the inn, fully healed! "
-        f"❤️ HP {character['hp']}/{character['hp']}. Paid **{cost}** {currency} (balance **{balance}**)."
+        f"❤️ HP {max_hp}/{max_hp}. Paid **{cost}** {currency} (balance **{balance}**)."
     )
 
 
