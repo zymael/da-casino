@@ -299,6 +299,9 @@ class PartyDelveSession:
         self._enter_room(delve["start_room"])
 
         self.message: discord.Message | None = None
+        self.ping_message: discord.Message | None = None  # the standalone "your turn" mention for
+        # whichever member is currently up -- tracked separately from self.message so
+        # _send_party_update can delete the previous turn's tag before dropping a new one.
         self.current_view: discord.ui.View | None = None
 
     def living_members(self) -> list[PartyMember]:
@@ -2147,20 +2150,46 @@ async def _build_party_combat_view(session: PartyDelveSession, actor: PartyMembe
 async def _send_party_update(
     interaction: discord.Interaction | None, session: PartyDelveSession,
     embed: discord.Embed, file: discord.File | None, view: discord.ui.View | None,
+    ping_user_id: int | None = None,
 ):
     """Party combat can advance from either a live interaction (a member's own action) or a
     timeout (a stalled member's turn getting skipped, with no interaction to respond to) -- this
-    is the one place that branches on which, editing the response either way."""
-    attachments = [file] if file else []
+    is the one place that branches on which. Deletes and resends the table message every turn
+    (uno_view._update_public_table / blackjack_view._send_or_edit_round's own repost pattern)
+    instead of editing in place, so the freshest turn always lands at the bottom of the channel
+    rather than getting buried under other chat. When ping_user_id is given (a living member's own
+    turn coming up), also drops a small standalone mention tagging them -- blackjack_view's own
+    "your turn" ping -- deleting the previous turn's tag first."""
+    channel = session.message.channel if session.message is not None else interaction.channel
+    # The very first update for a session (session.message still None) is the party-start click
+    # turning the lobby message itself into the first room/combat display -- interaction.message is
+    # that lobby message in that one case, standing in for session.message as "what to delete".
+    old_message = session.message if session.message is not None else (interaction.message if interaction is not None else None)
     if interaction is not None:
-        await interaction.response.edit_message(embed=embed, attachments=attachments, view=view)
-        return
-    if session.message is None:
-        return
+        try:
+            await interaction.response.defer()
+        except discord.HTTPException:
+            pass
     try:
-        await session.message.edit(embed=embed, attachments=attachments, view=view)
+        session.message = await channel.send(embed=embed, file=file, view=view)
     except discord.HTTPException:
-        pass
+        return
+    if old_message is not None:
+        try:
+            await old_message.delete()
+        except discord.HTTPException:
+            pass
+    if session.ping_message is not None:
+        try:
+            await session.ping_message.delete()
+        except discord.HTTPException:
+            pass
+        session.ping_message = None
+    if ping_user_id is not None:
+        try:
+            session.ping_message = await channel.send(f"<@{ping_user_id}> — your turn!")
+        except discord.HTTPException:
+            pass
 
 
 async def _advance_party_turns(interaction: discord.Interaction | None, session: PartyDelveSession, log_lines: list[str]) -> None:
@@ -2223,7 +2252,7 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
                 continue
             embed, file = _party_combat_embed(session, "\n".join(log_lines), member)
             view = await _build_party_combat_view(session, member)
-            await _send_party_update(interaction, session, embed, file, view)
+            await _send_party_update(interaction, session, embed, file, view, ping_user_id=member.user_id)
             return
 
         monster = next(m for m in session.living_monsters() if m.slot == next_id)
@@ -3141,7 +3170,6 @@ class PartyLobbyView(discord.ui.View):
         for uid in lobby.member_ids:
             active_delves[uid] = session  # swap PartyLobby -> PartyDelveSession in place, ids stay registered throughout
         await _build_party_room_display(interaction, session)
-        session.message = await interaction.original_response()
         self.stop()
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
