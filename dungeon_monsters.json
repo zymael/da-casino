@@ -18,17 +18,17 @@
       {
         "kind": "equipment",
         "item_id": "funky_bellbottoms",
-        "chance": 0.03
+        "chance": 0.06
       },
       {
         "kind": "equipment",
         "item_id": "afro_wig",
-        "chance": 0.05
+        "chance": 0.1
       },
       {
         "kind": "consumable",
         "item_id": "mystery_powder",
-        "chance": 0.01
+        "chance": 0.02
       }
     ],
     "skills": [
@@ -66,7 +66,7 @@
       {
         "kind": "equipment",
         "item_id": "disco_stick",
-        "chance": 0.1
+        "chance": 0.2
       }
     ],
     "skills": [
@@ -104,17 +104,17 @@
       {
         "kind": "equipment",
         "item_id": "bitchin_shades",
-        "chance": 0.08
+        "chance": 0.16
       },
       {
         "kind": "housing_item",
         "item_id": "two_turntables_and_a_microphone",
-        "chance": 0.01
+        "chance": 0.02
       },
       {
         "kind": "consumable",
         "item_id": "mystery_powder",
-        "chance": 0.01
+        "chance": 0.02
       }
     ],
     "skills": [
@@ -685,22 +685,22 @@
       {
         "kind": "consumable",
         "item_id": "blue_hawaiian_haze",
-        "chance": 0.1
+        "chance": 0.2
       },
       {
         "kind": "consumable",
         "item_id": "painkiller_colada",
-        "chance": 0.1
+        "chance": 0.2
       },
       {
         "kind": "consumable",
         "item_id": "zombies_revenge",
-        "chance": 0.1
+        "chance": 0.2
       },
       {
         "kind": "housing_item",
         "item_id": "groovy_lava_lamp",
-        "chance": 0.05
+        "chance": 0.1
       }
     ],
     "skills": [
@@ -750,17 +750,17 @@
       {
         "kind": "equipment",
         "item_id": "goblin_tommy_gun",
-        "chance": 0.05
+        "chance": 0.1
       },
       {
         "kind": "housing_item",
         "item_id": "shag_wall",
-        "chance": 0.05
+        "chance": 0.1
       },
       {
         "kind": "consumable",
         "item_id": "mystery_powder",
-        "chance": 0.05
+        "chance": 0.1
       }
     ],
     "skills": [
