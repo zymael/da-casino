@@ -198,7 +198,7 @@
     "id": "fireball_base_diamond",
     "main_class": "mage",
     "subclass": "clubs",
-    "unlock_level": 5,
+    "unlock_level": 1,
     "name": "Fireball",
     "flavor": "BIGGER BOOM",
     "effects": [
@@ -215,7 +215,7 @@
     "id": "fireball_evolved_spades",
     "main_class": "mage",
     "subclass": "spades",
-    "unlock_level": 5,
+    "unlock_level": 1,
     "name": "Fireball",
     "flavor": "BIGGER BOOM",
     "effects": [
@@ -501,7 +501,7 @@
     "id": "all_in_spades",
     "main_class": "rogue",
     "subclass": "spades",
-    "unlock_level": 5,
+    "unlock_level": 1,
     "name": "All in",
     "flavor": "Look over there, a dragon!",
     "effects": [
@@ -661,7 +661,7 @@
     "id": "bar_stool_special",
     "main_class": "rogue",
     "subclass": "clubs",
-    "unlock_level": 5,
+    "unlock_level": 1,
     "name": "Bar Stool Special",
     "flavor": "*BONK*",
     "effects": [
@@ -795,7 +795,7 @@
     "id": "get_bonked_diamond",
     "main_class": "fighter",
     "subclass": "diamonds",
-    "unlock_level": 5,
+    "unlock_level": 1,
     "name": "Get bonked!",
     "flavor": "*BONK*",
     "effects": [
@@ -1061,7 +1061,7 @@
     "id": "fetch_wine_base_spades",
     "main_class": "healer",
     "subclass": "spades",
-    "unlock_level": 4,
+    "unlock_level": 1,
     "name": "Healing Wine",
     "flavor": "Squire! Fetch me some wine!",
     "effects": [
@@ -1138,7 +1138,7 @@
     "id": "fireball_base_hearts",
     "main_class": "mage",
     "subclass": "hearts",
-    "unlock_level": 5,
+    "unlock_level": 1,
     "name": "Fireball",
     "flavor": "BIGGER BOOM",
     "effects": [
@@ -1155,7 +1155,7 @@
     "id": "supercharge_diamond",
     "main_class": "mage",
     "subclass": "diamonds",
-    "unlock_level": 5,
+    "unlock_level": 1,
     "name": "Supercharge",
     "flavor": "I shall show you, peasant!",
     "effects": [
@@ -1382,7 +1382,7 @@
     "id": "all_in_base_diamond",
     "main_class": "rogue",
     "subclass": "diamonds",
-    "unlock_level": 5,
+    "unlock_level": 1,
     "name": "All in",
     "flavor": "Look over there, a dragon!",
     "effects": [
