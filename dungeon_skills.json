@@ -258,7 +258,7 @@
         "effects": [
           {
             "type": "damage_multiplier",
-            "value": 2.6,
+            "value": 2.8,
             "aoe": true
           },
           {
@@ -278,18 +278,13 @@
         "effects": [
           {
             "type": "damage_multiplier",
-            "value": 1.2,
+            "value": 1.0,
             "aoe": true
           },
           {
             "type": "def_shred",
-            "value": 3,
-            "aoe": true
-          },
-          {
-            "type": "spdef_debuff",
-            "value": 3,
-            "aoe": true
+            "value": 4,
+            "target": "self"
           }
         ]
       }
@@ -437,12 +432,12 @@
         "chance": 1,
         "effects": [
           {
-            "type": "damage_multiplier",
-            "value": 1.9
+            "type": "extra_attack",
+            "multiplier": 0.9
           },
           {
-            "type": "stun",
-            "duration": 1
+            "type": "extra_attack",
+            "multiplier": 0.9
           }
         ]
       },
@@ -451,7 +446,29 @@
         "effects": [
           {
             "type": "damage_multiplier",
-            "value": 0.9
+            "value": 0.8
+          },
+          {
+            "type": "spdef_debuff",
+            "value": 6
+          },
+          {
+            "type": "def_shred",
+            "value": 6
+          }
+        ]
+      },
+      {
+        "chance": 1,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 0.5
+          },
+          {
+            "type": "stun",
+            "duration": 1,
+            "target": "self"
           }
         ]
       }
@@ -1350,12 +1367,7 @@
         "effects": [
           {
             "type": "spatk_buff",
-            "value": 11,
-            "target": "self"
-          },
-          {
-            "type": "stun",
-            "duration": 1,
+            "value": 14,
             "target": "self"
           }
         ]
@@ -1364,20 +1376,8 @@
         "chance": 1,
         "effects": [
           {
-            "type": "spatk_buff",
-            "value": 4,
-            "target": "self"
-          },
-          {
-            "type": "dodge_buff",
-            "duration": 3,
-            "value": 0.5,
-            "target": "self"
-          },
-          {
-            "type": "resist_buff",
-            "duration": 3,
-            "value": 0.5,
+            "type": "guard",
+            "reduction": 0.6,
             "target": "self"
           }
         ]
@@ -1386,8 +1386,8 @@
         "chance": 1,
         "effects": [
           {
-            "type": "spatk_buff",
-            "value": 3,
+            "type": "spatk_debuff",
+            "value": 5,
             "target": "self"
           },
           {
