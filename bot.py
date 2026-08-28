@@ -90,6 +90,8 @@ MINE_REWARD = 20
 MINE_MATURE_SECONDS = 10 * 60
 MINE_COOLDOWN_SECONDS = 60 * 60
 
+INN_COST_PER_LEVEL = 10
+
 TIP_AMOUNT = 25
 BROKE_GIFS = [
     "https://media.giphy.com/media/3orifdO6eKr9YBdOBq/giphy.gif",
@@ -950,6 +952,35 @@ async def skills_cmd(ctx):
             inline=False,
         )
     await ctx.send(embed=embed)
+
+
+@bot.command(name="inn")
+async def inn_cmd(ctx):
+    """Pay to fully heal your dungeon character outside of a delve: !inn -- costs 10 x your level
+    in currency, scaling with how much max HP a higher level actually has."""
+    character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
+    if character is None:
+        await ctx.send(f"You don't have a character yet, {ctx.author.display_name} — run `!class` to pick one first.")
+        return
+    if ctx.author.id in active_delves:
+        await ctx.send("You're already mid-delve — finish that one first!")
+        return
+    if character["current_hp"] >= character["hp"]:
+        await ctx.send(f"{ctx.author.display_name}, you're already at full health.")
+        return
+
+    cost = INN_COST_PER_LEVEL * character["level"]
+    currency = db.get_currency_name(ctx.guild.id)
+    status, balance = await asyncio.to_thread(db.spend_currency, ctx.guild.id, ctx.author.id, cost)
+    if status == "broke":
+        await ctx.send(f"You need **{cost}** {currency} to rest at the inn (you have **{balance}**).")
+        return
+
+    await asyncio.to_thread(db.set_current_hp, ctx.guild.id, ctx.author.id, character["hp"])
+    await ctx.send(
+        f"🛏️ {ctx.author.display_name} rests up at the inn, fully healed! "
+        f"❤️ HP {character['hp']}/{character['hp']}. Paid **{cost}** {currency} (balance **{balance}**)."
+    )
 
 
 @bot.command(name="delve")
@@ -1817,6 +1848,7 @@ room_commands.COMMANDS.update({
     "stats": stats_cmd.callback,
     "achievements": achievements_cmd.callback,
     "class": class_cmd.callback,
+    "inn": inn_cmd.callback,
     "delve": delve_cmd.callback,
     "duel": duel_cmd.callback,
     "mancala": mancala_cmd.callback,
