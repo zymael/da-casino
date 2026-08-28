@@ -2,7 +2,7 @@
   {
     "id": "goblin_disco",
     "name": "Goblin Discoth\u00e8que",
-    "active": false,
+    "active": true,
     "flavor": "A wild goblin party that you were not invited to.   Not that that's going to stop you, of course.",
     "rooms": [
       {
