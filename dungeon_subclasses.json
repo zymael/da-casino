@@ -37,8 +37,8 @@
     "def": 2,
     "spatk": 0,
     "spdef": 2,
-    "chips": 10,
-    "speed": 0,
+    "chips": -5,
+    "speed": -1,
     "loot_mult": 1.0
   },
   {
@@ -51,7 +51,7 @@
     "def": 0,
     "spatk": 1,
     "spdef": 0,
-    "chips": 0,
+    "chips": -5,
     "speed": 1,
     "loot_mult": 1.25
   }
