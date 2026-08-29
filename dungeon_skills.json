@@ -112,6 +112,10 @@
         "type": "spdef_debuff",
         "value": 4,
         "aoe": true
+      },
+      {
+        "type": "lifesteal_fraction",
+        "value": 0.3
       }
     ],
     "chip_cost": 10,
