@@ -1306,7 +1306,7 @@
     "effects": [
       {
         "type": "stun",
-        "duration": 1,
+        "duration": 2,
         "target": "self"
       },
       {
@@ -1323,7 +1323,7 @@
       },
       {
         "type": "spatk_buff",
-        "value": 13,
+        "value": 18,
         "target": "self"
       }
     ],
@@ -1359,9 +1359,14 @@
         "type": "spatk_buff",
         "value": 7,
         "target": "self"
+      },
+      {
+        "type": "spatk_debuff",
+        "value": 5,
+        "target": "enemy"
       }
     ],
-    "chip_cost": 5,
+    "chip_cost": 6,
     "special": true
   },
   {
@@ -1435,9 +1440,16 @@
         "type": "spatk_buff",
         "value": 7,
         "target": "self"
+      },
+      {
+        "type": "dodge_buff",
+        "duration": 3,
+        "value": 0.2,
+        "target": "ally",
+        "aoe": true
       }
     ],
-    "chip_cost": 5,
+    "chip_cost": 6,
     "special": true
   },
   {
