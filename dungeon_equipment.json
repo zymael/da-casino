@@ -686,6 +686,74 @@
     "flavor": "These shades make it so you can't see your problems.  And if you can't see them they're not there."
   },
   {
+    "id": "the_mixmaster",
+    "name": "The Mixmaster",
+    "slot": "weapon",
+    "rarity": "rare",
+    "effects": [
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 6
+      },
+      {
+        "type": "spdef_debuff",
+        "trigger": "on_hit",
+        "chance": 0.2,
+        "value": 2,
+        "target": "enemy"
+      }
+    ],
+    "special": false,
+    "intended_level": 5,
+    "base_value": 350,
+    "flavor": "Every scratch throws the beat off, and their guard right along with it."
+  },
+  {
+    "id": "bottle_service",
+    "name": "Bottle Service",
+    "slot": "trinket",
+    "rarity": "rare",
+    "effects": [
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 4
+      },
+      {
+        "type": "spdef_buff",
+        "trigger": "constant",
+        "value": 4
+      }
+    ],
+    "special": false,
+    "intended_level": 5,
+    "base_value": 350,
+    "flavor": "The house special. Numbs the pain and sharpens the mind. Mostly."
+  },
+  {
+    "id": "hustlers_track_jacket",
+    "name": "Hustler's Track Jacket",
+    "slot": "armor",
+    "rarity": "uncommon",
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 2
+      },
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 3
+      }
+    ],
+    "special": false,
+    "intended_level": 3,
+    "base_value": 160,
+    "flavor": "Made for moving fast and looking good doing it. Mostly the moving fast part."
+  },
+  {
     "id": "goblin_tommy_gun",
     "name": "Goblin Tommy Gun",
     "slot": "weapon",

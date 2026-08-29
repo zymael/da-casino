@@ -18,12 +18,12 @@
       {
         "kind": "equipment",
         "item_id": "funky_bellbottoms",
-        "chance": 0.06
+        "chance": 0.09
       },
       {
         "kind": "equipment",
         "item_id": "afro_wig",
-        "chance": 0.1
+        "chance": 0.15
       },
       {
         "kind": "consumable",
@@ -66,6 +66,11 @@
       {
         "kind": "equipment",
         "item_id": "disco_stick",
+        "chance": 0.3
+      },
+      {
+        "kind": "equipment",
+        "item_id": "hustlers_track_jacket",
         "chance": 0.2
       }
     ],
@@ -104,7 +109,12 @@
       {
         "kind": "equipment",
         "item_id": "bitchin_shades",
-        "chance": 0.16
+        "chance": 0.24
+      },
+      {
+        "kind": "equipment",
+        "item_id": "the_mixmaster",
+        "chance": 0.15
       },
       {
         "kind": "housing_item",
@@ -690,6 +700,11 @@
     "loot_max": 60,
     "drops": [
       {
+        "kind": "equipment",
+        "item_id": "bottle_service",
+        "chance": 0.15
+      },
+      {
         "kind": "consumable",
         "item_id": "blue_hawaiian_haze",
         "chance": 0.2
@@ -757,7 +772,7 @@
       {
         "kind": "equipment",
         "item_id": "goblin_tommy_gun",
-        "chance": 0.1
+        "chance": 0.15
       },
       {
         "kind": "housing_item",
