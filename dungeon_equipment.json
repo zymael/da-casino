@@ -681,7 +681,7 @@
       }
     ],
     "special": false,
-    "intended_level": 3,
+    "intended_level": 5,
     "base_value": 200,
     "flavor": "These shades make it so you can't see your problems.  And if you can't see them they're not there."
   },
@@ -777,6 +777,28 @@
     "intended_level": 10,
     "base_value": 700,
     "flavor": "Say hello to my little friend.\r\n\r\nHas a chance to go nuts and shoot every last motherfucker in the room."
+  },
+  {
+    "id": "bosss_cufflinks",
+    "name": "Boss's Cufflinks",
+    "slot": "trinket",
+    "rarity": "rare",
+    "effects": [
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 9
+      },
+      {
+        "type": "spdef_buff",
+        "trigger": "constant",
+        "value": 6
+      }
+    ],
+    "special": false,
+    "intended_level": 10,
+    "base_value": 700,
+    "flavor": "Solid gold, heavier than they look. Nobody talks back to the hands wearing these."
   },
   {
     "id": "goblin_pepper_spray",
