@@ -799,7 +799,7 @@
     "id": "goblin_mob_boss",
     "name": "Goblin Mob Boss",
     "hp": 63,
-    "atk": 12,
+    "atk": 20,
     "def": 14,
     "spatk": 16,
     "spdef": 38,
@@ -835,11 +835,12 @@
     "skills": [
       {
         "name": "Call in the Muscle",
-        "chance": 1,
-        "special": true,
+        "chance": 0.25,
+        "special": false,
+        "requires_allies": true,
         "effects": [
           {
-            "type": "spatk_buff",
+            "type": "atk_buff",
             "value": 4,
             "target": "self"
           }

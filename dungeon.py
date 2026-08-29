@@ -1072,6 +1072,8 @@ def _validate_monster_skill(skill: dict, context: str) -> None:
         raise ValueError(f"{context} skill {name!r} chance must be a number >= 0")
     if "special" in skill and not isinstance(skill["special"], bool):
         raise ValueError(f"{context} skill {name!r} special must be a bool")
+    if "requires_allies" in skill and not isinstance(skill["requires_allies"], bool):
+        raise ValueError(f"{context} skill {name!r} requires_allies must be a bool")
     if "flavor" in skill and not isinstance(skill["flavor"], str):
         raise ValueError(f"{context} skill {name!r} flavor must be a string")
     skill_context = f"{context} skill {name!r}"
@@ -1630,13 +1632,18 @@ def roll_check(stat_value: int, dc: int) -> tuple[bool, int]:
 DEFAULT_MONSTER_ATTACK_CHANCE = 1.0
 
 
-def pick_monster_action(monster: dict) -> dict | None:
+def pick_monster_action(monster: dict, ally_count: int = 0) -> dict | None:
     """A monster's turn: weighted-random between its plain attack (weight = its own
     attack_chance, defaulting to DEFAULT_MONSTER_ATTACK_CHANCE) and each entry in its optional
     "skills" list (weight = that skill's own chance). Returns None for a plain attack, or the
     chosen skill dict. No mana/cooldown -- a monster can reuse the same skill as often as it
-    randomly comes up (see admin_schemas.py's "skills" field hint on the monsters content type)."""
-    skills = monster.get("skills", [])
+    randomly comes up (see admin_schemas.py's "skills" field hint on the monsters content type).
+
+    `ally_count` is how many OTHER monsters are still alive alongside this one in the same fight
+    (0 once it's the last one standing) -- any skill flagged "requires_allies" is dropped from the
+    running entirely (not just weighted to 0) once ally_count hits 0, e.g. a boss whose rally cry
+    only makes sense with a crew left to rally."""
+    skills = [s for s in monster.get("skills", []) if ally_count > 0 or not s.get("requires_allies")]
     if not skills:
         return None
     weights = [monster.get("attack_chance", DEFAULT_MONSTER_ATTACK_CHANCE)] + [s["chance"] for s in skills]

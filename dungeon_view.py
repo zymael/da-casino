@@ -1781,6 +1781,7 @@ def _roll_on_hit_procs(
 
 def _resolve_monster_attack(
     attacker: "MonsterInstance", target_pool: list, default_target, moon_effect: str | None, log_lines: list[str],
+    *, ally_count: int = 0,
 ) -> tuple[list[tuple[object, int, bool]], dict | None]:
     """One monster's turn -- either its plain attack or one of its own skills
     (dungeon.pick_monster_action, weighted by the monster's own attack_chance vs. each skill's own
@@ -1791,7 +1792,9 @@ def _resolve_monster_attack(
     single-entry pool since there's only ever one player to hit). The skill has to be picked here
     (not by the caller) specifically so this "how many targets" decision can be made from ITS
     result -- peeking it beforehand would mean rolling dungeon.pick_monster_action's own randomness
-    twice.
+    twice. `ally_count` (how many OTHER monsters are still alive in this same fight) is passed
+    straight through to dungeon.pick_monster_action -- purely a gate on which skills are even
+    eligible to be picked, not a targeting pool, so it doesn't change the next paragraph at all.
 
     A monster has no ally pool distinct from itself (no inter-monster targeting exists in this
     game), so any self/ally-targeted effect (heal/guard/buffs/the timed dodge/resist/dot/hot ones,
@@ -1811,7 +1814,7 @@ def _resolve_monster_attack(
     damage is in, which is BEFORE the caller has appended its own "unleashes X for Y" announcement,
     so appending it here would read backwards (the drain narrated before the hit that caused it).
     Callers append it themselves, last, after their own announcement/flavor lines."""
-    skill = dungeon.pick_monster_action(attacker.monster)
+    skill = dungeon.pick_monster_action(attacker.monster, ally_count)
     special = bool(skill.get("special")) if skill else False
     effects = dungeon.resolve_cast_effects(skill) if skill else []
 
@@ -1943,7 +1946,8 @@ async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSe
             continue
 
         results, monster_skill, lifesteal_line = _resolve_monster_attack(
-            monster, [session], session, moon_effect, log_lines
+            monster, [session], session, moon_effect, log_lines,
+            ally_count=len(session.living_monsters()) - 1,
         )
         _, monster_dmg, dodged = results[0]
         verb = f"unleashes **{monster_skill['name']}**" if monster_skill else "strikes back"
@@ -2301,7 +2305,8 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
         # effect is flagged "aoe" -- see _resolve_monster_attack's own docstring. Every other
         # skill (and a plain attack) still resolves to just the threat-picked `threat_target`.
         results, monster_skill, lifesteal_line = _resolve_monster_attack(
-            monster, living, threat_target, moon_effect, log_lines
+            monster, living, threat_target, moon_effect, log_lines,
+            ally_count=len(session.living_monsters()) - 1,
         )
         flavor = monster_skill.get("flavor") if monster_skill else None
         if len(results) > 1:
