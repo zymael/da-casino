@@ -3,9 +3,9 @@
     "id": "goblin_grunt",
     "name": "Goblin Groover",
     "hp": 27,
-    "atk": 9,
+    "atk": 12,
     "def": 2,
-    "spatk": 9,
+    "spatk": 6,
     "spdef": 2,
     "spd": 6,
     "intended_level": 1,
@@ -51,9 +51,9 @@
     "id": "goblin_scavenger",
     "name": "Goblin Hustler",
     "hp": 24,
-    "atk": 6,
+    "atk": 3,
     "def": 5,
-    "spatk": 4,
+    "spatk": 7,
     "spdef": 5,
     "spd": 7,
     "intended_level": 1,
@@ -78,8 +78,12 @@
       {
         "name": "The Hustle",
         "chance": 0.3,
-        "special": false,
+        "special": true,
         "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 0.8
+          },
           {
             "type": "lifesteal_fraction",
             "value": 0.25
@@ -94,9 +98,9 @@
     "id": "goblin_dj",
     "name": "Goblin DJ",
     "hp": 22,
-    "atk": 21,
+    "atk": 9,
     "def": 6,
-    "spatk": 24,
+    "spatk": 36,
     "spdef": 10,
     "spd": 16,
     "intended_level": 5,
@@ -136,11 +140,11 @@
       {
         "name": "Drop the Bass",
         "chance": 0.5,
-        "special": false,
+        "special": true,
         "effects": [
           {
             "type": "damage_multiplier",
-            "value": 1.5
+            "value": 1.6
           }
         ],
         "flavor": "The subwoofers scream as the beat drops all at once, and so do you."
@@ -151,11 +155,23 @@
         "special": false,
         "effects": [
           {
-            "type": "def_shred",
+            "type": "spdef_debuff",
             "value": 2
           }
         ],
-        "flavor": "A screeching scratch across the vinyl throws off your rhythm -- and your guard -- right before the next drop."
+        "flavor": "A screeching scratch across the vinyl cracks more than your rhythm -- it cracks your guard wide open."
+      },
+      {
+        "name": "Encore",
+        "chance": 0.15,
+        "special": true,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 2.2
+          }
+        ],
+        "flavor": "They call for one more song. You don't want to hear it."
       }
     ],
     "sprite_path": "assets/dungeon/monsters/goblin_skirmisher.png"
@@ -653,12 +669,12 @@
   {
     "id": "goblin_doorman",
     "name": "Goblin Doorman",
-    "hp": 13,
-    "atk": 6,
-    "def": 3,
-    "spatk": 13,
-    "spdef": 6,
-    "spd": 14,
+    "hp": 8,
+    "atk": 5,
+    "def": 2,
+    "spatk": 2,
+    "spdef": 3,
+    "spd": 6,
     "intended_level": 1,
     "shape": "circle",
     "color": "#000000",
@@ -692,9 +708,9 @@
     "id": "goblin_bartender",
     "name": "Goblin Bartender",
     "hp": 34,
-    "atk": 11,
+    "atk": 20,
     "def": 9,
-    "spatk": 18,
+    "spatk": 9,
     "spdef": 18,
     "spd": 12,
     "intended_level": 5,
@@ -754,11 +770,27 @@
         "special": false,
         "effects": [
           {
+            "type": "damage_multiplier",
+            "value": 0.9
+          },
+          {
             "type": "lifesteal_fraction",
             "value": 0.3
           }
         ],
         "flavor": "They pour themselves a shot mid-fight, throw it back, and keep swinging like nothing happened."
+      },
+      {
+        "name": "Closing Bell",
+        "chance": 0.2,
+        "special": false,
+        "effects": [
+          {
+            "type": "stun",
+            "duration": 1
+          }
+        ],
+        "flavor": "The bell rings. Time's up, whether you're ready or not."
       }
     ],
     "sprite_path": "assets/dungeon/monsters/goblin_archer_copy.png"
