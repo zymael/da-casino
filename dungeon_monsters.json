@@ -117,6 +117,11 @@
         "chance": 0.15
       },
       {
+        "kind": "equipment",
+        "item_id": "strobe_rig",
+        "chance": 0.2
+      },
+      {
         "kind": "housing_item",
         "item_id": "two_turntables_and_a_microphone",
         "chance": 0.02
@@ -702,6 +707,11 @@
       {
         "kind": "equipment",
         "item_id": "bottle_service",
+        "chance": 0.15
+      },
+      {
+        "kind": "equipment",
+        "item_id": "half_drank_tiki_glass",
         "chance": 0.15
       },
       {

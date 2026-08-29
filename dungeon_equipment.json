@@ -710,6 +710,46 @@
     "flavor": "Every scratch throws the beat off, and their guard right along with it."
   },
   {
+    "id": "strobe_rig",
+    "name": "Strobe Rig",
+    "slot": "trinket",
+    "rarity": "rare",
+    "effects": [
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 8
+      }
+    ],
+    "special": false,
+    "intended_level": 5,
+    "base_value": 350,
+    "flavor": "Nothing left in the tank but the lights are still flashing, and so are you."
+  },
+  {
+    "id": "half_drank_tiki_glass",
+    "name": "Half Drank Tiki Glass",
+    "slot": "weapon",
+    "rarity": "rare",
+    "effects": [
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 4
+      },
+      {
+        "type": "lifesteal_fraction",
+        "trigger": "on_hit",
+        "chance": 0.3,
+        "value": 0.2
+      }
+    ],
+    "special": false,
+    "intended_level": 5,
+    "base_value": 350,
+    "flavor": "You finish their drink for them. They don't seem to need it anymore."
+  },
+  {
     "id": "bottle_service",
     "name": "Bottle Service",
     "slot": "trinket",
