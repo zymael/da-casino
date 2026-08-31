@@ -128,7 +128,7 @@ HELP_CATEGORIES = [
     ("💰 Economy", ["balance", "stats", "rest", "mine", "tip", "transfer", "pizza", "leaderboard"]),
     ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
     ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost", "horseequip"]),
-    ("🗡️ Dungeon", ["class", "delve", "inventory", "equipment", "craft", "smash", "quests"]),
+    ("🗡️ Dungeon", ["class", "combathelp", "delve", "inventory", "equipment", "craft", "smash", "quests"]),
     ("🏆 Achievements", ["achievements"]),
     ("⚙️ Utility", ["ping", "setcasino", "setcurrency", "setdelvetest", "rub", "roy", "deletebot"]),
 ]
@@ -936,6 +936,12 @@ def _skill_effect_text(skill: dict) -> str:
     )
 
 
+def _skill_stat_label(skill: dict) -> str:
+    """Which stat this skill's damage/accuracy rolls off of -- SpAtk/SpDef for a skill flagged
+    "special" (dungeon_skills.json's optional `special` field), ATK/DEF otherwise."""
+    return "SpAtk" if skill.get("special") else "ATK"
+
+
 @bot.command(name="skills")
 async def skills_cmd(ctx):
     """See the skills you've unlocked so far: !skills"""
@@ -949,10 +955,71 @@ async def skills_cmd(ctx):
     embed = discord.Embed(title=f"{name}'s Skills", color=discord.Color.blurple())
     for skill in skills:
         embed.add_field(
-            name=f"{skill['name']} (Lv {skill['unlock_level']}, {skill['chip_cost']} chips)",
+            name=f"{skill['name']} ({_skill_stat_label(skill)}, Lv {skill['unlock_level']}, {skill['chip_cost']} chips)",
             value=f"{skill['flavor']}\n{_skill_effect_text(skill)}",
             inline=False,
         )
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="combathelp")
+async def combathelp_cmd(ctx):
+    """Explains how dungeon combat works -- stats, damage, dodge, turn order, chips -- plus a
+    condensed rundown of your own unlocked skills: !combathelp"""
+    embed = discord.Embed(
+        title="⚔️ Combat Basics",
+        color=discord.Color.blurple(),
+    )
+    embed.add_field(
+        name="Stats",
+        value=(
+            "❤️ **HP** is your health pool. Hit 0 and you're knocked out.\n"
+            "⚔️ **ATK** and 🛡️ **DEF** are for regular attacks: how hard you hit, and how well you shrug off getting hit.\n"
+            "✨ **SpAtk** and 🔰 **SpDef** are the same idea, but for skills that count as \"special\" instead of a plain attack.\n"
+            "💨 **SPD** decides how often you get a turn, not just who goes first.\n"
+            "🪙 **Chips** pay for your skills. You start each delve with a full tank and it doesn't refill until your next delve, even across multiple fights in the same run, so spend it like a budget for the whole trip, not just the fight in front of you."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Damage & Dodge",
+        value=(
+            "A hit's damage starts from your ATK (or SpAtk, boosted if the skill has a damage bonus), then "
+            "gets cut down by a percentage based on the target's DEF or SpDef, the higher that stat, the "
+            "bigger the cut. It can never chip your damage down to nothing, just take a bigger and bigger "
+            "bite, plus there's a bit of random luck either way, and it'll never do zero, so a fight can't "
+            "stall out.\n"
+            "Having more DEF or SpDef also gives you a chance to dodge an attack completely, physical attacks "
+            "care about DEF and special attacks care about SpDef. That chance grows the more you stack the stat, "
+            "but it's always kept well under a coin flip, so you can't build your way to being unhittable."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Turn Order & Chips",
+        value=(
+            "Turns aren't decided once at the start of the fight. It's a rotation: the higher your SPD, "
+            "the more often your turn comes back around, not just whether you go first.\n"
+            "Every skill costs Chips out of the same pool for your whole delve, not just the fight you're in, "
+            "so spending big early can leave you stuck throwing plain attacks in a later fight once you run dry."
+        ),
+        inline=False,
+    )
+
+    character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
+    if character is None:
+        embed.set_footer(text="You don't have a character yet -- run !class to pick one.")
+        await ctx.send(embed=embed)
+        return
+
+    skills = dungeon.unlocked_skills(character["main_class"], character["subclass"], character["level"])
+    skill_lines = [
+        f"**{skill['name']}** ({_skill_stat_label(skill)}, Lv {skill['unlock_level']}, {skill['chip_cost']} chips): "
+        f"{_skill_effect_text(skill)}"
+        for skill in skills
+    ]
+    embed.add_field(name="Your Skills", value="\n".join(skill_lines), inline=False)
+    embed.set_footer(text="!skills for full flavor text -- !class for your current stat values.")
     await ctx.send(embed=embed)
 
 
