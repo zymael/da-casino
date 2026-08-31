@@ -329,7 +329,8 @@
         "chance": 0.01
       }
     ],
-    "skills": []
+    "skills": [],
+    "sprite_path": "assets/dungeon/monsters/gnome_doorman.png"
   },
   {
     "id": "gnome_leather_daddy",
