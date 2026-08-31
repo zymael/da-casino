@@ -513,6 +513,7 @@
       {
         "name": "Questionable Dance",
         "chance": 0.3,
+        "special": false,
         "effects": [
           {
             "type": "damage_multiplier",
@@ -520,7 +521,8 @@
           }
         ]
       }
-    ]
+    ],
+    "sprite_path": "assets/dungeon/monsters/nakedgnome_3.png"
   },
   {
     "id": "bath_witch",
