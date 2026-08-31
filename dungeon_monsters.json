@@ -300,7 +300,8 @@
         "chance": 0.3
       }
     ],
-    "skills": []
+    "skills": [],
+    "sprite_path": "assets/dungeon/monsters/enchanted_comb.png"
   },
   {
     "id": "gnome_doorman",
