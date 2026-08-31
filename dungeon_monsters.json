@@ -12,8 +12,8 @@
     "shape": "triangle",
     "color": "#4a7c3c",
     "flavor": "A shiny goblin spins around menacingly on the dance floor, yet it's moves are far from fly.  You move in to show them how to really break it down.  By which you mean their face.",
-    "loot_min": 15,
-    "loot_max": 39,
+    "loot_min": 45,
+    "loot_max": 117,
     "drops": [
       {
         "kind": "equipment",
@@ -60,8 +60,8 @@
     "shape": "triangle",
     "color": "#6b8e3a",
     "flavor": "This Goblin knows how to Hustle.  By which they mean they know how to hustle on over and open a can of whoop-ass on you.\r\n\r\nBetter keep up the groove.",
-    "loot_min": 15,
-    "loot_max": 30,
+    "loot_min": 45,
+    "loot_max": 90,
     "drops": [
       {
         "kind": "equipment",
@@ -107,8 +107,8 @@
     "shape": "pentagon",
     "color": "#3c6e4a",
     "flavor": "This is the last time that they play Electrofunk on Italo Disco night, if you have anything to say about it.",
-    "loot_min": 30,
-    "loot_max": 60,
+    "loot_min": 90,
+    "loot_max": 180,
     "drops": [
       {
         "kind": "equipment",
@@ -694,8 +694,8 @@
     "shape": "circle",
     "color": "#000000",
     "flavor": "They really look like they don't want to do this...",
-    "loot_min": 10,
-    "loot_max": 20,
+    "loot_min": 30,
+    "loot_max": 60,
     "drops": [
       {
         "kind": "equipment",
@@ -732,8 +732,8 @@
     "shape": "pentagon",
     "color": "#2f6b57",
     "flavor": "The Goblin Bartender attempts to 86 you.  You prepare to show him the tip of a lifetime.",
-    "loot_min": 30,
-    "loot_max": 60,
+    "loot_min": 90,
+    "loot_max": 180,
     "drops": [
       {
         "kind": "equipment",
@@ -823,8 +823,8 @@
     "shape": "circle",
     "color": "#000000",
     "flavor": "The Goblin Mob Boss starts to talk in an insensitively stereotypical I accent.  You hush them quickly and move to give them a lesson in modern media sensibilities.",
-    "loot_min": 100,
-    "loot_max": 200,
+    "loot_min": 300,
+    "loot_max": 600,
     "drops": [
       {
         "kind": "equipment",

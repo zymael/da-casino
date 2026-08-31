@@ -19,7 +19,7 @@
             "on_success": {
               "next": "Dance Floor",
               "message": "They don't even try to fight, and curls into a ball.  You feel a bit bad, but not bad enough to not take their lunch money before moving on.",
-              "currency_delta": 25
+              "currency_delta": 75
             },
             "on_fail": {
               "next": "Fight the Doorman"
