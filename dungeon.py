@@ -1578,11 +1578,23 @@ def compute_effective_stats(
 
 DAMAGE_VARIANCE_LOW, DAMAGE_VARIANCE_HIGH = 0.85, 1.15
 
+# Percentage mitigation, not a flat subtraction -- same diminishing-returns shape dodge_chance
+# already uses below (defense/(defense+K)). A flat (atk - def) subtraction hard-walls: once def
+# reaches atk*multiplier, EVERY hit floors to 1 damage no matter how much further def grows, which
+# was both "1 damage is too common" (every multi-hit skill's sub-1.0 multiplier trips this against
+# completely ordinary DEF) and "DEF kills ATK" (no chip damage once def catches up) at once. K=25
+# tuned against real monster DEF (2-34 across current content) and skill damage_multipliers
+# (0.3-3.2) -- big enough that low DEF (early monsters) still barely mitigates, small enough that
+# high DEF (bosses) meaningfully cuts damage without approaching a full wall.
+DEF_MITIGATION_K = 25
+
 
 def roll_damage(atk: int, defense: int, multiplier: float = 1.0) -> int:
-    """Damage is attacker's ATK (times an optional ability multiplier) minus defender's DEF,
-    with +-15% variance, floored at 1 so a fight can never stall."""
-    raw = (atk * multiplier - defense) * random.uniform(DAMAGE_VARIANCE_LOW, DAMAGE_VARIANCE_HIGH)
+    """Damage is attacker's ATK (times an optional ability multiplier) reduced by defender's DEF
+    via DEF_MITIGATION_K's percentage curve, with +-15% variance, floored at 1 so a fight can never
+    stall."""
+    mitigation = DEF_MITIGATION_K / (DEF_MITIGATION_K + defense)
+    raw = atk * multiplier * mitigation * random.uniform(DAMAGE_VARIANCE_LOW, DAMAGE_VARIANCE_HIGH)
     return max(1, round(raw))
 
 
@@ -1748,10 +1760,12 @@ MONSTER_ARCHETYPES = {
 
 
 def _monster_power_budget(level: int) -> float:
-    """hp + 2*atk + 2*def, the single "power" scalar generate_monster_stats/estimate_monster_level
-    both key off -- weighted 2x on atk/def since one point of either moves roll_damage's output by
-    roughly twice what one point of HP is worth (ATK and DEF trade off the same subtraction; HP is
-    just what's left standing after it)."""
+    """The single level-scaled "power" scalar generate_monster_stats/estimate_monster_level both
+    key off, split into hp/atk/def by whichever of those two functions is using it (see their own
+    docstrings for the current atk/def weighting -- DEF's weight is roughly half of ATK's now that
+    roll_damage mitigates DEF as a percentage rather than a flat subtraction, an approximation
+    that's no longer an exact 1:1 the way it was under the old flat-subtraction formula, so it's
+    not restated here as a fixed "hp + Watk*atk + Wdef*def" identity)."""
     return 35 + 8 * level
 
 
@@ -1776,9 +1790,13 @@ def _monster_speed_budget(level: int) -> float:
 
 def generate_monster_stats(level: int, archetype: dict | None = None) -> dict:
     """hp/atk/def/spatk/spdef/speed for a monster meant to feel "right" at `level`, split by
-    `archetype`'s weights (defaults to balanced -- see MONSTER_ARCHETYPES). Doesn't touch
-    intended_level itself; callers (admin_server.py's _apply_generate_level) set that alongside
-    this."""
+    `archetype`'s weights (defaults to balanced -- see MONSTER_ARCHETYPES). ATK stays 2 budget
+    units per stat point (its marginal effect on roll_damage's output is still a clean linear
+    scale-up); DEF costs only 1 (its marginal effect on damage TAKEN is now a diminishing curve
+    that depends on the attacker's own ATK, so there's no longer a single "correct" ratio -- 1 is a
+    reasonable approximation at this game's typical mid-tier matchups, not a precise inverse).
+    Doesn't touch intended_level itself; callers (admin_server.py's _apply_generate_level) set that
+    alongside this."""
     archetype = archetype or MONSTER_ARCHETYPES["balanced"]
     budget = _monster_power_budget(level)
     special_budget = _monster_special_budget(level)
@@ -1786,7 +1804,7 @@ def generate_monster_stats(level: int, archetype: dict | None = None) -> dict:
     return {
         "hp": max(1, round(budget * archetype["hp"])),
         "atk": max(1, round(budget * archetype["atk"] / 2)),
-        "def": max(1, round(budget * archetype["def"] / 2)),
+        "def": max(1, round(budget * archetype["def"])),
         "spatk": max(1, round(special_budget * archetype["spatk"])),
         "spdef": max(1, round(special_budget * archetype["spdef"])),
         "spd": max(1, round(speed_budget * archetype["speed"])),
@@ -1796,13 +1814,15 @@ def generate_monster_stats(level: int, archetype: dict | None = None) -> dict:
 def estimate_monster_level(monster: dict) -> float:
     """Inverse of generate_monster_stats/_monster_power_budget -- a monster's hp/atk/def read back
     as "the level this would have been generated for", regardless of archetype (the split cancels
-    out since power_budget sums all three back into one scalar). Deliberately excludes spatk/spdef
-    AND speed from this formula, same reason _monster_special_budget's docstring already gives for
-    spatk/spdef -- every real monster has speed backfilled as a function of atk/def (see
-    dungeon_monsters.json), so folding it in here would double-count and inflate this estimate for
-    every one of them despite hp/atk/def/intended_level never having changed. Used as
-    intended_level's fallback wherever a monster predates that field, or has it unset."""
-    budget = monster["hp"] + 2 * monster["atk"] + 2 * monster["def"]
+    out since power_budget sums all three back into one scalar). DEF's weight matches
+    generate_monster_stats' own 1x (vs ATK's 2x) -- see that function's docstring for why that's an
+    approximation rather than an exact inverse. Deliberately excludes spatk/spdef AND speed from
+    this formula, same reason _monster_special_budget's docstring already gives for spatk/spdef --
+    every real monster has speed backfilled as a function of atk/def (see dungeon_monsters.json),
+    so folding it in here would double-count and inflate this estimate for every one of them
+    despite hp/atk/def/intended_level never having changed. Used as intended_level's fallback
+    wherever a monster predates that field, or has it unset."""
+    budget = monster["hp"] + 2 * monster["atk"] + monster["def"]
     return max(1.0, (budget - 35) / 8)
 
 
@@ -1815,7 +1835,7 @@ def estimate_group_level(monsters: list[dict]) -> float:
     treating it as a real level 0."""
     if not monsters:
         return 0.0
-    total_budget = sum(m["hp"] + 2 * m["atk"] + 2 * m["def"] for m in monsters)
+    total_budget = sum(m["hp"] + 2 * m["atk"] + m["def"] for m in monsters)
     return max(1.0, (total_budget - 35) / 8)
 
 
@@ -1833,14 +1853,16 @@ _EQUIPMENT_SLOT_WEIGHTS = {
 
 
 def _item_power_budget(level: int) -> float:
-    """hp + 2*atk + 2*def + 2*spatk + 2*spdef + 2*speed power scalar, scaled way down from
-    _monster_power_budget -- a piece of gear is one small increment on top of a whole character's
-    own stats, not a whole combatant's total. Unlike the monster case, spatk/spdef/speed fold into
-    this SAME budget rather than getting an independent one -- necessary, not just simpler: no
-    equipment gets backfilled with spatk/spdef/speed (existing gear just omits the keys, worth 0
-    here), so a stat total summed over whatever's in constant_stat_bonuses stays correct for old
-    gear, and a fresh item at a given level isn't handed extra "free" power an old item of the
-    same level never had a chance to also carry."""
+    """The level-scaled power scalar for one piece of gear, split into hp/atk/def/spatk/spdef/
+    speed by generate_item_constant_effects' own divisors (see that function's docstring for the
+    current atk/def/spatk/spdef weighting) -- scaled way down from _monster_power_budget since a
+    piece of gear is one small increment on top of a whole character's own stats, not a whole
+    combatant's total. Unlike the monster case, spatk/spdef/speed fold into this SAME budget rather
+    than getting an independent one -- necessary, not just simpler: no equipment gets backfilled
+    with spatk/spdef/speed (existing gear just omits the keys, worth 0 here), so a stat total
+    summed over whatever's in constant_stat_bonuses stays correct for old gear, and a fresh item at
+    a given level isn't handed extra "free" power an old item of the same level never had a chance
+    to also carry."""
     return 1.5 * level
 
 
@@ -1857,14 +1879,18 @@ def generate_item_constant_effects(level: int, slot: str, rarity: str = "common"
     `rarity` -- weapon leans almost entirely ATK, armor splits HP/DEF/SpDef, trinket is even across
     all six (see _EQUIPMENT_SLOT_WEIGHTS), then the whole budget is scaled by
     RARITY_STAT_MULTIPLIERS so a higher tier is authored to meaningfully outclass a lower one at
-    the same level. A weight of exactly 0 omits that stat entirely rather than writing a 0-value
+    the same level. ATK/SpAtk stay 2 budget units per point (roll_damage scales linearly with the
+    attacker's own stat); DEF/SpDef cost only 1 -- their marginal effect on damage TAKEN is now a
+    diminishing curve depending on the attacker's ATK/SpAtk (see roll_damage/DEF_MITIGATION_K), so
+    there's no single "correct" ratio anymore, and 1 is a reasonable approximation rather than a
+    precise inverse. A weight of exactly 0 omits that stat entirely rather than writing a 0-value
     effect, matching how real equipment entries only list the stats they actually touch. Renamed
     from the pre-effects-system generate_item_stat_bonuses now that the return shape is an effects
     list, not a flat stat_bonuses dict -- stays scoped to constant-only, on_use/on_hit effects are
     always hand-authored, never auto-rolled."""
     weights = _EQUIPMENT_SLOT_WEIGHTS.get(slot, _EQUIPMENT_SLOT_WEIGHTS["trinket"])
     budget = _item_power_budget(level) * RARITY_STAT_MULTIPLIERS.get(rarity, 1.0)
-    divisors = {"hp": 1, "atk": 2, "def": 2, "spatk": 2, "spdef": 2, "speed": 2}
+    divisors = {"hp": 1, "atk": 2, "def": 1, "spatk": 2, "spdef": 1, "speed": 2}
     effects = []
     for stat, weight in weights.items():
         if weight:
@@ -1877,11 +1903,13 @@ def estimate_item_level(item: dict) -> float:
     """Inverse of generate_item_constant_effects/_item_power_budget -- divides back out the same
     rarity multiplier generation scaled up by, so a legendary item's stats read as "balanced for
     level X" against the actual level it was generated for, not an inflated one just because
-    rarity made its raw numbers bigger."""
+    rarity made its raw numbers bigger. DEF/SpDef's 1x weight matches
+    generate_item_constant_effects' own divisors (vs ATK/SpAtk/speed's 2x) -- see that function's
+    docstring for why that's an approximation rather than an exact inverse."""
     bonuses = constant_stat_bonuses(item)
     budget = (
-        bonuses.get("hp", 0) + 2 * bonuses.get("atk", 0) + 2 * bonuses.get("def", 0)
-        + 2 * bonuses.get("spatk", 0) + 2 * bonuses.get("spdef", 0) + 2 * bonuses.get("speed", 0)
+        bonuses.get("hp", 0) + 2 * bonuses.get("atk", 0) + bonuses.get("def", 0)
+        + 2 * bonuses.get("spatk", 0) + bonuses.get("spdef", 0) + 2 * bonuses.get("speed", 0)
     )
     rarity_mult = RARITY_STAT_MULTIPLIERS.get(item.get("rarity"), 1.0)
     return max(1.0, budget / 1.5 / rarity_mult)
