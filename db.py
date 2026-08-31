@@ -2202,11 +2202,13 @@ def get_house_placements(guild_id: int, user_id: int) -> dict[int, str]:
         conn.close()
 
 
-def place_house_item(guild_id: int, user_id: int, slot: int, item_id: str) -> bool:
+def place_house_item(guild_id: int, user_id: int, slot: int, item_id: str) -> str:
     """Places item_id into `slot`, moving whatever was previously there back into inventory (same
     swap behavior as equip_item_smart) and removing one item_id from inventory (it's on display
-    now, not held). Returns whether it succeeded -- False (untouched) if the player doesn't hold a
-    free copy of item_id."""
+    now, not held). Returns "placed" on success, "no_item" (untouched) if the player doesn't hold
+    a free copy of item_id, or "duplicate" (untouched) if item_id is already placed in a different
+    slot -- housing items are one-per-house, not one-per-slot, so their passive effect (see
+    housing.get_house_bonuses) can't be stacked by placing several copies."""
     conn = _connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -2216,7 +2218,14 @@ def place_house_item(guild_id: int, user_id: int, slot: int, item_id: str) -> bo
         ).fetchone()
         if not row or row[0] < 1:
             conn.rollback()
-            return False
+            return "no_item"
+        duplicate = conn.execute(
+            "SELECT 1 FROM house_placements WHERE guild_id = ? AND user_id = ? AND item_id = ? AND slot != ?",
+            (guild_id, user_id, item_id, slot),
+        ).fetchone()
+        if duplicate:
+            conn.rollback()
+            return "duplicate"
         if row[0] == 1:
             conn.execute(
                 "DELETE FROM inventory WHERE guild_id = ? AND user_id = ? AND item_id = ?",
@@ -2243,7 +2252,7 @@ def place_house_item(guild_id: int, user_id: int, slot: int, item_id: str) -> bo
             (guild_id, user_id, slot, item_id),
         )
         conn.commit()
-        return True
+        return "placed"
     finally:
         conn.close()
 

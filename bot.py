@@ -1790,9 +1790,14 @@ async def _pick_house_slot(ctx, slot: int):
     or remove what's there) now that a slot's been chosen."""
     guild_id, user_id = ctx.guild.id, ctx.author.id
     owned = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
-    owned_item_ids = [item_id for item_id in owned if item_id in housing.HOUSING_ITEMS]
     placements = await asyncio.to_thread(db.get_house_placements, guild_id, user_id)
     occupant_item_id = placements.get(slot)
+    # Housing items are one-per-house (see db.place_house_item) -- an item already placed in a
+    # *different* slot doesn't show up here as a choice, so a duplicate can't even be selected.
+    placed_elsewhere = set(placements.values()) - {occupant_item_id}
+    owned_item_ids = [
+        item_id for item_id in owned if item_id in housing.HOUSING_ITEMS and item_id not in placed_elsewhere
+    ]
     if not owned_item_ids and not occupant_item_id:
         await ctx.send("You don't own any housing items to place there yet.")
         return
@@ -1811,11 +1816,14 @@ async def _place_house_item(ctx, slot: int, item_id: str):
     """The actual placement logic -- shared by whatever gets here regardless of how slot/item_id
     were collected, same "one real code path" shape as _train_horse."""
     guild_id, user_id = ctx.guild.id, ctx.author.id
-    placed = await asyncio.to_thread(db.place_house_item, guild_id, user_id, slot, item_id)
-    if not placed:
+    result = await asyncio.to_thread(db.place_house_item, guild_id, user_id, slot, item_id)
+    item = housing.HOUSING_ITEMS[item_id]
+    if result == "no_item":
         await ctx.send("You don't have a free copy of that item anymore.")
         return
-    item = housing.HOUSING_ITEMS[item_id]
+    if result == "duplicate":
+        await ctx.send(f"You already have **{item['name']}** placed elsewhere in your house — its effect doesn't stack.")
+        return
     await ctx.send(f"{item['emoji']} Placed **{item['name']}** in slot {slot + 1}!")
     await _show_house(ctx)
 
