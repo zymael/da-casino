@@ -128,7 +128,7 @@
       {
         "kind": "housing_item",
         "item_id": "two_turntables_and_a_microphone",
-        "chance": 0.1
+        "chance": 0.2
       },
       {
         "kind": "consumable",
@@ -748,7 +748,7 @@
       {
         "kind": "housing_item",
         "item_id": "groovy_lava_lamp",
-        "chance": 0.1
+        "chance": 0.2
       }
     ],
     "skills": [
@@ -824,7 +824,7 @@
       {
         "kind": "housing_item",
         "item_id": "shag_wall",
-        "chance": 0.1
+        "chance": 0.2
       },
       {
         "kind": "consumable",
