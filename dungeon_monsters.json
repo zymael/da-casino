@@ -128,7 +128,7 @@
       {
         "kind": "housing_item",
         "item_id": "two_turntables_and_a_microphone",
-        "chance": 0.02
+        "chance": 0.1
       },
       {
         "kind": "consumable",
