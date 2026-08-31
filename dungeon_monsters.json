@@ -654,6 +654,7 @@
       {
         "name": "Bite!",
         "chance": 1,
+        "special": false,
         "effects": [
           {
             "type": "damage_multiplier",
@@ -664,6 +665,7 @@
       {
         "name": "Tail slap!",
         "chance": 1,
+        "special": false,
         "effects": [
           {
             "type": "extra_attack",
@@ -671,7 +673,8 @@
           }
         ]
       }
-    ]
+    ],
+    "sprite_path": "assets/dungeon/monsters/z_goolok.png"
   },
   {
     "id": "goblin_doorman",
