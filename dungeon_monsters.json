@@ -823,8 +823,8 @@
     "shape": "circle",
     "color": "#000000",
     "flavor": "The Goblin Mob Boss starts to talk in an insensitively stereotypical I accent.  You hush them quickly and move to give them a lesson in modern media sensibilities.",
-    "loot_min": 300,
-    "loot_max": 600,
+    "loot_min": 200,
+    "loot_max": 400,
     "drops": [
       {
         "kind": "equipment",
