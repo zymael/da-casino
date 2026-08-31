@@ -346,7 +346,9 @@
     "flavor": "Oh no...",
     "loot_min": 100,
     "loot_max": 200,
-    "drops": []
+    "drops": [],
+    "skills": [],
+    "sprite_path": "assets/dungeon/monsters/gnome_leather_daddy.png"
   },
   {
     "id": "enchanted_towel",
