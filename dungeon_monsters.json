@@ -378,6 +378,7 @@
       {
         "name": "Towel spank!",
         "chance": 0.2,
+        "special": false,
         "effects": [
           {
             "type": "extra_attack",
@@ -385,7 +386,8 @@
           }
         ]
       }
-    ]
+    ],
+    "sprite_path": "assets/dungeon/monsters/enchanted_towel.png"
   },
   {
     "id": "nakedgnome_1",
