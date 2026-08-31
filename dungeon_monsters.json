@@ -444,6 +444,7 @@
       {
         "name": "Slippery slap!",
         "chance": 0.2,
+        "special": false,
         "effects": [
           {
             "type": "lifesteal_fraction",
@@ -451,7 +452,8 @@
           }
         ]
       }
-    ]
+    ],
+    "sprite_path": "assets/dungeon/monsters/enchanted_soap.png"
   },
   {
     "id": "nakedgnome_2",
