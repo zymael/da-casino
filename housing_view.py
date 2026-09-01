@@ -10,6 +10,7 @@ import discord
 
 import housing
 import hub_ui
+import inventory_view
 
 MAX_SELECT_OPTIONS = 25  # Discord's hard limit on a single Select's options
 GRID_SIZE = 9
@@ -62,7 +63,7 @@ class HouseSlotSelect(discord.ui.Select):
             item = housing.HOUSING_ITEMS.get(placements.get(slot))
             label = f"Slot {slot + 1}: {item['name']}" if item else f"Slot {slot + 1}: (empty)"
             options.append(discord.SelectOption(label=label[:100], value=str(slot)))
-        super().__init__(placeholder="Choose a slot...", options=options)
+        super().__init__(placeholder="Choose a slot...", options=options, row=0)
         self.on_pick = on_pick
 
     async def callback(self, interaction: discord.Interaction):
@@ -71,8 +72,23 @@ class HouseSlotSelect(discord.ui.Select):
 
 
 def build_slot_picker(placements: dict[int, str], on_pick) -> discord.ui.View:
+    """The slot-picker Select, plus one inventory_view.UseHousingItemButton (reused as-is, not
+    duplicated -- see housing.py's "usable by field presence" comment) per currently-*placed* item
+    that has a use_label set. A housing item still owned but not yet placed is only usable via
+    !inventory; once it's sitting in the house, using it from here too just makes sense (e.g.
+    rubbing the Turrón that's actually on your shelf)."""
     view = discord.ui.View(timeout=300)
     view.add_item(HouseSlotSelect(placements, on_pick))
+    row, in_row = 1, 0
+    for item_id in placements.values():
+        item = housing.HOUSING_ITEMS.get(item_id)
+        if not item or not item.get("use_label"):
+            continue
+        view.add_item(inventory_view.UseHousingItemButton(item_id, item, row))
+        in_row += 1
+        if in_row >= 5:  # Discord's own per-row button cap
+            in_row = 0
+            row += 1
     return view
 
 

@@ -1859,7 +1859,7 @@ async def pizza(ctx):
 HOUSE_UNLOCK_QUEST_ID = "leto_first_home"
 
 
-@bot.command(name="house")
+@bot.command(name="house", aliases=["home"])
 async def house_cmd(ctx):
     """View your house and place items in its 3x3 grid: !house. Unlike !train (a single typed
     horse number), placing an item needs two arguments -- which slot, which item -- so there's no
