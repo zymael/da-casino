@@ -633,6 +633,7 @@ async def tip_cmd(ctx, member: discord.Member = None):
 RUB_LUCKY_TARGET_ID = 272816170749526027  # fallback only, if no active user is found
 RUB_LUCK_RANGE = (1, 5)  # permanent -- stolen luck stays stolen
 TURRON_TARGET_ID = 319966284848693250  # rubbing luck away from this specific user drops a Delicious Turron
+TURRON_GIF = "https://media1.tenor.com/m/oDMzfUQF1IwAAAAd/ena-joel-g.gif"
 
 
 @bot.command(name="rub")
@@ -664,7 +665,10 @@ async def rub_cmd(ctx):
         )
         if unlocked:
             await asyncio.to_thread(db.add_inventory_item, ctx.guild.id, ctx.author.id, "delicious_turron")
-            await ctx.send(f"🍬 Along with their luck, you also swipe a **{housing.HOUSING_ITEMS['delicious_turron']['name']}**. Criminal.")
+            await ctx.send(
+                f"🍬 Along with their luck, you also swipe a **{housing.HOUSING_ITEMS['delicious_turron']['name']}**. "
+                f"Criminal.\n{TURRON_GIF}"
+            )
 
 
 @bot.command(name="roy")
