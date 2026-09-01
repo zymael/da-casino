@@ -414,6 +414,12 @@ CONTENT_TYPES = {
                         "energy-restoring consumable a player owns (not tracked per item).",
             },
             {
+                "name": "use_label", "type": "str", "required": False, "group": "Identity",
+                "hint": "optional -- the verb !inventory's Use button shows for this item, as "
+                        "'{use_label} {item name}' (e.g. 'Snort A bag of mystery powder'). Defaults "
+                        "to 'Drink' when left blank.",
+            },
+            {
                 "name": "effects", "type": "effects", "required": False,
                 "hint": "fill in EITHER this OR effect_groups below, never both -- see effect_groups' "
                         "own hint for when you need that instead. Not needed at all for a pure "
@@ -793,13 +799,26 @@ CONTENT_TYPES = {
             {
                 "name": "value", "type": "int", "required": True, "group": "Effect",
                 "hint": "a percent for dungeon_loot_bonus/dungeon_xp_bonus/ranch_training_bonus, a "
-                        "flat point for stat_bonus, a flat amount for rest_energy_bonus/rest_gold_bonus",
+                        "flat point for stat_bonus, a flat amount for rest_energy_bonus/rest_gold_bonus/"
+                        "luck_bonus",
             },
             {
                 "name": "stat", "type": "enum", "required": False, "group": "Effect",
                 "choices": list(housing.HOUSING_STATS),
                 "hint": "only used (and required) when effect_type is stat_bonus -- which stat this "
                         "item boosts. Leave blank for every other effect_type.",
+            },
+            {
+                "name": "use_label", "type": "str", "required": False, "group": "Use",
+                "hint": "optional -- set together with use_message to give this item a 'Use' button "
+                        "in !inventory reading '{use_label} {item name}' (e.g. 'Rub Delicious "
+                        "Turrón'). Leave both blank for a purely passive item.",
+            },
+            {
+                "name": "use_message", "type": "text", "required": False, "group": "Use",
+                "hint": "optional -- the ephemeral message shown when a player presses this item's "
+                        "use_label button. Required together with use_label; no other effect happens "
+                        "yet.",
             },
         ],
     },

@@ -14,6 +14,7 @@ stat).
 """
 import json
 import os
+import random
 
 import db
 import dungeon
@@ -36,11 +37,18 @@ HOUSING_EFFECT_TYPES = {
     "stat_bonus": {"value_kind": "flat", "requires_stat": True},
     "rest_energy_bonus": {"value_kind": "flat", "requires_stat": False},
     "rest_gold_bonus": {"value_kind": "flat", "requires_stat": False},
+    "luck_bonus": {"value_kind": "flat", "requires_stat": False},
 }
 
 # Matches dungeon.compute_effective_stats' stat keys -- a housing stat_bonus item stacks alongside
 # equipment's own constant stat bonuses via that same aggregation, so the vocabulary has to match.
 HOUSING_STATS = ("hp", "atk", "def", "spatk", "spdef", "speed")
+
+# An item is "usable" (shows a button in !inventory) purely by having both use_label (the button's
+# text, e.g. "Rubbable") and use_message (what gets sent, ephemerally, when it's pressed) set --
+# checked generically by field presence, never by item id, same pattern as smash.py's
+# unsmashable_message. No effect beyond the message itself right now; that's deliberate; a real
+# mechanic can read/branch on the same fields later without this shape changing.
 
 
 def _load_housing_items(path: str = _HOUSING_ITEMS_PATH) -> dict[str, dict]:
@@ -71,6 +79,11 @@ def _load_housing_items(path: str = _HOUSING_ITEMS_PATH) -> dict[str, dict]:
             )
         if entry["base_value"] < 0:
             raise ValueError(f"housing_items.json: item {entry_id!r} base_value must be >= 0")
+        if bool(entry.get("use_label")) != bool(entry.get("use_message")):
+            raise ValueError(
+                f"housing_items.json: item {entry_id!r} sets one of use_label/use_message without "
+                f"the other -- both are required together to make an item usable"
+            )
         items[entry_id] = entry
     return items
 
@@ -122,3 +135,42 @@ def get_house_bonuses(guild_id: int, user_id: int) -> dict:
         else:
             bonuses[effect_type] = bonuses.get(effect_type, 0) + value
     return bonuses
+
+
+def get_effective_luck(guild_id: int, user_id: int) -> int:
+    """db.get_luck's raw, purely-cosmetic stored value plus this player's housing luck_bonus
+    total. The raw column itself stays untouched by housing -- !rub's steal mechanic keeps moving
+    the same stored number it always has -- this is only for places that read luck to show or
+    rank it."""
+    return db.get_luck(guild_id, user_id) + get_house_bonuses(guild_id, user_id).get("luck_bonus", 0)
+
+
+def get_luck_leaderboard(guild_id: int, limit: int = 10) -> list[tuple[int, int]]:
+    """db.get_all_luck's raw (user_id, luck) rows, luckiest-first after folding in each user's
+    housing luck_bonus. Lives here rather than in db.py because combining "the stored column" with
+    "housing placements" needs a module that can see both, and db.py can't import this module back
+    (this module already imports db.py) -- same "module that can see both does the deferred
+    wiring" shape as room_commands.COMMANDS."""
+    rows = db.get_all_luck(guild_id)
+    effective = [
+        (user_id, luck + get_house_bonuses(guild_id, user_id).get("luck_bonus", 0))
+        for user_id, luck in rows
+    ]
+    effective.sort(key=lambda row: row[1], reverse=True)
+    return effective[:limit]
+
+
+def pick_rub_target(guild_id: int) -> int | None:
+    """db.get_active_users_luck's rows, weighted by effective (housing-inclusive) luck instead of
+    the raw column -- !rub's target-weighting sibling of get_luck_leaderboard above, same reason
+    it lives here instead of db.py. None if nobody in this guild has logged a bet yet."""
+    rows = db.get_active_users_luck(guild_id)
+    if not rows:
+        return None
+    weights = [
+        db.RUB_TARGET_WEIGHT_MULTIPLIER
+        if luck + get_house_bonuses(guild_id, user_id).get("luck_bonus", 0) >= db.RUB_TARGET_LUCK_THRESHOLD
+        else 1
+        for user_id, luck in rows
+    ]
+    return random.choices([user_id for user_id, _ in rows], weights=weights, k=1)[0]

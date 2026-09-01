@@ -255,30 +255,42 @@ async def build_inventory_display(guild_id: int, user_id: int) -> tuple[discord.
     else:
         embed.set_footer(text="Manage your gear with !equipment, craft more with !craft.")
 
-    view = InventoryView(guild_id, user_id, consumables)
+    view = InventoryView(guild_id, user_id, consumables, housing_items_held)
     return embed, view
 
 
 class InventoryView(discord.ui.View):
     """One button per currently-owned consumable usable outside combat (dungeon.
-    usable_outside_combat) -- energy-restoring items and heal_fraction potions alike. Only ever
-    built by build_inventory_display, right alongside the embed it's attached to."""
+    usable_outside_combat), plus one per currently-owned housing item with a use_label set (see
+    housing.py's "usable by field presence" comment) -- energy-restoring items, heal_fraction
+    potions, and flavor-only "use" items like the Turrón alike. Only ever built by
+    build_inventory_display, right alongside the embed it's attached to."""
 
-    def __init__(self, guild_id: int, user_id: int, consumables: dict[str, int]):
+    def __init__(self, guild_id: int, user_id: int, consumables: dict[str, int], housing_items_held: dict[str, int]):
         super().__init__(timeout=300)
         self.guild_id = guild_id
         self.user_id = user_id
         row = 0
         in_row = 0
-        for item_id in consumables:
-            item = dungeon.CONSUMABLES[item_id]
-            if not dungeon.usable_outside_combat(item):
-                continue
-            self.add_item(UseConsumableButton(item_id, item, row))
+
+        def _add(button: discord.ui.Button):
+            nonlocal row, in_row
+            self.add_item(button)
             in_row += 1
             if in_row >= 5:  # Discord's own per-row button cap
                 in_row = 0
                 row += 1
+
+        for item_id in consumables:
+            item = dungeon.CONSUMABLES[item_id]
+            if not dungeon.usable_outside_combat(item):
+                continue
+            _add(UseConsumableButton(item_id, item, row))
+        for item_id in housing_items_held:
+            item = housing.HOUSING_ITEMS[item_id]
+            if not item.get("use_label"):
+                continue
+            _add(UseHousingItemButton(item_id, item, row))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -288,9 +300,11 @@ class InventoryView(discord.ui.View):
 
 
 class UseConsumableButton(discord.ui.Button):
-    """Drinks one item_id outside combat -- db.use_energy_item for an energy_restore item,
+    """Uses one item_id outside combat -- db.use_energy_item for an energy_restore item,
     db.use_healing_item for a heal_fraction one (dungeon.usable_outside_combat already guarantees
-    an owned, qualifying item is exactly one or the other). Same "*_view.py button calls db.*
+    an owned, qualifying item is exactly one or the other). The button's verb is the item's own
+    optional use_label ("Snort" for the bag of powder), defaulting to "Drink" -- purely cosmetic,
+    the underlying db calls are the same regardless of wording. Same "*_view.py button calls db.*
     directly, then rebuilds+edits the display" shape EquipmentSlotSelect's own callback already
     uses."""
 
@@ -298,7 +312,8 @@ class UseConsumableButton(discord.ui.Button):
         self.item_id = item_id
         self.is_energy = bool(item.get("energy_restore"))
         emoji = "⚡" if self.is_energy else "❤️"
-        super().__init__(label=f"{emoji} Drink {item['name']}"[:80], style=discord.ButtonStyle.secondary, row=row)
+        verb = item.get("use_label", "Drink")
+        super().__init__(label=f"{emoji} {verb} {item['name']}"[:80], style=discord.ButtonStyle.secondary, row=row)
 
     async def callback(self, interaction: discord.Interaction):
         guild_id, user_id = interaction.guild.id, interaction.user.id
@@ -338,6 +353,22 @@ class UseConsumableButton(discord.ui.Button):
         embed, view = await build_inventory_display(guild_id, user_id)
         await interaction.response.edit_message(embed=embed, view=view)
         await interaction.followup.send(result_text, ephemeral=True)
+
+
+class UseHousingItemButton(discord.ui.Button):
+    """Shown for any owned housing item with a use_label set (see housing.py's "usable by field
+    presence" comment) -- just sends its use_message ephemerally, no game-state change. Doesn't
+    edit/rebuild the inventory display afterward the way UseConsumableButton does, since nothing
+    about the item or its owner's state actually changed."""
+
+    def __init__(self, item_id: str, item: dict, row: int):
+        self.use_message = item["use_message"]
+        super().__init__(
+            label=f"{item['emoji']} {item['use_label']} {item['name']}"[:80], style=discord.ButtonStyle.secondary, row=row
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_message(self.use_message, ephemeral=True)
 
 
 def _equipped_lines(equipped: dict[str, str]) -> str:

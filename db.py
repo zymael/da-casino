@@ -680,14 +680,16 @@ def get_pizza_leaderboard(guild_id: int, limit: int = 10) -> list[tuple[int, int
         conn.close()
 
 
-def get_random_active_user(guild_id: int) -> int | None:
-    """A random user_id who has actually logged a bet in this guild (bet_log) -- not just anyone
-    who's ever touched their balance. get_balance/_ensure_user lazily create a `users` row for
-    literally anyone who runs !balance once, so that table alone isn't proof someone's actually
-    played. None if nobody in this guild has logged a bet yet.
+def get_active_users_luck(guild_id: int) -> list[tuple[int, int]]:
+    """(user_id, luck) rows for every user who has actually logged a bet in this guild (bet_log)
+    -- not just anyone who's ever touched their balance. get_balance/_ensure_user lazily create a
+    `users` row for literally anyone who runs !balance once, so that table alone isn't proof
+    someone's actually played.
 
-    Weighted, not uniform: users at/above RUB_TARGET_LUCK_THRESHOLD luck are
-    RUB_TARGET_WEIGHT_MULTIPLIER times as likely to be picked as everyone else."""
+    Raw rows only, no weighting/random choice -- housing.pick_rub_target is what turns this into
+    an actual !rub target pick, since it needs to fold in each user's housing luck_bonus first
+    (RUB_TARGET_LUCK_THRESHOLD/RUB_TARGET_WEIGHT_MULTIPLIER live here as data those weights are
+    computed against, not applied here)."""
     conn = _connect()
     try:
         rows = conn.execute(
@@ -696,27 +698,24 @@ def get_random_active_user(guild_id: int) -> int | None:
                WHERE bl.guild_id = ?""",
             (guild_id,),
         ).fetchall()
-        if not rows:
-            return None
-        weights = [
-            RUB_TARGET_WEIGHT_MULTIPLIER if luck >= RUB_TARGET_LUCK_THRESHOLD else 1
-            for _, luck in rows
-        ]
-        return random.choices([user_id for user_id, _ in rows], weights=weights, k=1)[0]
+        return rows
     finally:
         conn.close()
 
 
-def get_luck_leaderboard(guild_id: int, limit: int = 10) -> list[tuple[int, int]]:
-    """Returns up to `limit` (user_id, luck) rows for this guild, luckiest first. Unlike
+def get_all_luck(guild_id: int) -> list[tuple[int, int]]:
+    """(user_id, luck) rows for every user in this guild, unsorted and unlimited. Unlike
     get_pizza_leaderboard, no "> 0" floor -- every row has some luck value from the moment it's
     created (see _ensure_user), so filtering it the same way would just mean "everyone", not
-    "everyone who's actually done something"."""
+    "everyone who's actually done something".
+
+    Raw rows only, no sort/limit -- housing.get_luck_leaderboard is what turns this into an actual
+    leaderboard, since it needs to fold in each user's housing luck_bonus before ranking."""
     conn = _connect()
     try:
         rows = conn.execute(
-            "SELECT user_id, luck FROM users WHERE guild_id = ? ORDER BY luck DESC LIMIT ?",
-            (guild_id, limit),
+            "SELECT user_id, luck FROM users WHERE guild_id = ?",
+            (guild_id,),
         ).fetchall()
         return rows
     finally:

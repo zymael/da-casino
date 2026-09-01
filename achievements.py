@@ -248,6 +248,14 @@ ACHIEVEMENTS = [
         "description": "Win a game of UNO against 1-3 other players.",
         "reward": 25,
     },
+    {
+        "kind": "turron_heist",
+        "scope": "personal",
+        "emoji": "🍬",
+        "name": "Turrón Heist",
+        "description": "You're a filthy thief, and you took what was not yours.  Good job.",
+        "reward": 25,
+    },
 ]
 
 # Maps each game bucket to its emoji/title and the db.log_bet() `game` string(s) that feed it
@@ -357,11 +365,14 @@ async def record_and_check(guild_id: int, user_id: int, game: str, net: int, is_
     return [f"{bucket}_{direction}_{tier}" for tier in TIERS if count >= tier]
 
 
-async def try_award_many(send, guild_id: int, user_id: int, display_name: str, kinds: list[str]):
+async def try_award_many(send, guild_id: int, user_id: int, display_name: str, kinds: list[str]) -> list[dict]:
     """Attempts to claim each kind in `kinds` for user_id (per its scope), grants the credit
     reward for every one actually won, and posts a single combined embed via `send` (an async
     callable like ctx.send / interaction.followup.send / message.channel.send) if at least one
-    landed. Silently no-ops if none did (already claimed, or lost the race for a "first" one)."""
+    landed. Silently no-ops if none did (already claimed, or lost the race for a "first" one).
+    Returns the list of achievement dicts actually newly unlocked (empty if none) -- callers that
+    grant something beyond the credit reward (e.g. bot.py's turron_heist item drop) use this to
+    tell "already had it" apart from "just earned it" instead of re-deriving that themselves."""
     unlocked = []
     for kind in kinds:
         achievement = BY_KIND[kind]
@@ -373,7 +384,7 @@ async def try_award_many(send, guild_id: int, user_id: int, display_name: str, k
             unlocked.append(achievement)
 
     if not unlocked:
-        return
+        return unlocked
 
     total_reward = sum(achievement["reward"] for achievement in unlocked)
     if total_reward:
@@ -392,3 +403,4 @@ async def try_award_many(send, guild_id: int, user_id: int, display_name: str, k
     if total_reward:
         embed.set_footer(text=f"+{total_reward} {db.get_currency_name(guild_id)}")
     await send(embed=embed)
+    return unlocked

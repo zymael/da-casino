@@ -127,6 +127,7 @@
     "kind": "consumable",
     "base_value": 500,
     "flavor": "You saw some goblin's eating this candy with their noses... how strange...",
-    "energy_restore": 1
+    "energy_restore": 1,
+    "use_label": "Snort"
   }
 ]

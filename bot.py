@@ -396,7 +396,7 @@ async def stats_cmd(ctx, member: discord.Member = None):
     first_claimed = await asyncio.to_thread(db.get_guild_achievements, guild_id)
     achievement_count = len(personal_earned) + sum(1 for holder, _ in first_claimed.values() if holder == user_id)
     energy = await asyncio.to_thread(db.get_energy, guild_id, user_id)
-    luck = await asyncio.to_thread(db.get_luck, guild_id, user_id)
+    luck = await asyncio.to_thread(housing.get_effective_luck, guild_id, user_id)
     duel_rating = await asyncio.to_thread(db.get_duel_rating, guild_id, user_id)
 
     embed = discord.Embed(title=f"📊 {target.display_name}'s Stats", color=discord.Color.blurple())
@@ -467,7 +467,7 @@ async def leaderboard(ctx):
     """Show the top credit holders, top pizza buyers, and biggest single-bet win/loss."""
     credit_rows = await asyncio.to_thread(db.get_leaderboard, ctx.guild.id, 10)
     pizza_rows = await asyncio.to_thread(db.get_pizza_leaderboard, ctx.guild.id, 10)
-    luck_rows = await asyncio.to_thread(db.get_luck_leaderboard, ctx.guild.id, 10)
+    luck_rows = await asyncio.to_thread(housing.get_luck_leaderboard, ctx.guild.id, 10)
     duel_rating_rows = await asyncio.to_thread(db.get_duel_rating_leaderboard, ctx.guild.id, 10)
     win_rows = await asyncio.to_thread(db.get_biggest_win, ctx.guild.id, 5)
     loss_rows = await asyncio.to_thread(db.get_biggest_loss, ctx.guild.id, 5)
@@ -632,12 +632,13 @@ async def tip_cmd(ctx, member: discord.Member = None):
 
 RUB_LUCKY_TARGET_ID = 272816170749526027  # fallback only, if no active user is found
 RUB_LUCK_RANGE = (1, 5)  # permanent -- stolen luck stays stolen
+TURRON_TARGET_ID = 319966284848693250  # rubbing luck away from this specific user drops a Delicious Turron
 
 
 @bot.command(name="rub")
 async def rub_cmd(ctx):
     """Rub your belly for good luck (once every 12 hours) -- permanently makes you luckier, and someone else less lucky."""
-    target_id = await asyncio.to_thread(db.get_random_active_user, ctx.guild.id)
+    target_id = await asyncio.to_thread(housing.pick_rub_target, ctx.guild.id)
     if target_id is None:
         target_id = RUB_LUCKY_TARGET_ID  # nobody's logged a bet in this guild yet -- still land the joke
 
@@ -656,6 +657,14 @@ async def rub_cmd(ctx):
         f"{ctx.author.display_name} rubs their belly for good luck 🍀... {mention} feels less lucky.\n{RUB_GIF}"
     )
     await _update_luck_champion(ctx.guild)
+
+    if target_id == TURRON_TARGET_ID:
+        unlocked = await achievements.try_award_many(
+            ctx.send, ctx.guild.id, ctx.author.id, ctx.author.display_name, ["turron_heist"]
+        )
+        if unlocked:
+            await asyncio.to_thread(db.add_inventory_item, ctx.guild.id, ctx.author.id, "delicious_turron")
+            await ctx.send(f"🍬 Along with their luck, you also swipe a **{housing.HOUSING_ITEMS['delicious_turron']['name']}**. Criminal.")
 
 
 @bot.command(name="roy")
@@ -1783,7 +1792,7 @@ async def _update_money_champion(guild: discord.Guild | None):
 async def _update_luck_champion(guild: discord.Guild | None):
     if guild is None:
         return
-    rows = await asyncio.to_thread(db.get_luck_leaderboard, guild.id, 1)
+    rows = await asyncio.to_thread(housing.get_luck_leaderboard, guild.id, 1)
     await _sync_champion(guild, "luck", rows[0][0] if rows else None)
 
 

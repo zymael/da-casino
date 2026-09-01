@@ -57,5 +57,16 @@
     "base_value": 300,
     "effect_type": "ranch_training_bonus",
     "value": 10
+  },
+  {
+    "id": "delicious_turron",
+    "name": "Delicious Turrón",
+    "emoji": "🍬",
+    "description": "A lucky candy from a magical, fantasy land.  You stole this mercilessly and you would do it again if you had the chance.",
+    "base_value": 500,
+    "effect_type": "luck_bonus",
+    "value": 5,
+    "use_label": "Rub",
+    "use_message": "You rub the Turrón for luck.  You gain STICKY HANDS."
   }
 ]
