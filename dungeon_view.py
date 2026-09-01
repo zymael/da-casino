@@ -217,16 +217,23 @@ class PartyMember:
 
     def __init__(
         self, guild_id: int, user_id: int, player_name: str, character: dict, equipped: dict[str, str],
-        is_leader: bool, housing_stat_bonuses: dict | None = None,
+        is_leader: bool, housing_stat_bonuses: dict | None = None, effective_level: int | None = None,
     ):
         self.guild_id = guild_id
         self.user_id = user_id
         self.player_name = player_name  # snapshot of interaction.user.display_name at join time
         self.main_class = character["main_class"]
         self.subclass = character["subclass"]
-        self.level = character["level"]
+        # `effective_level` is a duel-only override (see DuelChallengeView.accept_button) so both
+        # duelists' stats/skills are computed at the SAME level regardless of their real levels --
+        # PvE callers never pass it, so self.level == character["level"] exactly as before there.
+        self.level = effective_level if effective_level is not None else character["level"]
         self.equipped = equipped
-        effective = dungeon.compute_effective_stats(character, equipped, housing_stat_bonuses)
+        stats_source = (
+            dungeon.compute_stats_at_level(self.main_class, self.subclass, self.level)
+            if effective_level is not None else character
+        )
+        effective = dungeon.compute_effective_stats(stats_source, equipped, housing_stat_bonuses)
         self.max_hp = effective["hp"]
         self.atk = effective["atk"]
         self.def_ = effective["def"]
@@ -241,6 +248,7 @@ class PartyMember:
         # Same "start wherever the last delve left off" rule as DelveSession -- see its own hp
         # comment for why.
         self.hp = min(character["current_hp"], self.max_hp)
+        self.was_low_hp = False  # duel-only comeback-achievement tracking, see _resolve_duel_turn
         self.loot_mult = dungeon.subclass_entry(self.subclass)["loot_mult"]
         self.build_name = dungeon.display_name(self.main_class, self.subclass)
         self.unlocked_skills = dungeon.unlocked_skills(self.main_class, self.subclass, self.level)
@@ -1509,11 +1517,14 @@ def _apply_self_effects(actor, effects: list[dict], log_lines: list[str], mods: 
         EFFECT_HANDLERS[effect["type"]](actor, None, effect, log_lines, mods)
 
 
+CRIT_MULTIPLIER = 1.75  # what any crit means, wherever crit_chance below is nonzero
+
+
 def _resolve_player_action(
     actor, ally_pool: list, enemy_pool: list, current_target,
     effects: list[dict], special: bool, verb: str, subject_label: str, possessive_label: str, drain_verb: str,
     moon_mult: float, equipped_items: list[dict], threat_gain: bool, log_lines: list[str],
-    ally_target=None, is_plain_attack: bool = False,
+    ally_target=None, is_plain_attack: bool = False, crit_chance: float = 0.0,
 ) -> list:
     """Resolves one player-cast action (skill/consumable/equipment on-use) -- the shared core of
     _resolve_combat_turn (solo), _resolve_party_turn (party), and _resolve_duel_turn (PvP). Those
@@ -1560,7 +1571,11 @@ def _resolve_player_action(
     Returns every entity (of any kind -- self/ally included, not just a `MonsterInstance`, now that
     damage can land anywhere) that actually took damage this action (dodged/undamaged entities
     excluded) -- the caller runs its own kill-check/reward loop against exactly that list, and must
-    itself guard for a non-monster entity in it (see _resolve_combat_turn's own comment on why)."""
+    itself guard for a non-monster entity in it (see _resolve_combat_turn's own comment on why).
+
+    `crit_chance` defaults to 0.0 (solo/party PvE never pass it, so behavior there is unchanged) --
+    only the duel call site sets it, rolled independently per damaged entity, multiplying that hit's
+    damage by CRIT_MULTIPLIER on success."""
     if ally_target is None:
         ally_target = actor
 
@@ -1628,16 +1643,19 @@ def _resolve_player_action(
                 log_lines.append(f"{_combatant_name(entity)} dodges {possessive_label} {verb}!")
                 continue
             eff_def = max(0, (entity.spdef - entity.spdef_debuff) if special else (entity.def_ - entity.def_debuff))
-            dmg = dungeon.roll_damage(attacker_atk, eff_def, mods["multiplier"] * moon_mult)
+            is_crit = crit_chance > 0 and random.random() < crit_chance
+            crit_mult = CRIT_MULTIPLIER if is_crit else 1.0
+            dmg = dungeon.roll_damage(attacker_atk, eff_def, mods["multiplier"] * moon_mult * crit_mult)
             for extra_multiplier in mods["extra_attack_multipliers"]:
-                dmg += dungeon.roll_damage(attacker_atk, eff_def, extra_multiplier * moon_mult)
+                dmg += dungeon.roll_damage(attacker_atk, eff_def, extra_multiplier * moon_mult * crit_mult)
             # Guard reduction is consumed here (against the TARGET's own charge, if any -- any
             # entity can guard itself, full parity) before lifesteal/on-hit procs read `dmg`.
             dmg = _consume_guard_charge(entity, dmg, log_lines)
             entity.hp -= dmg
             total_dmg += dmg
             hit_entities.append(entity)
-            log_lines.append(f"{subject_label} {verb} {_combatant_name(entity)} for **{dmg}** damage.")
+            crit_note = " 💥 Critical hit!" if is_crit else ""
+            log_lines.append(f"{subject_label} {verb} {_combatant_name(entity)} for **{dmg}** damage.{crit_note}")
             _break_sap(entity, log_lines)
             # Threat only exists on a MonsterInstance -- damage that landed on self/an ally instead
             # (now possible with an unrestricted "target") has no threat table to update.
@@ -3210,8 +3228,16 @@ class PartyLobbyView(discord.ui.View):
 # nothing carries over afterward except an optional currency wager (both sides stake the same
 # amount at Accept time, winner takes the pot). No energy cost, no XP/loot, no moon-effect nudge
 # (that's a player-vs-monster balance lever with no "monster side" to favor in a PvP fight).
+# Level itself must never decide a duel -- both PartyMembers are built with the SAME
+# effective_level (the higher of the two duelists' real levels, see accept_button), so stats and
+# skill unlocks are identical regardless of who's actually higher level. Equipment still applies
+# on top (its budget is much smaller than a level gap's, see dungeon.py's item-power-budget
+# comments), so gear stays meaningful without being able to recreate a level-style blowout.
 DUEL_CHALLENGE_TIMEOUT = 120  # 2 minutes to accept/decline -- shorter than a party lobby (only one
 # specific other person needs to respond, not "gather a group")
+DUEL_CRIT_CHANCE = 0.15  # duel-only swing mechanic -- see _resolve_player_action's crit_chance
+DUEL_COMEBACK_HP_THRESHOLD = 0.10  # <=10% max HP at any point counts as "was on the ropes"
+DUEL_STREAK_TIERS = [3, 5, 10]  # consecutive-win achievement thresholds, see achievements.py
 
 
 class DuelChallenge:
@@ -3348,13 +3374,16 @@ class DuelChallengeView(discord.ui.View):
         target_equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, challenge.target_id)
         challenger_housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, guild_id, challenge.challenger_id)
         target_housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, guild_id, challenge.target_id)
+        # Both duelists fight at whichever real level is higher -- level itself must never decide a
+        # duel's outcome (see this module's own "Dueling" section comment above).
+        duel_level = max(challenger_character["level"], target_character["level"])
         challenger = PartyMember(
             guild_id, challenge.challenger_id, challenge.challenger_name, challenger_character, challenger_equipped, True,
-            challenger_housing_bonuses.get("stat_bonus", {}),
+            challenger_housing_bonuses.get("stat_bonus", {}), duel_level,
         )
         opponent = PartyMember(
             guild_id, challenge.target_id, interaction.user.display_name, target_character, target_equipped, True,
-            target_housing_bonuses.get("stat_bonus", {}),
+            target_housing_bonuses.get("stat_bonus", {}), duel_level,
         )
         # PartyMember.__init__ defaults hp to wherever the last dungeon delve left off (the right
         # rule for a party delve) -- override it here so both duelists start fresh at full HP, per
@@ -3447,7 +3476,9 @@ async def _end_duel(
     opponent in one cast can drop both to 0 in the same turn -- see _resolve_duel_turn's own
     actor.hp/opponent.hp check order); a draw logs both sides at net 0 (like a blackjack push)
     rather than skipping the log entirely, and (unlike a decisive win/loss below) genuinely earns no
-    win/loss achievement kind either way, since a draw really has no winner."""
+    win/loss achievement kind either way, since a draw really has no winner. Also updates ELO
+    duel_rating (db.apply_duel_result -- a draw still moves it, a half-win each side) and, for a
+    decisive result, the winner's duel_streak flag/streak achievements and comeback_duel_win."""
     currency = db.get_currency_name(session.guild_id)
     send = interaction.followup.send if interaction is not None else session.message.channel.send
     win_kinds: list[str] = []
@@ -3458,6 +3489,12 @@ async def _end_duel(
             await asyncio.to_thread(db.update_balance, session.guild_id, session.opponent.user_id, session.wager)
         await asyncio.to_thread(db.log_bet, session.guild_id, session.challenger.user_id, "duel", session.wager, 0)
         await asyncio.to_thread(db.log_bet, session.guild_id, session.opponent.user_id, "duel", session.wager, 0)
+        # A draw moves ELO by a half-win each (see apply_duel_result) but is streak-neutral --
+        # neither duelist's duel_streak flag changes, same "no winner, no loser" precedent as the
+        # missing win/loss achievement kind below.
+        await asyncio.to_thread(
+            db.apply_duel_result, session.guild_id, session.challenger.user_id, session.opponent.user_id, 0.5
+        )
         title = "⚔️ Draw!"
         refund_note = " Wagers refunded." if session.wager else ""
         description = "\n".join(log_lines) + f"\n\nBoth duelists go down together.{refund_note}"
@@ -3470,6 +3507,7 @@ async def _end_duel(
             payout_line = f"\n\n💰 **{winner.label}** wins **{pot}** {currency}!"
         await asyncio.to_thread(db.log_bet, session.guild_id, winner.user_id, "duel", session.wager, session.wager)
         await asyncio.to_thread(db.log_bet, session.guild_id, loser.user_id, "duel", session.wager, -session.wager)
+        await asyncio.to_thread(db.apply_duel_result, session.guild_id, winner.user_id, loser.user_id, 1.0)
         # A duel always has a winner/loser, wagered or not -- pass is_win explicitly so win/loss
         # counting and the win_duel/tiered achievements fire even at net == 0 (the default,
         # wagerless case), unlike every other game's push-at-net-0 semantics.
@@ -3477,6 +3515,14 @@ async def _end_duel(
         win_kinds += await achievements.record_and_check(session.guild_id, winner.user_id, "duel", session.wager, is_win=True)
         loss_kinds = achievements.kinds_for_bet("duel", -session.wager, is_win=False)
         loss_kinds += await achievements.record_and_check(session.guild_id, loser.user_id, "duel", -session.wager, is_win=False)
+        # Streak/comeback achievements -- not bet-outcome-based, so they're not something
+        # kinds_for_bet/record_and_check can pick up automatically; awarded directly here instead,
+        # per achievements.py's own module docstring on how to add a non-bet-based one.
+        streak = await asyncio.to_thread(db.increment_flag, session.guild_id, winner.user_id, "duel_streak")
+        await asyncio.to_thread(db.set_flag, session.guild_id, loser.user_id, "duel_streak", 0)
+        win_kinds += [f"duel_streak_{tier}" for tier in DUEL_STREAK_TIERS if streak >= tier]
+        if winner.was_low_hp:
+            win_kinds.append("comeback_duel_win")
         title = f"⚔️ {winner.label} wins!"
         description = "\n".join(log_lines) + f"\n\n💀 **{loser.label}** is defeated.{payout_line}"
     embed = discord.Embed(title=title, description=description, color=discord.Color.gold())
@@ -3528,20 +3574,28 @@ async def _resolve_duel_turn(
     verb: str, log_lines: list[str], special: bool = False, is_plain_attack: bool = False,
 ) -> bool:
     """Duel sibling of _resolve_party_turn -- always exactly one possible opponent (the other
-    duelist), no threat gain (PvP has no monster threat table), no moon multiplier. Never needs to
-    inspect _resolve_player_action's own return value (no loot/kill-award loop the way PvE has) --
-    an unrestricted "target" only ever means `actor` could now damage themselves instead of/besides
-    `opponent` (a duel's own "ally" is always just the caster, nothing else to redirect to), and
-    both duelists' hp is checked directly below regardless of who dealt the damage."""
+    duelist), no threat gain (PvP has no monster threat table), no moon multiplier, but a duel-only
+    crit chance (DUEL_CRIT_CHANCE) PvE never rolls. Never needs to inspect _resolve_player_action's
+    own return value (no loot/kill-award loop the way PvE has) -- an unrestricted "target" only
+    ever means `actor` could now damage themselves instead of/besides `opponent` (a duel's own
+    "ally" is always just the caster, nothing else to redirect to), and both duelists' hp is
+    checked directly below regardless of who dealt the damage."""
     opponent = session.other(actor)
     equipped_items = [dungeon.EQUIPMENT[iid] for iid in actor.equipped.values()]
     _resolve_player_action(
         actor, [actor], [opponent], opponent, effects, special, verb,
         actor.label, f"{actor.label}'s", "drains", 1.0, equipped_items, False, log_lines,
-        is_plain_attack=is_plain_attack,
+        is_plain_attack=is_plain_attack, crit_chance=DUEL_CRIT_CHANCE,
     )
 
     actor.turn_clock += dungeon.turn_interval(max(1, actor.speed - actor.speed_debuff))
+
+    # Comeback-achievement tracking: catches a dip that happened THIS action, whichever duelist it
+    # landed on -- checked every turn (not just the last one) so a comeback several turns before
+    # the winning blow still counts.
+    for d in (actor, opponent):
+        if 0 < d.hp <= d.max_hp * DUEL_COMEBACK_HP_THRESHOLD:
+            d.was_low_hp = True
 
     if actor.hp <= 0 and opponent.hp <= 0:
         await _end_duel(interaction, session, None, log_lines)

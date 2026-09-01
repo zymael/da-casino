@@ -11,6 +11,10 @@ ENERGY_REST_GAIN = 3  # base energy granted per !rest (added to current energy, 
 # meant to stay in lockstep; give a function its own constant instead if one of them ever needs to
 # diverge from the others.
 REFRESH_HOURS = 12
+# !rub target weighting -- players at/above this luck are RUB_TARGET_WEIGHT_MULTIPLIER times as
+# likely to get picked as the rub target, so the leaderboard's top can't just hoard forever.
+RUB_TARGET_LUCK_THRESHOLD = 70
+RUB_TARGET_WEIGHT_MULTIPLIER = 3
 
 
 def init_db():
@@ -72,6 +76,11 @@ def init_db():
                 "UPDATE users SET luck = ? WHERE guild_id = ? AND user_id = ?",
                 (random.randint(1, 100), g_id, u_id),
             )
+    # Duel rating: standard ELO (see apply_duel_result), updated after every !duel with a decisive
+    # winner/loser or a draw. Unlike luck, every player starts at the same flat baseline -- there's
+    # no "some players are just born luckier" flavor here, just a skill rating everyone starts even.
+    if "duel_rating" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN duel_rating INTEGER NOT NULL DEFAULT 1000")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS champions (
@@ -675,14 +684,25 @@ def get_random_active_user(guild_id: int) -> int | None:
     """A random user_id who has actually logged a bet in this guild (bet_log) -- not just anyone
     who's ever touched their balance. get_balance/_ensure_user lazily create a `users` row for
     literally anyone who runs !balance once, so that table alone isn't proof someone's actually
-    played. None if nobody in this guild has logged a bet yet."""
+    played. None if nobody in this guild has logged a bet yet.
+
+    Weighted, not uniform: users at/above RUB_TARGET_LUCK_THRESHOLD luck are
+    RUB_TARGET_WEIGHT_MULTIPLIER times as likely to be picked as everyone else."""
     conn = _connect()
     try:
-        row = conn.execute(
-            "SELECT DISTINCT user_id FROM bet_log WHERE guild_id = ? ORDER BY RANDOM() LIMIT 1",
+        rows = conn.execute(
+            """SELECT DISTINCT bl.user_id, u.luck FROM bet_log bl
+               JOIN users u ON u.guild_id = bl.guild_id AND u.user_id = bl.user_id
+               WHERE bl.guild_id = ?""",
             (guild_id,),
-        ).fetchone()
-        return row[0] if row else None
+        ).fetchall()
+        if not rows:
+            return None
+        weights = [
+            RUB_TARGET_WEIGHT_MULTIPLIER if luck >= RUB_TARGET_LUCK_THRESHOLD else 1
+            for _, luck in rows
+        ]
+        return random.choices([user_id for user_id, _ in rows], weights=weights, k=1)[0]
     finally:
         conn.close()
 
@@ -696,6 +716,21 @@ def get_luck_leaderboard(guild_id: int, limit: int = 10) -> list[tuple[int, int]
     try:
         rows = conn.execute(
             "SELECT user_id, luck FROM users WHERE guild_id = ? ORDER BY luck DESC LIMIT ?",
+            (guild_id, limit),
+        ).fetchall()
+        return rows
+    finally:
+        conn.close()
+
+
+def get_duel_rating_leaderboard(guild_id: int, limit: int = 10) -> list[tuple[int, int]]:
+    """Returns up to `limit` (user_id, duel_rating) rows for this guild, highest-rated first --
+    duel_rating sibling of get_luck_leaderboard, same no-floor reasoning (every row already has a
+    rating from the moment it's created, see _ensure_user)."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT user_id, duel_rating FROM users WHERE guild_id = ? ORDER BY duel_rating DESC LIMIT ?",
             (guild_id, limit),
         ).fetchall()
         return rows
@@ -1663,12 +1698,10 @@ def get_luck(guild_id: int, user_id: int) -> int:
 
 
 def apply_rub(
-    guild_id: int, author_id: int, target_id: int, author_gain: int, target_penalty: int
+    guild_id: int, author_id: int, target_id: int, amount: int
 ) -> tuple[str, tuple[int, int] | float]:
-    """!rub's REFRESH_HOURS-gated effect: the author's luck permanently increases by
-    `author_gain`, the target's luck permanently drops by `target_penalty` -- stolen luck stays
-    stolen, no restore-on-rest. If author_id == target_id (rubbing yourself into your own bad
-    luck, if the random draw lands that way), both updates just apply to the same row.
+    """!rub's REFRESH_HOURS-gated effect: `amount` luck moves from target to author, permanently.
+    If author_id == target_id, both updates just apply to the same row and net to zero.
 
     Returns (status, value):
       - ("cooldown", seconds_remaining) -- still within REFRESH_HOURS of the author's last rub
@@ -1689,11 +1722,11 @@ def apply_rub(
         now = datetime.now().isoformat()
         conn.execute(
             "UPDATE users SET luck = luck + ?, last_rub = ? WHERE guild_id = ? AND user_id = ?",
-            (author_gain, now, guild_id, author_id),
+            (amount, now, guild_id, author_id),
         )
         conn.execute(
             "UPDATE users SET luck = luck - ? WHERE guild_id = ? AND user_id = ?",
-            (target_penalty, guild_id, target_id),
+            (amount, guild_id, target_id),
         )
         conn.commit()
         author_luck = conn.execute(
@@ -1703,6 +1736,54 @@ def apply_rub(
             "SELECT luck FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, target_id)
         ).fetchone()[0]
         return "ok", (author_luck, target_luck)
+    finally:
+        conn.close()
+
+
+DUEL_ELO_K = 32  # standard chess-style K-factor -- how many rating points a single duel can move
+
+
+def get_duel_rating(guild_id: int, user_id: int) -> int:
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.commit()
+        row = conn.execute(
+            "SELECT duel_rating FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()
+        return row[0]
+    finally:
+        conn.close()
+
+
+def apply_duel_result(guild_id: int, a_id: int, b_id: int, a_score: float) -> tuple[int, int]:
+    """Standard ELO update for one duel -- `a_score` is 1.0 (a won), 0.0 (a lost), or 0.5 (draw).
+    Zero-sum by construction (a's change and b's change are always exact negatives of each other),
+    same "don't let a stat leak" fix as the !rub rework -- see apply_rub. Returns (a_rating,
+    b_rating) post-update."""
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, a_id)
+        _ensure_user(conn, guild_id, b_id)
+        conn.commit()
+        a_rating = conn.execute(
+            "SELECT duel_rating FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, a_id)
+        ).fetchone()[0]
+        b_rating = conn.execute(
+            "SELECT duel_rating FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, b_id)
+        ).fetchone()[0]
+        expected_a = 1 / (1 + 10 ** ((b_rating - a_rating) / 400))
+        delta = round(DUEL_ELO_K * (a_score - expected_a))
+        new_a = a_rating + delta
+        new_b = b_rating - delta
+        conn.execute(
+            "UPDATE users SET duel_rating = ? WHERE guild_id = ? AND user_id = ?", (new_a, guild_id, a_id)
+        )
+        conn.execute(
+            "UPDATE users SET duel_rating = ? WHERE guild_id = ? AND user_id = ?", (new_b, guild_id, b_id)
+        )
+        conn.commit()
+        return new_a, new_b
     finally:
         conn.close()
 

@@ -180,6 +180,42 @@ ACHIEVEMENTS = [
         "description": "Win a 1v1 duel against another player.",
         "reward": 25,
     },
+    # Streak/comeback duel achievements -- a different axis from the generated duel_wins_{tier}
+    # tiers below (cumulative wins), so they live here as their own standalone entries rather than
+    # in that generator loop. Tracked via the generic `flags` table (key "duel_streak") and
+    # PartyMember.was_low_hp, both in dungeon_view.py's _end_duel/_resolve_duel_turn.
+    {
+        "kind": "duel_streak_3",
+        "scope": "personal",
+        "emoji": "🔥",
+        "name": "On a Roll",
+        "description": "Win 3 duels in a row.",
+        "reward": 50,
+    },
+    {
+        "kind": "duel_streak_5",
+        "scope": "personal",
+        "emoji": "🔥",
+        "name": "Hot Streak",
+        "description": "Win 5 duels in a row.",
+        "reward": 150,
+    },
+    {
+        "kind": "duel_streak_10",
+        "scope": "personal",
+        "emoji": "🔥",
+        "name": "Unstoppable",
+        "description": "Win 10 duels in a row.",
+        "reward": 500,
+    },
+    {
+        "kind": "comeback_duel_win",
+        "scope": "personal",
+        "emoji": "🩸",
+        "name": "Comeback Kid",
+        "description": "Win a duel after dropping to 10% HP or below.",
+        "reward": 100,
+    },
     {
         "kind": "win_mancala",
         "scope": "personal",

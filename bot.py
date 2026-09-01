@@ -100,6 +100,7 @@ BROKE_GIFS = [
 PIZZA_CHAMPION_EMOJI = "🍕"
 MONEY_CHAMPION_EMOJI = "👑"
 LUCK_CHAMPION_EMOJI = "🍀"
+DUEL_CHAMPION_EMOJI = "⚔️"
 
 PIZZA_GIFS = [
     "https://media.giphy.com/media/10kxE34bJPaUO4/giphy.gif",
@@ -395,11 +396,13 @@ async def stats_cmd(ctx):
     achievement_count = len(personal_earned) + sum(1 for holder, _ in first_claimed.values() if holder == user_id)
     energy = await asyncio.to_thread(db.get_energy, guild_id, user_id)
     luck = await asyncio.to_thread(db.get_luck, guild_id, user_id)
+    duel_rating = await asyncio.to_thread(db.get_duel_rating, guild_id, user_id)
 
     embed = discord.Embed(title=f"📊 {ctx.author.display_name}'s Stats", color=discord.Color.blurple())
     embed.add_field(name="Balance", value=f"{balance} {currency}", inline=True)
     embed.add_field(name="⚡ Energy", value=f"{energy}/{db.ENERGY_CAP}", inline=True)
     embed.add_field(name="🍀 Luck", value=str(luck), inline=True)
+    embed.add_field(name="⚔️ Duel Rating", value=str(duel_rating), inline=True)
     embed.add_field(name="🍕 Pizzas Bought", value=str(pizzas_bought), inline=True)
     embed.add_field(name="🏆 Achievements", value=f"{achievement_count} unlocked", inline=True)
 
@@ -464,6 +467,7 @@ async def leaderboard(ctx):
     credit_rows = await asyncio.to_thread(db.get_leaderboard, ctx.guild.id, 10)
     pizza_rows = await asyncio.to_thread(db.get_pizza_leaderboard, ctx.guild.id, 10)
     luck_rows = await asyncio.to_thread(db.get_luck_leaderboard, ctx.guild.id, 10)
+    duel_rating_rows = await asyncio.to_thread(db.get_duel_rating_leaderboard, ctx.guild.id, 10)
     win_rows = await asyncio.to_thread(db.get_biggest_win, ctx.guild.id, 5)
     loss_rows = await asyncio.to_thread(db.get_biggest_loss, ctx.guild.id, 5)
     currency = db.get_currency_name(ctx.guild.id)
@@ -499,6 +503,13 @@ async def leaderboard(ctx):
 
     luck_lines = [rank_line(i, user_id, luck, "🍀") for i, (user_id, luck) in enumerate(luck_rows)]
     embed.add_field(name="Luckiest", value="\n".join(luck_lines) or "No luck stats yet!", inline=False)
+
+    duel_rating_lines = [
+        rank_line(i, user_id, rating, "⚔️") for i, (user_id, rating) in enumerate(duel_rating_rows)
+    ]
+    embed.add_field(
+        name="Top Duelists", value="\n".join(duel_rating_lines) or "No duels fought yet!", inline=False
+    )
 
     win_lines = [bet_rank_line(i, user_id, net, game) for i, (user_id, net, game) in enumerate(win_rows)]
     embed.add_field(
@@ -619,8 +630,7 @@ async def tip_cmd(ctx, member: discord.Member = None):
 
 
 RUB_LUCKY_TARGET_ID = 272816170749526027  # fallback only, if no active user is found
-RUB_AUTHOR_LUCK_GAIN = 3  # permanent -- the rubber's own belly-rub payoff
-RUB_TARGET_LUCK_PENALTY = 8  # also permanent -- stolen luck stays stolen
+RUB_LUCK_RANGE = (1, 5)  # permanent -- stolen luck stays stolen
 
 
 @bot.command(name="rub")
@@ -630,9 +640,8 @@ async def rub_cmd(ctx):
     if target_id is None:
         target_id = RUB_LUCKY_TARGET_ID  # nobody's logged a bet in this guild yet -- still land the joke
 
-    status, value = await asyncio.to_thread(
-        db.apply_rub, ctx.guild.id, ctx.author.id, target_id, RUB_AUTHOR_LUCK_GAIN, RUB_TARGET_LUCK_PENALTY
-    )
+    amount = random.randint(*RUB_LUCK_RANGE)
+    status, value = await asyncio.to_thread(db.apply_rub, ctx.guild.id, ctx.author.id, target_id, amount)
     if status == "cooldown":
         await ctx.send(
             f"⏳ {ctx.author.display_name}, you've already rubbed your belly recently. "
@@ -1663,7 +1672,10 @@ async def _fetch_member(guild: discord.Guild, user_id: int) -> discord.Member | 
 
 
 # Badge prefix order when a member holds more than one crown at once, e.g. "💰 🍕 Alice".
-BADGES = [("money", MONEY_CHAMPION_EMOJI), ("pizza", PIZZA_CHAMPION_EMOJI), ("luck", LUCK_CHAMPION_EMOJI)]
+BADGES = [
+    ("money", MONEY_CHAMPION_EMOJI), ("pizza", PIZZA_CHAMPION_EMOJI), ("luck", LUCK_CHAMPION_EMOJI),
+    ("duel", DUEL_CHAMPION_EMOJI),
+]
 
 
 def _strip_badge_prefix(nick: str | None) -> str | None:
@@ -1774,12 +1786,20 @@ async def _update_luck_champion(guild: discord.Guild | None):
     await _sync_champion(guild, "luck", rows[0][0] if rows else None)
 
 
+async def _update_duel_champion(guild: discord.Guild | None):
+    if guild is None:
+        return
+    rows = await asyncio.to_thread(db.get_duel_rating_leaderboard, guild.id, 1)
+    await _sync_champion(guild, "duel", rows[0][0] if rows else None)
+
+
 @tasks.loop(seconds=60)
 async def sync_champions_loop():
     for guild in bot.guilds:
         await _update_pizza_champion(guild)
         await _update_money_champion(guild)
         await _update_luck_champion(guild)
+        await _update_duel_champion(guild)
 
 
 @bot.command(name="pizza")
