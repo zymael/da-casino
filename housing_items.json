@@ -27,7 +27,9 @@
     "image_path": "assets/housing/items/groovy_lava_lamp.png",
     "base_value": 300,
     "effect_type": "dungeon_loot_bonus",
-    "value": 10
+    "value": 10,
+    "use_label": "Consider Lava Lamp",
+    "use_message": "You spend hours staring into the galaxies that this beautiful, tacky lamp puts on display.  Like fireworks on a sunlit sky.  Like flowers blooming on an endless field, like...\r\n\r\nYou should really lay of that Mystery Powder."
   },
   {
     "id": "study_desk",
@@ -60,13 +62,13 @@
   },
   {
     "id": "delicious_turron",
-    "name": "Delicious Turrón",
-    "emoji": "🍬",
+    "name": "Delicious Turr\u00f3n",
+    "emoji": "\ud83c\udf6c",
     "description": "A lucky candy from a magical, fantasy land.  You stole this mercilessly and you would do it again if you had the chance.",
     "base_value": 500,
     "effect_type": "luck_bonus",
     "value": 5,
     "use_label": "Rub",
-    "use_message": "You rub the Turrón for luck.  You gain STICKY HANDS."
+    "use_message": "You rub the Turr\u00f3n for luck.  You gain STICKY HANDS."
   }
 ]
