@@ -378,10 +378,11 @@ MAX_STATS_HORSES = 10
 
 
 @bot.command(name="stats")
-async def stats_cmd(ctx):
-    """Show your personal stats: wins/losses per game, horses owned, and lifetime credits."""
+async def stats_cmd(ctx, member: discord.Member = None):
+    """Show your personal stats, or someone else's: !stats [@user] -- wins/losses per game, horses owned, and lifetime credits."""
+    target = member or ctx.author
     guild_id = ctx.guild.id
-    user_id = ctx.author.id
+    user_id = target.id
     currency = db.get_currency_name(guild_id)
 
     balance, pizzas_bought = await asyncio.to_thread(db.get_user_economy, guild_id, user_id)
@@ -398,7 +399,7 @@ async def stats_cmd(ctx):
     luck = await asyncio.to_thread(db.get_luck, guild_id, user_id)
     duel_rating = await asyncio.to_thread(db.get_duel_rating, guild_id, user_id)
 
-    embed = discord.Embed(title=f"📊 {ctx.author.display_name}'s Stats", color=discord.Color.blurple())
+    embed = discord.Embed(title=f"📊 {target.display_name}'s Stats", color=discord.Color.blurple())
     embed.add_field(name="Balance", value=f"{balance} {currency}", inline=True)
     embed.add_field(name="⚡ Energy", value=f"{energy}/{db.ENERGY_CAP}", inline=True)
     embed.add_field(name="🍀 Luck", value=str(luck), inline=True)
