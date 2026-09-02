@@ -351,7 +351,10 @@
               "nakedgnome_3",
               "nakedgnome_2"
             ],
-            "fork": false
+            "fork": true,
+            "next": "sneaky_hobos",
+            "x": 951.0,
+            "y": 499.0
           },
           {
             "monsters": [
@@ -381,6 +384,21 @@
             },
             "x": 1346.0,
             "y": 255.0
+          }
+        ]
+      },
+      {
+        "id": "sneaky_hobos",
+        "type": "choice",
+        "prompt": "aaaa",
+        "actions": [
+          {
+            "label": "aaa",
+            "on_success": {
+              "next": "A desperate choice!"
+            },
+            "x": 1248.0,
+            "y": 664.0
           }
         ]
       }
@@ -415,12 +433,16 @@
         "y": 470.0
       },
       "A Private Bath": {
-        "x": 869.0,
-        "y": 281.0
+        "x": 934.0,
+        "y": 198.0
       },
       "witch_retrospective": {
         "x": 1243.0,
         "y": 130.0
+      },
+      "sneaky_hobos": {
+        "x": 955.0,
+        "y": 680.0
       }
     },
     "start_room": "The Sewer"
