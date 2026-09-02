@@ -941,12 +941,9 @@
   },
   {
     "id": "bouncers_armband",
-    "name": "Bouncer's Armband",
+    "name": "Fake Gnome Beard",
     "slot": "trinket",
     "rarity": "uncommon",
-    "intended_level": 8,
-    "base_value": 260,
-    "flavor": "He's not letting anyone else through either.",
     "effects": [
       {
         "type": "hp_buff",
@@ -963,7 +960,11 @@
         "trigger": "constant",
         "value": 3
       }
-    ]
+    ],
+    "special": false,
+    "intended_level": 8,
+    "base_value": 260,
+    "flavor": "You're not sure how this fooled anyone.  It's itchy too."
   },
   {
     "id": "complimentary_robe",
