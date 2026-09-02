@@ -65,6 +65,7 @@
     "name": "Delicious Turr\u00f3n",
     "emoji": "\ud83c\udf6c",
     "description": "A lucky candy from a magical, fantasy land.  You stole this mercilessly and you would do it again if you had the chance.",
+    "image_path": "assets/housing/items/delicious_turron.png",
     "base_value": 500,
     "effect_type": "luck_bonus",
     "value": 5,
