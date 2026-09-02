@@ -996,12 +996,9 @@
   },
   {
     "id": "static_cling",
-    "name": "Static Cling",
+    "name": "Dead Magical Comb",
     "slot": "weapon",
     "rarity": "rare",
-    "intended_level": 11,
-    "base_value": 750,
-    "flavor": "It's been building charge since the disco. It's very ready to let it go.",
     "effects": [
       {
         "type": "atk_buff",
@@ -1016,10 +1013,14 @@
       {
         "type": "extra_attack",
         "trigger": "on_hit",
-        "multiplier": 0.5,
-        "chance": 0.2
+        "chance": 0.2,
+        "multiplier": 0.5
       }
-    ]
+    ],
+    "special": false,
+    "intended_level": 11,
+    "base_value": 750,
+    "flavor": "This once was a living magical comb, until you had something to say about it.   The teeth are pretty pointy though."
   },
   {
     "id": "suds_slick_charm",
