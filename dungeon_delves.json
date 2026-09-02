@@ -270,7 +270,7 @@
         "monster_groups": [
           {
             "monsters": [
-              "goblin_grunt"
+              "gnome_doorman"
             ]
           }
         ],
@@ -305,7 +305,7 @@
         "monster_groups": [
           {
             "monsters": [
-              "goblin_grunt"
+              "z_goolok"
             ]
           }
         ]
@@ -316,7 +316,7 @@
         "monster_groups": [
           {
             "monsters": [
-              "goblin_grunt"
+              "gnome_leather_daddy"
             ]
           }
         ]
