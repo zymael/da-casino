@@ -28,7 +28,7 @@
       {
         "kind": "consumable",
         "item_id": "mystery_powder",
-        "chance": 0.02
+        "chance": 0.1
       }
     ],
     "skills": [
