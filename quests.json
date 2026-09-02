@@ -78,15 +78,15 @@
       "key": "dream_claimed:the_lost_temple",
       "value": 1
     },
-    "complete_message": "TODO: placeholder -- The Goo has already told you everything it knows.",
+    "complete_message": "*The Goo jiggles excitedly like a 70s Jello mold.  Or is it anxiously?  You can't really tell.*",
     "stages": [
       {
-        "prompt": "TODO: placeholder -- The Goo notices the flier on you and reacts.",
+        "prompt": "*The Goo vibrates as they notice your wet note.  You notice that they are, in fact, pretty wet.*",
         "trigger": {
           "type": "turn_in_item",
           "item_id": "bathhouse_flier"
         },
-        "on_complete_message": "TODO: placeholder -- The Goo's reaction to the flier, and the path to the Sewer opens.",
+        "on_complete_message": "*The Goo gyrates, convulses and shimmies in a series of movements not unlike an interpretive dance.  Somehow, you understand this to mean that the bath house is in the sewers beneath the gnome market.*",
         "turn_in_label": "\ud83d\udcc4 Show the flier"
       }
     ]
