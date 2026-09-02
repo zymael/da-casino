@@ -867,9 +867,6 @@
     "name": "Rat Tooth Shiv",
     "slot": "weapon",
     "rarity": "uncommon",
-    "intended_level": 5,
-    "base_value": 180,
-    "flavor": "Filed down from one of his own front teeth, gang-style. It grew back within the week \u2014 being a rat has some upsides.",
     "effects": [
       {
         "type": "atk_buff",
@@ -884,11 +881,15 @@
       {
         "type": "dot",
         "trigger": "on_hit",
-        "value": 4,
+        "chance": 0.25,
         "duration": 2,
-        "chance": 0.25
+        "value": 4
       }
-    ]
+    ],
+    "special": false,
+    "intended_level": 5,
+    "base_value": 180,
+    "flavor": "Filed down from one of the rat's own front teeth.  It grew back within the week.  Being a rat has its upsides, ya know?"
   },
   {
     "id": "adhesive_residue",
