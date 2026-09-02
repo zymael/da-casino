@@ -1303,7 +1303,7 @@ document.addEventListener('click', function (event) {
             dot.className = 'connector-handle';
             dot.dataset.connectorRole = 'success';
             dot.dataset.groupPrefix = prefix;
-            dot.dataset.tooltip = 'Drag onto another room -- where ' + label + ' leads after the fight, overriding the room\'s own next. Drop on empty canvas to disconnect back to the room\'s default.';
+            dot.dataset.tooltip = 'Drag onto another room -- where ' + label + ' leads after the fight, overriding the room\\'s own next. Drop on empty canvas to disconnect back to the room\\'s default.';
             node.appendChild(dot);
             wireConnectorHandle(dot);
 
@@ -1328,7 +1328,7 @@ document.addEventListener('click', function (event) {
                 var handle = document.createElement('div');
                 handle.className = 'connector-handle';
                 handle.dataset.connectorRole = 'success';
-                handle.dataset.tooltip = 'Drag onto another room -- where the player goes after winning the fight here (a group\'s own override, if any, wins over this). Drop on empty canvas to disconnect.';
+                handle.dataset.tooltip = 'Drag onto another room -- where the player goes after winning the fight here (a group\\'s own override, if any, wins over this). Drop on empty canvas to disconnect.';
                 box.appendChild(handle);
                 wireConnectorHandle(handle);
             }
