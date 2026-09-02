@@ -971,9 +971,6 @@
     "name": "Complimentary Robe",
     "slot": "armor",
     "rarity": "uncommon",
-    "intended_level": 8,
-    "base_value": 260,
-    "flavor": "The one he makes you check at the door. If you're lucky, you get it back nicer.",
     "effects": [
       {
         "type": "hp_buff",
@@ -988,10 +985,14 @@
       {
         "type": "heal_fraction",
         "trigger": "on_hit",
-        "value": 0.08,
-        "chance": 0.2
+        "chance": 0.2,
+        "value": 0.08
       }
-    ]
+    ],
+    "special": false,
+    "intended_level": 8,
+    "base_value": 260,
+    "flavor": "A cheap robe that has been dubiously \"cleaned\" after being worn by countless other patrons."
   },
   {
     "id": "static_cling",
