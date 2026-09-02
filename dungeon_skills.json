@@ -1154,7 +1154,7 @@
     "effects": [
       {
         "type": "damage_multiplier",
-        "value": 0.6
+        "value": 1
       },
       {
         "type": "stun",
