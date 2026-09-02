@@ -635,6 +635,17 @@ class RouletteView(discord.ui.View):
                     f"({bet['amount']}) — {outcome} ({'+' if net >= 0 else ''}{net}) — Balance: {balance}"
                 )
 
+            # A plain new message, not just the embed edit below -- editing the persistent table
+            # message doesn't notify anyone, so a result is easy to miss if you're not watching
+            # that exact spot.
+            if self.message is not None:
+                try:
+                    await self.message.channel.send(
+                        f"🎡 Roulette Result: {result} {roulette.color_emoji(result)}\n" + "\n".join(lines)
+                    )
+                except discord.HTTPException:
+                    pass
+
             result_color = discord.Color.green() if roulette.color_of(result) != "black" else discord.Color.dark_gray()
 
             wheel_embed = discord.Embed(
