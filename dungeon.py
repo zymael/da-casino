@@ -339,7 +339,7 @@ def roll_drops(monster: dict, chance_mult: float = 1.0) -> list[dict]:
 #              "background_path"?, "next"?, "prompt"?}
 #     monster_groups is a list of possible monster groups for this room -- one group ("monsters", a
 #     list of monster ids, all of which spawn together) is picked each visit via a weighted random
-#     choice, see monsters_for_room. "chance" is the exact same relative-weight convention a
+#     choice, see pick_monster_group. "chance" is the exact same relative-weight convention a
 #     monster's own "skills" list already uses (dungeon.pick_monster_action) -- NOT a 0-1
 #     probability, optional per group and defaulting to DEFAULT_MONSTER_GROUP_CHANCE (so an
 #     untouched group is on equal footing with every other untouched group, same as today's uniform
@@ -590,6 +590,26 @@ def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
                                 f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} "
                                 f"has a monster group chance that must be a number >= 0"
                             )
+                    # Optional per-group override of the room's own "next" -- lets which group gets
+                    # rolled send the player down a different path, not just change the monsters.
+                    # Same edges/reachability treatment as the room's own next below.
+                    if "next" in group:
+                        group_next = group["next"]
+                        if group_next not in room_ids:
+                            raise ValueError(
+                                f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} "
+                                f"monster group next {group_next!r} is not a room here"
+                            )
+                        edges[room_id].append(group_next)
+                    # x/y (both optional): where the admin panel's flowchart editor drew this
+                    # group's own connector node -- same "purely presentational" story as an
+                    # action's own x/y (see _validate_action).
+                    for pos_key in ("x", "y"):
+                        if pos_key in group and not isinstance(group[pos_key], (int, float)):
+                            raise ValueError(
+                                f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} "
+                                f"monster group {pos_key} must be a number"
+                            )
                 next_room = room.get("next")
                 if next_room is not None:
                     if next_room not in room_ids:
@@ -598,6 +618,10 @@ def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
                             f"next {next_room!r} is not a room here"
                         )
                     edges[room_id].append(next_room)
+                # No "every group must have a next if the room doesn't" rule -- a room with no next
+                # (and a group that doesn't override it) is the ordinary "this fight can win the
+                # delve" case, same as today; a group's own override just lets THAT roll continue
+                # deeper instead, it's not required to.
             else:  # choice
                 if not room.get("prompt"):
                     raise ValueError(f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} has no prompt")
@@ -683,17 +707,22 @@ def rooms_by_id(delve: dict) -> dict[str, dict]:
 DEFAULT_MONSTER_GROUP_CHANCE = 1.0
 
 
-def monsters_for_room(room: dict) -> list[dict]:
+def pick_monster_group(room: dict) -> dict:
     """Picks one of this room's monster_groups (weighted by each group's own "chance", defaulting
     to DEFAULT_MONSTER_GROUP_CHANCE -- same relative-weight convention as pick_monster_action's own
-    weights, so a "rare encounter" group is just a smaller number next to the room's other groups)
-    and resolves it to full monster dicts -- the whole group spawns together. RECONSTRUCTION NOTE:
-    the underlying list-of-groups shape was rebuilt after an accidental truncation of this file,
-    inferred from dungeon_view.py's call site and dungeon_monsters.json's shape; weighting was added
-    later, on top of that reconstruction."""
+    weights, so a "rare encounter" group is just a smaller number next to the room's other groups),
+    returning the chosen group with its "monsters" resolved from ids to full monster dicts (the
+    whole group spawns together) -- everything else on the group (its own optional "next" override,
+    "x"/"y") is passed through untouched, so a caller that needs to know which group actually got
+    picked (dungeon_view.py's DelveSession/PartyDelveSession, to resolve the group's own next
+    override once combat ends) doesn't have to re-roll or duplicate this weighting itself.
+    RECONSTRUCTION NOTE: the underlying list-of-groups shape was rebuilt after an accidental
+    truncation of this file, inferred from dungeon_view.py's call site and dungeon_monsters.json's
+    shape; weighting (and later, the per-group next override) was added on top of that
+    reconstruction."""
     weights = [g.get("chance", DEFAULT_MONSTER_GROUP_CHANCE) for g in room["monster_groups"]]
     group = random.choices(room["monster_groups"], weights=weights, k=1)[0]
-    return [MONSTERS[monster_id] for monster_id in group["monsters"]]
+    return {**group, "monsters": [MONSTERS[monster_id] for monster_id in group["monsters"]]}
 
 
 # --- Leveling ------------------------------------------------------------------------------
@@ -920,7 +949,7 @@ def _validate_effects(effects, context: str):
     (see _validate_equipment_effects), so the two never collide despite sharing a name. For
     choosing between mutually-exclusive alternatives ("50% this OR 50% that") see effect_groups
     instead (_validate_effect_groups) -- a different mechanism, relative weights instead of
-    independent probabilities, same distinction dungeon_view.monsters_for_room's group "chance"
+    independent probabilities, same distinction pick_monster_group's group "chance"
     (relative weight) already draws against this same param name."""
     if not effects:
         raise ValueError(f"{context} has empty effects")
@@ -979,7 +1008,7 @@ def _validate_effect_groups(effect_groups, context: str) -> None:
     """The alternative to a flat "effects" list -- a list of {"chance"?, "effects"} groups, exactly
     ONE of which is chosen at cast time via a weighted random pick (dungeon_view.
     resolve_cast_effects) -- the group's own "chance" is a relative WEIGHT against its sibling
-    groups, the same convention monsters_for_room's own monster_groups and a monster's own "skills"
+    groups, the same convention pick_monster_group's own monster_groups and a monster's own "skills"
     list already use (NOT the independent per-effect probability _validate_effects' "chance"
     means -- see that function's own docstring for the full distinction). This is how a "50% this
     OR 50% that" skill is authored. It is NOT how "50% chance of X, independently also 75% chance
@@ -1038,7 +1067,7 @@ def resolve_cast_effects(entry: dict) -> list[dict]:
     _validate_effects' own docstrings:
       1. If `entry` authored "effect_groups" (mutually-exclusive alternatives), pick exactly ONE
          group via a weighted random choice on each group's own "chance" (a relative weight,
-         defaulting to DEFAULT_EFFECT_GROUP_CHANCE -- same convention monsters_for_room's own
+         defaulting to DEFAULT_EFFECT_GROUP_CHANCE -- same convention pick_monster_group's own
          monster_groups already uses). A plain "effects" list is just the one implicit group,
          always "chosen" since there's nothing to pick between.
       2. Independently roll each effect *within* whichever list step 1 produced against its own

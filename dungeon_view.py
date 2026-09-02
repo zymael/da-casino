@@ -97,8 +97,14 @@ class MonsterInstance:
         self.threat: dict[int, float] = {}
 
 
-def _roll_monster_instances(room: dict) -> list[MonsterInstance]:
-    return [MonsterInstance(m, slot) for slot, m in enumerate(dungeon.monsters_for_room(room))]
+def _roll_monster_instances(room: dict) -> tuple[list[MonsterInstance], str | None]:
+    """Rolls a fresh monster group for this combat room and returns (instances, group_next) --
+    group_next is that group's own optional "next" override (dungeon.pick_monster_group), which the
+    caller stores on the session so it can win over the room's own "next" once combat ends (see
+    DelveSession.group_next_override)."""
+    group = dungeon.pick_monster_group(room)
+    instances = [MonsterInstance(m, slot) for slot, m in enumerate(group["monsters"])]
+    return instances, group.get("next")
 
 
 class DelveSession:
@@ -161,7 +167,10 @@ class DelveSession:
         # fight's Chips pool refills to max at the start of every fight, same reset points the old
         # once-per-fight ability_used flag used.
         start_room = self.rooms_by_id[self.current_room_id]
-        self.monsters: list[MonsterInstance] = _roll_monster_instances(start_room) if start_room["type"] == "combat" else []
+        self.monsters: list[MonsterInstance] = []
+        self.group_next_override: str | None = None
+        if start_room["type"] == "combat":
+            self.monsters, self.group_next_override = _roll_monster_instances(start_room)
         self.current_target_slot = 0
         self.max_chips = dungeon.compute_stats(self.main_class, self.subclass)["chips"]
         self.chips = self.max_chips
@@ -294,6 +303,7 @@ class PartyDelveSession:
         self.members = members
         self.members_by_id = {m.user_id: m for m in members}
         self.monsters: list[MonsterInstance] = []
+        self.group_next_override: str | None = None
         # user_id -> the slot that member is currently targeting -- per-member rather than one
         # session-wide field, since each party member picks their own target independently. See
         # target_for's self-healing fallback, same idea as solo DelveSession.current_target.
@@ -351,9 +361,11 @@ class PartyDelveSession:
         return member
 
     def _enter_room(self, room_id: str):
-        """Moves into room_id -- rolls a fresh monster group and resets each member's turn_clock if
-        it's a combat room (called on session init and on Push Deeper), or clears combat state if
-        not. Each monster's HP is scaled by however many members are alive RIGHT NOW
+        """Moves into room_id -- rolls a fresh monster group (recording its own optional "next"
+        override in group_next_override, same story as solo's DelveSession) and resets each
+        member's turn_clock if it's a combat room (called on session init and on Push Deeper), or
+        clears combat state if not. Each monster's HP is scaled by however many members are alive
+        RIGHT NOW
         (party_hp_multiplier), not the party's original size, so a roster thinned by earlier
         knockouts faces a fight scaled to its current strength; the multiplier applies per monster,
         not again on top of a group's already-higher aggregate danger from every monster getting
@@ -377,8 +389,10 @@ class PartyDelveSession:
                 )
                 for m in self.members
             }
+            group = dungeon.pick_monster_group(room)
+            self.group_next_override = group.get("next")
             self.monsters = []
-            for slot, monster in enumerate(dungeon.monsters_for_room(room)):
+            for slot, monster in enumerate(group["monsters"]):
                 instance = MonsterInstance(monster, slot)
                 instance.max_hp = round(monster["hp"] * mult)
                 instance.hp = instance.max_hp
@@ -391,6 +405,7 @@ class PartyDelveSession:
                 m.turn_clock = 0.0  # fresh fight -- chips are delve-scoped, not reset here (see __init__)
         else:
             self.monsters = []
+            self.group_next_override = None
 
 
 def _room_background_path(delve: dict, room: dict) -> str | None:
@@ -632,12 +647,13 @@ async def _goto_room(interaction: discord.Interaction, session: DelveSession, ro
     session.rooms_visited += 1
     room = session.rooms_by_id[room_id]
     if room["type"] == "combat":
-        session.monsters = _roll_monster_instances(room)
+        session.monsters, session.group_next_override = _roll_monster_instances(room)
         session.current_target_slot = 0
         session.used_item_effects = set()
         session.turn_clock = 0.0  # fresh fight -- chips are delve-scoped, not reset here (see __init__)
     else:
         session.monsters = []
+        session.group_next_override = None
     await _build_room_display(interaction, session, intro_text)
 
 
@@ -1050,7 +1066,7 @@ class RoomResultView(discord.ui.View):
         if session.current_view is not self:
             return  # already acted on -- a stray/duplicate click shouldn't re-derive room state
         room = session.rooms_by_id[session.current_room_id]
-        next_room = room.get("next")
+        next_room = session.group_next_override or room.get("next")
         if next_room is None:
             return  # room state doesn't match this stale view -- nothing sane to push into
         await _goto_room(interaction, session, next_room, "You press deeper into the dungeon...")
@@ -2092,7 +2108,7 @@ async def _handle_cast_item(interaction: discord.Interaction, session: DelveSess
 async def _present_room_result(interaction: discord.Interaction, session: DelveSession, log_lines: list[str]):
     currency = db.get_currency_name(session.guild_id)
     room = session.rooms_by_id[session.current_room_id]
-    next_room = room.get("next")
+    next_room = session.group_next_override or room.get("next")
 
     embed = discord.Embed(title="🏆 Room Cleared!", description="\n".join(log_lines), color=discord.Color.gold())
     embed.add_field(name="Loot this delve", value=f"{session.loot_total} {currency}", inline=True)
@@ -3022,7 +3038,7 @@ class PartyRoomResultView(discord.ui.View):
         if session.current_view is not self:
             return  # already acted on -- a stray/duplicate click shouldn't re-derive room state
         room = session.rooms_by_id[session.current_room_id]
-        next_room = room.get("next")
+        next_room = session.group_next_override or room.get("next")
         if next_room is None:
             return  # room state doesn't match this stale view -- nothing sane to push into
         await _goto_party_room(interaction, session, next_room, "The party presses deeper into the dungeon...")
@@ -3053,7 +3069,7 @@ async def _present_party_room_result(
     live-interaction-or-session.message split every other timeout-reachable party response already
     uses."""
     room = session.rooms_by_id[session.current_room_id]
-    next_room = room.get("next")
+    next_room = session.group_next_override or room.get("next")
     currency = db.get_currency_name(session.guild_id)
 
     embed = discord.Embed(title="🏆 Room Cleared!", description="\n".join(log_lines), color=discord.Color.gold())

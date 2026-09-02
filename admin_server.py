@@ -196,12 +196,12 @@ svg.delve-arrows text { user-select: none; }
 .connector-handle { position: absolute; right: -10px; bottom: -10px; width: 20px; height: 20px; border-radius: 50%; background: #40a060; border: 3px solid #1a1a1f; cursor: crosshair; touch-action: none; z-index: 4; }
 .connector-handle:hover { transform: scale(1.15); }
 .connector-handle.fail { background: #c04040; }
-.action-node { position: absolute; min-width: 84px; max-width: 130px; background: #1c1c26; border: 1px solid #3a3a4a; border-left: 4px solid #7a7ae0; border-radius: 5px; padding: 5px 26px 5px 8px; font-size: 0.7rem; color: #c8c8f0; z-index: 1; user-select: none; cursor: grab; touch-action: none; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
-.action-node.dragging { cursor: grabbing; z-index: 2; }
-.action-node:hover { border-left-color: #9a9af0; }
-.action-node .connector-handle { width: 16px; height: 16px; }
+.action-node, .group-node { position: absolute; min-width: 84px; max-width: 130px; background: #1c1c26; border: 1px solid #3a3a4a; border-left: 4px solid #7a7ae0; border-radius: 5px; padding: 5px 26px 5px 8px; font-size: 0.7rem; color: #c8c8f0; z-index: 1; user-select: none; cursor: grab; touch-action: none; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+.action-node.dragging, .group-node.dragging { cursor: grabbing; z-index: 2; }
+.action-node:hover, .group-node:hover { border-left-color: #9a9af0; }
+.action-node .connector-handle, .group-node .connector-handle { width: 16px; height: 16px; }
 .action-node .connector-handle.fail { right: 14px; }
-.action-node-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.action-node-label, .group-node-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .action-owner-line { stroke: #7a7ae0; stroke-width: 1.5; stroke-dasharray: 4,3; opacity: 0.75; }
 .arrow-disconnect { opacity: 0.55; transition: opacity 0.15s; }
 .arrow-disconnect:hover { opacity: 1; }
@@ -649,7 +649,7 @@ function updateSkillOdds() {
 }
 
 // Group sibling of updateSkillOdds -- a combat room's own monster_groups (dungeon.
-// monsters_for_room) picks one group via the exact same weighted-random shape a monster's own
+// pick_monster_group) picks one group via the exact same weighted-random shape a monster's own
 // skills use, so this mirrors updateSkillOdds almost exactly. The one real difference: a monster's
 // skills are ONE fieldset per whole page, but a delve's flowchart canvas can have MANY combat
 // rooms at once, each with its own independent set of groups -- so this scopes itself to every
@@ -982,6 +982,21 @@ document.addEventListener('click', function (event) {
                     drawEdge(handle, byId[nextInput.value].querySelector('.room-box'), 'success', null,
                         function () { nextInput.value = ''; });
                 }
+                // Each monster group has its own connector box, same "distinct line per sub-item"
+                // shape as an action's own node below -- a group override is drawn as its own
+                // edge rather than bunched onto the room's own handle above.
+                w.querySelectorAll('.group-node').forEach(function (node) {
+                    drawOwnerLine(box, node);
+                    var prefix = node.dataset.groupNode;
+                    var groupInput = document.getElementsByName(prefix + '_next')[0];
+                    var groupHandle = node.querySelector('.connector-handle');
+                    var labelSpan = node.querySelector('.group-node-label');
+                    var label = labelSpan ? labelSpan.textContent : null;
+                    if (groupHandle && groupInput && groupInput.value && byId[groupInput.value]) {
+                        drawEdge(groupHandle, byId[groupInput.value].querySelector('.room-box'), 'success', label,
+                            function () { groupInput.value = ''; });
+                    }
+                });
             } else {
                 // Each action has its own connector box on the canvas (see _render_action_node /
                 // syncActionNodes) instead of a handle bunched onto the room's own box -- edges
@@ -1063,6 +1078,7 @@ document.addEventListener('click', function (event) {
             handle.setPointerCapture(e.pointerId);
             var role = handle.dataset.connectorRole;
             var actionPrefix = handle.dataset.actionPrefix || null;
+            var groupPrefix = handle.dataset.groupPrefix || null;
             var wrapper = handle.closest('.room-wrapper');
             var canvasRect = canvas.getBoundingClientRect();
             var start = boxCenter(handle);
@@ -1103,6 +1119,8 @@ document.addEventListener('click', function (event) {
 
                 var targetInput = actionPrefix
                     ? document.getElementsByName(actionPrefix + '_' + (role === 'fail' ? 'fail_next' : 'success_next'))[0]
+                    : groupPrefix
+                    ? document.getElementsByName(groupPrefix + '_next')[0]
                     : wrapper.querySelector('.room-next-input');
                 if (targetInput) {
                     targetInput.value = otherIdInput.value;
@@ -1125,19 +1143,23 @@ document.addEventListener('click', function (event) {
         });
     }
 
-    // Action nodes are freely draggable, same shape as wireBoxDrag but simpler (no click-to-select
-    // filtering beyond the connector handles, and no ownership of anything else that needs to move
-    // with it) -- position persists directly on the action's own hidden x/y inputs, not derived
-    // from its parent room, so dragging a room no longer drags its actions along with it.
-    function wireActionNodeDrag(node) {
+    // Action/group nodes are freely draggable, same shape as wireBoxDrag but simpler (no
+    // click-to-select filtering beyond the connector handles, and no ownership of anything else
+    // that needs to move with it) -- position persists directly on the node's own hidden x/y
+    // inputs, not derived from its parent room, so dragging a room no longer drags its
+    // actions/groups along with it. xClass/yClass parametrize which hidden inputs to write to --
+    // action nodes and group nodes each use their own class (.action-x-input/.action-y-input vs.
+    // .group-x-input/.group-y-input) rather than sharing one, so the two node kinds' positions
+    // can never cross-write into each other's inputs.
+    function wireActionNodeDrag(node, xClass, yClass) {
         if (node.dataset.dragWired) return;
         node.dataset.dragWired = '1';
         node.addEventListener('pointerdown', function (e) {
             if (e.target.closest('[data-connector-role]')) return;
             node.setPointerCapture(e.pointerId);
             node.classList.add('dragging');
-            var xInput = node.querySelector('.action-x-input');
-            var yInput = node.querySelector('.action-y-input');
+            var xInput = node.querySelector(xClass);
+            var yInput = node.querySelector(yClass);
             function onMove(ev) {
                 var newLeft = parseFloat(node.style.left) + ev.movementX;
                 var newTop = parseFloat(node.style.top) + ev.movementY;
@@ -1227,7 +1249,66 @@ document.addEventListener('click', function (event) {
             }
 
             wireActionNodeClick(node, wrapper);
-            wireActionNodeDrag(node);
+            wireActionNodeDrag(node, '.action-x-input', '.action-y-input');
+            wrapper.appendChild(node);
+        });
+        redrawAllArrows();
+    }
+
+    // Group sibling of syncActionNodes -- same "clear and rebuild from whatever rows currently
+    // exist" approach, for a combat room's monster_groups instead of a choice room's actions. A
+    // group has no label input to key its prefix off of (unlike an action), so its own "chance"
+    // input's name is used instead -- every group row always renders one, even a freshly-added,
+    // otherwise-empty group (see _render_room_monster_group_row). No "fail" handle variant --
+    // groups have no check/fail concept, just the one override.
+    function syncGroupNodes(wrapper) {
+        var existingPositions = {};
+        wrapper.querySelectorAll('.group-node').forEach(function (n) {
+            existingPositions[n.dataset.groupNode] = { x: parseFloat(n.style.left) || 0, y: parseFloat(n.style.top) || 0 };
+        });
+        wrapper.querySelectorAll('.group-node').forEach(function (n) { n.remove(); });
+        var typeSelect = wrapper.querySelector('.room-type-select');
+        if (!typeSelect || typeSelect.value !== 'combat') { redrawAllArrows(); return; }
+
+        var box = wrapper.querySelector('.room-box');
+        var roomPos = { x: parseFloat(box.style.left) || 0, y: parseFloat(box.style.top) || 0 };
+        var freshIndex = 0;
+        wrapper.querySelectorAll('.monster-group').forEach(function (groupRow, i) {
+            var chanceInput = groupRow.querySelector('[data-group-chance]');
+            if (!chanceInput) return;
+            var prefix = chanceInput.name.slice(0, -('_chance'.length));
+            var label = 'Group ' + (i + 1);
+
+            var node = document.createElement('div');
+            node.className = 'group-node';
+            node.dataset.groupNode = prefix;
+            var pos = existingPositions[prefix];
+            if (!pos) { pos = { x: roomPos.x + 190, y: roomPos.y + freshIndex * 74 }; freshIndex++; }
+            node.style.left = pos.x + 'px';
+            node.style.top = pos.y + 'px';
+
+            var xInput = document.createElement('input');
+            xInput.type = 'hidden'; xInput.className = 'group-x-input'; xInput.name = prefix + '_x'; xInput.value = pos.x;
+            node.appendChild(xInput);
+            var yInput = document.createElement('input');
+            yInput.type = 'hidden'; yInput.className = 'group-y-input'; yInput.name = prefix + '_y'; yInput.value = pos.y;
+            node.appendChild(yInput);
+
+            var labelSpan = document.createElement('span');
+            labelSpan.className = 'group-node-label';
+            labelSpan.textContent = label;
+            node.appendChild(labelSpan);
+
+            var dot = document.createElement('div');
+            dot.className = 'connector-handle';
+            dot.dataset.connectorRole = 'success';
+            dot.dataset.groupPrefix = prefix;
+            dot.dataset.tooltip = 'Drag onto another room -- where ' + label + ' leads after the fight, overriding the room\'s own next. Drop on empty canvas to disconnect back to the room\'s default.';
+            node.appendChild(dot);
+            wireConnectorHandle(dot);
+
+            wireActionNodeClick(node, wrapper);
+            wireActionNodeDrag(node, '.group-x-input', '.group-y-input');
             wrapper.appendChild(node);
         });
         redrawAllArrows();
@@ -1247,7 +1328,7 @@ document.addEventListener('click', function (event) {
                 var handle = document.createElement('div');
                 handle.className = 'connector-handle';
                 handle.dataset.connectorRole = 'success';
-                handle.dataset.tooltip = 'Drag onto another room -- where the player goes after winning the fight here. Drop on empty canvas to disconnect.';
+                handle.dataset.tooltip = 'Drag onto another room -- where the player goes after winning the fight here (a group\'s own override, if any, wins over this). Drop on empty canvas to disconnect.';
                 box.appendChild(handle);
                 wireConnectorHandle(handle);
             }
@@ -1258,9 +1339,11 @@ document.addEventListener('click', function (event) {
                 nextInput.name = wrapper.dataset.roomWrapper + '_next';
                 box.appendChild(nextInput);
             }
+            syncGroupNodes(wrapper);
         } else {
             var existingHandle = box.querySelector('.connector-handle');
             if (existingHandle) existingHandle.remove();
+            wrapper.querySelectorAll('.group-node').forEach(function (n) { n.remove(); });
             syncActionNodes(wrapper);
         }
         refreshRoomBox(wrapper);
@@ -1286,7 +1369,7 @@ document.addEventListener('click', function (event) {
 
     function renameRoomReferences(oldId, newId) {
         if (!oldId || oldId === newId) return;
-        canvas.querySelectorAll('.room-next-input, input[name$="_success_next"], input[name$="_fail_next"]').forEach(function (input) {
+        canvas.querySelectorAll('.room-next-input, .group-next-input, input[name$="_success_next"], input[name$="_fail_next"]').forEach(function (input) {
             if (input.value === oldId) input.value = newId;
         });
         var startField = document.getElementById('start_room_field');
@@ -1369,7 +1452,11 @@ document.addEventListener('click', function (event) {
         node.querySelectorAll('[data-connector-role]').forEach(wireConnectorHandle);
         node.querySelectorAll('.action-node').forEach(function (actionNode) {
             wireActionNodeClick(actionNode, node);
-            wireActionNodeDrag(actionNode);
+            wireActionNodeDrag(actionNode, '.action-x-input', '.action-y-input');
+        });
+        node.querySelectorAll('.group-node').forEach(function (groupNode) {
+            wireActionNodeClick(groupNode, node);
+            wireActionNodeDrag(groupNode, '.group-x-input', '.group-y-input');
         });
         var flag = node.querySelector('[data-set-start]');
         if (flag && !flag.dataset.wired) {
@@ -1404,6 +1491,7 @@ document.addEventListener('click', function (event) {
         if (!wrapper) return;
         wireActionSyncInputs(el, wrapper);
         syncActionNodes(wrapper);
+        syncGroupNodes(wrapper);
         refreshRoomBox(wrapper);
     }
 
@@ -1997,7 +2085,7 @@ def _render_room_monster_group_row(prefix: str, group: dict) -> str:
     """One monster GROUP within a combat room's own repeatable "groups" list -- a group is every
     monster that spawns simultaneously as one encounter (a group of one is an ordinary
     single-monster fight; see dungeon.py's module docstring), plus its own "chance" -- a relative
-    weight against this room's OTHER groups (dungeon.monsters_for_room), the exact same convention
+    weight against this room's OTHER groups (dungeon.pick_monster_group), the exact same convention
     _render_monster_skill_row's own chance already uses, right down to the live odds badge (see
     updateGroupOdds in _dynamic_script, the group sibling of updateSkillOdds). Nests
     _render_room_monster_row's own repeatable one level deeper than before (room -> groups -> group
@@ -2007,8 +2095,20 @@ def _render_room_monster_group_row(prefix: str, group: dict) -> str:
     (`event.target.closest('.row-group')`) removes the whole group when its own remove button is
     clicked, same as it already removes just one nested monster row when *that* row's own remove
     button is clicked instead -- DOM proximity alone disambiguates which level a given remove click
-    means, no extra JS needed here either. See _render_room_detail_panel below and
-    _parse_delve_flowchart's matching parse side."""
+    means, no extra JS needed here either.
+
+    "next" is optional -- overrides the room's own next for whichever fight this group actually
+    gets rolled for (dungeon_view.DelveSession/PartyDelveSession's group_next_override). Same
+    "not typed here" story as an action's own on_success/on_fail next (_render_action_row): this
+    group gets its own draggable node + connector handle on the flowchart canvas
+    (_dynamic_script's syncGroupNodes, the group sibling of syncActionNodes) since a group has no
+    stable per-item box of its own the way a room does -- the value still lives in this same-named
+    hidden input, just written by JS instead of a person; the live-next span here mirrors it
+    read-only, purely so this panel shows where it leads without hunting for the arrow on canvas.
+    Position (x/y) is NOT rendered here -- like an action's own x/y, it only ever exists as a
+    canvas-node hidden input JS creates on the fly (syncGroupNodes), read back by
+    _parse_delve_flowchart same as _parse_actions already does for actions. See
+    _render_room_detail_panel below and _parse_delve_flowchart's matching parse side."""
     monsters = group.get("monsters", [])
     monsters_container = f"{prefix}_monsters"
     monster_rows_html = [_render_room_monster_row(f"{monsters_container}_{j}", mid) for j, mid in enumerate(monsters)]
@@ -2016,7 +2116,10 @@ def _render_room_monster_group_row(prefix: str, group: dict) -> str:
     monsters_repeatable = _render_repeatable(monsters_container, monster_rows_html, monster_template_html, "+ Add monster")
     return (
         f'<fieldset class="row-group monster-group" data-monster-group data-group-row>'
-        f'<legend>Group</legend>'
+        f'<legend>Group '
+        f'<span class="live-next-tag" data-live-next="{prefix}_next">'
+        f'{html.escape("→ " + group["next"]) if group.get("next") else "→ (room\'s default)"}'
+        f'</span></legend>'
         f'<label data-tooltip="A relative weight against this room\'s OTHER groups -- NOT a 0-1 '
         f'probability. Blank defaults to 1 (equal footing with every other untouched group); lower '
         f'this for a rare encounter (e.g. 0.1 next to two groups left blank makes it roughly '
@@ -2025,6 +2128,8 @@ def _render_room_monster_group_row(prefix: str, group: dict) -> str:
         f'<input type="number" step="any" min="0" name="{prefix}_chance" '
         f'value="{group.get("chance", "")}" data-group-chance></label>'
         f'<span class="skill-odds-pct" data-group-pct>—</span>'
+        f'<input type="hidden" class="group-next-input" name="{prefix}_next" '
+        f'value="{html.escape(group.get("next") or "")}">'
         f'{monsters_repeatable}'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove group</button></fieldset>'
     )
@@ -2243,8 +2348,8 @@ def _render_room_box(prefix: str, room: dict, pos: dict, is_start: bool, error_m
         handles_html = (
             f'<div class="connector-handle" data-connector-role="success" '
             f'data-tooltip="Drag onto another room -- where the player goes after winning the '
-            f'fight here. Drop on empty canvas to disconnect (that makes this room the end of the '
-            f'delve, a win)."></div>'
+            f'fight here (a monster group\'s own override, if any, wins over this). Drop on empty '
+            f'canvas to disconnect (that makes this room the end of the delve, a win)."></div>'
         )
     else:
         actions = room.get("actions", [])
@@ -2347,19 +2452,51 @@ def _render_room_detail_panel(prefix: str, room: dict) -> str:
     )
 
 
+def _default_group_position(room_pos: dict, index: int) -> dict:
+    """Group sibling of _default_action_position -- same stacked below-and-right fallback for a
+    monster group's own connector node that's never been dragged yet."""
+    return {"x": room_pos["x"] + 190, "y": room_pos["y"] + index * 74}
+
+
+def _render_group_node(group_prefix: str, group: dict, pos: dict, index: int) -> str:
+    """Group sibling of _render_action_node -- a monster group's own connector box on the canvas,
+    labeled "Group N" (1-indexed; groups have no label field of their own to show instead). Just
+    this label (kept in sync client-side by syncGroupNodes), its own x/y hidden inputs (set by
+    dragging, see wireActionNodeDrag), and the one connector handle overriding the room's own next
+    -- no "fail" variant, groups have no check/fail concept. Carries no editable fields itself
+    (chance/monsters stay in the parent room's detail panel, see _render_room_monster_group_row)."""
+    label = f"Group {index + 1}"
+    return (
+        f'<div class="group-node" data-group-node="{group_prefix}" '
+        f'style="left:{pos["x"]}px;top:{pos["y"]}px">'
+        f'<input type="hidden" name="{group_prefix}_x" class="group-x-input" value="{pos["x"]}">'
+        f'<input type="hidden" name="{group_prefix}_y" class="group-y-input" value="{pos["y"]}">'
+        f'<span class="group-node-label" data-group-node-label>{label}</span>'
+        f'<div class="connector-handle" data-connector-role="success" data-group-prefix="{group_prefix}" '
+        f'data-tooltip="Drag onto another room -- where {label} leads after the fight, overriding '
+        f'the room\'s own next. Drop on empty canvas to disconnect back to the room\'s '
+        f'default."></div>'
+        f'</div>'
+    )
+
+
 def _render_room_node(
     prefix: str, room: dict, pos: dict, is_start: bool,
     room_errors: list[str] | None = None, action_errors: dict[int, list[str]] | None = None,
 ) -> str:
-    """Box + action nodes (choice rooms only) + detail panel for one room, wrapped in a single
-    .room-wrapper -- the unit _render_repeatable's existing <template>/ROWIDX clone mechanism (see
-    wireRepeatAdd) operates on, so "+ Add Room" keeps working with zero changes to that shared
-    primitive. Action nodes are siblings of the room's own box (not nested inside it) so each gets
-    its own independent position in the same canvas coordinate space -- see _render_action_node.
+    """Box + action/group nodes + detail panel for one room, wrapped in a single .room-wrapper --
+    the unit _render_repeatable's existing <template>/ROWIDX clone mechanism (see wireRepeatAdd)
+    operates on, so "+ Add Room" keeps working with zero changes to that shared primitive. Action
+    nodes (choice rooms) and group nodes (combat rooms) are siblings of the room's own box (not
+    nested inside it) so each gets its own independent position in the same canvas coordinate
+    space -- see _render_action_node/_render_group_node.
 
     `room_errors`/`action_errors` are this one room's slice of a delve-wide problem map (see
-    _group_delve_problems) -- action_errors is keyed by action index within this room."""
+    _group_delve_problems) -- action_errors is keyed by action index within this room. Group nodes
+    don't get their own error highlighting -- check_delve_problems doesn't produce per-group
+    messages, only per-room/per-action ones."""
     action_nodes_html = ""
+    group_nodes_html = ""
     if (room.get("type") or "combat") == "choice":
         action_nodes_html = "".join(
             _render_action_node(
@@ -2370,10 +2507,21 @@ def _render_room_node(
             )
             for j, action in enumerate(room.get("actions", []))
         )
+    else:
+        group_nodes_html = "".join(
+            _render_group_node(
+                f"{prefix}_groups_{j}", group,
+                {"x": group["x"], "y": group["y"]} if "x" in group and "y" in group
+                else _default_group_position(pos, j),
+                j,
+            )
+            for j, group in enumerate(room.get("monster_groups", []))
+        )
     return (
         f'<div class="room-wrapper" data-room-wrapper="{prefix}">'
         f'{_render_room_box(prefix, room, pos, is_start, room_errors)}'
         f'{action_nodes_html}'
+        f'{group_nodes_html}'
         f'{_render_room_detail_panel(prefix, room)}'
         f'</div>'
     )
@@ -3475,6 +3623,12 @@ def _parse_delve_flowchart(form: dict, entry_id_for_upload: str, existing_entry:
                     raw_chance = form.get(f"{gp}_chance", "").strip()
                     if raw_chance:
                         group["chance"] = float(raw_chance) if "." in raw_chance else int(raw_chance)
+                    group_next = form.get(f"{gp}_next", "").strip()
+                    if group_next:
+                        group["next"] = group_next
+                    gx, gy = form.get(f"{gp}_x", "").strip(), form.get(f"{gp}_y", "").strip()
+                    if gx and gy:
+                        group["x"], group["y"] = float(gx), float(gy)
                     groups.append(group)
             if groups:
                 room["monster_groups"] = groups
