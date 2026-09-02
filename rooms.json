@@ -302,7 +302,7 @@
     "id": "gnome_market_sewer",
     "name": "\ud83d\udd73\ufe0f The Sewer",
     "description": "You descend into the sewers.  An absolute cesspit lies before you, the sound of sewage dumping into the frothing lake an absolute cacophony filling the air.  Truly an assault on every sense.\r\n\r\nBut then again it's a sewer.  That's what they're like.  Anyone that would say otherwise would clearly be insane even if they did try to call it 'tunnel' or something nonsensical like that.",
-    "background_path": "assets/rooms/gnomish_night_market.jpg",
+    "background_path": "assets/rooms/gnome_market_sewer.jpg",
     "exits": [
       {
         "room_id": "gnomish_night_market",
