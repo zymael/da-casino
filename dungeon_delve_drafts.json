@@ -72,5 +72,248 @@
     },
     "start_room": "room1",
     "background_path": "assets/dungeon/backgrounds/goblin_disco.jpg"
+  },
+  "gnome_bathhouse": {
+    "id": "gnome_bathhouse",
+    "name": "The Gnomish Bathhouse",
+    "active": false,
+    "hidden_until_discovered": true,
+    "unlock_trigger": {
+      "type": "quest_complete",
+      "quest_id": "goo_bathhouse_flier"
+    },
+    "flavor": "The baths",
+    "rooms": [
+      {
+        "id": "The Sewer",
+        "type": "combat",
+        "monster_groups": [
+          {
+            "monsters": [
+              "bad_rat",
+              "bad_rat"
+            ],
+            "x": 230.0,
+            "y": 40.0
+          },
+          {
+            "monsters": [
+              "feral_goo",
+              "feral_goo"
+            ],
+            "x": 230.0,
+            "y": 114.0
+          }
+        ],
+        "next": "The Doorman",
+        "background_path": "assets/dungeon/backgrounds/gnome_bathhouse_room_The Sewer.jpg"
+      },
+      {
+        "id": "The Doorman",
+        "type": "choice",
+        "prompt": "A locked door with a small sliding panel",
+        "actions": [
+          {
+            "label": "Flex",
+            "check": {
+              "stat": "atk",
+              "dc": 15
+            },
+            "on_success": {
+              "next": "The Bathhouse",
+              "message": "He is impressed"
+            },
+            "on_fail": {
+              "next": "Fight the Doorman",
+              "message": "He is not impressed and atatcks!"
+            },
+            "x": 336.0,
+            "y": 188.0
+          },
+          {
+            "label": "Bribe",
+            "cost": {
+              "currency": 100
+            },
+            "on_success": {
+              "next": "The Bathhouse",
+              "message": "He pockets the bribe and lets you through"
+            },
+            "x": 336.0,
+            "y": 262.0
+          },
+          {
+            "label": "Break down the door",
+            "on_success": {
+              "next": "Fight the Doorman",
+              "message": "You just break down the door, you don't have time for this.  The Gnome Doorman Attacks!"
+            },
+            "x": 336.0,
+            "y": 336.0
+          }
+        ]
+      },
+      {
+        "id": "The Bathhouse",
+        "type": "combat",
+        "monster_groups": [
+          {
+            "monsters": [
+              "enchanted_comb",
+              "enchanted_soap",
+              "enchanted_towel"
+            ],
+            "x": 960.0,
+            "y": 75.0
+          },
+          {
+            "monsters": [
+              "enchanted_comb",
+              "enchanted_soap",
+              "enchanted_soap",
+              "enchanted_towel"
+            ],
+            "x": 1004.0,
+            "y": 139.0
+          },
+          {
+            "monsters": [
+              "enchanted_comb",
+              "enchanted_soap",
+              "enchanted_towel",
+              "enchanted_towel"
+            ],
+            "x": 1009.0,
+            "y": 199.0
+          }
+        ],
+        "next": "A Private Bath",
+        "prompt": "As you enter the Bathhouse proper, the furniture awakens to attack you.\r\nDefend yourself!"
+      },
+      {
+        "id": "Fight the Doorman",
+        "type": "combat",
+        "monster_groups": [
+          {
+            "monsters": [
+              "goblin_grunt"
+            ],
+            "x": 884.0,
+            "y": 424.0
+          }
+        ],
+        "next": "The Bathhouse"
+      },
+      {
+        "id": "A desperate choice!",
+        "type": "choice",
+        "prompt": "You can go pipe or curtain",
+        "actions": [
+          {
+            "label": "Pipe",
+            "on_success": {
+              "next": "The Bog of Z'Goolok"
+            },
+            "x": 1473.0,
+            "y": 385.0
+          },
+          {
+            "label": "Curtain",
+            "on_success": {
+              "next": "The Leather Daddy's Private Room"
+            },
+            "x": 1471.0,
+            "y": 478.0
+          }
+        ]
+      },
+      {
+        "id": "The Bog of Z'Goolok",
+        "type": "combat",
+        "monster_groups": [
+          {
+            "monsters": [
+              "goblin_grunt"
+            ],
+            "x": 1903.0,
+            "y": 377.0
+          }
+        ]
+      },
+      {
+        "id": "The Leather Daddy's Private Room",
+        "type": "combat",
+        "monster_groups": [
+          {
+            "monsters": [
+              "goblin_grunt"
+            ],
+            "x": 1902.0,
+            "y": 470.0
+          }
+        ]
+      },
+      {
+        "id": "A Private Bath",
+        "type": "combat",
+        "monster_groups": [
+          {
+            "monsters": [
+              "nakedgnome_1",
+              "nakedgnome_3",
+              "nakedgnome_2"
+            ],
+            "x": 1294.0,
+            "y": 282.0
+          },
+          {
+            "monsters": [
+              "enchanted_towel",
+              "enchanted_comb",
+              "bath_witch"
+            ],
+            "x": 1294.0,
+            "y": 356.0
+          }
+        ],
+        "next": "A desperate choice!",
+        "prompt": "As you remove the curtains to enter in what you think is the main room, it turns out you stumble into a private bath!"
+      }
+    ],
+    "layout": {
+      "The Sewer": {
+        "x": 40.0,
+        "y": 40.0
+      },
+      "The Doorman": {
+        "x": 81.0,
+        "y": 239.0
+      },
+      "The Bathhouse": {
+        "x": 670.0,
+        "y": 70.0
+      },
+      "Fight the Doorman": {
+        "x": 694.0,
+        "y": 424.0
+      },
+      "A desperate choice!": {
+        "x": 1238.0,
+        "y": 414.0
+      },
+      "The Bog of Z'Goolok": {
+        "x": 1713.0,
+        "y": 377.0
+      },
+      "The Leather Daddy's Private Room": {
+        "x": 1712.0,
+        "y": 470.0
+      },
+      "A Private Bath": {
+        "x": 913.0,
+        "y": 289.0
+      }
+    },
+    "start_room": "The Sewer"
   }
 }
