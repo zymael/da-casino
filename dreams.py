@@ -90,7 +90,9 @@ def active_dream() -> dict | None:
 
 async def try_deliver_dream(dm_send, guild_id: int, user_id: int) -> bool:
     """Attempts to DM the currently active dream (if any) to this player, once ever per (guild,
-    dream) -- granting its optional item alongside it. `dm_send` is an async callable like
+    dream) -- granting its optional item alongside it, and attaching its optional image_path (gif
+    or static, uploaded through the admin panel same as any other image content) as the embed's
+    image if set. `dm_send` is an async callable like
     discord.Member.send/discord.User.send -- mirrors achievements.try_award_many's own `send`
     param, same "caller supplies the Discord-facing bit, this module stays decoupled from needing a
     real discord.Member" reasoning. Returns whether it was actually delivered -- False if there's
@@ -123,7 +125,17 @@ async def try_deliver_dream(dm_send, guild_id: int, user_id: int) -> bool:
 
     try:
         embed = discord.Embed(title="💭 A Dream", description=description, color=discord.Color.purple())
-        await dm_send(embed=embed)
+        image_path = dream.get("image_path")
+        if image_path:
+            # Attached raw, never re-encoded through Pillow (unlike npc_render's sprite
+            # compositing) -- a gif's animation only survives if its original bytes go through
+            # untouched.
+            filename = os.path.basename(image_path)
+            file = discord.File(image_path, filename=filename)
+            embed.set_image(url=f"attachment://{filename}")
+            await dm_send(embed=embed, file=file)
+        else:
+            await dm_send(embed=embed)
     except discord.Forbidden:
         await asyncio.to_thread(db.set_flag, guild_id, user_id, flag_key, 0)
         return False

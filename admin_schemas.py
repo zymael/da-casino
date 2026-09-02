@@ -878,6 +878,12 @@ CONTENT_TYPES = {
                 "hint": "DM'd to a player the next time they !rest, while this dream is active",
             },
             {
+                "name": "image_path", "type": "image", "required": False, "subdir": "dreams",
+                "group": "Content",
+                "hint": "optional -- attached to the DM alongside the message. A gif is attached "
+                        "as-is (not re-encoded), so it animates normally.",
+            },
+            {
                 "name": "active", "type": "bool", "required": False, "default": False, "group": "Content",
                 "hint": "at most one dream may be active at a time -- saving a second active dream "
                         "is rejected. Deactivate the current one first, then activate the new one.",
