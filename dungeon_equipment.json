@@ -861,5 +861,602 @@
     "special": false,
     "base_value": 100,
     "flavor": "Is it for Goblins or by Goblins?"
+  },
+  {
+    "id": "rat_tooth_shiv",
+    "name": "Rat Tooth Shiv",
+    "slot": "weapon",
+    "rarity": "uncommon",
+    "intended_level": 5,
+    "base_value": 180,
+    "flavor": "Filed down from one of his own front teeth, gang-style. It grew back within the week — being a rat has some upsides.",
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 7
+      },
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 2
+      },
+      {
+        "type": "dot",
+        "trigger": "on_hit",
+        "value": 4,
+        "duration": 2,
+        "chance": 0.25
+      }
+    ]
+  },
+  {
+    "id": "adhesive_residue",
+    "name": "Adhesive Residue",
+    "slot": "trinket",
+    "rarity": "common",
+    "intended_level": 5,
+    "base_value": 90,
+    "flavor": "You're not sure how you're supposed to wear it. You're wearing it anyway. There's a shape pressed into it that might be a symbol, if you squint, and might just be nothing. Probably nothing.",
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 4
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 2
+      }
+    ]
+  },
+  {
+    "id": "slimy_hood",
+    "name": "Slimy Hood",
+    "slot": "trinket",
+    "rarity": "uncommon",
+    "intended_level": 5,
+    "base_value": 180,
+    "flavor": "A scrap torn off the cloak, still slick. Somehow it still remembers whatever it heard while it was on someone's head.",
+    "effects": [
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 5
+      },
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 3
+      },
+      {
+        "type": "spatk_debuff",
+        "trigger": "on_hit",
+        "value": 2,
+        "chance": 0.2
+      }
+    ]
+  },
+  {
+    "id": "bouncers_armband",
+    "name": "Bouncer's Armband",
+    "slot": "trinket",
+    "rarity": "uncommon",
+    "intended_level": 8,
+    "base_value": 260,
+    "flavor": "He's not letting anyone else through either.",
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 6
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 5
+      },
+      {
+        "type": "taunt",
+        "trigger": "constant",
+        "value": 3
+      }
+    ]
+  },
+  {
+    "id": "complimentary_robe",
+    "name": "Complimentary Robe",
+    "slot": "armor",
+    "rarity": "uncommon",
+    "intended_level": 8,
+    "base_value": 260,
+    "flavor": "The one he makes you check at the door. If you're lucky, you get it back nicer.",
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 8
+      },
+      {
+        "type": "spdef_buff",
+        "trigger": "constant",
+        "value": 6
+      },
+      {
+        "type": "heal_fraction",
+        "trigger": "on_hit",
+        "value": 0.08,
+        "chance": 0.2
+      }
+    ]
+  },
+  {
+    "id": "static_cling",
+    "name": "Static Cling",
+    "slot": "weapon",
+    "rarity": "rare",
+    "intended_level": 11,
+    "base_value": 750,
+    "flavor": "It's been building charge since the disco. It's very ready to let it go.",
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 13
+      },
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 2
+      },
+      {
+        "type": "extra_attack",
+        "trigger": "on_hit",
+        "multiplier": 0.5,
+        "chance": 0.2
+      }
+    ]
+  },
+  {
+    "id": "suds_slick_charm",
+    "name": "Suds-Slick Charm",
+    "slot": "trinket",
+    "rarity": "rare",
+    "intended_level": 11,
+    "base_value": 750,
+    "flavor": "It never actually runs out. Nobody knows why. Nobody's asked.",
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 7
+      },
+      {
+        "type": "spdef_buff",
+        "trigger": "constant",
+        "value": 7
+      },
+      {
+        "type": "dodge_buff",
+        "trigger": "on_hit",
+        "value": 0.15,
+        "duration": 2,
+        "chance": 0.25
+      }
+    ]
+  },
+  {
+    "id": "the_wringer",
+    "name": "The Wringer",
+    "slot": "weapon",
+    "rarity": "rare",
+    "intended_level": 11,
+    "base_value": 750,
+    "flavor": "Every snap leaves a mark shaped like disappointment.",
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 13
+      },
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 2
+      },
+      {
+        "type": "atk_debuff",
+        "trigger": "on_hit",
+        "value": 3,
+        "chance": 0.2
+      }
+    ]
+  },
+  {
+    "id": "gnome_belly",
+    "name": "Gnome Belly",
+    "slot": "armor",
+    "rarity": "rare",
+    "intended_level": 14,
+    "base_value": 950,
+    "flavor": "Thick, padded, and doing an unsettlingly good job of stopping the next hit. You try not to think about where the padding came from, or why it's shaped like that.",
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 12
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 9
+      },
+      {
+        "type": "spdef_buff",
+        "trigger": "constant",
+        "value": 4
+      }
+    ]
+  },
+  {
+    "id": "drain_hair",
+    "name": "Drain Hair",
+    "slot": "trinket",
+    "rarity": "rare",
+    "intended_level": 14,
+    "base_value": 950,
+    "flavor": "Pulled straight out of the clog, still wet. Nobody knows how long it's been down there, or whose it originally was — it just started humming with power somewhere around year three.",
+    "effects": [
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 6
+      },
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 6
+      }
+    ]
+  },
+  {
+    "id": "wet_towel",
+    "name": "Wet Towel",
+    "slot": "armor",
+    "rarity": "rare",
+    "intended_level": 14,
+    "base_value": 950,
+    "flavor": "Wrapped twice around the shoulders, still dripping. Doesn't slow you down any — the puddle it leaves behind slows down whoever's chasing you.",
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 8
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 8
+      },
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 5
+      },
+      {
+        "type": "speed_debuff",
+        "trigger": "on_hit",
+        "value": 2,
+        "chance": 0.2
+      }
+    ]
+  },
+  {
+    "id": "leopard_print_thong",
+    "name": "Leopard-Print Thong",
+    "slot": "armor",
+    "rarity": "rare",
+    "intended_level": 14,
+    "base_value": 950,
+    "flavor": "You don't want to know how it grants Special Attack. Nobody does. It just believes in itself, loudly.",
+    "effects": [
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 6
+      },
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 3
+      },
+      {
+        "type": "spatk_buff",
+        "trigger": "on_hit",
+        "value": 2,
+        "chance": 0.2
+      }
+    ]
+  },
+  {
+    "id": "massaging_wand",
+    "name": "Massaging Wand",
+    "slot": "weapon",
+    "rarity": "epic",
+    "intended_level": 15,
+    "base_value": 1600,
+    "flavor": "Industrial-grade, she says, strictly for sore shoulders. It hums like a small appliance because it is one, and it's exactly the model you're picturing. Every adventurer who's picked it up has gone very quiet and set it back down without a single follow-up question.",
+    "effects": [
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 17
+      },
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 4
+      },
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 2
+      },
+      {
+        "type": "dot",
+        "trigger": "on_hit",
+        "value": 4,
+        "duration": 2,
+        "chance": 0.2
+      }
+    ]
+  },
+  {
+    "id": "steam_soaked_robe",
+    "name": "Steam-Soaked Robe",
+    "slot": "armor",
+    "rarity": "epic",
+    "intended_level": 15,
+    "base_value": 1600,
+    "flavor": "Smells like eucalyptus and quiet rage.",
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 17
+      },
+      {
+        "type": "spdef_buff",
+        "trigger": "constant",
+        "value": 17
+      },
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 2
+      }
+    ]
+  },
+  {
+    "id": "waterlogged_familiar",
+    "name": "Waterlogged Familiar",
+    "slot": "trinket",
+    "rarity": "epic",
+    "intended_level": 15,
+    "base_value": 1600,
+    "flavor": "It squeaks when it's about to happen. That's your only warning.",
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 4
+      },
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 6
+      },
+      {
+        "type": "stun",
+        "trigger": "on_hit",
+        "duration": 1,
+        "chance": 0.08
+      }
+    ]
+  },
+  {
+    "id": "tooth_of_the_end",
+    "name": "Tooth of the End",
+    "slot": "weapon",
+    "rarity": "legendary",
+    "intended_level": 30,
+    "base_value": 4500,
+    "flavor": "GNAM GNAM GNAM — but for you, now.",
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 34
+      },
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 10
+      },
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 10
+      },
+      {
+        "type": "extra_attack",
+        "trigger": "on_hit",
+        "multiplier": 0.6,
+        "chance": 0.15
+      }
+    ]
+  },
+  {
+    "id": "eye_that_watches_from_below",
+    "name": "Eye That Watches From Below",
+    "slot": "trinket",
+    "rarity": "legendary",
+    "intended_level": 30,
+    "base_value": 4500,
+    "flavor": "It was already watching before you found it. It hasn't stopped.",
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 6
+      },
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 6
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 6
+      },
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 6
+      },
+      {
+        "type": "spdef_buff",
+        "trigger": "constant",
+        "value": 6
+      },
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 6
+      },
+      {
+        "type": "stun",
+        "trigger": "on_hit",
+        "duration": 1,
+        "chance": 0.1
+      }
+    ]
+  },
+  {
+    "id": "daddys_riding_crop",
+    "name": "Daddy's Riding Crop",
+    "slot": "weapon",
+    "rarity": "epic",
+    "intended_level": 20,
+    "base_value": 2200,
+    "flavor": "Precision, not force. Mostly precision.",
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 22
+      },
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 3
+      },
+      {
+        "type": "speed_debuff",
+        "trigger": "on_hit",
+        "value": 3,
+        "chance": 0.2
+      }
+    ]
+  },
+  {
+    "id": "studded_harness",
+    "name": "Studded Harness",
+    "slot": "armor",
+    "rarity": "epic",
+    "intended_level": 20,
+    "base_value": 2200,
+    "flavor": "He's very, very good at getting your attention.",
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 22
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 13
+      },
+      {
+        "type": "spdef_buff",
+        "trigger": "constant",
+        "value": 9
+      },
+      {
+        "type": "taunt",
+        "trigger": "constant",
+        "value": 3
+      }
+    ]
+  },
+  {
+    "id": "studded_collar",
+    "name": "Studded Collar",
+    "slot": "trinket",
+    "rarity": "rare",
+    "intended_level": 20,
+    "base_value": 1400,
+    "flavor": "Doesn't jingle. He had it modified. Quiet is part of the professionalism.",
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 8
+      },
+      {
+        "type": "spdef_buff",
+        "trigger": "constant",
+        "value": 8
+      },
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 4
+      },
+      {
+        "type": "lower_threat",
+        "trigger": "constant",
+        "value": 2
+      }
+    ]
+  },
+  {
+    "id": "the_safe_word",
+    "name": "The Safe Word",
+    "slot": "trinket",
+    "rarity": "legendary",
+    "intended_level": 20,
+    "base_value": 3200,
+    "flavor": "Say it and everything stops. Mostly for you.",
+    "effects": [
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 23
+      },
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 15
+      },
+      {
+        "type": "cleanse_cc",
+        "trigger": "on_hit",
+        "chance": 0.15
+      }
+    ]
   }
 ]

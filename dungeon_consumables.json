@@ -129,5 +129,108 @@
     "flavor": "You saw some goblin's eating this candy with their noses... how strange...",
     "energy_restore": 1,
     "use_label": "Snort"
+  },
+  {
+    "id": "succo_di_ratto",
+    "name": "Succo Di Ratto",
+    "kind": "consumable",
+    "base_value": 30,
+    "flavor": "Sounds a lot classier in Italian. It's the same gutter water the whole crew passes around like it's imported.",
+    "effects": [
+      {
+        "type": "heal_fraction",
+        "value": 0.1
+      }
+    ]
+  },
+  {
+    "id": "complimentary_mint",
+    "name": "Complimentary Mint",
+    "kind": "consumable",
+    "base_value": 40,
+    "flavor": "He hands these out at the door, one per guest. You've taken several more than one.",
+    "effects": [
+      {
+        "type": "heal_fraction",
+        "value": 0.15
+      }
+    ]
+  },
+  {
+    "id": "bar_of_suds",
+    "name": "Bar of Suds",
+    "kind": "consumable",
+    "base_value": 60,
+    "flavor": "Scrubs the grime clean off. Also, apparently, curses.",
+    "effects": [
+      {
+        "type": "cleanse_cc"
+      }
+    ]
+  },
+  {
+    "id": "steeped_towel_compress",
+    "name": "Steeped Towel Compress",
+    "kind": "consumable",
+    "base_value": 70,
+    "flavor": "Still warm. Still a little damp. Somehow that helps.",
+    "effects": [
+      {
+        "type": "heal_fraction",
+        "value": 0.3
+      }
+    ]
+  },
+  {
+    "id": "hot_spring_salts",
+    "name": "Hot Spring Salts",
+    "kind": "consumable",
+    "base_value": 90,
+    "flavor": "Steep your feet. Steep your soul.",
+    "energy_restore": 1,
+    "use_label": "Soak"
+  },
+  {
+    "id": "gnomish_poppers",
+    "name": "Gnomish \"Poppers\"",
+    "kind": "consumable",
+    "base_value": 80,
+    "flavor": "One sharp inhale and the room gets a little brighter, a little slower, a little louder. It doesn't last long. Nothing about tonight was meant to.",
+    "effects": [
+      {
+        "type": "atk_buff",
+        "value": 4
+      },
+      {
+        "type": "speed_buff",
+        "value": 4
+      }
+    ]
+  },
+  {
+    "id": "leather_daddys_protein_shake",
+    "name": "Leather Daddy's Protein Shake",
+    "kind": "consumable",
+    "base_value": 110,
+    "flavor": "Tastes like protein and poor decisions.",
+    "effects": [
+      {
+        "type": "atk_buff",
+        "value": 6
+      }
+    ]
+  },
+  {
+    "id": "gnam_broth",
+    "name": "GNAM Broth",
+    "kind": "consumable",
+    "base_value": 200,
+    "flavor": "He made soup. Out of something. It's the best full heal in the delve.",
+    "effects": [
+      {
+        "type": "heal_fraction",
+        "value": 0.6
+      }
+    ]
   }
 ]

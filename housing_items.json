@@ -2,7 +2,7 @@
   {
     "id": "cozy_sleeping_bag",
     "name": "Cozy Sleeping Bag",
-    "emoji": "\ud83d\udca4",
+    "emoji": "💤",
     "description": "A used sleeping bag that makes resting a little more restorative.",
     "image_path": "assets/housing/items/cozy_sleeping_bag.png",
     "base_value": 1000,
@@ -12,7 +12,7 @@
   {
     "id": "two_turntables_and_a_microphone",
     "name": "Two Turntables and a Microphone",
-    "emoji": "\ud83c\udfa4",
+    "emoji": "🎤",
     "description": "Everyting you need to keep the party going.  Make a bit of extra money every rest from putting on sick nasty EDM shows at your camp, at Leto's chagrin.",
     "image_path": "assets/housing/items/two_turntables_and_a_microphone.png",
     "base_value": 150,
@@ -22,7 +22,7 @@
   {
     "id": "groovy_lava_lamp",
     "name": "Groovy Lava Lamp",
-    "emoji": "\ud83d\udca1",
+    "emoji": "💡",
     "description": "The hypnotic, ever shifting colors of this lamp make you feel luckier.",
     "image_path": "assets/housing/items/groovy_lava_lamp.png",
     "base_value": 300,
@@ -34,7 +34,7 @@
   {
     "id": "study_desk",
     "name": "Study Desk",
-    "emoji": "\ud83d\udcda",
+    "emoji": "📚",
     "description": "A tidy desk for reviewing your notes between delves.",
     "base_value": 300,
     "effect_type": "dungeon_xp_bonus",
@@ -43,7 +43,7 @@
   {
     "id": "shag_wall",
     "name": "Shag Wall",
-    "emoji": "\ud83e\udd4a",
+    "emoji": "🥊",
     "description": "Uh... you I guess decided to put up a shag carpet on free standing wall.\r\n\r\nIt kinda looks like a scratching post.  Might make your claws sharper.",
     "image_path": "assets/housing/items/shag_wall.png",
     "base_value": 400,
@@ -54,7 +54,7 @@
   {
     "id": "ranch_almanac",
     "name": "Ranch Almanac",
-    "emoji": "\ud83d\udcd6",
+    "emoji": "📖",
     "description": "Well-worn notes on horse care, kept on the mantel.",
     "base_value": 300,
     "effect_type": "ranch_training_bonus",
@@ -62,14 +62,32 @@
   },
   {
     "id": "delicious_turron",
-    "name": "Delicious Turr\u00f3n",
-    "emoji": "\ud83c\udf6c",
+    "name": "Delicious Turrón",
+    "emoji": "🍬",
     "description": "A lucky candy from a magical, fantasy land.  You stole this mercilessly and you would do it again if you had the chance.",
     "image_path": "assets/housing/items/delicious_turron.png",
     "base_value": 500,
     "effect_type": "luck_bonus",
     "value": 5,
     "use_label": "Rub",
-    "use_message": "You rub the Turr\u00f3n for luck.  You gain STICKY HANDS."
+    "use_message": "You rub the Turrón for luck.  You gain STICKY HANDS."
+  },
+  {
+    "id": "claw_foot_tub",
+    "name": "Claw-Foot Tub",
+    "emoji": "🛁",
+    "description": "A real claw-foot tub, hauled home from who-knows-where. Every rest feels a little more like a vacation.",
+    "effect_type": "rest_energy_bonus",
+    "value": 5,
+    "base_value": 350
+  },
+  {
+    "id": "scented_candle_set",
+    "name": "Scented Candle Set",
+    "emoji": "🕯️",
+    "description": "Lavender, sandalwood, and something the gnomes wouldn't name. Feels lucky. Smells expensive.",
+    "effect_type": "luck_bonus",
+    "value": 5,
+    "base_value": 250
   }
 ]

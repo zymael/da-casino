@@ -1,7 +1,7 @@
 [
   {
     "id": "goblin_disco",
-    "name": "Goblin Discoth\u00e8que",
+    "name": "Goblin Discothèque",
     "active": true,
     "flavor": "A wild goblin party that you were not invited to.   Not that that's going to stop you, of course.",
     "rooms": [
@@ -287,7 +287,7 @@
         "monster_groups": [
           {
             "monsters": [
-              "goblin_grunt"
+              "gnome_doorman"
             ],
             "fork": false
           }
@@ -323,7 +323,7 @@
         "monster_groups": [
           {
             "monsters": [
-              "goblin_grunt"
+              "z_goolok"
             ],
             "fork": false
           }
@@ -335,7 +335,7 @@
         "monster_groups": [
           {
             "monsters": [
-              "goblin_grunt"
+              "gnome_leather_daddy"
             ],
             "fork": false
           }
@@ -491,7 +491,7 @@
   },
   {
     "id": "goblin_disco_old",
-    "name": "Goblin Discoth\u00e8que",
+    "name": "Goblin Discothèque",
     "active": false,
     "flavor": "A wild goblin party that you were not invited to. ",
     "rooms": [

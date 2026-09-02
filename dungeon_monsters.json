@@ -281,13 +281,13 @@
   {
     "id": "enchanted_comb",
     "name": "Enchanted Comb",
-    "hp": 24,
-    "atk": 17,
-    "def": 3,
-    "spatk": 11,
-    "spdef": 1,
-    "spd": 8,
-    "intended_level": 4,
+    "hp": 37,
+    "atk": 41,
+    "def": 18,
+    "spatk": 34,
+    "spdef": 18,
+    "spd": 19,
+    "intended_level": 11,
     "shape": "rectangle",
     "color": "#a153ca",
     "flavor": "A shiney comb only for the goodest gnomes",
@@ -298,6 +298,11 @@
         "kind": "material",
         "item_id": "comb",
         "chance": 0.3
+      },
+      {
+        "kind": "equipment",
+        "item_id": "static_cling",
+        "chance": 0.14
       }
     ],
     "skills": [
@@ -319,16 +324,16 @@
   {
     "id": "gnome_doorman",
     "name": "Gnomish Doorman",
-    "hp": 40,
-    "atk": 13,
-    "def": 5,
-    "spatk": 13,
-    "spdef": 5,
+    "hp": 54,
+    "atk": 14,
+    "def": 25,
+    "spatk": 10,
+    "spdef": 33,
     "spd": 9,
-    "intended_level": 6,
+    "intended_level": 8,
     "shape": "hexagon",
     "color": "#b30000",
-    "flavor": "bablalblab",
+    "flavor": "The same doorman from the disco, fired for getting beat up once already. Disguised, but not forgiving.",
     "loot_min": 50,
     "loot_max": 90,
     "drops": [
@@ -339,29 +344,78 @@
       },
       {
         "kind": "equipment",
-        "item_id": "padded_jerkin",
-        "chance": 0.01
+        "item_id": "bouncers_armband",
+        "chance": 0.18
+      },
+      {
+        "kind": "equipment",
+        "item_id": "complimentary_robe",
+        "chance": 0.18
       }
     ],
-    "skills": [],
+    "skills": [
+      {
+        "name": "This Time It's Different",
+        "chance": 0.12,
+        "special": false,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 1.8
+          }
+        ],
+        "flavor": "He's been dreaming about the rematch for weeks. This time it's different. (It's not, really. But he swings like it is.)"
+      }
+    ],
     "sprite_path": "assets/dungeon/monsters/gnome_doorman.png"
   },
   {
     "id": "gnome_leather_daddy",
     "name": "Gnomish Leather Daddy",
-    "hp": 62,
-    "atk": 20,
-    "def": 14,
-    "spatk": 14,
-    "spdef": 10,
-    "spd": 14,
-    "intended_level": 15,
+    "hp": 107,
+    "atk": 28,
+    "def": 49,
+    "spatk": 20,
+    "spdef": 66,
+    "spd": 13,
+    "intended_level": 20,
     "shape": "circle",
     "color": "#000000",
     "flavor": "Oh no...",
     "loot_min": 100,
     "loot_max": 200,
-    "drops": [],
+    "drops": [
+      {
+        "kind": "equipment",
+        "item_id": "daddys_riding_crop",
+        "chance": 0.12
+      },
+      {
+        "kind": "equipment",
+        "item_id": "studded_harness",
+        "chance": 0.12
+      },
+      {
+        "kind": "equipment",
+        "item_id": "studded_collar",
+        "chance": 0.14
+      },
+      {
+        "kind": "equipment",
+        "item_id": "the_safe_word",
+        "chance": 0.1
+      },
+      {
+        "kind": "consumable",
+        "item_id": "gnomish_poppers",
+        "chance": 0.25
+      },
+      {
+        "kind": "consumable",
+        "item_id": "leather_daddys_protein_shake",
+        "chance": 0.14
+      }
+    ],
     "skills": [
       {
         "name": "Crack the Whip",
@@ -381,11 +435,11 @@
         "special": false,
         "effects": [
           {
-            "type": "lifesteal_fraction",
-            "value": 0.35
+            "type": "sap",
+            "duration": 1
           }
         ],
-        "flavor": "He wraps you in an inescapable, sweaty embrace."
+        "flavor": "He wraps you in an inescapable, sweaty embrace. You are not going anywhere."
       }
     ],
     "sprite_path": "assets/dungeon/monsters/gnome_leather_daddy.png"
@@ -393,13 +447,13 @@
   {
     "id": "enchanted_towel",
     "name": "Enchanted Towel",
-    "hp": 32,
-    "atk": 14,
-    "def": 5,
-    "spatk": 8,
-    "spdef": 3,
-    "spd": 8,
-    "intended_level": 4,
+    "hp": 55,
+    "atk": 30,
+    "def": 31,
+    "spatk": 18,
+    "spdef": 30,
+    "spd": 14,
+    "intended_level": 11,
     "shape": "hexagon",
     "color": "#b5b5b5",
     "flavor": "A wet towel to spank naughty bottoms",
@@ -410,6 +464,16 @@
         "kind": "material",
         "item_id": "dirty_cloth",
         "chance": 0.3
+      },
+      {
+        "kind": "equipment",
+        "item_id": "the_wringer",
+        "chance": 0.14
+      },
+      {
+        "kind": "consumable",
+        "item_id": "steeped_towel_compress",
+        "chance": 0.18
       }
     ],
     "skills": [
@@ -419,8 +483,8 @@
         "special": false,
         "effects": [
           {
-            "type": "extra_attack",
-            "multiplier": 0.7
+            "type": "atk_debuff",
+            "value": 3
           }
         ]
       }
@@ -430,13 +494,13 @@
   {
     "id": "nakedgnome_1",
     "name": "Belly Gnome",
-    "hp": 39,
-    "atk": 13,
-    "def": 8,
-    "spatk": 7,
-    "spdef": 6,
-    "spd": 8,
-    "intended_level": 7,
+    "hp": 81,
+    "atk": 21,
+    "def": 37,
+    "spatk": 15,
+    "spdef": 50,
+    "spd": 11,
+    "intended_level": 14,
     "shape": "hexagon",
     "color": "#000000",
     "flavor": "A gnome that likes to pat his phat belly",
@@ -445,8 +509,13 @@
     "drops": [
       {
         "kind": "equipment",
-        "item_id": "lucky_coin",
-        "chance": 0.1
+        "item_id": "gnome_belly",
+        "chance": 0.14
+      },
+      {
+        "kind": "equipment",
+        "item_id": "drain_hair",
+        "chance": 0.14
       }
     ],
     "skills": [
@@ -465,19 +534,30 @@
   {
     "id": "enchanted_soap",
     "name": "Enchanted Soap",
-    "hp": 32,
-    "atk": 6,
-    "def": 5,
-    "spatk": 12,
-    "spdef": 9,
-    "spd": 8,
-    "intended_level": 4,
+    "hp": 55,
+    "atk": 18,
+    "def": 31,
+    "spatk": 30,
+    "spdef": 30,
+    "spd": 14,
+    "intended_level": 11,
     "shape": "hexagon",
     "color": "#000000",
     "flavor": "Slippery thing!",
     "loot_min": 20,
     "loot_max": 55,
-    "drops": [],
+    "drops": [
+      {
+        "kind": "equipment",
+        "item_id": "suds_slick_charm",
+        "chance": 0.14
+      },
+      {
+        "kind": "consumable",
+        "item_id": "bar_of_suds",
+        "chance": 0.18
+      }
+    ],
     "skills": [
       {
         "name": "Slippery slap!",
@@ -485,8 +565,9 @@
         "special": true,
         "effects": [
           {
-            "type": "lifesteal_fraction",
-            "value": 0.3
+            "type": "dodge_buff",
+            "value": 0.2,
+            "duration": 2
           }
         ]
       }
@@ -496,13 +577,13 @@
   {
     "id": "nakedgnome_2",
     "name": "Towel Gnome",
-    "hp": 41,
-    "atk": 18,
-    "def": 6,
-    "spatk": 12,
-    "spdef": 4,
-    "spd": 10,
-    "intended_level": 7,
+    "hp": 66,
+    "atk": 36,
+    "def": 37,
+    "spatk": 22,
+    "spdef": 36,
+    "spd": 16,
+    "intended_level": 14,
     "shape": "hexagon",
     "color": "#000000",
     "flavor": "A gnome with a wet towel!",
@@ -513,6 +594,11 @@
         "kind": "material",
         "item_id": "dirty_cloth",
         "chance": 0.2
+      },
+      {
+        "kind": "equipment",
+        "item_id": "wet_towel",
+        "chance": 0.14
       }
     ],
     "skills": [
@@ -522,8 +608,8 @@
         "special": false,
         "effects": [
           {
-            "type": "extra_attack",
-            "multiplier": 0.7
+            "type": "speed_debuff",
+            "value": 3
           }
         ]
       }
@@ -533,13 +619,13 @@
   {
     "id": "nakedgnome_3",
     "name": "Thong Gnome",
-    "hp": 28,
-    "atk": 18,
-    "def": 2,
-    "spatk": 28,
-    "spdef": 4,
-    "spd": 13,
-    "intended_level": 7,
+    "hp": 44,
+    "atk": 40,
+    "def": 22,
+    "spatk": 50,
+    "spdef": 21,
+    "spd": 20,
+    "intended_level": 14,
     "shape": "hexagon",
     "color": "#000000",
     "flavor": "A gnome in a leopard thong",
@@ -550,6 +636,11 @@
         "kind": "material",
         "item_id": "used_thong",
         "chance": 0.2
+      },
+      {
+        "kind": "equipment",
+        "item_id": "leopard_print_thong",
+        "chance": 0.14
       }
     ],
     "skills": [
@@ -559,8 +650,8 @@
         "special": true,
         "effects": [
           {
-            "type": "damage_multiplier",
-            "value": 1.3
+            "type": "spatk_buff",
+            "value": 5
           }
         ]
       }
@@ -570,34 +661,19 @@
   {
     "id": "bath_witch",
     "name": "Frustrated Witch",
-    "hp": 43,
-    "atk": 5,
-    "def": 3,
-    "spatk": 42,
-    "spdef": 15,
-    "spd": 9,
-    "intended_level": 13,
+    "hp": 46,
+    "atk": 43,
+    "def": 23,
+    "spatk": 52,
+    "spdef": 22,
+    "spd": 21,
+    "intended_level": 15,
     "shape": "hexagon",
     "color": "#560075",
     "flavor": "More interlopers??\r\nThat's enough, get out!",
     "loot_min": 80,
     "loot_max": 160,
     "drops": [
-      {
-        "kind": "equipment",
-        "item_id": "magic_amulet",
-        "chance": 0.05
-      },
-      {
-        "kind": "equipment",
-        "item_id": "magic_wand",
-        "chance": 0.05
-      },
-      {
-        "kind": "equipment",
-        "item_id": "fancy_hat",
-        "chance": 0.02
-      },
       {
         "kind": "material",
         "item_id": "shiny_rock",
@@ -607,55 +683,75 @@
         "kind": "material",
         "item_id": "hair",
         "chance": 0.3
+      },
+      {
+        "kind": "equipment",
+        "item_id": "massaging_wand",
+        "chance": 0.12
+      },
+      {
+        "kind": "equipment",
+        "item_id": "steam_soaked_robe",
+        "chance": 0.12
+      },
+      {
+        "kind": "equipment",
+        "item_id": "waterlogged_familiar",
+        "chance": 0.12
+      },
+      {
+        "kind": "consumable",
+        "item_id": "hot_spring_salts",
+        "chance": 0.18
       }
     ],
     "attack_chance": 0,
     "skills": [
       {
-        "name": "Wand Smack",
+        "name": "No Running!",
         "chance": 6,
         "special": true,
         "effects": [
           {
             "type": "damage_multiplier",
             "value": 1.0
+          },
+          {
+            "type": "spatk_buff",
+            "value": 2
           }
         ]
       },
       {
-        "name": "Zap!",
+        "name": "Mandatory Cooldown",
         "chance": 3,
         "special": true,
         "effects": [
           {
-            "type": "extra_attack",
-            "multiplier": 0.4
+            "type": "spatk_debuff",
+            "value": 4
           }
         ]
       },
       {
-        "name": "Cold Floating Bucket",
+        "name": "Complimentary Curse",
         "chance": 1,
         "special": true,
         "effects": [
           {
-            "type": "damage_multiplier",
-            "value": 1.3
+            "type": "stun",
+            "duration": 1
           }
         ]
       },
       {
-        "name": "Floating Kiss",
+        "name": "Draining Massage",
         "chance": 1,
         "special": true,
         "effects": [
-          {
-            "type": "extra_attack",
-            "multiplier": 0.7
-          },
           {
             "type": "lifesteal_fraction",
-            "value": 0.4
+            "value": 0.5
           }
         ]
       }
@@ -678,11 +774,6 @@
     "loot_max": 1050,
     "drops": [
       {
-        "kind": "equipment",
-        "item_id": "amulet_of_vigor",
-        "chance": 0.1
-      },
-      {
         "kind": "material",
         "item_id": "shiny_rock",
         "chance": 0.3
@@ -699,8 +790,18 @@
       },
       {
         "kind": "equipment",
-        "item_id": "dragonhide_cloak",
+        "item_id": "tooth_of_the_end",
         "chance": 0.1
+      },
+      {
+        "kind": "equipment",
+        "item_id": "eye_that_watches_from_below",
+        "chance": 0.1
+      },
+      {
+        "kind": "consumable",
+        "item_id": "gnam_broth",
+        "chance": 0.12
       }
     ],
     "attack_chance": 1,
@@ -726,6 +827,22 @@
             "multiplier": 1
           }
         ]
+      },
+      {
+        "name": "Acid Belch",
+        "chance": 1,
+        "special": true,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 1.2
+          },
+          {
+            "type": "spdef_debuff",
+            "value": 6
+          }
+        ],
+        "flavor": "GNAM GNAM — but wetter. Something in your armor starts to give."
       }
     ],
     "sprite_path": "assets/dungeon/monsters/z_goolok.png"
@@ -941,38 +1058,81 @@
   },
   {
     "id": "feral_goo",
-    "name": "Feral Goo",
-    "hp": 19,
-    "atk": 6,
-    "def": 11,
-    "spatk": 10,
-    "spdef": 10,
-    "spd": 10,
-    "intended_level": 1,
+    "name": "Cloaked Quivering Blob",
+    "hp": 41,
+    "atk": 10,
+    "def": 19,
+    "spatk": 8,
+    "spdef": 24,
+    "spd": 8,
+    "intended_level": 5,
     "shape": "triangle",
     "color": "#ff0080",
-    "flavor": "Slimy",
+    "flavor": "It doesn't so much attack you as happen to you. Someone's draped a ragged cloak over it. It shivers in a rhythm — three wet slaps, over and over — like it's repeating something back to itself.",
     "loot_min": 25,
     "loot_max": 50,
-    "drops": [],
-    "skills": []
+    "drops": [
+      {
+        "kind": "equipment",
+        "item_id": "adhesive_residue",
+        "chance": 0.25
+      },
+      {
+        "kind": "equipment",
+        "item_id": "slimy_hood",
+        "chance": 0.18
+      }
+    ],
+    "skills": [
+      {
+        "name": "Adhere",
+        "chance": 0.2,
+        "special": false,
+        "effects": [
+          {
+            "type": "def_shred",
+            "value": 2
+          }
+        ],
+        "flavor": "Some of it stays on you. Your armor feels heavier for it. It doesn't seem to be trying to hurt you so much as keep you here a little longer."
+      }
+    ]
   },
   {
     "id": "bad_rat",
     "name": "Bad Rat",
-    "hp": 20,
-    "atk": 18,
-    "def": 10,
-    "spatk": 22,
-    "spdef": 9,
-    "spd": 15,
-    "intended_level": 4,
+    "hp": 22,
+    "atk": 21,
+    "def": 11,
+    "spatk": 24,
+    "spdef": 10,
+    "spd": 16,
+    "intended_level": 5,
     "shape": "hexagon",
     "color": "#ff0000",
     "flavor": "This Rat has gone really bad.  It's part of a gang and to your dismay it doesn't even know differential calculus.  \r\n\r\nYou prepare to use your plucky, 80s feel good movie protagonist charm to educate it.\r\n\r\nOr just beat it up. ",
     "loot_min": 50,
     "loot_max": 100,
-    "drops": [],
-    "skills": []
+    "drops": [
+      {
+        "kind": "equipment",
+        "item_id": "rat_tooth_shiv",
+        "chance": 0.18
+      }
+    ],
+    "skills": [
+      {
+        "name": "Rat's Got Hands",
+        "chance": 0.25,
+        "special": true,
+        "effects": [
+          {
+            "type": "extra_attack",
+            "multiplier": 0.5
+          }
+        ],
+        "flavor": "Doesn't wait for a fair fight. Never has. To be fair, he's rat-sized — waiting for a fair one would just mean losing on a schedule."
+      }
+    ]
   }
 ]
