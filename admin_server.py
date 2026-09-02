@@ -70,7 +70,7 @@ COOKIE_NAME = "admin_session"
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
-MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5MB -- generous for a sprite or a background, not a video
+MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10MB -- matches Discord's own non-boosted-server attachment cap
 
 BACKUPS_DIR = os.path.join(os.path.dirname(__file__), "backups")
 
