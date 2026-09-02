@@ -3096,16 +3096,25 @@ def _build_lobby_embed(lobby: PartyLobby) -> discord.Embed:
     return embed
 
 
-async def _spend_delve_energy(guild_id: int, user_id: int) -> bool:
+async def _spend_delve_energy(guild_id: int, user_id: int, delve: dict) -> bool:
     """Spends 1 delve energy and reports whether that succeeded -- unless this guild has delve
     test mode on (db.get_delve_test_mode, toggled by !setdelvetest), in which case starting a delve
     never costs energy at all, the same way test mode already makes every delve playable regardless
     of its own "active" flag (see dungeon.active_delves) -- a test server shouldn't have to `!rest`
     between playtests. The one place both DelveModeChoiceView's Solo button and PartyLobbyView's
-    Start Delve button spend the charge, so this rule only needs to live once."""
-    if await asyncio.to_thread(db.get_delve_test_mode, guild_id):
-        return True
-    return await asyncio.to_thread(db.spend_energy, guild_id, user_id, 1)
+    Start Delve button spend the charge, so this rule only needs to live once -- which is also why
+    it's the one place a "hidden_until_discovered" delve gets marked found (db.set_flag_if_zero,
+    same idempotent-claim shape as a dream's dream_claimed flag): discovery means actually
+    committing to the delve, not just reaching this screen and backing out -- so it's only marked
+    once the spend below actually succeeds (or test mode waives it), never on an out-of-energy
+    attempt."""
+    spent = (
+        await asyncio.to_thread(db.get_delve_test_mode, guild_id)
+        or await asyncio.to_thread(db.spend_energy, guild_id, user_id, 1)
+    )
+    if spent and delve.get("hidden_until_discovered"):
+        await asyncio.to_thread(db.set_flag_if_zero, guild_id, user_id, f"delve_discovered:{delve['id']}", 1)
+    return spent
 
 
 class PartyLobbyView(discord.ui.View):
@@ -3183,7 +3192,7 @@ class PartyLobbyView(discord.ui.View):
         if interaction.user.id != lobby.leader_id:
             await interaction.response.send_message("Only the party leader can start the delve.", ephemeral=True)
             return
-        has_energy = await _spend_delve_energy(lobby.guild_id, lobby.leader_id)
+        has_energy = await _spend_delve_energy(lobby.guild_id, lobby.leader_id, lobby.delve)
         if not has_energy:
             await interaction.response.send_message("You're out of energy — run `!rest` to refill it.", ephemeral=True)
             return
@@ -3841,7 +3850,7 @@ class DelveModeChoiceView(discord.ui.View):
         if self.user_id in active_delves:
             await interaction.response.send_message("You're already tied up in a delve — finish or leave it first.", ephemeral=True)
             return
-        has_energy = await _spend_delve_energy(self.guild_id, self.user_id)
+        has_energy = await _spend_delve_energy(self.guild_id, self.user_id, self.delve)
         if not has_energy:
             await interaction.response.send_message("You're out of energy — run `!rest` to refill it.", ephemeral=True)
             return
@@ -3904,7 +3913,9 @@ class DelveSelect(discord.ui.Select):
     def __init__(self, picker: "DelvePickerView"):
         options = [
             discord.SelectOption(label=d["name"], value=d_id, description=f"{len(d['rooms'])} rooms")
-            for d_id, d in list(dungeon.active_delves(include_inactive=picker.test_mode).items())[:25]
+            for d_id, d in list(
+                dungeon.active_delves(include_inactive=picker.test_mode, discovered_ids=picker.discovered_ids).items()
+            )[:25]
         ]
         super().__init__(placeholder="Choose a delve...", options=options, row=0)
         self.picker = picker
@@ -3922,12 +3933,16 @@ class DelvePickerView(discord.ui.View):
     settled on, the player lands on the same DelveModeChoiceView (Solo/Party) as every other
     !delve entry path."""
 
-    def __init__(self, guild_id: int, user_id: int, character: dict, test_mode: bool = False):
+    def __init__(
+        self, guild_id: int, user_id: int, character: dict, test_mode: bool = False,
+        discovered_ids: set[str] | None = None,
+    ):
         super().__init__(timeout=120)
         self.guild_id = guild_id
         self.user_id = user_id
         self.character = character
         self.test_mode = test_mode
+        self.discovered_ids = discovered_ids
         self.delve_id: str | None = None
         self.add_item(DelveSelect(self))
         self.add_item(DelveConfirmButton(self))
@@ -3969,9 +3984,10 @@ class DelveConfirmButton(discord.ui.Button):
 
 
 async def build_delve_picker_display(
-    guild_id: int, user_id: int, character: dict, test_mode: bool = False
+    guild_id: int, user_id: int, character: dict, test_mode: bool = False,
+    discovered_ids: set[str] | None = None,
 ) -> tuple[discord.Embed, DelvePickerView]:
-    view = DelvePickerView(guild_id, user_id, character, test_mode)
+    view = DelvePickerView(guild_id, user_id, character, test_mode, discovered_ids)
     return view.build_embed(), view
 
 

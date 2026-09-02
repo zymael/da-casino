@@ -22,5 +22,11 @@
     "name": "Goblin's Sleeping Bag",
     "emoji": "\ud83d\udecf\ufe0f",
     "description": "A comfy, but goblin-scented sleeping bag. Leto did say a sleeping bag would work..."
+  },
+  {
+    "id": "bathhouse_flier",
+    "name": "Damp Flier",
+    "emoji": "\ud83d\udcc4",
+    "description": "TODO: placeholder -- replace once the Gnomish Bathhouse's location is decided."
   }
 ]

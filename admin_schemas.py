@@ -707,6 +707,23 @@ CONTENT_TYPES = {
                         "only an active delve has to be fully connected to save. Check this once "
                         "it's actually finished.",
             },
+            {
+                "name": "hidden_until_discovered", "type": "bool", "required": False, "default": False,
+                "group": "Identity",
+                "hint": "hides this delve from the no-arg !delve picker until a player has actually "
+                        "committed to it once (via a room's own Delve button, const_args-pinned to "
+                        "this id) -- typing the id directly is blocked the same way until "
+                        "unlock_trigger (below) is satisfied. Leave unchecked for a normal, always-"
+                        "listed delve.",
+            },
+            {
+                "name": "unlock_trigger", "type": "trigger", "required": False, "group": "Identity",
+                "hint": "optional -- gates whether !delve <id> works at all for this delve (e.g. "
+                        "quest_complete), independent of hidden_until_discovered above (which only "
+                        "controls the no-arg list). Pair with a room-exit's own visible_trigger "
+                        "(rooms.json) using the same condition so a room stays physically "
+                        "unreachable until this is satisfied too.",
+            },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
             {
                 "name": "rooms", "type": "delve_flowchart", "required": True, "subdir": "dungeon/backgrounds",

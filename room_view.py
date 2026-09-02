@@ -54,6 +54,11 @@ async def build_room_display(
     present_npcs = await quests.npcs_present_in_room(guild_id, user_id, room_id)
     npc_states = {npc_id: await quests.talk_to_npc(guild_id, user_id, npc_id) for npc_id in present_npcs}
     npc_talk_labels = {npc_id: await quests.npc_talk_label(guild_id, user_id, npc_id) for npc_id in present_npcs}
+    visible_exits = [
+        exit_entry for exit_entry in room["exits"]
+        if exit_entry.get("visible_trigger") is None
+        or await quests.trigger_satisfied(guild_id, user_id, exit_entry["visible_trigger"])
+    ]
 
     filename = os.path.basename(room["background_path"])
     sprite_paths = [
@@ -72,7 +77,7 @@ async def build_room_display(
         for name, value, inline in await specialization.extra_embed_fields(guild_id, user_id):
             embed.add_field(name=name, value=value, inline=inline)
 
-    view = RoomView(guild_id, user_id, room_id, present_npcs, npc_states, npc_talk_labels, session)
+    view = RoomView(guild_id, user_id, room_id, present_npcs, npc_states, npc_talk_labels, session, visible_exits)
     return embed, view, file
 
 
@@ -107,6 +112,7 @@ class RoomView(discord.ui.View):
     def __init__(
         self, guild_id: int, user_id: int, room_id: str, present_npcs: list[str],
         npc_states: dict[str, list[dict]], npc_talk_labels: dict[str, str | None], session: hub_ui.HubSession,
+        visible_exits: list[dict],
     ):
         super().__init__(timeout=300)
         self.guild_id = guild_id
@@ -158,7 +164,7 @@ class RoomView(discord.ui.View):
         self._add(hub_ui.InventoryButton(row=0))
         self._add(hub_ui.EquipmentButton(row=0))
 
-        for exit_entry in room["exits"]:
+        for exit_entry in visible_exits:
             self._add(RoomExitButton(guild_id, user_id, exit_entry["room_id"], exit_entry["label"], session, row=0))
 
     def _add(self, item: discord.ui.Item):

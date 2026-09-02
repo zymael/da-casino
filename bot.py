@@ -1083,8 +1083,11 @@ async def inn_cmd(ctx):
 async def delve_cmd(ctx, delve_id: str = None):
     """Delve the dungeon for a class-biased, push-your-luck payout -- costs 1 ⚡ energy: !delve, or
     !delve <delve_id> to jump straight into one specific dungeon -- what a room's own Delve button
-    pins via const_args (rooms.json) when that room hosts just one dungeon, skipping the picker.
-    Either way, once the delve is resolved you choose to go solo or start a free-to-join party."""
+    pins via const_args (rooms.json) when that room hosts just one dungeon, skipping the picker. A
+    delve with "hidden_until_discovered" set doesn't show up in the no-arg picker until its own
+    "unlock_trigger" is satisfied, and typing its id directly is rejected the same way until then
+    too -- the room's own button is the only intended way in at first. Either way, once the delve
+    is resolved you choose to go solo or start a free-to-join party."""
     if await _reject_if_at_poker_table(ctx):
         return
     character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
@@ -1104,8 +1107,23 @@ async def delve_cmd(ctx, delve_id: str = None):
         if delve is None or not (delve.get("active", True) or test_mode):
             await ctx.send(f"No such delve `{delve_id}`.")
             return
+        # A "hidden_until_discovered" delve (rooms.json's own Delve button is the only intended
+        # way in) also needs its own "unlock_trigger" satisfied before *this* explicit-id path
+        # works -- otherwise typing the bare id would skip straight past the room-button-only
+        # discovery flow dungeon.active_delves' discovered_ids filter only hides it from the list,
+        # it doesn't stop a direct `!delve <id>` -- same "No such delve" message either way so a
+        # not-yet-unlocked delve reads as nonexistent, not "forbidden".
+        unlock_trigger = delve.get("unlock_trigger")
+        if unlock_trigger is not None and not test_mode:
+            if not await quests.trigger_satisfied(ctx.guild.id, ctx.author.id, unlock_trigger, character=character):
+                await ctx.send(f"No such delve `{delve_id}`.")
+                return
     else:
-        available = dungeon.active_delves(include_inactive=test_mode)
+        discovered_ids = {
+            d_id for d_id, d in dungeon.DELVES.items() if d.get("hidden_until_discovered")
+            and await asyncio.to_thread(db.get_flag, ctx.guild.id, ctx.author.id, f"delve_discovered:{d_id}")
+        }
+        available = dungeon.active_delves(include_inactive=test_mode, discovered_ids=discovered_ids)
         if not available:
             await ctx.send("No delves are available to play right now.")
             return
@@ -1113,7 +1131,9 @@ async def delve_cmd(ctx, delve_id: str = None):
             # No specific delve pinned and more than one active dungeon defined -- let the player
             # pick which dungeon first; its own confirm button leads into the same Solo/Party
             # choice below.
-            embed, view = await build_delve_picker_display(ctx.guild.id, ctx.author.id, character, test_mode)
+            embed, view = await build_delve_picker_display(
+                ctx.guild.id, ctx.author.id, character, test_mode, discovered_ids
+            )
             await ctx.send(embed=embed, view=view)
             return
         delve = next(iter(available.values()))

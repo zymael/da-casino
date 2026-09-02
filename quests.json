@@ -69,5 +69,26 @@
         "turn_in_label": "\ud83d\udcb0 Pay rent"
       }
     ]
+  },
+  {
+    "id": "goo_bathhouse_flier",
+    "npc": "the_goo",
+    "start_trigger": {
+      "type": "flag_at_least",
+      "key": "dream_claimed:the_lost_temple",
+      "value": 1
+    },
+    "complete_message": "TODO: placeholder -- The Goo has already told you everything it knows.",
+    "stages": [
+      {
+        "prompt": "TODO: placeholder -- The Goo notices the flier on you and reacts.",
+        "trigger": {
+          "type": "turn_in_item",
+          "item_id": "bathhouse_flier"
+        },
+        "on_complete_message": "TODO: placeholder -- The Goo's reaction to the flier, and the path to the Sewer opens.",
+        "turn_in_label": "\ud83d\udcc4 Show the flier"
+      }
+    ]
   }
 ]

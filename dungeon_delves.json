@@ -173,6 +173,11 @@
     "id": "gnome_bathhouse",
     "name": "The Gnomish Bathhouse",
     "active": false,
+    "hidden_until_discovered": true,
+    "unlock_trigger": {
+      "type": "quest_complete",
+      "quest_id": "goo_bathhouse_flier"
+    },
     "flavor": "The baths",
     "rooms": [
       {

@@ -531,6 +531,15 @@ def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
         if "active" in entry and not isinstance(entry["active"], bool):
             raise ValueError(f"dungeon_delves.json: delve {entry_id!r} active must be true/false")
 
+        # A delve found only via a room's own Delve button (rooms.json), not typed/listed at all
+        # until then -- see active_delves' own "discovered_ids" param for the list-visibility half
+        # of this, and delve_cmd's "unlock_trigger" check (bot.py) for the "can't just type the id
+        # either" half. unlock_trigger itself is opaque here (any TRIGGER_SCHEMAS type) -- dungeon.py
+        # can't import quests.py to validate it (same circular-import story as a delve action's own
+        # "requires"), so it's cross-validated there instead, right alongside that.
+        if "hidden_until_discovered" in entry and not isinstance(entry["hidden_until_discovered"], bool):
+            raise ValueError(f"dungeon_delves.json: delve {entry_id!r} hidden_until_discovered must be true/false")
+
         layout = entry.get("layout")
         if layout is not None:
             if not isinstance(layout, dict):
@@ -641,16 +650,30 @@ def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
     return delves
 
 
-def active_delves(include_inactive: bool = False) -> dict[str, dict]:
+def active_delves(include_inactive: bool = False, discovered_ids: set[str] | None = None) -> dict[str, dict]:
     """Every delve actually offered to players -- the one place "is this delve playable" is
     decided, so a new delve-selection surface (a command, a picker view, ...) never needs its own
     copy of the "active" check. See _load_delves' module-docstring-adjacent comment on the
     "active" field for why an inactive delve can still be saved (and still lives in DELVES) despite
     never showing up here. `include_inactive` is for a guild with delve_test_mode on (db.py) --
-    testers get to see/play a delve before it's flipped active for everyone else."""
+    testers get to see/play a delve before it's flipped active for everyone else.
+
+    `discovered_ids` additionally hides a "hidden_until_discovered" delve from this list unless its
+    id is in the set -- the room-button-only discovery flow (bot.py's delve_cmd,
+    dungeon_view._spend_delve_energy). Left as None (the default) for callers with no per-player
+    context at all (skill_balance.py's offline balance analysis, which wants every playable delve
+    regardless of who's found what) -- None means "don't apply this filter", not "nothing's been
+    discovered"."""
     if include_inactive:
-        return dict(DELVES)
-    return {delve_id: delve for delve_id, delve in DELVES.items() if delve.get("active", True)}
+        pool = dict(DELVES)
+    else:
+        pool = {delve_id: delve for delve_id, delve in DELVES.items() if delve.get("active", True)}
+    if discovered_ids is None:
+        return pool
+    return {
+        delve_id: delve for delve_id, delve in pool.items()
+        if not delve.get("hidden_until_discovered") or delve_id in discovered_ids
+    }
 
 
 def rooms_by_id(delve: dict) -> dict[str, dict]:

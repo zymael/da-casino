@@ -31,6 +31,7 @@ import dungeon
 import horse_clothes
 import moon
 import npcs
+import rooms
 
 _QUEST_ITEMS_PATH = os.path.join(os.path.dirname(__file__), "quest_items.json")
 _QUESTS_PATH = os.path.join(os.path.dirname(__file__), "quests.json")
@@ -431,6 +432,26 @@ for _delve in dungeon.DELVES.values():
                     raise ValueError(
                         f"{_context} {_outcome_key} references unknown quest item {_outcome.get('item_id')!r}"
                     )
+
+# A delve's own optional "unlock_trigger" (dungeon.py can't validate it -- same circular-import
+# story as the "requires" block above) -- checked by delve_cmd (bot.py) so a hidden_until_discovered
+# delve can't just be typed directly by id before its condition holds, not just hidden from the
+# !delve list (dungeon.active_delves' own discovered_ids param handles that half).
+for _delve in dungeon.DELVES.values():
+    _unlock_trigger = _delve.get("unlock_trigger")
+    if _unlock_trigger is not None:
+        _validate_trigger(_unlock_trigger, f"dungeon_delves.json: delve {_delve['id']!r} unlock_trigger")
+
+# rooms.py can't validate its own exits' optional "visible_trigger" either (same story again --
+# rooms.py has no reason to import this module, and the reverse would be circular if it did), so
+# it's cross-validated here too. This is the room-exit half of the same idea npcs.json's own
+# visible_trigger already covers for NPC presence -- room_view.build_room_display calls
+# trigger_satisfied the same way for both.
+for _room in rooms.ROOMS.values():
+    for _i, _exit in enumerate(_room["exits"]):
+        _exit_trigger = _exit.get("visible_trigger")
+        if _exit_trigger is not None:
+            _validate_trigger(_exit_trigger, f"rooms.json: room {_room['id']!r} exit {_i} visible_trigger")
 
 
 def validate_recipe_quest_items(recipes: dict[str, dict]):

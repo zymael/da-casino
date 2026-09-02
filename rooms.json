@@ -203,6 +203,14 @@
       {
         "room_id": "vic_junkyard",
         "label": "\ud83c\udf5d Vic's Italian Junkyard and Pastatorium"
+      },
+      {
+        "room_id": "gnome_market_sewer",
+        "label": "\ud83d\udd73\ufe0f The Sewer",
+        "visible_trigger": {
+          "type": "quest_complete",
+          "quest_id": "goo_bathhouse_flier"
+        }
       }
     ],
     "commands": []
@@ -287,6 +295,29 @@
         "key": "smash",
         "kind": "none",
         "label": "\ud83d\uddff SMASH"
+      }
+    ]
+  },
+  {
+    "id": "gnome_market_sewer",
+    "name": "\ud83d\udd73\ufe0f The Sewer",
+    "description": "TODO: placeholder -- replace once the Gnomish Bathhouse's location/flavor is decided.",
+    "background_path": "assets/rooms/gnomish_night_market.jpg",
+    "exits": [
+      {
+        "room_id": "gnomish_night_market",
+        "label": "\ud83c\udf44Gnomish Night Market"
+      }
+    ],
+    "commands": [
+      {
+        "key": "delve",
+        "kind": "none",
+        "label": "\ud83d\udec1 The Gnomish Bathhouse",
+        "const_args": [
+          "gnome_bathhouse"
+        ],
+        "closes_hub": true
       }
     ]
   }
