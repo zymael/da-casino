@@ -6,5 +6,13 @@
     "active": true,
     "item_kind": "quest_item",
     "item_id": "lucky_coin"
+  },
+  {
+    "id": "the_lost_temple",
+    "name": "The Second Encounter",
+    "message": "In your sleep, you that you've returned to the endless sky of the last dream.  The air feels heavier this time.  As though the figures expect something from you, though you cannot begin to understand what.\r\n\r\nUntil the very world around you begins to flicker and warp.Images of a casino, lost to time somewhere deep in the forest. Bereft of the flashing lights and sounds of chips and coins raining down that such a holy place deserved. Alone.  Abandoned.\r\n\r\nThen... darkness... a figure.  Dressed like a High Priest yet... different.  Sinister.  Malevolent.\r\n\r\n-Who is this asshole?-\r\n\r\nAnd then you awake.  And in your hand, your lucky coin grows warm.\r\n\r\nIt's time to gamble.",
+    "active": false,
+    "item_kind": "quest_item",
+    "item_id": "lucky_coin"
   }
 ]
