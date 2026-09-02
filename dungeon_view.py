@@ -1289,10 +1289,18 @@ def _effect_execute_multiplier(actor, monster_state, effect: dict, log_lines: li
     mods["multiplier"] *= effect["base"] + effect["scale"] * missing_frac
 
 
-def _effect_heal_fraction(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
-    healed = min(actor.max_hp, actor.hp + round(actor.max_hp * effect["value"])) - actor.hp
-    actor.hp += healed
-    log_lines.append(f"{_actor_label(actor)} {_verb(actor, 'recover')} **{healed}** HP.")
+def _effect_heal_fraction(target, caster, effect: dict, log_lines: list[str], mods: dict):
+    """Heals `target` for a fraction of THEIR OWN max HP -- effect["value"] is a floor, not the
+    final number: `caster`'s own SpAtk (debuff-adjusted, same as every other stat this game reads
+    mid-fight) scales it up from there, capped at dungeon.HEAL_FRACTION_CAP (see that constant's
+    own comment for the curve this produces). `caster` is the same entity as `target` for a
+    self-cast heal (_apply_self_effects passes actor in both slots) -- reads identically either
+    way, since this only ever cares about whoever's casting, not whether that's also the target."""
+    caster_spatk = max(0, caster.spatk - caster.spatk_debuff)
+    fraction = min(dungeon.HEAL_FRACTION_CAP, effect["value"] + caster_spatk * dungeon.HEAL_SPATK_WEIGHT)
+    healed = min(target.max_hp, target.hp + round(target.max_hp * fraction)) - target.hp
+    target.hp += healed
+    log_lines.append(f"{_actor_label(target)} {_verb(target, 'recover')} **{healed}** HP.")
 
 
 def _effect_guard(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
@@ -1528,7 +1536,10 @@ def _apply_self_effects(actor, effects: list[dict], log_lines: list[str], mods: 
         target = effect.get("target") or dungeon.default_effect_target(effect["type"])
         if target == "enemy":
             continue
-        EFFECT_HANDLERS[effect["type"]](actor, None, effect, log_lines, mods)
+        # `actor` in both slots -- target and caster are the same entity here (a monster has no
+        # separate ally pool, see this function's own docstring), but _effect_heal_fraction still
+        # needs a caster reference in the second slot to scale off SpAtk.
+        EFFECT_HANDLERS[effect["type"]](actor, actor, effect, log_lines, mods)
 
 
 CRIT_MULTIPLIER = 1.75  # what any crit means, wherever crit_chance below is nonzero
@@ -1646,7 +1657,10 @@ def _resolve_player_action(
             if e["type"] in dungeon.ENEMY_TARGETED_EFFECT_TYPES:
                 EFFECT_HANDLERS[e["type"]](actor, entity, e, log_lines, mods)
             else:
-                EFFECT_HANDLERS[e["type"]](entity, None, e, log_lines, mods)
+                # `actor` (the original caster) in the second slot here, not None -- every other
+                # self/ally-shaped handler still ignores it (their own signatures never read it),
+                # but _effect_heal_fraction needs to know who's casting to scale off their SpAtk.
+                EFFECT_HANDLERS[e["type"]](entity, actor, e, log_lines, mods)
 
     hit_entities: list = []
     total_dmg = 0

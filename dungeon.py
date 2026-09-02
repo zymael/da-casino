@@ -1682,6 +1682,16 @@ DODGE_CAP = 0.5
 SPEED_DODGE_WEIGHT = 1.0
 SPEED_DODGE_CAP = 20
 
+# A heal_fraction effect's own authored "value" is its floor, not its final number -- the caster's
+# own SpAtk scales it up from there (dungeon_view._effect_heal_fraction), capped at
+# HEAL_FRACTION_CAP (1.0 -- a literal full heal). Gives healing an actual progression curve tied to
+# a stat a player can build around, the same way damage already scales with ATK/SpAtk, instead of
+# being a flat number from level 1. HEAL_SPATK_WEIGHT=0.007 against a healer's own SpAtk growth
+# (base 9, +2/level) means a fresh level-1 healer's heal (base 0.5) sits around 56%, climbing
+# through ~75% by level 15 and reaching the full 100% cap around level 40.
+HEAL_SPATK_WEIGHT = 0.007
+HEAL_FRACTION_CAP = 1.0
+
 
 def dodge_chance(defense: int, speed: int = 0) -> float:
     """Chance to completely avoid an attack, given the defender's own DEF (for a Physical attack)
