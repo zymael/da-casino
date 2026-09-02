@@ -869,7 +869,7 @@
     "rarity": "uncommon",
     "intended_level": 5,
     "base_value": 180,
-    "flavor": "Filed down from one of his own front teeth, gang-style. It grew back within the week — being a rat has some upsides.",
+    "flavor": "Filed down from one of his own front teeth, gang-style. It grew back within the week \u2014 being a rat has some upsides.",
     "effects": [
       {
         "type": "atk_buff",
@@ -1106,7 +1106,7 @@
     "rarity": "rare",
     "intended_level": 14,
     "base_value": 950,
-    "flavor": "Pulled straight out of the clog, still wet. Nobody knows how long it's been down there, or whose it originally was — it just started humming with power somewhere around year three.",
+    "flavor": "Pulled straight out of the clog, still wet. Nobody knows how long it's been down there, or whose it originally was \u2014 it just started humming with power somewhere around year three.",
     "effects": [
       {
         "type": "spatk_buff",
@@ -1127,7 +1127,7 @@
     "rarity": "rare",
     "intended_level": 14,
     "base_value": 950,
-    "flavor": "Wrapped twice around the shoulders, still dripping. Doesn't slow you down any — the puddle it leaves behind slows down whoever's chasing you.",
+    "flavor": "Wrapped twice around the shoulders, still dripping. Doesn't slow you down any \u2014 the puddle it leaves behind slows down whoever's chasing you.",
     "effects": [
       {
         "type": "hp_buff",
@@ -1243,9 +1243,6 @@
     "name": "Waterlogged Familiar",
     "slot": "trinket",
     "rarity": "epic",
-    "intended_level": 15,
-    "base_value": 1600,
-    "flavor": "It squeaks when it's about to happen. That's your only warning.",
     "effects": [
       {
         "type": "hp_buff",
@@ -1260,10 +1257,14 @@
       {
         "type": "stun",
         "trigger": "on_hit",
-        "duration": 1,
-        "chance": 0.08
+        "chance": 0.08,
+        "duration": 1
       }
-    ]
+    ],
+    "special": false,
+    "intended_level": 15,
+    "base_value": 1600,
+    "flavor": "An enchanted yellow duck with rubbery feathers.  He rides on your shoulders and occasionally launches himself at your enemies."
   },
   {
     "id": "tooth_of_the_end",
@@ -1272,7 +1273,7 @@
     "rarity": "legendary",
     "intended_level": 30,
     "base_value": 4500,
-    "flavor": "GNAM GNAM GNAM — but for you, now.",
+    "flavor": "GNAM GNAM GNAM \u2014 but for you, now.",
     "effects": [
       {
         "type": "atk_buff",
