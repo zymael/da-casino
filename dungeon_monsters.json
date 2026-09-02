@@ -945,5 +945,23 @@
     "loot_max": 50,
     "drops": [],
     "skills": []
+  },
+  {
+    "id": "bad_rat",
+    "name": "Bad Rat",
+    "hp": 20,
+    "atk": 18,
+    "def": 10,
+    "spatk": 22,
+    "spdef": 9,
+    "spd": 15,
+    "intended_level": 4,
+    "shape": "hexagon",
+    "color": "#ff0000",
+    "flavor": "This Rat has gone really bad.  It's part of a gang and to your dismay it doesn't even know differential calculus.  \r\n\r\nYou prepare to use your plucky, 80s feel good movie protagonist charm to educate it.\r\n\r\nOr just beat it up. ",
+    "loot_min": 50,
+    "loot_max": 100,
+    "drops": [],
+    "skills": []
   }
 ]
