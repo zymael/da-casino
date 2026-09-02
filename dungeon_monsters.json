@@ -571,11 +571,11 @@
     "id": "bath_witch",
     "name": "Frustrated Witch",
     "hp": 43,
-    "atk": 20,
+    "atk": 5,
     "def": 3,
     "spatk": 42,
-    "spdef": 7,
-    "spd": 18,
+    "spdef": 15,
+    "spd": 9,
     "intended_level": 13,
     "shape": "hexagon",
     "color": "#560075",
@@ -609,8 +609,19 @@
         "chance": 0.3
       }
     ],
-    "attack_chance": 6,
+    "attack_chance": 0,
     "skills": [
+      {
+        "name": "Wand Smack",
+        "chance": 6,
+        "special": true,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 1.0
+          }
+        ]
+      },
       {
         "name": "Zap!",
         "chance": 3,
@@ -855,7 +866,7 @@
     "atk": 20,
     "def": 14,
     "spatk": 16,
-    "spdef": 38,
+    "spdef": 25,
     "spd": 10,
     "intended_level": 10,
     "shape": "circle",

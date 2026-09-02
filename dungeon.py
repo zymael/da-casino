@@ -33,13 +33,20 @@ import horse_clothes
 # a class's fields can be edited but the id itself can't be added/removed/renamed, since it's
 # referenced everywhere (dungeon_skills.json's main_class, every characters DB row, quest triggers)
 # -- see _load_classes' id-set check. Growth (level_hp_gain etc.) used to be one flat rate shared by
-# every class; it's per-class now, looked up by dungeon_view._award_kill on each level-up.
+# every class; it's per-class now, looked up by dungeon_view._award_kill on each level-up. Speed
+# is the one stat with NO level_*_gain -- it's flat (class base + a one-time subclass modifier),
+# only ever moving from there via equipment/housing bonuses or an in-fight buff/debuff, never from
+# leveling. This was a deliberate design change (speed's own dodge/resist bonus, see
+# dungeon_view._defended_dodge_chance, is meant to differentiate the fast class meaningfully and
+# permanently -- if speed also grew with level at the same flat rate every class already shares for
+# every other stat, the gap would shrink and eventually vanish as everyone's speed climbed past
+# SPEED_DODGE_CAP).
 _CLASSES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_classes.json")
 _REQUIRED_CLASS_FIELDS = {
     "id", "display_name", "rank", "picker_blurb", "flavor",
     "hp", "atk", "def", "spatk", "spdef", "chips", "speed",
     "level_hp_gain", "level_atk_gain", "level_def_gain",
-    "level_spatk_gain", "level_spdef_gain", "level_speed_gain",
+    "level_spatk_gain", "level_spdef_gain",
 }
 _REQUIRED_CLASS_IDS = {"fighter", "healer", "mage", "rogue"}
 
@@ -211,7 +218,9 @@ def compute_stats_at_level(main_class: str, subclass: str, level: int) -> dict:
     add_xp applies incrementally through normal play (dungeon_view._award_kill) just computed
     directly for a target level instead of walked level-up by level-up. Used by the admin panel's
     Player Debug page so setting a character's level there keeps atk/def/etc consistent with it,
-    rather than leaving them at whatever they were before."""
+    rather than leaving them at whatever they were before. speed has no growth term -- it's flat
+    (see _REQUIRED_CLASS_FIELDS' own comment), so compute_stats' own base+subclass speed is already
+    final regardless of level."""
     base = compute_stats(main_class, subclass)
     growth = CLASSES[main_class]
     levels = max(0, level - 1)
@@ -221,7 +230,7 @@ def compute_stats_at_level(main_class: str, subclass: str, level: int) -> dict:
         "def": base["def"] + growth["level_def_gain"] * levels,
         "spatk": base["spatk"] + growth["level_spatk_gain"] * levels,
         "spdef": base["spdef"] + growth["level_spdef_gain"] * levels,
-        "speed": base["speed"] + growth["level_speed_gain"] * levels,
+        "speed": base["speed"],
     }
 
 
@@ -1654,19 +1663,33 @@ def roll_damage(atk: int, defense: int, multiplier: float = 1.0) -> int:
 # stats -- both are a diminishing-returns function of a stat that already exists everywhere DEF/
 # SpDef do (every class, every monster, every equipped item), so there's nothing new to add to
 # CLASSES/SUBCLASSES/CONSTANT_EQUIPMENT_EFFECT_TYPES/the DB schema to get this working for players AND monsters
-# at once. DODGE_K=100 is deliberately gentle -- a fresh mage's DEF=2 dodges ~2%, a fresh
-# fighter's DEF=6 dodges ~6%, and even the toughest current monster (z_goolok, DEF=34) only
-# reaches ~25%. DODGE_CAP is a hard safety net independent of K -- no amount of DEF/SpDef
-# stacking (leveling, gear, buffs) can ever push a target above a 50% chance to fully avoid an
-# attack.
-DODGE_K = 100
+# at once. DODGE_K=250 is deliberately gentle -- a fresh mage's DEF=2 dodges ~0.8%, a fresh
+# fighter's DEF=6 dodges ~2.3%, and even the toughest current monster (z_goolok, DEF=38) only
+# reaches ~13.2% (raised from 100 -- see the commit that changed this -- specifically to leave
+# room for tougher monsters down the line without the ramp getting steep too early). DODGE_CAP is
+# a hard safety net independent of K -- no amount of DEF/SpDef stacking (leveling, gear, buffs)
+# can ever push a target above a 50% chance to fully avoid an attack.
+DODGE_K = 250
 DODGE_CAP = 0.5
 
+# Speed adds to dodge/resist too, on top of DEF/SpDef -- capped separately (SPEED_DODGE_CAP) from
+# the DEF/SpDef stacking DODGE_CAP already bounds, so a very fast but only moderately tanky build
+# (rogue: base DEF 3/SpDef 4 but Speed 16, clearly the fastest class) is meaningfully dodgier than
+# its raw DEF/SpDef alone would suggest, without an outlier-fast monster (z_goolok, Speed 37) also
+# getting the full, uncapped benefit of a stat this game already gave it a lot of for turn-order
+# reasons -- +20 covers every player class's speed range (and most monsters) in full, while still
+# reining in that one real outlier.
+SPEED_DODGE_WEIGHT = 1.0
+SPEED_DODGE_CAP = 20
 
-def dodge_chance(defense: int) -> float:
+
+def dodge_chance(defense: int, speed: int = 0) -> float:
     """Chance to completely avoid an attack, given the defender's own DEF (for a Physical attack)
-    or SpDef (Special) -- same formula either way, just fed a different stat by the caller."""
-    return min(DODGE_CAP, defense / (defense + DODGE_K))
+    or SpDef (Special) -- same formula either way, just fed a different stat by the caller -- plus
+    a smaller, separately-capped bonus from their Speed (see SPEED_DODGE_WEIGHT/SPEED_DODGE_CAP).
+    `speed` defaults to 0 (no bonus) for a caller that only wants the pure DEF/SpDef number."""
+    effective = defense + min(SPEED_DODGE_CAP, max(0, speed) * SPEED_DODGE_WEIGHT)
+    return min(DODGE_CAP, effective / (effective + DODGE_K))
 
 
 def roll_loot(monster: dict, loot_mult: float = 1.0) -> int:

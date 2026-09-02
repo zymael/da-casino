@@ -1113,7 +1113,7 @@ async def _award_kill(
     level_result = await asyncio.to_thread(
         db.add_xp, guild_id, actor.user_id, xp_gain,
         growth["level_hp_gain"], growth["level_atk_gain"], growth["level_def_gain"],
-        growth["level_spatk_gain"], growth["level_spdef_gain"], growth["level_speed_gain"],
+        growth["level_spatk_gain"], growth["level_spdef_gain"], 0,  # speed is flat -- never grows with level
         dungeon.LEVELING["global"]["xp_per_level"],
     )
     log_lines.append(f"+{xp_gain} XP")
@@ -1124,14 +1124,12 @@ async def _award_kill(
         def_delta = growth["level_def_gain"] * level_result["levels_gained"]
         spatk_delta = growth["level_spatk_gain"] * level_result["levels_gained"]
         spdef_delta = growth["level_spdef_gain"] * level_result["levels_gained"]
-        speed_delta = growth["level_speed_gain"] * level_result["levels_gained"]
         actor.max_hp += hp_delta
         actor.hp += hp_delta
         actor.atk += atk_delta
         actor.def_ += def_delta
         actor.spatk += spatk_delta
         actor.spdef += spdef_delta
-        actor.speed += speed_delta
         actor.unlocked_skills = dungeon.unlocked_skills(actor.main_class, actor.subclass, actor.level)
         plural = "s" if level_result["levels_gained"] > 1 else ""
         log_lines.append(f"🎉 Level up! Now level {actor.level} (+{level_result['levels_gained']} level{plural}).")
@@ -1692,13 +1690,16 @@ def _resolve_player_action(
 
 
 def _defended_dodge_chance(defender, defense: int, special: bool) -> float:
-    """dungeon.dodge_chance's base roll (against `defense`, already debuff-adjusted by the caller)
-    plus any active dodge_buff (Physical) / resist_buff (Special) bonus from the defender's own
-    timed_effects -- still capped at dungeon.DODGE_CAP, the same hard ceiling that already bounds
-    DEF/SpDef stacking alone (see dungeon.py's comment on DODGE_CAP)."""
+    """dungeon.dodge_chance's base roll (against `defense`, already debuff-adjusted by the caller,
+    plus the defender's own current Speed -- also debuff-adjusted here, same as every other stat
+    this function's caller already adjusts before handing it in) plus any active dodge_buff
+    (Physical) / resist_buff (Special) bonus from the defender's own timed_effects -- still capped
+    at dungeon.DODGE_CAP, the same hard ceiling that already bounds DEF/SpDef/Speed stacking alone
+    (see dungeon.py's comment on DODGE_CAP)."""
     buff_type = "resist_buff" if special else "dodge_buff"
     bonus = next((e["value"] for e in defender.timed_effects if e["type"] == buff_type), 0)
-    return min(dungeon.DODGE_CAP, dungeon.dodge_chance(defense) + bonus)
+    speed = max(0, defender.speed - defender.speed_debuff)
+    return min(dungeon.DODGE_CAP, dungeon.dodge_chance(defense, speed) + bonus)
 
 
 def _tick_timed_effects(entities: list, log_lines: list[str]) -> None:
@@ -4078,8 +4079,8 @@ class ClassPickerView(discord.ui.View):
             name = dungeon.display_name(self.main_class, dungeon.NO_SUBCLASS)
             stats = dungeon.compute_stats(self.main_class, dungeon.NO_SUBCLASS)
             skill = dungeon.unlocked_skills(self.main_class, dungeon.NO_SUBCLASS, 1)[0]
-            dodge_pct = round(dungeon.dodge_chance(stats["def"]) * 100)
-            resist_pct = round(dungeon.dodge_chance(stats["spdef"]) * 100)
+            dodge_pct = round(dungeon.dodge_chance(stats["def"], stats["speed"]) * 100)
+            resist_pct = round(dungeon.dodge_chance(stats["spdef"], stats["speed"]) * 100)
             embed.add_field(
                 name=f"Preview: {name}",
                 value=f"HP {stats['hp']} / ATK {stats['atk']} / DEF {stats['def']} / "
@@ -4112,8 +4113,8 @@ class ClassConfirmButton(discord.ui.Button):
             return
 
         name = dungeon.display_name(picker.main_class, dungeon.NO_SUBCLASS)
-        dodge_pct = round(dungeon.dodge_chance(stats["def"]) * 100)
-        resist_pct = round(dungeon.dodge_chance(stats["spdef"]) * 100)
+        dodge_pct = round(dungeon.dodge_chance(stats["def"], stats["speed"]) * 100)
+        resist_pct = round(dungeon.dodge_chance(stats["spdef"], stats["speed"]) * 100)
         embed = discord.Embed(
             title=f"✅ You are now a {name}!",
             description=f"HP {stats['hp']} / ATK {stats['atk']} / DEF {stats['def']} / "
@@ -4168,8 +4169,8 @@ class SubclassPickerView(discord.ui.View):
             speed = self.character["speed"] + mod["speed"]
             chips = dungeon.compute_stats(self.main_class, self.subclass)["chips"]
             skill = dungeon.unlocked_skills(self.main_class, self.subclass, self.level)[0]
-            dodge_pct = round(dungeon.dodge_chance(def_) * 100)
-            resist_pct = round(dungeon.dodge_chance(spdef) * 100)
+            dodge_pct = round(dungeon.dodge_chance(def_, speed) * 100)
+            resist_pct = round(dungeon.dodge_chance(spdef, speed) * 100)
             embed.add_field(
                 name=f"Preview: {name}",
                 value=f"HP {hp} / ATK {atk} / DEF {def_} / SpAtk {spatk} / SpDef {spdef} / "

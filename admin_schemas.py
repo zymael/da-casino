@@ -522,7 +522,12 @@ CONTENT_TYPES = {
                 "hint": "max Chips pool before subclass modifiers -- lowering this can strand an "
                         "existing skill's chip_cost, checked at save time",
             },
-            {"name": "speed", "type": "int", "required": True, "min": 0, "group": "Base Stats"},
+            {
+                "name": "speed", "type": "int", "required": True, "min": 0, "group": "Base Stats",
+                "hint": "flat -- unlike every other base stat, speed has no level-up growth (see "
+                        "the Leveling fields below). Only equipment/housing bonuses or an in-fight "
+                        "buff/debuff ever move it from here.",
+            },
             {
                 "name": "level_hp_gain", "type": "int", "required": True, "min": 0, "group": "Leveling",
                 "hint": "flat HP gained by this class on every level-up",
@@ -531,7 +536,6 @@ CONTENT_TYPES = {
             {"name": "level_def_gain", "type": "int", "required": True, "min": 0, "group": "Leveling"},
             {"name": "level_spatk_gain", "type": "int", "required": True, "min": 0, "group": "Leveling"},
             {"name": "level_spdef_gain", "type": "int", "required": True, "min": 0, "group": "Leveling"},
-            {"name": "level_speed_gain", "type": "int", "required": True, "min": 0, "group": "Leveling"},
         ],
     },
     "subclasses": {
