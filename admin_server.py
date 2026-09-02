@@ -1276,6 +1276,8 @@ document.addEventListener('click', function (event) {
         wrapper.querySelectorAll('.monster-group').forEach(function (groupRow, i) {
             var chanceInput = groupRow.querySelector('[data-group-chance]');
             if (!chanceInput) return;
+            var forkInput = groupRow.querySelector('.group-fork-input');
+            if (!forkInput || !forkInput.checked) return;  // unforked -- no node, uses the room's default
             var prefix = chanceInput.name.slice(0, -('_chance'.length));
             var label = 'Group ' + (i + 1);
 
@@ -1445,6 +1447,30 @@ document.addEventListener('click', function (event) {
         });
     }
 
+    // Group sibling of wireActionSyncInputs -- the Fork checkbox is the only thing that decides
+    // whether a group gets a canvas node at all (see syncGroupNodes' own early-return), so toggling
+    // it needs an immediate re-sync, not just on the next add/remove-row pass. Unchecking also
+    // clears the group's own hidden next input (its value would otherwise sit invisibly in effect
+    // with no node left to show or edit it from) -- same "toggling off never leaves a stale
+    // override behind" guarantee _parse_delve_flowchart's own server-side drop enforces either way.
+    function wireGroupSyncInputs(root, wrapper) {
+        root.querySelectorAll('.group-fork-input').forEach(function (input) {
+            if (input.dataset.groupSyncWired) return;
+            input.dataset.groupSyncWired = '1';
+            input.addEventListener('change', function () {
+                if (!input.checked) {
+                    var container = input.closest('.row-group');
+                    var nextInput = container ? container.querySelector('.group-next-input') : null;
+                    if (nextInput) nextInput.value = '';
+                    updateLiveNextTags(container || document);
+                }
+                syncGroupNodes(wrapper);
+                refreshRoomBox(wrapper);
+                scheduleAutosave();
+            });
+        });
+    }
+
     function wireFlowchartNode(node) {
         if (!node || !node.classList || !node.classList.contains('room-wrapper')) return;
         var box = node.querySelector('.room-box');
@@ -1483,6 +1509,7 @@ document.addEventListener('click', function (event) {
             typeSelect.addEventListener('change', function () { syncRoomHandles(node); });
         }
         wireActionSyncInputs(node, node);
+        wireGroupSyncInputs(node, node);
         refreshRoomBox(node);
     }
 
@@ -1490,6 +1517,7 @@ document.addEventListener('click', function (event) {
         var wrapper = el && el.closest ? el.closest('.room-wrapper') : null;
         if (!wrapper) return;
         wireActionSyncInputs(el, wrapper);
+        wireGroupSyncInputs(el, wrapper);
         syncActionNodes(wrapper);
         syncGroupNodes(wrapper);
         refreshRoomBox(wrapper);
@@ -2097,23 +2125,28 @@ def _render_room_monster_group_row(prefix: str, group: dict) -> str:
     button is clicked instead -- DOM proximity alone disambiguates which level a given remove click
     means, no extra JS needed here either.
 
-    "next" is optional -- overrides the room's own next for whichever fight this group actually
-    gets rolled for (dungeon_view.DelveSession/PartyDelveSession's group_next_override). Same
-    "not typed here" story as an action's own on_success/on_fail next (_render_action_row): this
-    group gets its own draggable node + connector handle on the flowchart canvas
-    (_dynamic_script's syncGroupNodes, the group sibling of syncActionNodes) since a group has no
-    stable per-item box of its own the way a room does -- the value still lives in this same-named
-    hidden input, just written by JS instead of a person; the live-next span here mirrors it
-    read-only, purely so this panel shows where it leads without hunting for the arrow on canvas.
-    Position (x/y) is NOT rendered here -- like an action's own x/y, it only ever exists as a
-    canvas-node hidden input JS creates on the fly (syncGroupNodes), read back by
-    _parse_delve_flowchart same as _parse_actions already does for actions. See
-    _render_room_detail_panel below and _parse_delve_flowchart's matching parse side."""
+    "fork" (bool, optional) is the only thing that controls whether this group gets its own
+    draggable node + connector handle on the flowchart canvas (_dynamic_script's syncGroupNodes,
+    the group sibling of syncActionNodes) -- unchecked (the common case) means this group just
+    falls back to the room's own next, no node cluttering the canvas for something that isn't
+    being used. Checking it reveals the node; unchecking it again (wireGroupForkCheckbox) clears
+    "next" too, so toggling it off never leaves a stale override invisibly still in effect. "next"
+    itself is never typed here -- same "not typed, dragged" story as an action's own on_success/
+    on_fail next (_render_action_row): the value lives in this same-named hidden input, just
+    written by JS instead of a person; the live-next span mirrors it read-only, purely so this
+    panel shows where it leads without hunting for the arrow on canvas. Position (x/y) is NOT
+    rendered here -- like an action's own x/y, it only ever exists as a canvas-node hidden input
+    JS creates on the fly (syncGroupNodes), read back by _parse_delve_flowchart same as
+    _parse_actions already does for actions. A group with no "fork" field yet (existing content
+    from before this checkbox existed) defaults checked if it already has a "next", so an existing
+    override doesn't silently hide itself the first time this loads. See _render_room_detail_panel
+    below and _parse_delve_flowchart's matching parse side."""
     monsters = group.get("monsters", [])
     monsters_container = f"{prefix}_monsters"
     monster_rows_html = [_render_room_monster_row(f"{monsters_container}_{j}", mid) for j, mid in enumerate(monsters)]
     monster_template_html = _render_room_monster_row(f"{monsters_container}_ROWIDX", None)
     monsters_repeatable = _render_repeatable(monsters_container, monster_rows_html, monster_template_html, "+ Add monster")
+    forked = group.get("fork", bool(group.get("next")))
     return (
         f'<fieldset class="row-group monster-group" data-monster-group data-group-row>'
         f'<legend>Group '
@@ -2128,6 +2161,11 @@ def _render_room_monster_group_row(prefix: str, group: dict) -> str:
         f'<input type="number" step="any" min="0" name="{prefix}_chance" '
         f'value="{group.get("chance", "")}" data-group-chance></label>'
         f'<span class="skill-odds-pct" data-group-pct>—</span>'
+        f'<label data-tooltip="Gives this group its own exit, overriding the room\'s own next '
+        f'whenever this specific group is the one rolled. Shows a draggable node on the canvas '
+        f'above to set it -- leave unchecked for an ordinary group that just uses the room\'s '
+        f'default.">Fork (own exit)'
+        f'<input type="checkbox" class="group-fork-input" name="{prefix}_fork"{" checked" if forked else ""}></label>'
         f'<input type="hidden" class="group-next-input" name="{prefix}_next" '
         f'value="{html.escape(group.get("next") or "")}">'
         f'{monsters_repeatable}'
@@ -2516,6 +2554,11 @@ def _render_room_node(
                 j,
             )
             for j, group in enumerate(room.get("monster_groups", []))
+            # Only a forked group gets a node -- same "fork checkbox is the only thing that
+            # decides this" rule syncGroupNodes' own early-return enforces client-side; this is
+            # the initial-page-load half of that, since wireFlowchartNode never calls
+            # syncGroupNodes itself for a freshly-loaded page, only for a later edit.
+            if group.get("fork", bool(group.get("next")))
         )
     return (
         f'<div class="room-wrapper" data-room-wrapper="{prefix}">'
@@ -3623,12 +3666,20 @@ def _parse_delve_flowchart(form: dict, entry_id_for_upload: str, existing_entry:
                     raw_chance = form.get(f"{gp}_chance", "").strip()
                     if raw_chance:
                         group["chance"] = float(raw_chance) if "." in raw_chance else int(raw_chance)
-                    group_next = form.get(f"{gp}_next", "").strip()
-                    if group_next:
-                        group["next"] = group_next
-                    gx, gy = form.get(f"{gp}_x", "").strip(), form.get(f"{gp}_y", "").strip()
-                    if gx and gy:
-                        group["x"], group["y"] = float(gx), float(gy)
+                    # A checkbox is simply absent when unchecked (see _parse_field's own "bool"
+                    # case) -- forked gates next/x/y below, not just this stored flag, so
+                    # unchecking Fork always drops any leftover override rather than just hiding
+                    # it (the client-side clear in wireGroupForkCheckbox is a belt-and-suspenders
+                    # UX nicety, not the only thing preventing a stale override).
+                    forked = f"{gp}_fork" in form
+                    group["fork"] = forked
+                    if forked:
+                        group_next = form.get(f"{gp}_next", "").strip()
+                        if group_next:
+                            group["next"] = group_next
+                        gx, gy = form.get(f"{gp}_x", "").strip(), form.get(f"{gp}_y", "").strip()
+                        if gx and gy:
+                            group["x"], group["y"] = float(gx), float(gy)
                     groups.append(group)
             if groups:
                 room["monster_groups"] = groups

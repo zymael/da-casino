@@ -619,6 +619,14 @@ def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
                                 f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} "
                                 f"monster group {pos_key} must be a number"
                             )
+                    # "fork" (optional bool): purely a UI toggle (admin_server.py's Fork checkbox,
+                    # syncGroupNodes) for whether this group gets its own canvas node -- has no
+                    # effect here or at runtime either way, "next" is what actually matters.
+                    if "fork" in group and not isinstance(group["fork"], bool):
+                        raise ValueError(
+                            f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} "
+                            f"monster group fork must be true/false"
+                        )
                 next_room = room.get("next")
                 if next_room is not None:
                     if next_room not in room_ids:
