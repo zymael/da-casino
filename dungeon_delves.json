@@ -173,11 +173,7 @@
     "id": "gnome_bathhouse",
     "name": "The Gnomish Bathhouse",
     "active": false,
-    "hidden_until_discovered": true,
-    "unlock_trigger": {
-      "type": "quest_complete",
-      "quest_id": "goo_bathhouse_flier"
-    },
+    "hidden_until_discovered": false,
     "flavor": "The baths",
     "rooms": [
       {
@@ -191,7 +187,8 @@
             ]
           }
         ],
-        "next": "The Doorman"
+        "next": "The Doorman",
+        "background_path": "assets/dungeon/backgrounds/gnome_bathhouse_room_The Sewer.jpg"
       },
       {
         "id": "The Doorman",
@@ -275,7 +272,7 @@
         "monster_groups": [
           {
             "monsters": [
-              "gnome_doorman"
+              "goblin_grunt"
             ]
           }
         ],
@@ -310,7 +307,7 @@
         "monster_groups": [
           {
             "monsters": [
-              "z_goolok"
+              "goblin_grunt"
             ]
           }
         ]
@@ -321,7 +318,7 @@
         "monster_groups": [
           {
             "monsters": [
-              "gnome_leather_daddy"
+              "goblin_grunt"
             ]
           }
         ]
@@ -375,7 +372,7 @@
         "y": 377.0
       },
       "The Leather Daddy's Private Room": {
-        "x": 1720.0,
+        "x": 1712.0,
         "y": 470.0
       },
       "A Private Bath": {
