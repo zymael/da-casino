@@ -927,5 +927,23 @@
       }
     ],
     "sprite_path": "assets/dungeon/monsters/goblin_mob_boss.png"
+  },
+  {
+    "id": "feral_goo",
+    "name": "Feral Goo",
+    "hp": 19,
+    "atk": 6,
+    "def": 11,
+    "spatk": 10,
+    "spdef": 10,
+    "spd": 10,
+    "intended_level": 1,
+    "shape": "triangle",
+    "color": "#ff0080",
+    "flavor": "Slimy",
+    "loot_min": 25,
+    "loot_max": 50,
+    "drops": [],
+    "skills": []
   }
 ]
