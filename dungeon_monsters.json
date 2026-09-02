@@ -842,7 +842,7 @@
             "value": 6
           }
         ],
-        "flavor": "GNAM GNAM — but wetter. Something in your armor starts to give."
+        "flavor": "GNAM GNAM. But wetter. Something in your armor starts to give."
       }
     ],
     "sprite_path": "assets/dungeon/monsters/z_goolok.png"
@@ -1068,7 +1068,7 @@
     "intended_level": 5,
     "shape": "triangle",
     "color": "#ff0080",
-    "flavor": "It doesn't so much attack you as happen to you. Someone's draped a ragged cloak over it. It shivers in a rhythm — three wet slaps, over and over — like it's repeating something back to itself.",
+    "flavor": "It doesn't so much attack you as happen to you. Someone's draped a ragged cloak over it. It shivers in a rhythm, three wet slaps over and over, like it's repeating something back to itself.",
     "loot_min": 25,
     "loot_max": 50,
     "drops": [
@@ -1131,7 +1131,7 @@
             "multiplier": 0.5
           }
         ],
-        "flavor": "Doesn't wait for a fair fight. Never has. To be fair, he's rat-sized — waiting for a fair one would just mean losing on a schedule."
+        "flavor": "Doesn't wait for a fair fight. Never has. To be fair, he's rat-sized, so waiting for a fair one would just mean losing on a schedule."
       }
     ]
   }
