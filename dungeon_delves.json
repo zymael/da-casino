@@ -186,8 +186,14 @@
         "monster_groups": [
           {
             "monsters": [
-              "goblin_warlord",
-              "goblin_chief"
+              "bad_rat",
+              "bad_rat"
+            ]
+          },
+          {
+            "monsters": [
+              "feral_goo",
+              "feral_goo"
             ]
           }
         ],
