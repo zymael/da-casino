@@ -319,7 +319,8 @@
         "flavor": "The comb's teeth snag and rake before you can pull free."
       }
     ],
-    "sprite_path": "assets/dungeon/monsters/enchanted_comb.png"
+    "sprite_path": "assets/dungeon/monsters/enchanted_comb.png",
+    "sprite_scale": 0.5
   },
   {
     "id": "gnome_doorman",
