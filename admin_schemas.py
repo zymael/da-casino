@@ -142,7 +142,7 @@ Field types the generic form-builder knows how to render:
     at Publish time, since a hand-edited JSON file bypasses this UI entirely). Each stage box also
     carries a flag icon that sets the quest's start_stage, which is why that's no longer its own
     top-level field in this schema -- same "sourced from a single page-level hidden input the
-    flowchart script owns" story as start_room. A stage's own id/prompt/journal_text/button_label
+    flowchart script owns" story as start_room. A stage's own id/prompt/journal_text/topic_label
     and its nested "paths" repeatable live in a per-stage detail panel shown for at most one stage
     at a time (click a box to open it). Every stage is structurally the delve-choice-room shape --
     there's no combat/choice split for quests -- so a path's own connector handle is always exactly
@@ -155,7 +155,7 @@ Field types the generic form-builder knows how to render:
     dialogue, and kept at the stage level (not per-path) since it describes what's currently going
     on with this stage regardless of which path eventually resolves it. reward_item_kind picks
     which of quests.REWARD_REGISTRIES' kinds reward_item is looked up in (defaults to "equipment"
-    if blank, for every quest authored before reward_item_kind existed). button_label is optional
+    if blank, for every quest authored before reward_item_kind existed). topic_label is optional
     -- it's this stage's own "topic" button text inside an NPC's conversation flow (see
     npc_view.NpcConversationView/quests._topic_label), shown once this stage is discussable there;
     blank keeps a generic computed default ("💬 Ask about {quest name}"). turn_in_label is the same

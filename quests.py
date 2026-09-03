@@ -341,7 +341,7 @@ def _load_quests(path: str = _QUESTS_PATH) -> dict[str, dict]:
 
     Each stage: "id" (referenced by a path's "next"), "ordinal" (permanent, never reused, never
     editable -- backs the durable progress flag), "prompt" (NPC dialogue shown while this stage is
-    active), "journal_text" (the !journal objective line), "button_label" (optional), "discuss_with"
+    active), "journal_text" (the !journal objective line), "topic_label" (optional), "discuss_with"
     (a list of npc ids -- every one of them offers a topic button for this stage while it's the
     player's current one, not just this quest's own giver; possibly empty), and "paths" (a list,
     possibly empty for a dialogue-only terminal). Each path: "trigger" (what advances it),
@@ -1023,11 +1023,11 @@ async def check_new_quests(guild_id: int, user_id: int) -> list[str]:
 
 
 def _topic_label(quest: dict, stage: dict | None) -> str:
-    """A topic button's own text -- the current stage's own "button_label" if the author set one
+    """A topic button's own text -- the current stage's own "topic_label" if the author set one
     (e.g. "🏕️ Ask about a place to stay"), else a generic computed default. `stage` is None for a
-    completed quest's wrap-up topic (no current stage to draw a button_label from)."""
-    if stage is not None and stage.get("button_label"):
-        return stage["button_label"]
+    completed quest's wrap-up topic (no current stage to draw a topic_label from)."""
+    if stage is not None and stage.get("topic_label"):
+        return stage["topic_label"]
     return f"💬 Ask about {quest['name']}" if stage is not None else f"💬 {quest['name']}"
 
 

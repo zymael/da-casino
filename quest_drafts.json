@@ -54,7 +54,6 @@
         "ordinal": 0,
         "prompt": "You don't have a trailer... a tent... or even a sleeping bag. I can't have you just sitting in the dirt. Come back when you have something to use the land for.",
         "journal_text": "Bring Leto a sleeping bag to prove you're serious about staying.",
-        "button_label": "\ud83c\udfd5\ufe0f Ask about a place to stay",
         "paths": [
           {
             "trigger": {
@@ -69,7 +68,8 @@
             "x": 230.0,
             "y": 40.0
           }
-        ]
+        ],
+        "topic_label": "\ud83c\udfd5\ufe0f Ask about a place to stay"
       },
       {
         "id": "stage_1",
@@ -102,5 +102,36 @@
     },
     "start_stage": "stage_0",
     "next_ordinal": 2
+  },
+  "goo_zgoolok_bane": {
+    "id": "goo_zgoolok_bane",
+    "name": "I got my ass kicked in Z'Goolok's Bog and all I got was my ass kicked as previously mentioned",
+    "npc": "the_goo",
+    "start_trigger": {
+      "type": "achievement",
+      "kind": "killed_by_zgoolok"
+    },
+    "journal_startable": false,
+    "active": true,
+    "stages": [
+      {
+        "id": "stage_0",
+        "ordinal": 0,
+        "prompt": "*The Goo takes one look at you, still dripping and bruised, and goes very still.*\r\n\r\n*Then they start rummaging under the counter, pulling out fishing tackle you didn't know they sold, quivering the whole time.*",
+        "journal_text": "The Goo has given you fishing tackle for something.",
+        "discuss_with": [
+          "the_goo"
+        ],
+        "paths": []
+      }
+    ],
+    "layout": {
+      "stage_0": {
+        "x": 40.0,
+        "y": 40.0
+      }
+    },
+    "start_stage": "stage_0",
+    "next_ordinal": 1
   }
 }

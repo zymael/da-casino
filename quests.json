@@ -107,7 +107,6 @@
         "ordinal": 0,
         "prompt": "You don't have a trailer... a tent... or even a sleeping bag. I can't have you just sitting in the dirt. Come back when you have something to use the land for.",
         "journal_text": "Bring Leto a sleeping bag to prove you're serious about staying.",
-        "button_label": "\ud83c\udfd5\ufe0f Ask about a place to stay",
         "paths": [
           {
             "trigger": {
@@ -125,7 +124,8 @@
         ],
         "discuss_with": [
           "leto"
-        ]
+        ],
+        "topic_label": "\ud83c\udfd5\ufe0f Ask about a place to stay"
       },
       {
         "id": "stage_1",

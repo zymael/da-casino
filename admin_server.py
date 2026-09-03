@@ -3327,7 +3327,7 @@ def _render_stage_box(prefix: str, stage: dict, pos: dict, is_start: bool, error
     of _render_room_box (delves), simplified since a quest stage is always structurally the
     delve-choice-room shape -- no type split, and so no connector handle of its own either: every
     path gets its own separate node instead (see _render_path_node), same "lines from different
-    paths never bunch up at one corner" reasoning. id/prompt/journal_text/button_label/paths live
+    paths never bunch up at one corner" reasoning. id/prompt/journal_text/topic_label/paths live
     in the paired detail panel (_render_stage_detail_panel). The hidden "ordinal" input here is
     opaque bookkeeping only -- see quests.py's own module docstring for what it's for -- carried
     through unchanged on every save, never rendered as an editable field anywhere.
@@ -3423,7 +3423,7 @@ def _render_discuss_with_row(name: str, npc_id: str | None) -> str:
 
 
 def _render_stage_detail_panel(prefix: str, stage: dict) -> str:
-    """The collapsible per-stage field panel -- id/prompt/journal_text/button_label/discuss_with
+    """The collapsible per-stage field panel -- id/prompt/journal_text/topic_label/discuss_with
     plus the nested "paths" repeatable. Shown for at most one stage at a time (see the quest
     flowchart script's selectStage), exact sibling of _render_room_detail_panel (delves) -- same
     "only the selected stage's fields are ever on screen at once" idea. There is deliberately no
@@ -3456,9 +3456,9 @@ def _render_stage_detail_panel(prefix: str, stage: dict) -> str:
         f'<label>journal_text<small class="field-hint">The objective line shown in !journal -- '
         f'distinct from prompt, which is only ever what the NPC actually says.</small>'
         f'<textarea name="{prefix}_journal_text">{html.escape(stage.get("journal_text", ""))}</textarea></label>'
-        f'<label>button_label (optional)<input type="text" name="{prefix}_button_label" '
+        f'<label>topic_label (optional)<input type="text" name="{prefix}_topic_label" '
         f'placeholder="e.g. Ask about a place to stay" '
-        f'value="{html.escape(stage.get("button_label", ""))}"></label>'
+        f'value="{html.escape(stage.get("topic_label", ""))}"></label>'
         f'<label>discuss_with<small class="field-hint">Every NPC listed here offers this stage as '
         f'a topic in their own Talk conversation while it\'s the player\'s current stage -- not '
         f'just this quest\'s own giver.</small></label>{discuss_repeatable}'
@@ -4745,9 +4745,9 @@ def _parse_quest_flowchart(form: dict, existing_entry: dict) -> dict:
         journal_text = form.get(f"{p}_journal_text", "").strip()
         if journal_text:
             stage["journal_text"] = journal_text
-        button_label = form.get(f"{p}_button_label", "").strip()
-        if button_label:
-            stage["button_label"] = button_label
+        topic_label = form.get(f"{p}_topic_label", "").strip()
+        if topic_label:
+            stage["topic_label"] = topic_label
 
         discuss_indices = sorted(
             int(m.group(1)) for k in form
