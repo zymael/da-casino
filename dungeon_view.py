@@ -494,7 +494,18 @@ def _apply_room_header(embed: discord.Embed, room: dict) -> None:
     embed.set_footer(text=f"📍 {room['id']}")
 
 
-def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.Embed, discord.File]:
+def _room_image_file(render_result: tuple, basename: str = "room") -> tuple[discord.File, str]:
+    """Wraps a dungeon_render.render_room result (buf, ext) into a discord.File + its
+    attachment:// URL. `ext` is "gif" when the room's own background was an animated GIF
+    (render_room composites every frame and re-encodes the whole thing as a GIF) or "png"
+    otherwise -- the filename has to actually match what's in `buf`, or Discord renders it as a
+    broken attachment."""
+    buf, ext = render_result
+    filename = f"{basename}.{ext}"
+    return discord.File(buf, filename=filename), f"attachment://{filename}"
+
+
+async def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.Embed, discord.File]:
     living = session.living_monsters()
     title = f"🗡️ {living[0].monster['name']}" if len(living) == 1 else "🗡️ Combat"
     embed = discord.Embed(title=title, description=log_text, color=discord.Color.dark_red())
@@ -509,12 +520,12 @@ def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.Embed, 
     for m in living:
         marker = " ⬅️ target" if len(living) > 1 and m.slot == target_slot else ""
         embed.add_field(name=m.monster["name"], value=f"❤️ HP {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
-    buf = dungeon_render.render_room(
-        session.rooms_visited, [m.monster for m in living], _room_background_path(session.delve, room),
-        turn_order=_solo_turn_order_cards(session),
+    render_result = await asyncio.to_thread(
+        dungeon_render.render_room, session.rooms_visited, [m.monster for m in living],
+        _room_background_path(session.delve, room), turn_order=_solo_turn_order_cards(session),
     )
-    file = discord.File(buf, filename="room.png")
-    embed.set_image(url="attachment://room.png")
+    file, image_url = _room_image_file(render_result)
+    embed.set_image(url=image_url)
     return embed, file
 
 
@@ -624,16 +635,18 @@ def _action_summary_lines(action: dict, currency_name: str) -> list[str]:
     return lines
 
 
-def _choice_embed(session: DelveSession, room: dict, description: str) -> tuple[discord.Embed, discord.File]:
+async def _choice_embed(session: DelveSession, room: dict, description: str) -> tuple[discord.Embed, discord.File]:
     currency = db.get_currency_name(session.guild_id)
     embed = discord.Embed(title="🚪 A Choice", description=description, color=discord.Color.blurple())
     embed.add_field(name=f"{session.display_name} (You)", value=f"❤️ HP {max(session.hp, 0)}/{session.max_hp}", inline=False)
     for action in room["actions"]:
         lines = _action_summary_lines(action, currency)
         embed.add_field(name=action["label"], value="\n".join(lines) if lines else "—", inline=True)
-    buf = dungeon_render.render_room(session.rooms_visited, [], _room_background_path(session.delve, room))
-    file = discord.File(buf, filename="room.png")
-    embed.set_image(url="attachment://room.png")
+    render_result = await asyncio.to_thread(
+        dungeon_render.render_room, session.rooms_visited, [], _room_background_path(session.delve, room)
+    )
+    file, image_url = _room_image_file(render_result)
+    embed.set_image(url=image_url)
     return embed, file
 
 
@@ -667,7 +680,7 @@ async def _build_room_display(interaction: discord.Interaction, session: DelveSe
         log_lines.append(_combat_intro_text(room, [m.monster for m in session.living_monsters()]))
         await _advance_solo_turns(interaction, session, log_lines)
     else:
-        embed, file = _choice_embed(session, room, room["prompt"])
+        embed, file = await _choice_embed(session, room, room["prompt"])
         if intro_text:
             embed.description = f"{intro_text}\n\n{embed.description}"
         view = await _build_choice_room_view(session, room)
@@ -1035,7 +1048,7 @@ class TargetSelect(discord.ui.Select):
         session: DelveSession = self.view.session
         session.current_target_slot = int(self.values[0])
         log_text = interaction.message.embeds[0].description or ""
-        embed, file = _combat_embed(session, log_text)
+        embed, file = await _combat_embed(session, log_text)
         view = await _build_combat_view(session)
         await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
         self.view.stop()
@@ -2021,7 +2034,7 @@ async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSe
                 log_lines.append(_crowd_control_skip_line(session, cc_type))
                 session.turn_clock += dungeon.turn_interval(max(1, session.speed - session.speed_debuff))
                 continue
-            embed, file = _combat_embed(session, "\n".join(log_lines))
+            embed, file = await _combat_embed(session, "\n".join(log_lines))
             view = await _build_combat_view(session)
             await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
             return
@@ -2217,7 +2230,7 @@ def _party_turn_order_cards(session: PartyDelveSession) -> list[dict]:
     return cards
 
 
-def _party_combat_embed(
+async def _party_combat_embed(
     session: PartyDelveSession, log_text: str, current_actor: PartyMember,
 ) -> tuple[discord.Embed, discord.File]:
     living_monsters = session.living_monsters()
@@ -2239,12 +2252,12 @@ def _party_combat_embed(
         marker = " ⬅️ target" if len(living_monsters) > 1 and m.slot == target_slot else ""
         embed.add_field(name=m.monster["name"], value=f"❤️ HP {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
     room = session.rooms_by_id[session.current_room_id]
-    buf = dungeon_render.render_room(
-        session.rooms_visited, [m.monster for m in living_monsters], _room_background_path(session.delve, room),
-        turn_order=_party_turn_order_cards(session),
+    render_result = await asyncio.to_thread(
+        dungeon_render.render_room, session.rooms_visited, [m.monster for m in living_monsters],
+        _room_background_path(session.delve, room), turn_order=_party_turn_order_cards(session),
     )
-    file = discord.File(buf, filename="room.png")
-    embed.set_image(url="attachment://room.png")
+    file, image_url = _room_image_file(render_result)
+    embed.set_image(url=image_url)
     return embed, file
 
 
@@ -2360,7 +2373,7 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
                 log_lines.append(_crowd_control_skip_line(member, cc_type))
                 member.turn_clock += dungeon.turn_interval(max(1, member.speed - member.speed_debuff))
                 continue
-            embed, file = _party_combat_embed(session, "\n".join(log_lines), member)
+            embed, file = await _party_combat_embed(session, "\n".join(log_lines), member)
             view = await _build_party_combat_view(session, member)
             await _send_party_update(interaction, session, embed, file, view, ping_user_id=member.user_id)
             return
@@ -2634,7 +2647,7 @@ class PartyTargetSelect(discord.ui.Select):
         session: PartyDelveSession = self.view.session
         session.member_target_slots[self.view.actor.user_id] = int(self.values[0])
         log_text = interaction.message.embeds[0].description or ""
-        embed, file = _party_combat_embed(session, log_text, self.view.actor)
+        embed, file = await _party_combat_embed(session, log_text, self.view.actor)
         view = await _build_party_combat_view(session, self.view.actor)
         await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
         self.view.stop()
@@ -2664,7 +2677,7 @@ class PartyAllyTargetSelect(discord.ui.Select):
         session: PartyDelveSession = self.view.session
         session.member_ally_target_ids[self.view.actor.user_id] = int(self.values[0])
         log_text = interaction.message.embeds[0].description or ""
-        embed, file = _party_combat_embed(session, log_text, self.view.actor)
+        embed, file = await _party_combat_embed(session, log_text, self.view.actor)
         view = await _build_party_combat_view(session, self.view.actor)
         await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
         self.view.stop()
@@ -2724,7 +2737,7 @@ async def _apply_party_retreat(session: PartyDelveSession) -> discord.Embed:
 # invariant party mode depends on.
 
 
-def _party_choice_embed(session: PartyDelveSession, room: dict, description: str) -> tuple[discord.Embed, discord.File]:
+async def _party_choice_embed(session: PartyDelveSession, room: dict, description: str) -> tuple[discord.Embed, discord.File]:
     currency = db.get_currency_name(session.guild_id)
     embed = discord.Embed(title="🚪 A Choice", description=description, color=discord.Color.blurple())
     for m in session.members:
@@ -2733,9 +2746,11 @@ def _party_choice_embed(session: PartyDelveSession, room: dict, description: str
     for action in room["actions"]:
         lines = _action_summary_lines(action, currency)
         embed.add_field(name=action["label"], value="\n".join(lines) if lines else "—", inline=True)
-    buf = dungeon_render.render_room(session.rooms_visited, [], _room_background_path(session.delve, room))
-    file = discord.File(buf, filename="room.png")
-    embed.set_image(url="attachment://room.png")
+    render_result = await asyncio.to_thread(
+        dungeon_render.render_room, session.rooms_visited, [], _room_background_path(session.delve, room)
+    )
+    file, image_url = _room_image_file(render_result)
+    embed.set_image(url=image_url)
     return embed, file
 
 
@@ -2767,7 +2782,7 @@ async def _build_party_room_display(
         log_lines.append(_combat_intro_text(room, [m.monster for m in session.living_monsters()]))
         await _advance_party_turns(interaction, session, log_lines)
     else:
-        embed, file = _party_choice_embed(session, room, room["prompt"])
+        embed, file = await _party_choice_embed(session, room, room["prompt"])
         if intro_text:
             embed.description = f"{intro_text}\n\n{embed.description}"
         view = await _build_party_choice_room_view(session, room)
@@ -3547,7 +3562,7 @@ def _duel_turn_order_cards(session: DuelSession) -> list[dict]:
     ]
 
 
-def _duel_combat_embed(
+async def _duel_combat_embed(
     session: DuelSession, log_text: str, current_actor: PartyMember,
 ) -> tuple[discord.Embed, discord.File]:
     embed = discord.Embed(title="⚔️ Duel", description=log_text, color=discord.Color.dark_red())
@@ -3558,9 +3573,11 @@ def _duel_combat_embed(
         embed.add_field(
             name=d.label, value=f"❤️ HP {max(d.hp, 0)}/{d.max_hp}\n🪙 Chips {d.chips}/{d.max_chips}{marker}", inline=True,
         )
-    buf = dungeon_render.render_room(1, [], DUEL_ARENA_BACKGROUND, label="Duel", turn_order=_duel_turn_order_cards(session))
-    file = discord.File(buf, filename="duel.png")
-    embed.set_image(url="attachment://duel.png")
+    render_result = await asyncio.to_thread(
+        dungeon_render.render_room, 1, [], DUEL_ARENA_BACKGROUND, label="Duel", turn_order=_duel_turn_order_cards(session)
+    )
+    file, image_url = _room_image_file(render_result, basename="duel")
+    embed.set_image(url=image_url)
     return embed, file
 
 
@@ -3664,7 +3681,7 @@ async def _advance_duel_turns(interaction: discord.Interaction | None, session: 
         await _advance_duel_turns(interaction, session, log_lines)
         return
 
-    embed, file = _duel_combat_embed(session, "\n".join(log_lines), actor)
+    embed, file = await _duel_combat_embed(session, "\n".join(log_lines), actor)
     view = await _build_duel_combat_view(session, actor)
     await _send_duel_update(interaction, session, embed, file, view)
 

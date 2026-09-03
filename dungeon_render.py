@@ -2,7 +2,7 @@ import io
 import math
 import os
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageSequence
 
 # Room background is a real image (assets/dungeon/dungeon1.png), sized to WIDTH x HEIGHT so it
 # drops in with no scaling. Monsters with a `sprite_path` in dungeon_monsters.json get that art
@@ -75,15 +75,11 @@ def _load_monster_sprite(sprite_path: str, target_height: int = SPRITE_HEIGHT) -
     return sprite.resize(new_size, Image.NEAREST)
 
 
-def _load_background(background_path: str | None) -> Image.Image:
-    """The delve-specific background if it's set and the file actually exists, else the default
-    -- same forgiving fallback as _load_monster_sprite, so a delve JSON entry with no
-    background_path (or a since-deleted file) still renders instead of erroring mid-delve.
-    Uploaded images won't generally already be exactly WIDTH x HEIGHT the way the hand-placed
-    default is, so this cover-fits: scale to fill the frame, then center-crop, rather than
-    stretching (which would distort) or leaving the frame partially empty."""
-    path = background_path if background_path and os.path.exists(background_path) else ROOM_BG_PATH
-    img = Image.open(path).convert("RGBA")
+def _fit_frame(img: Image.Image) -> Image.Image:
+    """Cover-fits one frame to exactly WIDTH x HEIGHT -- scale to fill, then center-crop, rather
+    than stretching (which would distort) or leaving the frame partially empty. Shared by every
+    background frame (a static image is just the one-frame case), so an animated background's
+    frames all get the identical crop instead of each independently drifting."""
     if img.size != (WIDTH, HEIGHT):
         scale = max(WIDTH / img.width, HEIGHT / img.height)
         new_size = (round(img.width * scale), round(img.height * scale))
@@ -92,6 +88,26 @@ def _load_background(background_path: str | None) -> Image.Image:
         top = (img.height - HEIGHT) // 2
         img = img.crop((left, top, left + WIDTH, top + HEIGHT))
     return img
+
+
+def _load_background_frames(background_path: str | None) -> tuple[list[Image.Image], list[int], int]:
+    """The delve-specific background if it's set and the file actually exists, else the default
+    -- same forgiving fallback as the old single-image loader, so a delve JSON entry with no
+    background_path (or a since-deleted file) still renders instead of erroring mid-delve. Returns
+    (frames, frame_durations_ms, loop_count) -- a plain image (or a single-frame GIF) comes back as
+    one frame with an unused duration/loop, so render_room doesn't need two separate code paths for
+    "static" vs "animated": it always composites onto every frame in this list and only decides
+    PNG vs animated GIF afterward, from how many frames came back."""
+    path = background_path if background_path and os.path.exists(background_path) else ROOM_BG_PATH
+    with Image.open(path) as src:
+        if not getattr(src, "is_animated", False):
+            return [_fit_frame(src.convert("RGBA"))], [0], 0
+        frames, durations = [], []
+        for frame in ImageSequence.Iterator(src):
+            frames.append(_fit_frame(frame.convert("RGBA")))
+            durations.append(frame.info.get("duration", 100) or 100)
+        loop = src.info.get("loop", 0)
+        return frames, durations, loop
 
 
 # x-offsets from center for each living monster, keyed by how many are being drawn -- count 1 is
@@ -182,7 +198,7 @@ def _composite_turn_order_strip(img: Image.Image, turn_order: list[dict]) -> Ima
 def render_room(
     visited_count: int, monsters: list[dict], background_path: str | None = None,
     turn_order: list[dict] | None = None, label: str | None = None,
-) -> io.BytesIO:
+) -> tuple[io.BytesIO, str]:
     """Renders the corridor view for one dungeon room -- with its living monster(s) standing at the
     far end if there are any (combat rooms), or just the empty scene if not (choice rooms, or a
     combat room whose group has been fully cleared, pass an empty list). Combat HP/stats are shown
@@ -194,32 +210,56 @@ def render_room(
     nothing there) -- defaults to the usual "Room N" when not given. `turn_order` (optional, only
     ever passed for combat rooms with someone still alive to schedule) grows the image downward to
     add the FFX-style turn-order card strip -- see _composite_turn_order_strip for its shape.
-    Returns a ready-to-attach BytesIO."""
-    img = _load_background(background_path)
+
+    Returns (buf, ext) rather than a bare BytesIO -- an animated GIF background (see
+    _load_background_frames) means every monster/label/turn-order overlay gets composited onto
+    EVERY one of its frames, then re-encoded as its own animated GIF instead of a flat PNG, so the
+    background keeps playing in Discord instead of freezing on frame one. `ext` ("png" or "gif")
+    is the caller's cue for which filename/attachment extension actually matches what's in `buf` --
+    see dungeon_view._room_image_file. Sprites are loaded/scaled once, not once per frame."""
+    frames, durations, loop = _load_background_frames(background_path)
 
     cx, cy = WIDTH / 2, HEIGHT / 2 - 10
     count = len(monsters)
     sprite_height = _sprite_height_for(count)
     offsets = _GROUP_X_OFFSETS.get(count, _GROUP_X_OFFSETS[4])
-    for monster, x_offset in zip(monsters, offsets):
-        mx = cx + x_offset
-        target_height = round(sprite_height * monster.get("sprite_scale", 1.0))
-        sprite = _load_monster_sprite(monster.get("sprite_path"), target_height)
-        if sprite:
-            pos = (round(mx - sprite.width / 2), round(cy + 110 - sprite.height))
-            img.alpha_composite(sprite, pos)
-        else:
-            draw = ImageDraw.Draw(img)
-            radius = 60 if count <= 2 else 45
-            _draw_monster_shape(draw, mx, cy, radius, monster["shape"], _parse_color(monster["color"]))
+    sprites = [
+        (_load_monster_sprite(monster.get("sprite_path"), round(sprite_height * monster.get("sprite_scale", 1.0))),
+         monster, x_offset)
+        for monster, x_offset in zip(monsters, offsets)
+    ]
+    room_label = label or f"Room {visited_count}"
 
-    draw = ImageDraw.Draw(img)
-    draw.text((16, HEIGHT - 32), label or f"Room {visited_count}", font=_label_font, fill=(200, 200, 210, 255))
+    out_frames = []
+    for base in frames:
+        img = base.copy()
+        for sprite, monster, x_offset in sprites:
+            mx = cx + x_offset
+            if sprite:
+                pos = (round(mx - sprite.width / 2), round(cy + 110 - sprite.height))
+                img.alpha_composite(sprite, pos)
+            else:
+                draw = ImageDraw.Draw(img)
+                radius = 60 if count <= 2 else 45
+                _draw_monster_shape(draw, mx, cy, radius, monster["shape"], _parse_color(monster["color"]))
 
-    if turn_order:
-        img = _composite_turn_order_strip(img, turn_order)
+        draw = ImageDraw.Draw(img)
+        draw.text((16, HEIGHT - 32), room_label, font=_label_font, fill=(200, 200, 210, 255))
+
+        if turn_order:
+            img = _composite_turn_order_strip(img, turn_order)
+        out_frames.append(img)
 
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
+    if len(out_frames) > 1:
+        rgb_frames = [f.convert("RGB") for f in out_frames]
+        rgb_frames[0].save(
+            buf, format="GIF", save_all=True, append_images=rgb_frames[1:],
+            duration=durations, loop=loop, disposal=2,
+        )
+        ext = "gif"
+    else:
+        out_frames[0].save(buf, format="PNG")
+        ext = "png"
     buf.seek(0)
-    return buf
+    return buf, ext
