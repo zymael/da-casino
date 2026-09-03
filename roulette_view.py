@@ -41,37 +41,114 @@ DAUGHTERS_WIN_MESSAGE = (
 # per-guild migration needed.
 DAUGHTERS_NEGLECT_FLAG = "daughters_neglected"
 
-# The Tax Man gag -- another running joke against this same user (see DAUGHTERS_TARGET_ID above).
-# Rolled independently against each one of his bets as it settles in resolve() below (so a round
-# where he placed several bets gets several independent chances, not one per round), demanding
-# TAXMAN_CUT of his biggest single win to date (db.get_user_bet_summary's best_win) -- paid out of
-# his balance if he can cover it, otherwise his legs get broken (TAXMAN_LEGS_BROKEN_FLAG bumped,
-# shown on his own !stats via bot.py's stats_cmd). No persistent "still owes" state carried between
-# rolls -- each settle is its own independent shakedown at TAXMAN_TRIGGER_CHANCE odds.
+# The Tax Man gag -- another running joke against this same user (see DAUGHTERS_TARGET_ID above),
+# same popup-in-channel shape as SicklyVictorianDaughtersView below. Rolled independently against
+# each one of his bets as it settles in resolve() (so a round where he placed several bets gets
+# several independent chances, not one per round), demanding TAXMAN_CUT of his biggest single win
+# to date (db.get_user_bet_summary's best_win), fixed at popup-creation time so the amount shown
+# and the amount actually charged always agree even if his biggest win changes before he responds.
+# Paying it off is the only way to clear TAXMAN_WANTED_FLAG -- failing to cover it *or* refusing to
+# pay both break his legs (TAXMAN_LEGS_BROKEN_FLAG bumped, shown on his own !stats) and leave the
+# flag set, so he stays a live target for a future roll to shake down again.
 TAXMAN_TARGET_ID = 272816170749526027
 TAXMAN_CUT = 0.30
 TAXMAN_TRIGGER_CHANCE = 0.05
 TAXMAN_LEGS_BROKEN_FLAG = "legs_broken"
+TAXMAN_WANTED_FLAG = "taxman_wanted"
+TAXMAN_IMAGE_PATH = "assets/hatman.jpg"
+
+# (guild_id) -> True while a popup is up and unresolved for TAXMAN_TARGET_ID, so a second roll
+# can't stack a duplicate demand on top of one he hasn't answered yet. Guild-keyed only (there's
+# just the one target) -- purely an anti-spam guard, not persisted state, same "in-memory, not a
+# DB row" treatment as active_rounds/last_bets above.
+taxman_open_popups: set[int] = set()
 
 
-async def _maybe_taxman_shakedown(guild_id: int, channel) -> None:
-    if random.random() >= TAXMAN_TRIGGER_CHANCE:
+class TaxManView(discord.ui.View):
+    """Pay or Push Away, same shape as SicklyVictorianDaughtersView's single dismiss button but
+    with a real consequence either way. Only TAXMAN_TARGET_ID may click either button -- unlike the
+    Daughters popup, this moves real currency and can break his legs, so it's not anyone's call but
+    his own."""
+
+    def __init__(self, guild_id: int, demand: int, currency: str):
+        super().__init__(timeout=300)
+        self.guild_id = guild_id
+        self.demand = demand
+        self.currency = currency
+
+    async def on_timeout(self):
+        taxman_open_popups.discard(self.guild_id)
+
+    async def _reject_if_not_target(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != TAXMAN_TARGET_ID:
+            await interaction.response.send_message("This isn't your problem.", ephemeral=True)
+            return True
+        return False
+
+    async def _close_popup(self, interaction: discord.Interaction):
+        taxman_open_popups.discard(self.guild_id)
+        try:
+            await interaction.message.delete()
+        except discord.HTTPException:
+            pass
+
+    async def _break_legs(self, channel, flavor: str):
+        legs_broken = await asyncio.to_thread(
+            db.increment_flag, self.guild_id, TAXMAN_TARGET_ID, TAXMAN_LEGS_BROKEN_FLAG
+        )
+        await asyncio.to_thread(db.set_flag, self.guild_id, TAXMAN_TARGET_ID, TAXMAN_WANTED_FLAG, 1)
+        await channel.send(f"{flavor} **CRACK.** 🦵💥 (Legs Broken: {legs_broken})")
+
+    @discord.ui.button(label="Pay", style=discord.ButtonStyle.success)
+    async def pay(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if await self._reject_if_not_target(interaction):
+            return
+        await interaction.response.defer()
+        channel = interaction.channel
+        await self._close_popup(interaction)
+        balance = await asyncio.to_thread(db.get_balance, self.guild_id, TAXMAN_TARGET_ID)
+        if balance >= self.demand:
+            await asyncio.to_thread(db.update_balance, self.guild_id, TAXMAN_TARGET_ID, -self.demand)
+            await asyncio.to_thread(db.set_flag, self.guild_id, TAXMAN_TARGET_ID, TAXMAN_WANTED_FLAG, 0)
+            await channel.send(
+                f"💸 <@{TAXMAN_TARGET_ID}> pays the **{self.demand} {self.currency}**. "
+                "The Tax Man tips his hat and disappears."
+            )
+        else:
+            await self._break_legs(channel, f"<@{TAXMAN_TARGET_ID}> doesn't have the {self.demand} {self.currency}.")
+
+    @discord.ui.button(label="Push him away", style=discord.ButtonStyle.danger)
+    async def push_away(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if await self._reject_if_not_target(interaction):
+            return
+        await interaction.response.defer()
+        channel = interaction.channel
+        await self._close_popup(interaction)
+        await self._break_legs(channel, f"<@{TAXMAN_TARGET_ID}> shoves him away and refuses to pay.")
+
+
+async def _maybe_send_taxman_popup(guild_id: int, channel) -> None:
+    if guild_id in taxman_open_popups or random.random() >= TAXMAN_TRIGGER_CHANCE:
         return
     _, _, _, best_win, _ = await asyncio.to_thread(db.get_user_bet_summary, guild_id, TAXMAN_TARGET_ID)
     demand = int((best_win or 0) * TAXMAN_CUT)
     if demand <= 0:
         return  # never won anything yet -- nothing worth shaking down
-    balance = await asyncio.to_thread(db.get_balance, guild_id, TAXMAN_TARGET_ID)
     currency = db.get_currency_name(guild_id)
-    lines = [f"🕴️ A man in a cheap suit corners <@{TAXMAN_TARGET_ID}>. **\"Tax time.\"**"]
-    if balance >= demand:
-        await asyncio.to_thread(db.update_balance, guild_id, TAXMAN_TARGET_ID, -demand)
-        lines.append(f"He wants **{demand} {currency}**, 30% of his biggest win. He pays up.")
-    else:
-        legs_broken = await asyncio.to_thread(db.increment_flag, guild_id, TAXMAN_TARGET_ID, TAXMAN_LEGS_BROKEN_FLAG)
-        lines.append(f"He wants **{demand} {currency}**, 30% of his biggest win. He doesn't have it.")
-        lines.append(f"**CRACK.** 🦵💥 (Legs Broken: {legs_broken})")
-    await channel.send("\n".join(lines))
+    taxman_open_popups.add(guild_id)
+    embed = discord.Embed(
+        title="The Tax Man",
+        description=(
+            f"A man in a cheap suit steps out of the shadows. **\"Tax time.\"**\n"
+            f"He wants **{demand} {currency}**, 30% of your biggest win."
+        ),
+        color=discord.Color.dark_gray(),
+    )
+    file = discord.File(TAXMAN_IMAGE_PATH, filename="hatman.jpg")
+    embed.set_image(url="attachment://hatman.jpg")
+    await channel.send(
+        f"<@{TAXMAN_TARGET_ID}>", embed=embed, file=file, view=TaxManView(guild_id, demand, currency)
+    )
 
 
 class SicklyVictorianDaughtersView(discord.ui.View):
@@ -729,7 +806,7 @@ class RouletteView(discord.ui.View):
                 net_by_user[bet["user_id"]] = net_by_user.get(bet["user_id"], 0) + net
                 await asyncio.to_thread(db.log_bet, self.guild_id, bet["user_id"], "roulette", bet["amount"], net)
                 if bet["user_id"] == TAXMAN_TARGET_ID and self.message is not None:
-                    await _maybe_taxman_shakedown(self.guild_id, self.message.channel)
+                    await _maybe_send_taxman_popup(self.guild_id, self.message.channel)
                 kinds = achievements.kinds_for_bet("roulette", net)
                 kinds += await achievements.record_and_check(self.guild_id, bet["user_id"], "roulette", net)
                 if stolen_by:

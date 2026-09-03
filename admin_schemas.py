@@ -1003,9 +1003,13 @@ CONTENT_TYPES = {
         # horse_clothes, housing_item -- can't be fully validated there yet) -- the rest are caught
         # here instead, as an extra save-time check, same "rooms"/"recipes"/"npcs" pattern above.
         "extra_validators": [lambda new_registry: quests.validate_reward_item_kinds(new_registry)],
-        "list_columns": ["id", "npc"],
+        "list_columns": ["id", "name", "npc"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
+            {
+                "name": "name", "type": "str", "required": True, "group": "Identity",
+                "hint": "shown on !quests -- what identifies this quest, since multiple quests can share one npc",
+            },
             {
                 "name": "npc", "type": "enum", "required": True, "choices": list(npcs.NPCS.keys()), "group": "Identity",
                 "hint": "who this quest belongs to",

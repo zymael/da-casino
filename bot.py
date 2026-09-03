@@ -1390,8 +1390,8 @@ async def quests_cmd(ctx):
     else:
         for entry in log:
             status = "✅ Complete" if entry["complete"] else f"Stage {entry['stage_index'] + 1}/{entry['total_stages']}"
-            value = entry["prompt"]
-            embed.add_field(name=f"{entry['npc'].title()} — {status}", value=value, inline=False)
+            value = f"*Giver: {entry['npc'].title()}*\n{entry['prompt']}"
+            embed.add_field(name=f"{entry['name']} — {status}", value=value, inline=False)
     await ctx.send(embed=embed)
 
 

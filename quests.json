@@ -1,6 +1,7 @@
 [
   {
     "id": "kel_romance",
+    "name": "Memories of Horses",
     "npc": "kel",
     "start_trigger": {
       "type": "achievement",
@@ -19,6 +20,7 @@
   },
   {
     "id": "mondor_goblin_chieftain",
+    "name": "Rescue the \"Princess\"",
     "npc": "mondor",
     "start_trigger": {
       "type": "achievement",
@@ -40,6 +42,7 @@
   },
   {
     "id": "leto_first_home",
+    "name": "First Home",
     "npc": "leto",
     "start_trigger": {
       "type": "achievement",
@@ -72,6 +75,7 @@
   },
   {
     "id": "goo_zgoolok_bane",
+    "name": "I got my ass kicked in Z'Goolok's Bog and all I got was my ass kicked as previously mentioned",
     "npc": "the_goo",
     "start_trigger": {
       "type": "achievement",
@@ -86,6 +90,7 @@
   },
   {
     "id": "goo_bathhouse_flier",
+    "name": "A Wet Note",
     "npc": "the_goo",
     "start_trigger": {
       "type": "flag_at_least",

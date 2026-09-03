@@ -36,7 +36,7 @@ import rooms
 _QUEST_ITEMS_PATH = os.path.join(os.path.dirname(__file__), "quest_items.json")
 _QUESTS_PATH = os.path.join(os.path.dirname(__file__), "quests.json")
 _REQUIRED_ITEM_FIELDS = {"id", "name", "emoji", "description"}
-_REQUIRED_QUEST_FIELDS = {"id", "npc", "start_trigger", "stages"}
+_REQUIRED_QUEST_FIELDS = {"id", "name", "npc", "start_trigger", "stages"}
 _REQUIRED_STAGE_FIELDS = {"prompt", "on_complete_message"}
 
 # type -> (required param names, optional param names). Valid both as a quest's top-level
@@ -499,10 +499,11 @@ async def npcs_present_in_room(guild_id: int, user_id: int, room_id: str) -> lis
 
 
 async def quest_log(guild_id: int, user_id: int) -> list[dict]:
-    """Every quest this player has started (in quests.json order), each as {"quest_id", "npc",
-    "stage_index", "total_stages", "complete", "prompt"} -- prompt is the current stage's own
-    text (or None once complete). Backs !quests; deliberately doesn't invent quest titles or any
-    other copy -- npc id and each stage's existing prompt are the only text surfaced."""
+    """Every quest this player has started (in quests.json order), each as {"quest_id", "name",
+    "npc", "stage_index", "total_stages", "complete", "prompt"} -- prompt is the current stage's
+    own text (or None once complete). Backs !quests; "name" (quests.json's own authored title) is
+    what identifies each entry -- "npc" is only the giver, and multiple quests can share one NPC
+    (e.g. the_goo), so npc alone can't tell two entries apart."""
     entries = []
     for quest in QUESTS_BY_ID.values():
         stage_index = await _get_stage(guild_id, user_id, quest["id"])
@@ -515,6 +516,7 @@ async def quest_log(guild_id: int, user_id: int) -> list[dict]:
             prompt = quest["stages"][stage_index]["prompt"]
         entries.append({
             "quest_id": quest["id"],
+            "name": quest["name"],
             "npc": quest["npc"],
             "stage_index": stage_index,
             "total_stages": len(quest["stages"]),
