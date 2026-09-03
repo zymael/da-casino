@@ -67,6 +67,8 @@ class TalkToNpcButton(discord.ui.Button):
                 interaction.channel.send, guild_id, user_id, interaction.user.display_name,
                 [npc["greet_achievement"]],
             )
+        if any(state["just_started"] for state in states):
+            await interaction.followup.send("🗺️ New quest! Check `!quests`.", ephemeral=True)
 
 
 class ShopButton(discord.ui.Button):
@@ -106,10 +108,11 @@ class TurnInButton(discord.ui.Button):
     """Scoped to one specific quest_id (not an NPC as a whole -- see module docstring). Only ever
     added to a view once quests.talk_to_npc reports can_turn_in for that quest (see each hub's own
     view-building function) -- calls quests.turn_in and shows the resulting on_complete_message. A
-    reward_item, if granted, is reported as a separate ephemeral followup (equipped or stored),
-    same as the buttons this replaces. `item`, if given, is used to build the default label
-    ("Give <npc> the <item>") the same way every turn-in button already read; pass an explicit
-    `label` instead for a stage whose trigger has nothing physical to hand over."""
+    separate ephemeral followup always reports the quest updating (or completing), plus a
+    reward_item if one was granted (equipped or stored), same as the buttons this replaces. `item`,
+    if given, is used to build the default label ("Give <npc> the <item>") the same way every
+    turn-in button already read; pass an explicit `label` instead for a stage whose trigger has
+    nothing physical to hand over."""
 
     def __init__(
         self, quest_id: str, banner_path: str, rebuild, *, row: int, item: dict | None = None,
@@ -140,14 +143,16 @@ class TurnInButton(discord.ui.Button):
         )
         await self.rebuild(interaction, buf, f"{self.quest_id}_turnin.png")
 
+        lines = []
         reward_item = result["reward_item"]
         if reward_item:
             if result["reward_item_kind"] == "equipment":
-                status_text = f"⚔️ Received **{reward_item['name']}** — stored in `!equipment`."
+                lines.append(f"⚔️ Received **{reward_item['name']}** — stored in `!equipment`.")
             else:
                 # Same "just landed in your bag" phrasing as dreams.py's own non-equipment reward
                 # notification -- reward_item_kind used to be assumed "equipment" unconditionally
                 # here, which showed a nonsense "your current weapon is better" message for e.g. a
                 # housing_item reward that was never compared to any weapon at all.
-                status_text = f"🎁 Received **{reward_item['name']}**! Check `!inventory`."
-            await interaction.followup.send(status_text, ephemeral=True)
+                lines.append(f"🎁 Received **{reward_item['name']}**! Check `!inventory`.")
+        lines.append("🗺️ Quest complete! Check `!quests`." if result["quest_complete"] else "🗺️ Quest updated! Check `!quests`.")
+        await interaction.followup.send("\n".join(lines), ephemeral=True)

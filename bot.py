@@ -376,6 +376,60 @@ async def balance(ctx):
 
 MAX_STATS_HORSES = 10
 
+# The Tax Man gag -- a running joke targeting one specific user, same shape as RUB_LUCKY_TARGET_ID/
+# TURRON_TARGET_ID above and roulette_view.py's DAUGHTERS_TARGET_ID. The first time this user's
+# balance hits exactly 0, the Tax Man shows up demanding TAXMAN_CUT of their biggest single win
+# (db.get_user_bet_summary's best_win) -- if their current balance can cover it they pay and the
+# debt is cleared, otherwise their legs get broken (TAXMAN_LEGS_BROKEN_FLAG bumped, shown on their
+# own !stats) and the debt stays outstanding, re-rolling at TAXMAN_RECHECK_CHANCE odds on every
+# command they run afterward until they finally cover it.
+TAXMAN_TARGET_ID = 1538948361921499247
+TAXMAN_CUT = 0.30
+TAXMAN_RECHECK_CHANCE = 0.10
+TAXMAN_OWES_FLAG = "taxman_owes"
+TAXMAN_LEGS_BROKEN_FLAG = "legs_broken"
+
+
+@bot.after_invoke
+async def taxman_check(ctx):
+    """Checked after every command TAXMAN_TARGET_ID runs -- see the module comment above for the
+    full rules. A no-op for anyone else, and cheap for them (one int comparison, no DB hit)."""
+    if ctx.guild is None or ctx.author.id != TAXMAN_TARGET_ID:
+        return
+    guild_id, user_id = ctx.guild.id, ctx.author.id
+    owes = await asyncio.to_thread(db.get_flag, guild_id, user_id, TAXMAN_OWES_FLAG)
+    if owes:
+        if random.random() >= TAXMAN_RECHECK_CHANCE:
+            return
+    else:
+        balance = await asyncio.to_thread(db.get_balance, guild_id, user_id)
+        if balance != 0:
+            return
+        # Atomic claim so two near-simultaneous commands from the same user can't both fire.
+        if not await asyncio.to_thread(db.set_flag_if_zero, guild_id, user_id, TAXMAN_OWES_FLAG, 1):
+            return
+
+    _, _, _, best_win, _ = await asyncio.to_thread(db.get_user_bet_summary, guild_id, user_id)
+    currency = db.get_currency_name(guild_id)
+    demand = int((best_win or 0) * TAXMAN_CUT)
+    balance = await asyncio.to_thread(db.get_balance, guild_id, user_id)
+
+    lines = ["🕴️ A man in a cheap suit blocks your path. **\"Tax time.\"**"]
+    if demand <= 0:
+        # Never actually won anything to tax -- clear the claim rather than leave a permanent debt
+        # of nothing outstanding.
+        await asyncio.to_thread(db.set_flag, guild_id, user_id, TAXMAN_OWES_FLAG, 0)
+        lines.append("He looks you over, finds nothing worth taking, and vanishes.")
+    elif balance >= demand:
+        await asyncio.to_thread(db.update_balance, guild_id, user_id, -demand)
+        await asyncio.to_thread(db.set_flag, guild_id, user_id, TAXMAN_OWES_FLAG, 0)
+        lines.append(f"He wants **{demand} {currency}**, 30% of your biggest win. You pay up.")
+    else:
+        legs_broken = await asyncio.to_thread(db.increment_flag, guild_id, user_id, TAXMAN_LEGS_BROKEN_FLAG)
+        lines.append(f"He wants **{demand} {currency}**, 30% of your biggest win. You don't have it.")
+        lines.append(f"**CRACK.** 🦵💥 (Legs Broken: {legs_broken})")
+    await ctx.send("\n".join(lines))
+
 
 @bot.command(name="stats")
 async def stats_cmd(ctx, member: discord.Member = None):
@@ -458,6 +512,10 @@ async def stats_cmd(ctx, member: discord.Member = None):
     if user_id == DAUGHTERS_TARGET_ID:
         neglect_count = max(1, await asyncio.to_thread(db.get_flag, guild_id, user_id, DAUGHTERS_NEGLECT_FLAG))
         embed.add_field(name="Times Daughters Neglected", value=str(neglect_count), inline=True)
+
+    if user_id == TAXMAN_TARGET_ID:
+        legs_broken = await asyncio.to_thread(db.get_flag, guild_id, user_id, TAXMAN_LEGS_BROKEN_FLAG)
+        embed.add_field(name="🦵 Legs Broken", value=str(legs_broken), inline=True)
 
     await ctx.send(embed=embed)
 
