@@ -13,6 +13,11 @@ BET_TIMEOUT_SECONDS = 30  # a round spins this long after its last bet (or after
 STEAL_CHANCE = 0.01  # 1-in-100 chance a winning payout gets swiped instead of paid out
 STEAL_NAMES = ["Lady of the evening", "Classy Escort"]
 
+# Same gif bot.py's !roy posts -- duplicated here rather than imported since roulette_view.py is
+# itself imported by bot.py (bot.run() is unguarded at module level there, so nothing may import it
+# back). LET IT RIDE fires this alongside its own bet as a bonus, not a real invocation of !roy.
+ROY_GIF = "https://media.giphy.com/media/ywGp4PMJdeLyuRq7vJ/giphy.gif"
+
 # The Sickly Victorian Daughters gag -- purely cosmetic, no game-state hook, same running joke
 # target as bot.py's RUB_LUCKY_TARGET_ID. Rolled once per round (not per losing/winning bet)
 # against this one user's aggregate net for the round, not any single bet -- a loss and a win each
@@ -556,13 +561,19 @@ class RouletteView(discord.ui.View):
             )
         desc = "; ".join(f"{roulette.describe_bet(b['kind'], b['value'])} ({b['amount']})" for b in scaled)
         await interaction.response.send_message(
-            f"🎰 ALL IN! Repeated {len(scaled)} bet(s): {desc}, **{total}** {currency} total.", ephemeral=True
+            f"😈 LET IT RIDE! Repeated {len(scaled)} bet(s): {desc}, **{total}** {currency} total.", ephemeral=True
         )
         self._reset_timer()
         if self.message is not None:
             try:
                 embed, file = self.build_display()
                 await self.message.edit(embed=embed, attachments=[file])
+            except discord.HTTPException:
+                pass
+            try:
+                roy_embed = discord.Embed(color=discord.Color.gold())
+                roy_embed.set_image(url=ROY_GIF)
+                await self.message.channel.send(embed=roy_embed)
             except discord.HTTPException:
                 pass
 
@@ -628,7 +639,7 @@ class RouletteView(discord.ui.View):
     async def bet_repeat(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.repeat_bets(interaction)
 
-    @discord.ui.button(label="🎰 All In", style=discord.ButtonStyle.danger, row=3)
+    @discord.ui.button(label="😈 LET IT RIDE", style=discord.ButtonStyle.danger, row=3)
     async def bet_all_in(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.all_in(interaction)
 

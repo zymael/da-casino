@@ -245,6 +245,8 @@ async def on_ready():
             _SYNCED_GUILD_IDS.add(guild.id)
     if not sync_champions_loop.is_running():
         sync_champions_loop.start()
+    if not taxman_loop.is_running():
+        taxman_loop.start()
 
 
 @bot.event
@@ -382,21 +384,33 @@ MAX_STATS_HORSES = 10
 # (db.get_user_bet_summary's best_win) -- if their current balance can cover it they pay and the
 # debt is cleared, otherwise their legs get broken (TAXMAN_LEGS_BROKEN_FLAG bumped, shown on their
 # own !stats) and the debt stays outstanding, re-rolling at TAXMAN_RECHECK_CHANCE odds on every
-# command they run afterward until they finally cover it.
+# check afterward until they finally cover it. Driven by a polling loop (taxman_loop below), not a
+# command hook -- most balance changes in this game happen inside a persistent view's button/modal
+# callbacks (placing a roulette bet, hitting in blackjack, ...), which never go through
+# commands.Bot's invoke cycle at all, so an @bot.after_invoke hook here would silently miss almost
+# every real way this user's balance actually hits 0.
 TAXMAN_TARGET_ID = 1538948361921499247
 TAXMAN_CUT = 0.30
 TAXMAN_RECHECK_CHANCE = 0.10
+TAXMAN_CHECK_SECONDS = 20
 TAXMAN_OWES_FLAG = "taxman_owes"
 TAXMAN_LEGS_BROKEN_FLAG = "legs_broken"
 
 
-@bot.after_invoke
-async def taxman_check(ctx):
-    """Checked after every command TAXMAN_TARGET_ID runs -- see the module comment above for the
-    full rules. A no-op for anyone else, and cheap for them (one int comparison, no DB hit)."""
-    if ctx.guild is None or ctx.author.id != TAXMAN_TARGET_ID:
-        return
-    guild_id, user_id = ctx.guild.id, ctx.author.id
+async def _resolve_casino_channel(guild: discord.Guild) -> discord.TextChannel | None:
+    """Same channel in_casino_channel gates commands to -- the configured one if set, else
+    whichever channel is literally named CASINO_CHANNEL_NAME. Needed here because a poll loop has
+    no ctx/interaction of its own to send a reply through."""
+    channel_id = await asyncio.to_thread(db.get_casino_channel_id, guild.id)
+    if channel_id is not None:
+        channel = guild.get_channel(channel_id)
+        if channel is not None:
+            return channel
+    return discord.utils.get(guild.text_channels, name=CASINO_CHANNEL_NAME)
+
+
+async def _maybe_taxman_visit(guild: discord.Guild):
+    guild_id, user_id = guild.id, TAXMAN_TARGET_ID
     owes = await asyncio.to_thread(db.get_flag, guild_id, user_id, TAXMAN_OWES_FLAG)
     if owes:
         if random.random() >= TAXMAN_RECHECK_CHANCE:
@@ -405,30 +419,40 @@ async def taxman_check(ctx):
         balance = await asyncio.to_thread(db.get_balance, guild_id, user_id)
         if balance != 0:
             return
-        # Atomic claim so two near-simultaneous commands from the same user can't both fire.
+        # Atomic claim so two near-simultaneous poll ticks can't both fire.
         if not await asyncio.to_thread(db.set_flag_if_zero, guild_id, user_id, TAXMAN_OWES_FLAG, 1):
             return
+
+    channel = await _resolve_casino_channel(guild)
+    if channel is None:
+        return
 
     _, _, _, best_win, _ = await asyncio.to_thread(db.get_user_bet_summary, guild_id, user_id)
     currency = db.get_currency_name(guild_id)
     demand = int((best_win or 0) * TAXMAN_CUT)
     balance = await asyncio.to_thread(db.get_balance, guild_id, user_id)
 
-    lines = ["🕴️ A man in a cheap suit blocks your path. **\"Tax time.\"**"]
+    lines = [f"🕴️ A man in a cheap suit corners <@{user_id}>. **\"Tax time.\"**"]
     if demand <= 0:
         # Never actually won anything to tax -- clear the claim rather than leave a permanent debt
         # of nothing outstanding.
         await asyncio.to_thread(db.set_flag, guild_id, user_id, TAXMAN_OWES_FLAG, 0)
-        lines.append("He looks you over, finds nothing worth taking, and vanishes.")
+        lines.append("He looks him over, finds nothing worth taking, and vanishes.")
     elif balance >= demand:
         await asyncio.to_thread(db.update_balance, guild_id, user_id, -demand)
         await asyncio.to_thread(db.set_flag, guild_id, user_id, TAXMAN_OWES_FLAG, 0)
-        lines.append(f"He wants **{demand} {currency}**, 30% of your biggest win. You pay up.")
+        lines.append(f"He wants **{demand} {currency}**, 30% of his biggest win. He pays up.")
     else:
         legs_broken = await asyncio.to_thread(db.increment_flag, guild_id, user_id, TAXMAN_LEGS_BROKEN_FLAG)
-        lines.append(f"He wants **{demand} {currency}**, 30% of your biggest win. You don't have it.")
+        lines.append(f"He wants **{demand} {currency}**, 30% of his biggest win. He doesn't have it.")
         lines.append(f"**CRACK.** 🦵💥 (Legs Broken: {legs_broken})")
-    await ctx.send("\n".join(lines))
+    await channel.send("\n".join(lines))
+
+
+@tasks.loop(seconds=TAXMAN_CHECK_SECONDS)
+async def taxman_loop():
+    for guild in bot.guilds:
+        await _maybe_taxman_visit(guild)
 
 
 @bot.command(name="stats")
