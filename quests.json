@@ -170,7 +170,18 @@
         "discuss_with": [
           "the_goo"
         ],
-        "paths": []
+        "paths": [
+          {
+            "trigger": {
+              "type": "kill_monster",
+              "count": 1,
+              "monster_id": "z_goolok"
+            },
+            "on_complete_message": "*The Goo gives you a solemn jiggle.  They know you did what had to be done*",
+            "x": 230.0,
+            "y": 40.0
+          }
+        ]
       }
     ],
     "layout": {
