@@ -530,7 +530,8 @@
           }
         ]
       }
-    ]
+    ],
+    "sprite_path": "assets/dungeon/monsters/nakedgnome_1.png"
   },
   {
     "id": "enchanted_soap",
