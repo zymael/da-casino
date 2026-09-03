@@ -446,13 +446,21 @@ def _monster_card(monster: dict) -> dict:
 
 def _combat_intro_text(room: dict, monsters: list[dict]) -> str:
     """The description shown the moment a combat room is entered -- every rolled monster's own
-    flavor text. Only ever used at room-entry (_build_room_display/_build_party_room_display); a
+    flavor text, deduplicated by monster id (first-appearance order) so a group with multiples of
+    the same monster (e.g. two Belly Gnomes) only introduces that monster once, not once per
+    instance. Only ever used at room-entry (_build_room_display/_build_party_room_display); a
     later combat-turn embed reuses _combat_embed/_party_combat_embed with the fight's actual log
     lines instead, so a monster's intro flavor is shown exactly once per visit, not repeated on
     every attack. Does NOT include the room's own "prompt" -- that's _apply_room_header's job (a
     persistent embed field stamped on every rebuild, entry included), so putting it here too would
     just duplicate it on this first embed specifically."""
-    return "\n\n".join(f"*{m['flavor']}*" for m in monsters)
+    seen = set()
+    unique = []
+    for m in monsters:
+        if m["id"] not in seen:
+            seen.add(m["id"])
+            unique.append(m)
+    return "\n\n".join(f"*{m['flavor']}*" for m in unique)
 
 
 def _solo_turn_order_cards(session: DelveSession) -> list[dict]:
