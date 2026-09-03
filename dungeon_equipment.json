@@ -1056,9 +1056,6 @@
     "name": "The Wringer",
     "slot": "weapon",
     "rarity": "rare",
-    "intended_level": 11,
-    "base_value": 750,
-    "flavor": "Every snap leaves a mark shaped like disappointment.",
     "effects": [
       {
         "type": "atk_buff",
@@ -1073,10 +1070,14 @@
       {
         "type": "atk_debuff",
         "trigger": "on_hit",
-        "value": 3,
-        "chance": 0.2
+        "chance": 0.2,
+        "value": 3
       }
-    ]
+    ],
+    "special": false,
+    "intended_level": 11,
+    "base_value": 750,
+    "flavor": "Every snap of this towel leaves a mark shaped like high school locker room trauma."
   },
   {
     "id": "gnome_belly",
