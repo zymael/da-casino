@@ -505,6 +505,67 @@ class RouletteView(discord.ui.View):
             except discord.HTTPException:
                 pass
 
+    async def all_in(self, interaction: discord.Interaction):
+        """Same saved bets as Repeat Bets, but scaled up (or down) to spend the player's entire
+        current balance rather than replaying the original amounts -- proportional across however
+        many bets were saved (usually just one), any rounding remainder from the floor division
+        landing on the last one so the total always lands on exactly `balance`, not a few flakes
+        under it."""
+        if self.resolved:
+            await interaction.response.send_message("This round already closed.", ephemeral=True)
+            return
+        if interaction.user.id in holdem_busy_players:
+            await interaction.response.send_message("Finish up whatever you're already doing first.", ephemeral=True)
+            return
+        saved = last_bets.get((self.guild_id, interaction.user.id))
+        if not saved:
+            await interaction.response.send_message("You don't have any previous bets to repeat.", ephemeral=True)
+            return
+
+        balance = await asyncio.to_thread(db.get_balance, self.guild_id, interaction.user.id)
+        currency = db.get_currency_name(self.guild_id)
+        if balance <= 0:
+            await interaction.response.send_message(f"You don't have any {currency} to go all in with.", ephemeral=True)
+            return
+
+        total_prev = sum(b["amount"] for b in saved)
+        scaled = []
+        running = 0
+        for i, b in enumerate(saved):
+            amount = balance - running if i == len(saved) - 1 else (b["amount"] * balance) // total_prev
+            running += amount
+            if amount > 0:
+                scaled.append({**b, "amount": amount})
+        if not scaled:
+            await interaction.response.send_message(
+                f"You don't have enough {currency} to place any of those bets.", ephemeral=True
+            )
+            return
+
+        total = sum(b["amount"] for b in scaled)
+        await asyncio.to_thread(db.update_balance, self.guild_id, interaction.user.id, -total)
+        for b in scaled:
+            self.bets.append(
+                {
+                    "user_id": interaction.user.id,
+                    "display_name": interaction.user.display_name,
+                    "kind": b["kind"],
+                    "value": b["value"],
+                    "amount": b["amount"],
+                }
+            )
+        desc = "; ".join(f"{roulette.describe_bet(b['kind'], b['value'])} ({b['amount']})" for b in scaled)
+        await interaction.response.send_message(
+            f"🎰 ALL IN! Repeated {len(scaled)} bet(s): {desc}, **{total}** {currency} total.", ephemeral=True
+        )
+        self._reset_timer()
+        if self.message is not None:
+            try:
+                embed, file = self.build_display()
+                await self.message.edit(embed=embed, attachments=[file])
+            except discord.HTTPException:
+                pass
+
     async def _open_amount_modal(self, interaction: discord.Interaction, kind: str):
         if self.resolved:
             await interaction.response.send_message("This round already closed.", ephemeral=True)
@@ -566,6 +627,10 @@ class RouletteView(discord.ui.View):
     @discord.ui.button(label="Repeat Bets", style=discord.ButtonStyle.secondary, row=3)
     async def bet_repeat(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.repeat_bets(interaction)
+
+    @discord.ui.button(label="🎰 All In", style=discord.ButtonStyle.danger, row=3)
+    async def bet_all_in(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.all_in(interaction)
 
     async def resolve(self):
         """Settles this round's bets (or closes out an empty one). Table lifetime/active_rounds
