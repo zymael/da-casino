@@ -172,13 +172,13 @@
   {
     "id": "gnome_bathhouse",
     "name": "The Gnomish Bathhouse",
-    "active": false,
+    "active": true,
     "hidden_until_discovered": true,
     "unlock_trigger": {
       "type": "quest_complete",
       "quest_id": "goo_bathhouse_flier"
     },
-    "flavor": "The baths",
+    "flavor": "A sweaty place, full of sweaty gnomes.  Woe to ye who enters here.",
     "rooms": [
       {
         "id": "The Sewer",
@@ -299,7 +299,6 @@
       {
         "id": "The Bog of Z'Goolok",
         "type": "combat",
-        "prompt": "The pipe spits you out into damp darkness. Not outside, like you'd hoped.\r\n\r\nThe air is heavy and old, thick with rot and something fouler underneath. Stagnant water laps at your ankles, and you can just make out shapes beneath the surface. Bones, maybe. Or something that used to have them.\r\n\r\nWhatever has been sleeping down here has been sleeping for a very long time. You get the distinct feeling you just woke it up.",
         "monster_groups": [
           {
             "monsters": [
@@ -308,12 +307,12 @@
             "fork": false
           }
         ],
+        "prompt": "The pipe spits you out into damp darkness. Not outside, like you'd hoped.\r\n\r\nThe air is heavy and old, thick with rot and something fouler underneath. Stagnant water laps at your ankles, and you can just make out shapes beneath the surface. Bones, maybe. Or something that used to have them.\r\n\r\nWhatever has been sleeping down here has been sleeping for a very long time. You get the distinct feeling you just woke it up.",
         "background_path": "assets/dungeon/backgrounds/gnome_bathhouse_room_The Bog of Z'Goolok.jpg"
       },
       {
         "id": "The Leather Daddy's Private Room",
         "type": "combat",
-        "prompt": "You shove through the curtain into velvet and candlelight, pumping techno bleeding through the walls from somewhere unseen.\r\n\r\nThe walls are hung with things you don't want to look at too closely: leather straps, polished chains, hooks that definitely aren't for towels. The air is thick with candle wax, sweat, and something sweeter underneath.\r\n\r\nSomeone has been very busy in here. And they don't look happy to be interrupted.",
         "monster_groups": [
           {
             "monsters": [
@@ -322,6 +321,7 @@
             "fork": false
           }
         ],
+        "prompt": "You shove through the curtain into velvet and candlelight, pumping techno bleeding through the walls from somewhere unseen.\r\n\r\nThe walls are hung with things you don't want to look at too closely: leather straps, polished chains, hooks that definitely aren't for towels. The air is thick with candle wax, sweat, and something sweeter underneath.\r\n\r\nSomeone has been very busy in here. And they don't look happy to be interrupted.",
         "background_path": "assets/dungeon/backgrounds/gnome_bathhouse_room_The Leather Daddy's Private Room.jpg"
       },
       {
