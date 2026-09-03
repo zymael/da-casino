@@ -76,8 +76,16 @@ async def build_journal_display(
         embed.description = "No quests started yet."
     else:
         # In Progress before Complete -- sorted() is stable, so quests.json order is preserved
-        # within each group.
+        # within each group. header tracks which section header(s) have been added already, so
+        # each only shows once, right before its group's first entry.
+        header = None
         for entry in sorted(log, key=lambda e: e["complete"]):
+            if entry["complete"] and header != "complete":
+                embed.add_field(name="​", value="**Complete**", inline=False)
+                header = "complete"
+            elif not entry["complete"] and header is None:
+                embed.add_field(name="​", value="**In Progress**", inline=False)
+                header = "in_progress"
             status = "✅ Complete" if entry["complete"] else f"Stage {entry['stage_index'] + 1}/{entry['total_stages']}"
             npc_name = npcs.NPCS[entry["npc"]]["name"]
             value = f"*Giver: {npc_name}*\n{entry['journal_text']}"
