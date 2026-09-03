@@ -1,146 +1,206 @@
 [
-    {
-        "id": "recipe_bonk_stick",
-        "name": "Bonk Stick",
-        "output_kind": "equipment",
-        "output_id": "bonk_stick",
-        "materials": {"stick": 2},
-        "currency_cost": 0,
-        "flavor": "Two sticks. That's it. That's the recipe."
+  {
+    "id": "recipe_bonk_stick",
+    "name": "Bonk Stick",
+    "output_kind": "equipment",
+    "output_id": "bonk_stick",
+    "materials": {
+      "stick": 2
     },
-    {
-        "id": "recipe_shiny_pin",
-        "name": "Shiny Pin",
-        "output_kind": "equipment",
-        "output_id": "shiny_pin",
-        "materials": {"comb": 1, "nail": 1},
-        "currency_cost": 0,
-        "flavor": "Comb it straight, then stab it through."
+    "currency_cost": 0,
+    "flavor": "Two sticks. That's it. That's the recipe."
+  },
+  {
+    "id": "recipe_shiny_pin",
+    "name": "Shiny Pin",
+    "output_kind": "equipment",
+    "output_id": "shiny_pin",
+    "materials": {
+      "comb": 1,
+      "nail": 1
     },
-    {
-        "id": "recipe_fancy_cowl",
-        "name": "Fancy Cowl",
-        "output_kind": "equipment",
-        "output_id": "fancy_cowl",
-        "materials": {"dirty_cloth": 1, "hair": 1},
-        "currency_cost": 0,
-        "flavor": "The hair really pulls the look together."
+    "currency_cost": 0,
+    "flavor": "Comb it straight, then stab it through."
+  },
+  {
+    "id": "recipe_fancy_cowl",
+    "name": "Fancy Cowl",
+    "output_kind": "equipment",
+    "output_id": "fancy_cowl",
+    "materials": {
+      "dirty_cloth": 1,
+      "hair": 1
     },
-    {
-        "id": "recipe_bulging_tights",
-        "name": "Bulging Tights",
-        "output_kind": "equipment",
-        "output_id": "bulging_tights",
-        "materials": {"used_thong": 1, "droppings": 2},
-        "currency_cost": 0,
-        "flavor": "More filling than flattering."
+    "currency_cost": 0,
+    "flavor": "The hair really pulls the look together."
+  },
+  {
+    "id": "recipe_bulging_tights",
+    "name": "Bulging Tights",
+    "output_kind": "equipment",
+    "output_id": "bulging_tights",
+    "materials": {
+      "used_thong": 1,
+      "droppings": 2
     },
-    {
-        "id": "recipe_healing_tonic",
-        "name": "Healing Tonic",
-        "output_kind": "consumable",
-        "output_id": "healing_tonic",
-        "materials": {"charcoal": 1, "droppings": 1},
-        "currency_cost": 0,
-        "flavor": "Drink fast. Don't smell it first."
+    "currency_cost": 0,
+    "flavor": "More filling than flattering."
+  },
+  {
+    "id": "recipe_healing_tonic",
+    "name": "Healing Tonic",
+    "output_kind": "consumable",
+    "output_id": "healing_tonic",
+    "materials": {
+      "charcoal": 1,
+      "droppings": 1
     },
-    {
-        "id": "recipe_shield",
-        "name": "Shield",
-        "output_kind": "equipment",
-        "output_id": "shield",
-        "materials": {"stick": 1, "pan": 1},
-        "currency_cost": 0,
-        "flavor": "Handle on one side, dents on the other."
+    "currency_cost": 0,
+    "flavor": "Drink fast. Don't smell it first."
+  },
+  {
+    "id": "recipe_shield",
+    "name": "Shield",
+    "output_kind": "equipment",
+    "output_id": "shield",
+    "materials": {
+      "stick": 1,
+      "pan": 1
     },
-    {
-        "id": "recipe_gladius",
-        "name": "Gladius",
-        "output_kind": "equipment",
-        "output_id": "gladius",
-        "materials": {"stick": 1, "razor": 1},
-        "currency_cost": 0,
-        "flavor": "Rome would not approve."
+    "currency_cost": 0,
+    "flavor": "Handle on one side, dents on the other."
+  },
+  {
+    "id": "recipe_gladius",
+    "name": "Gladius",
+    "output_kind": "equipment",
+    "output_id": "gladius",
+    "materials": {
+      "stick": 1,
+      "razor": 1
     },
-    {
-        "id": "recipe_magic_wand",
-        "name": "Magic Wand",
-        "output_kind": "equipment",
-        "output_id": "magic_wand",
-        "materials": {"stick": 1, "shiny_rock": 1},
-        "currency_cost": 0,
-        "flavor": "Wave it around with confidence. That's the whole trick."
+    "currency_cost": 0,
+    "flavor": "Rome would not approve."
+  },
+  {
+    "id": "recipe_magic_wand",
+    "name": "Magic Wand",
+    "output_kind": "equipment",
+    "output_id": "magic_wand",
+    "materials": {
+      "stick": 1,
+      "shiny_rock": 1
     },
-    {
-        "id": "recipe_spear",
-        "name": "Spear",
-        "output_kind": "equipment",
-        "output_id": "spear",
-        "materials": {"stick": 1, "pointy_rock": 1},
-        "currency_cost": 0,
-        "flavor": "The pointy end goes toward the monster."
+    "currency_cost": 0,
+    "flavor": "Wave it around with confidence. That's the whole trick."
+  },
+  {
+    "id": "recipe_spear",
+    "name": "Spear",
+    "output_kind": "equipment",
+    "output_id": "spear",
+    "materials": {
+      "stick": 1,
+      "pointy_rock": 1
     },
-    {
-        "id": "recipe_magic_amulet",
-        "name": "Magic Amulet",
-        "output_kind": "equipment",
-        "output_id": "magic_amulet",
-        "materials": {"hair": 1, "shiny_rock": 1},
-        "currency_cost": 0,
-        "flavor": "The hair is doing absolutely nothing. It looks cool though."
+    "currency_cost": 0,
+    "flavor": "The pointy end goes toward the monster."
+  },
+  {
+    "id": "recipe_magic_amulet",
+    "name": "Magic Amulet",
+    "output_kind": "equipment",
+    "output_id": "magic_amulet",
+    "materials": {
+      "hair": 1,
+      "shiny_rock": 1
     },
-    {
-        "id": "recipe_pugilist_gloves",
-        "name": "Pugilist Gloves",
-        "output_kind": "equipment",
-        "output_id": "pugilist_gloves",
-        "materials": {"used_thong": 1, "oversized_hat": 1},
-        "currency_cost": 0,
-        "flavor": "Stretched, stitched, and somehow wearable."
+    "currency_cost": 0,
+    "flavor": "The hair is doing absolutely nothing. It looks cool though."
+  },
+  {
+    "id": "recipe_pugilist_gloves",
+    "name": "Pugilist Gloves",
+    "output_kind": "equipment",
+    "output_id": "pugilist_gloves",
+    "materials": {
+      "used_thong": 1,
+      "oversized_hat": 1
     },
-    {
-        "id": "recipe_shark_punch",
-        "name": "Shark Punch",
-        "output_kind": "equipment",
-        "output_id": "shark_punch",
-        "materials": {"used_thong": 1, "rat_tooth": 1},
-        "currency_cost": 0,
-        "flavor": "Bites back, in a manner of speaking."
+    "currency_cost": 0,
+    "flavor": "Stretched, stitched, and somehow wearable."
+  },
+  {
+    "id": "recipe_shark_punch",
+    "name": "Shark Punch",
+    "output_kind": "equipment",
+    "output_id": "shark_punch",
+    "materials": {
+      "used_thong": 1,
+      "rat_tooth": 1
     },
-    {
-        "id": "recipe_fancy_hat",
-        "name": "Fancy Hat",
-        "output_kind": "equipment",
-        "output_id": "fancy_hat",
-        "materials": {"oversized_hat": 1, "razor": 1},
-        "currency_cost": 0,
-        "flavor": "A quick trim changes everything."
+    "currency_cost": 0,
+    "flavor": "Bites back, in a manner of speaking."
+  },
+  {
+    "id": "recipe_fancy_hat",
+    "name": "Fancy Hat",
+    "output_kind": "equipment",
+    "output_id": "fancy_hat",
+    "materials": {
+      "oversized_hat": 1,
+      "razor": 1
     },
-    {
-        "id": "recipe_smelly_bomb",
-        "name": "Smelly Bomb",
-        "output_kind": "consumable",
-        "output_id": "smelly_bomb",
-        "materials": {"used_thong": 1, "droppings": 1},
-        "currency_cost": 0,
-        "flavor": "Throw it and run. Mostly run."
+    "currency_cost": 0,
+    "flavor": "A quick trim changes everything."
+  },
+  {
+    "id": "recipe_smelly_bomb",
+    "name": "Smelly Bomb",
+    "output_kind": "consumable",
+    "output_id": "smelly_bomb",
+    "materials": {
+      "used_thong": 1,
+      "droppings": 1
     },
-    {
-        "id": "recipe_sling",
-        "name": "Sling",
-        "output_kind": "equipment",
-        "output_id": "sling",
-        "materials": {"dirty_cloth": 1, "used_thong": 1},
-        "currency_cost": 0,
-        "flavor": "Elastic enough to launch a rock. Probably."
+    "currency_cost": 0,
+    "flavor": "Throw it and run. Mostly run."
+  },
+  {
+    "id": "recipe_sling",
+    "name": "Sling",
+    "output_kind": "equipment",
+    "output_id": "sling",
+    "materials": {
+      "dirty_cloth": 1,
+      "used_thong": 1
     },
-    {
-        "id": "recipe_bane_rod",
-        "name": "The Bane Rod",
-        "output_kind": "equipment",
-        "output_id": "bane_rod",
-        "materials": {"spanking_rod": 1, "witchs_necklace": 1, "tangled_hook": 1},
-        "currency_cost": 0,
-        "flavor": "Somewhere between a fishing pole and a crime scene."
-    }
+    "currency_cost": 0,
+    "flavor": "Elastic enough to launch a rock. Probably."
+  },
+  {
+    "id": "recipe_bane_rod",
+    "name": "The Bane Rod",
+    "output_kind": "equipment",
+    "output_id": "bane_rod",
+    "materials": {
+      "spanking_rod": 1,
+      "witchs_necklace": 1,
+      "tangled_hook": 1
+    },
+    "currency_cost": 0,
+    "flavor": "Somewhere between a fishing pole and a crime scene."
+  },
+  {
+    "id": "recipe_pompadour_toupee",
+    "name": "Pompadour Toupee",
+    "output_kind": "equipment",
+    "output_id": "pompadour_toupee",
+    "materials": {
+      "comb": 1,
+      "hair": 1
+    },
+    "currency_cost": 0,
+    "flavor": "Just a lil' squirt of Pomade and..."
+  }
 ]
