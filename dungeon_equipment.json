@@ -1024,12 +1024,9 @@
   },
   {
     "id": "suds_slick_charm",
-    "name": "Suds-Slick Charm",
+    "name": "Soap on a Roap",
     "slot": "trinket",
     "rarity": "rare",
-    "intended_level": 11,
-    "base_value": 750,
-    "flavor": "It never actually runs out. Nobody knows why. Nobody's asked.",
     "effects": [
       {
         "type": "hp_buff",
@@ -1044,11 +1041,15 @@
       {
         "type": "dodge_buff",
         "trigger": "on_hit",
-        "value": 0.15,
+        "chance": 0.25,
         "duration": 2,
-        "chance": 0.25
+        "value": 0.15
       }
-    ]
+    ],
+    "special": false,
+    "intended_level": 11,
+    "base_value": 750,
+    "flavor": "The corpse of a once sentient bar of soap.  You've wrapped a rope around it, which is grisly at best."
   },
   {
     "id": "the_wringer",
