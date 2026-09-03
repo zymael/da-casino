@@ -1080,7 +1080,7 @@
   {
     "id": "feral_goo",
     "name": "Cloaked Quivering Blob",
-    "hp": 41,
+    "hp": 30,
     "atk": 10,
     "def": 19,
     "spatk": 8,
@@ -1123,7 +1123,7 @@
   {
     "id": "bad_rat",
     "name": "Bad Rat",
-    "hp": 22,
+    "hp": 16,
     "atk": 21,
     "def": 11,
     "spatk": 24,
