@@ -1084,9 +1084,6 @@
     "name": "Gnome Belly",
     "slot": "armor",
     "rarity": "rare",
-    "intended_level": 14,
-    "base_value": 950,
-    "flavor": "Thick, padded, and doing an unsettlingly good job of stopping the next hit. You try not to think about where the padding came from, or why it's shaped like that.",
     "effects": [
       {
         "type": "hp_buff",
@@ -1103,7 +1100,11 @@
         "trigger": "constant",
         "value": 4
       }
-    ]
+    ],
+    "special": false,
+    "intended_level": 14,
+    "base_value": 950,
+    "flavor": "Thick, round, and doing an unsettlingly good job protecting you. You try not to think about where it came from, but you know.  You know what you did."
   },
   {
     "id": "drain_hair",
