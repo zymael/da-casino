@@ -146,23 +146,25 @@
       "type": "achievement",
       "kind": "killed_by_zgoolok"
     },
-    "start_stage": "stage_0",
-    "next_ordinal": 1,
-    "layout": {
-      "stage_0": {
-        "x": 40,
-        "y": 40
-      }
-    },
+    "journal_startable": false,
+    "active": true,
     "stages": [
       {
         "id": "stage_0",
         "ordinal": 0,
-        "prompt": "*The Goo takes one look at you, still dripping and bruised, and goes very still.*\n\n*Then they start rummaging under the counter, pulling out fishing tackle you didn't know they sold, quivering the whole time.*",
-        "journal_text": "The Goo has given you fishing tackle for something. Nothing to turn in yet.",
+        "prompt": "*The Goo takes one look at you, still dripping and bruised, and goes very still.*\r\n\r\n*Then they start rummaging under the counter, pulling out fishing tackle you didn't know they sold, quivering the whole time.*",
+        "journal_text": "The Goo has given you fishing tackle for something.",
         "paths": []
       }
-    ]
+    ],
+    "layout": {
+      "stage_0": {
+        "x": 40.0,
+        "y": 40.0
+      }
+    },
+    "start_stage": "stage_0",
+    "next_ordinal": 1
   },
   {
     "id": "goo_bathhouse_flier",
