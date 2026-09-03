@@ -184,28 +184,26 @@
   },
   {
     "id": "goo_bathhouse_flier",
-    "name": "A Wet Note",
+    "name": "A Wet Flier",
     "npc": "the_goo",
     "start_trigger": {
       "type": "flag_at_least",
       "key": "dream_claimed:the_lost_temple",
       "value": 1
     },
+    "journal_startable": false,
+    "active": true,
     "complete_message": "*The Goo jiggles excitedly like a 70s Jello mold.  Or is it anxiously?  You can't really tell.*",
-    "start_stage": "stage_0",
-    "next_ordinal": 1,
-    "layout": {
-      "stage_0": {
-        "x": 40,
-        "y": 40
-      }
-    },
     "stages": [
       {
         "id": "stage_0",
         "ordinal": 0,
         "prompt": "*The Goo vibrates as they notice your wet note.  You notice that they are, in fact, pretty wet.*",
         "journal_text": "Show the Goo the bathhouse flier you found.",
+        "topic_label": "Show the Flier",
+        "discuss_with": [
+          "the_goo"
+        ],
         "paths": [
           {
             "trigger": {
@@ -213,15 +211,20 @@
               "item_id": "bathhouse_flier"
             },
             "on_complete_message": "*The Goo gyrates, convulses and shimmies in a series of movements not unlike an interpretive dance.  Somehow, you understand this to mean that the bath house is in the sewers beneath the gnome market.*",
-            "x": 230,
-            "y": 40,
-            "turn_in_label": "\ud83d\udcc4 Show the flier"
+            "turn_in_label": "\ud83d\udcc4 Show the flier",
+            "x": 230.0,
+            "y": 40.0
           }
-        ],
-        "discuss_with": [
-          "the_goo"
         ]
       }
-    ]
+    ],
+    "layout": {
+      "stage_0": {
+        "x": 39.0,
+        "y": 40.0
+      }
+    },
+    "start_stage": "stage_0",
+    "next_ordinal": 1
   }
 ]
