@@ -1043,7 +1043,8 @@
           {
             "type": "atk_buff",
             "value": 4,
-            "target": "self"
+            "target": "ally",
+            "aoe": true
           }
         ],
         "flavor": "They snap their fingers and bark an order -- the rest of the crew perks up, hitting noticeably harder."
