@@ -381,7 +381,7 @@
     "intended_level": 20,
     "shape": "circle",
     "color": "#000000",
-    "flavor": "Oh no...",
+    "flavor": "Oh no...\r\n\r\nOh no this just can't be. \r\n\r\nYou hike up the back of your pants, and prepare for the worst.",
     "loot_min": 100,
     "loot_max": 200,
     "drops": [
