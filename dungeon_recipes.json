@@ -133,5 +133,14 @@
         "materials": {"dirty_cloth": 1, "used_thong": 1},
         "currency_cost": 0,
         "flavor": "Elastic enough to launch a rock. Probably."
+    },
+    {
+        "id": "recipe_bane_rod",
+        "name": "The Bane Rod",
+        "output_kind": "equipment",
+        "output_id": "bane_rod",
+        "materials": {"spanking_rod": 1, "witchs_necklace": 1, "tangled_hook": 1},
+        "currency_cost": 0,
+        "flavor": "Somewhere between a fishing pole and a crime scene."
     }
 ]

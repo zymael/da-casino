@@ -71,6 +71,20 @@
     ]
   },
   {
+    "id": "goo_zgoolok_bane",
+    "npc": "the_goo",
+    "start_trigger": {
+      "type": "achievement",
+      "kind": "killed_by_zgoolok"
+    },
+    "stages": [
+      {
+        "prompt": "*The Goo takes one look at you, still dripping and bruised, and goes very still.*\n\n*Then they start rummaging under the counter, pulling out fishing tackle you didn't know they sold, quivering the whole time.*",
+        "on_complete_message": "*The Goo sets the tackle down in front of you and waits, quivering.*"
+      }
+    ]
+  },
+  {
     "id": "goo_bathhouse_flier",
     "npc": "the_goo",
     "start_trigger": {

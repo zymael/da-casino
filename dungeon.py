@@ -271,6 +271,15 @@ def _validate_monster_drops(drops, context: str):
         chance = drop.get("chance")
         if not isinstance(chance, (int, float)) or not (0 < chance <= 1):
             raise ValueError(f"{context} has a drop for {item_id!r} with chance not in (0, 1]")
+        # Optional condition (any TRIGGER_SCHEMAS shape, e.g. flag_at_least on a quest's own
+        # progress flag) gating whether this drop is even eligible to roll -- only checked
+        # structurally here (dungeon.py can't import quests.py, same circular-import story as
+        # "housing_item" below); real shape validation happens in quests.py's own inline
+        # cross-validation pass at import time (right alongside its delve-choice-action "requires"
+        # check), and the actual gating check happens at drop-roll time in
+        # dungeon_view._award_kill (dungeon.roll_drops itself has no db/quest access).
+        if "requires" in drop and not isinstance(drop["requires"], dict):
+            raise ValueError(f"{context} has a drop for {item_id!r} with a non-dict 'requires'")
         if kind == "housing_item":
             continue  # deferred -- see quests.validate_monster_drop_housing_items
         registry = _drop_registries()[kind]
@@ -1421,6 +1430,70 @@ def constant_threat_bonus(item: dict) -> float:
     return bonus
 
 
+# Stats a vs_monster_debuff can subtract from a matching MonsterInstance -- the subset of its
+# debuff accumulator fields (dungeon_view.MonsterInstance.__init__) that a flat "shave N off this
+# stat, once, for the whole fight" number makes sense for. Deliberately its own tiny vocabulary
+# rather than reusing EFFECT_PARAM_SCHEMAS/EFFECT_HANDLERS -- this never fires mid-combat off a
+# cast/hit, it's applied once at room-entry directly onto the fresh instance's own fields (see
+# vs_monster_debuffs below), so none of the trigger/chance/target/aoe machinery those effects carry
+# applies here.
+VS_MONSTER_DEBUFF_STATS = ("atk", "def", "spatk", "spdef", "speed")
+
+
+def _validate_vs_monster_debuff(vs: dict, context: str) -> None:
+    monster_id = vs.get("monster_id")
+    if not isinstance(monster_id, str) or not monster_id:
+        raise ValueError(f"{context} vs_monster_debuff must have a non-empty string monster_id")
+    # Can't check monster_id against MONSTERS here -- EQUIPMENT loads before MONSTERS (see load
+    # order at the bottom of this module). Deferred to a same-module check run right after
+    # MONSTERS exists (validate_vs_monster_debuffs below), same "structural now, cross-checked
+    # once the other registry exists" story as validate_class_chip_costs.
+    effects = vs.get("effects")
+    if not isinstance(effects, dict) or not effects:
+        raise ValueError(f"{context} vs_monster_debuff must have a non-empty 'effects' dict")
+    for stat, value in effects.items():
+        if stat not in VS_MONSTER_DEBUFF_STATS:
+            raise ValueError(f"{context} vs_monster_debuff has unknown stat {stat!r}")
+        if not isinstance(value, (int, float)) or value <= 0:
+            raise ValueError(f"{context} vs_monster_debuff stat {stat!r} must be a number > 0")
+
+
+def validate_vs_monster_debuffs(equipment: dict, monsters: dict) -> None:
+    """Cross-checks every equipped item's vs_monster_debuff.monster_id against `monsters` --
+    deferred the same way validate_class_chip_costs is (dungeon.py:1270), since EQUIPMENT loads
+    before MONSTERS (see the load order at the bottom of this module) and can't check this at
+    equipment-load time. Called once at import time right after MONSTERS exists, and wired as an
+    extra_validator for both the "equipment" and "monsters" admin content types (whichever one
+    changed gets checked against the other's current live registry), mirroring how
+    validate_class_chip_costs is wired for both "classes" and "subclasses"."""
+    for item_id, item in equipment.items():
+        vs = item.get("vs_monster_debuff")
+        if vs and vs["monster_id"] not in monsters:
+            raise ValueError(
+                f"dungeon_equipment.json: item {item_id!r} vs_monster_debuff references unknown "
+                f"monster {vs['monster_id']!r}"
+            )
+
+
+def vs_monster_debuffs(equipped_item_ids, monster_id: str) -> dict[str, int]:
+    """Sums every equipped item's vs_monster_debuff (when its own monster_id matches) into one
+    {"atk": N, "spatk": N, ...} dict -- the monster-conditional analogue of constant_threat_bonus,
+    read by dungeon_view at the moment a fresh MonsterInstance matching monster_id is created (both
+    _roll_monster_instances for solo and PartyDelveSession._enter_room for a party) and added
+    directly onto that instance's own atk_debuff/def_debuff/spatk_debuff/spdef_debuff/speed_debuff
+    fields, once, for the rest of the fight."""
+    totals: dict[str, int] = {}
+    for item_id in equipped_item_ids:
+        item = EQUIPMENT.get(item_id)
+        if not item:
+            continue
+        vs = item.get("vs_monster_debuff")
+        if vs and vs["monster_id"] == monster_id:
+            for stat, value in vs["effects"].items():
+                totals[stat] = totals.get(stat, 0) + value
+    return totals
+
+
 def _load_equipment(path: str = _EQUIPMENT_PATH) -> dict[str, dict]:
     with open(path) as f:
         raw = json.load(f)
@@ -1441,6 +1514,8 @@ def _load_equipment(path: str = _EQUIPMENT_PATH) -> dict[str, dict]:
         if entry["base_value"] < 0:
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} base_value must be >= 0")
         _validate_equipment_effects(entry["effects"], f"dungeon_equipment.json: item {entry_id!r}")
+        if "vs_monster_debuff" in entry:
+            _validate_vs_monster_debuff(entry["vs_monster_debuff"], f"dungeon_equipment.json: item {entry_id!r}")
         equipment[entry_id] = entry
     return equipment
 
@@ -1543,6 +1618,9 @@ def usable_outside_combat(item: dict) -> bool:
 # against them (except "housing_item" drops -- see DROP_KINDS' own comment for why that one's
 # deferred to quests.validate_monster_drop_housing_items instead).
 MONSTERS = _load_monsters()
+# EQUIPMENT already loaded (above) with no way to check its own vs_monster_debuff.monster_id
+# against MONSTERS yet -- see validate_vs_monster_debuffs' own docstring.
+validate_vs_monster_debuffs(EQUIPMENT, MONSTERS)
 
 # DELVES is instantiated down here, after MONSTERS/MATERIALS/CONSUMABLES all exist, even though
 # _load_delves/_validate_action (the functions) are defined much earlier alongside the rest of the

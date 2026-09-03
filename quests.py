@@ -433,6 +433,18 @@ for _delve in dungeon.DELVES.values():
                         f"{_context} {_outcome_key} references unknown quest item {_outcome.get('item_id')!r}"
                     )
 
+# Same story again for a monster drop's own optional "requires" (any trigger type) -- dungeon.py's
+# _validate_monster_drops only checks it's a dict (same circular-import reason as everything else in
+# this section), so the real shape check happens here, right alongside the delve-choice block above.
+# Unlike housing_item drops (validate_monster_drop_housing_items), this needs nothing from housing.py
+# -- TRIGGER_SCHEMAS/_validate_trigger are already available at this module's own import time -- so
+# it's a plain inline check here rather than a separately-called deferred function.
+for _monster in dungeon.MONSTERS.values():
+    for _i, _drop in enumerate(_monster.get("drops") or []):
+        _drop_requires = _drop.get("requires")
+        if _drop_requires is not None:
+            _validate_trigger(_drop_requires, f"dungeon_monsters.json: monster {_monster['id']!r} drop {_i} requires")
+
 # A delve's own optional "unlock_trigger" (dungeon.py can't validate it -- same circular-import
 # story as the "requires" block above) -- checked by delve_cmd (bot.py) so a hidden_until_discovered
 # delve can't just be typed directly by id before its condition holds, not just hidden from the

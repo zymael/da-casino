@@ -1,8 +1,8 @@
-"""!craft -- discovery-based crafting: pick two materials you're holding and find out what they
-make, rather than choosing from a list of recipes you already know by name. A successful combo
+"""!craft -- discovery-based crafting: pick two or three materials you're holding and find out what
+they make, rather than choosing from a list of recipes you already know by name. A successful combo
 crafts the item (same consumption/grant logic as before, see crafting.combine) and remembers it
 as "discovered" so a Known Recipes reference list can jog your memory later -- but re-crafting
-something you already know still goes through the same pick-two-materials flow, not a shortcut.
+something you already know still goes through the same pick-materials flow, not a shortcut.
 """
 
 import asyncio
@@ -37,15 +37,15 @@ async def build_craft_display(guild_id: int, user_id: int) -> tuple[discord.Embe
     held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
     held_materials = {m_id: qty for m_id, qty in held.items() if m_id in dungeon.MATERIALS and qty > 0}
 
-    embed = _combine_embed(held_materials, first=None, second=None)
+    embed = _combine_embed(held_materials, [None, None, None])
     view = CombineView(guild_id, user_id, held_materials)
     return embed, view
 
 
-def _combine_embed(held_materials: dict[str, int], first: str | None, second: str | None) -> discord.Embed:
+def _combine_embed(held_materials: dict[str, int], picks: list[str | None]) -> discord.Embed:
     embed = discord.Embed(
         title="🛠️ Crafting",
-        description="Pick two materials to combine. If it's a real recipe, you'll find out.",
+        description="Pick materials to combine. If it's a real recipe, you'll find out.",
         color=discord.Color.blurple(),
     )
     if held_materials:
@@ -54,28 +54,31 @@ def _combine_embed(held_materials: dict[str, int], first: str | None, second: st
     else:
         embed.add_field(name="Materials on hand", value="None yet -- go delve and find some.", inline=False)
 
-    first_name = dungeon.MATERIALS[first]["name"] if first else "*(pick one)*"
-    second_name = dungeon.MATERIALS[second]["name"] if second else "*(pick one)*"
-    embed.add_field(name="Combining", value=f"{first_name}  +  {second_name}", inline=False)
+    names = [dungeon.MATERIALS[p]["name"] if p else "*(pick one)*" for p in picks]
+    embed.add_field(name="Combining", value="  +  ".join(names), inline=False)
     return embed
 
 
 class MaterialSelect(discord.ui.Select):
-    """One of the two material pickers on a CombineView -- `slot` (0 or 1) says which of the
-    view's two picks this one sets. Options and the currently-chosen value come from the parent
-    view, so both selects can show the same material as a valid choice in each (picking Stick in
-    both slots is how a "2 Stick" combo gets made)."""
+    """One of the three material pickers on a CombineView -- `slot` (0, 1, or 2) says which of the
+    view's picks this one sets. The third slot is optional (a 2-material recipe just leaves it
+    unset -- see combine_button), unlike the first two. Options and the currently-chosen value come
+    from the parent view, so every select can show the same material as a valid choice in each
+    (picking Stick in two slots is how a "2 Stick" combo gets made)."""
 
     def __init__(self, view: "CombineView", slot: int):
         self.slot = slot
         options = [
             _material_option(m_id, qty) for m_id, qty in list(view.held_materials.items())[:MAX_SELECT_OPTIONS]
         ]
-        current = view.first_material if slot == 0 else view.second_material
+        current = view.picks[slot]
         for option in options:
             option.default = option.value == current
+        if slot == 2:
+            options = [discord.SelectOption(label="(none)", value="_none", default=current is None)] + options
+        placeholder = f"Choose material {slot + 1}..." if slot < 2 else "Choose material 3 (optional)..."
         super().__init__(
-            placeholder=f"Choose material {slot + 1}...",
+            placeholder=placeholder,
             options=options or [discord.SelectOption(label="(nothing held)", value="_none", default=True)],
             disabled=not options,
             row=slot,
@@ -83,41 +86,35 @@ class MaterialSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         view: "CombineView" = self.view
-        if self.slot == 0:
-            view.first_material = self.values[0]
-        else:
-            view.second_material = self.values[0]
-        embed = _combine_embed(view.held_materials, view.first_material, view.second_material)
+        view.picks[self.slot] = self.values[0] if self.values[0] != "_none" else None
+        embed = _combine_embed(view.held_materials, view.picks)
         await interaction.response.edit_message(embed=embed, view=view.rebuilt())
 
 
 class CombineView(discord.ui.View):
-    def __init__(
-        self, guild_id: int, user_id: int, held_materials: dict[str, int],
-        first_material: str | None = None, second_material: str | None = None,
-    ):
+    def __init__(self, guild_id: int, user_id: int, held_materials: dict[str, int], picks: list[str | None] = None):
         super().__init__(timeout=180)
         self.guild_id = guild_id
         self.user_id = user_id
         self.held_materials = held_materials
-        self.first_material = first_material
-        self.second_material = second_material
-        self.add_item(MaterialSelect(self, 0))
-        self.add_item(MaterialSelect(self, 1))
+        self.picks: list[str | None] = picks if picks is not None else [None, None, None]
+        for slot in range(3):
+            self.add_item(MaterialSelect(self, slot))
 
     def rebuilt(self) -> "CombineView":
         """A fresh view carrying forward the same picks -- MaterialSelect.options bake in
         `option.default` at construction time, so the simplest way to reflect a new selection is
         a new view/select pair rather than mutating options on the existing ones in place."""
-        return CombineView(self.guild_id, self.user_id, self.held_materials, self.first_material, self.second_material)
+        return CombineView(self.guild_id, self.user_id, self.held_materials, list(self.picks))
 
-    @discord.ui.button(label="Combine", style=discord.ButtonStyle.success, row=2)
+    @discord.ui.button(label="Combine", style=discord.ButtonStyle.success, row=3)
     async def combine_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not self.first_material or not self.second_material:
-            await interaction.response.send_message("Pick two materials first.", ephemeral=True)
+        if not self.picks[0] or not self.picks[1]:
+            await interaction.response.send_message("Pick at least two materials first.", ephemeral=True)
             return
 
-        result = await crafting.combine(self.guild_id, self.user_id, [self.first_material, self.second_material])
+        materials = [p for p in self.picks if p is not None]
+        result = await crafting.combine(self.guild_id, self.user_id, materials)
 
         if result["status"] == "no_match":
             await interaction.response.send_message("💨 Nothing happens.", ephemeral=True)
@@ -143,7 +140,7 @@ class CombineView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=view)
         await interaction.followup.send(status_text, ephemeral=True)
 
-    @discord.ui.button(label="📖 Known Recipes", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="📖 Known Recipes", style=discord.ButtonStyle.secondary, row=3)
     async def known_recipes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed, view = await build_known_recipes_display(self.guild_id, self.user_id)
         await interaction.response.edit_message(embed=embed, view=view)

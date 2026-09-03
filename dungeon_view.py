@@ -97,13 +97,33 @@ class MonsterInstance:
         self.threat: dict[int, float] = {}
 
 
-def _roll_monster_instances(room: dict) -> tuple[list[MonsterInstance], str | None]:
+def _apply_vs_monster_debuffs(instance: "MonsterInstance", equipped_item_ids) -> None:
+    """Applies whichever equipped item(s) carry a vs_monster_debuff matching this fresh instance's
+    own monster id (dungeon.vs_monster_debuffs) directly onto its debuff accumulator fields, once,
+    the moment it's created -- the same fields a player's own atk_debuff/def_shred skill effect
+    already adds to mid-fight, just seeded before the fight's first turn instead. A no-op for a
+    monster id no equipped item cares about."""
+    debuffs = dungeon.vs_monster_debuffs(equipped_item_ids, instance.monster["id"])
+    instance.atk_debuff += debuffs.get("atk", 0)
+    instance.def_debuff += debuffs.get("def", 0)
+    instance.spatk_debuff += debuffs.get("spatk", 0)
+    instance.spdef_debuff += debuffs.get("spdef", 0)
+    instance.speed_debuff += debuffs.get("speed", 0)
+
+
+def _roll_monster_instances(room: dict, equipped_item_ids=()) -> tuple[list[MonsterInstance], str | None]:
     """Rolls a fresh monster group for this combat room and returns (instances, group_next) --
     group_next is that group's own optional "next" override (dungeon.pick_monster_group), which the
     caller stores on the session so it can win over the room's own "next" once combat ends (see
-    DelveSession.group_next_override)."""
+    DelveSession.group_next_override). `equipped_item_ids` (a solo session's own session.equipped
+    .values()) seeds any matching vs_monster_debuff onto the freshly rolled instances -- the party
+    equivalent is PartyDelveSession._enter_room, which inlines this same construction loop itself
+    to also seed the threat table, so it applies the debuff the same way there instead of calling
+    this function."""
     group = dungeon.pick_monster_group(room)
     instances = [MonsterInstance(m, slot) for slot, m in enumerate(group["monsters"])]
+    for instance in instances:
+        _apply_vs_monster_debuffs(instance, equipped_item_ids)
     return instances, group.get("next")
 
 
@@ -170,7 +190,7 @@ class DelveSession:
         self.monsters: list[MonsterInstance] = []
         self.group_next_override: str | None = None
         if start_room["type"] == "combat":
-            self.monsters, self.group_next_override = _roll_monster_instances(start_room)
+            self.monsters, self.group_next_override = _roll_monster_instances(start_room, self.equipped.values())
         self.current_target_slot = 0
         self.max_chips = dungeon.compute_stats(self.main_class, self.subclass)["chips"]
         self.chips = self.max_chips
@@ -389,6 +409,11 @@ class PartyDelveSession:
                 )
                 for m in self.members
             }
+            # Union of every living member's own equipped items -- a vs_monster_debuff lands
+            # against a matching monster regardless of which member is wearing it, same "the whole
+            # party benefits" idea member_threat_bonuses already applies per-member for taunt/
+            # lower_threat (see _apply_vs_monster_debuffs' own docstring for the solo equivalent).
+            party_equipped_ids = [iid for m in self.members for iid in m.equipped.values()]
             group = dungeon.pick_monster_group(room)
             self.group_next_override = group.get("next")
             self.monsters = []
@@ -399,6 +424,7 @@ class PartyDelveSession:
                 for user_id, bonus in member_threat_bonuses.items():
                     if bonus:
                         instance.threat[user_id] = bonus
+                _apply_vs_monster_debuffs(instance, party_equipped_ids)
                 self.monsters.append(instance)
             for m in self.members:
                 m.used_item_effects = set()
@@ -697,7 +723,7 @@ async def _goto_room(interaction: discord.Interaction, session: DelveSession, ro
     session.rooms_visited += 1
     room = session.rooms_by_id[room_id]
     if room["type"] == "combat":
-        session.monsters, session.group_next_override = _roll_monster_instances(room)
+        session.monsters, session.group_next_override = _roll_monster_instances(room, session.equipped.values())
         session.current_target_slot = 0
         session.used_item_effects = set()
         session.turn_clock = 0.0  # fresh fight -- chips are delve-scoped, not reset here (see __init__)
@@ -1194,7 +1220,13 @@ async def _award_kill(
         plural = "s" if level_result["levels_gained"] > 1 else ""
         log_lines.append(f"🎉 Level up! Now level {actor.level} (+{level_result['levels_gained']} level{plural}).")
 
-    for dropped in dungeon.roll_drops(monster, chance_mult):
+    eligible_drops = [
+        drop for drop in monster.get("drops", [])
+        if drop.get("requires") is None
+        or await quests.trigger_satisfied(guild_id, actor.user_id, drop["requires"])
+    ]
+    gated_monster = {**monster, "drops": eligible_drops}
+    for dropped in dungeon.roll_drops(gated_monster, chance_mult):
         kind = dropped["_drop_kind"]
         if kind == "equipment":
             await asyncio.to_thread(db.store_equipment_item, guild_id, actor.user_id, dropped["id"])

@@ -303,6 +303,16 @@
         "kind": "equipment",
         "item_id": "static_cling",
         "chance": 0.14
+      },
+      {
+        "kind": "material",
+        "item_id": "tangled_hook",
+        "chance": 0.35,
+        "requires": {
+          "type": "flag_at_least",
+          "key": "quest:goo_zgoolok_bane",
+          "value": 1
+        }
       }
     ],
     "skills": [
@@ -415,6 +425,16 @@
         "kind": "consumable",
         "item_id": "leather_daddys_protein_shake",
         "chance": 0.14
+      },
+      {
+        "kind": "material",
+        "item_id": "spanking_rod",
+        "chance": 0.35,
+        "requires": {
+          "type": "flag_at_least",
+          "key": "quest:goo_zgoolok_bane",
+          "value": 1
+        }
       }
     ],
     "skills": [
@@ -715,6 +735,16 @@
         "kind": "consumable",
         "item_id": "hot_spring_salts",
         "chance": 0.18
+      },
+      {
+        "kind": "material",
+        "item_id": "witchs_necklace",
+        "chance": 0.35,
+        "requires": {
+          "type": "flag_at_least",
+          "key": "quest:goo_zgoolok_bane",
+          "value": 1
+        }
       }
     ],
     "attack_chance": 0,

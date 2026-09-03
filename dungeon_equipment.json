@@ -1484,5 +1484,30 @@
     "intended_level": 20,
     "base_value": 3200,
     "flavor": "...This is just a banana? \r\n\r\nThey're pretty healthy though."
+  },
+  {
+    "id": "bane_rod",
+    "name": "The Bane Rod",
+    "slot": "trinket",
+    "rarity": "epic",
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 10
+      }
+    ],
+    "vs_monster_debuff": {
+      "monster_id": "z_goolok",
+      "effects": {
+        "atk": 20,
+        "spatk": 12,
+        "speed": 24
+      }
+    },
+    "special": false,
+    "intended_level": 30,
+    "base_value": 1200,
+    "flavor": "Reforged from a spanking rod, a witch's necklace, and a hook nobody wanted to touch."
   }
 ]

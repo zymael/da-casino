@@ -239,8 +239,13 @@ CONTENT_TYPES = {
         "loader": dungeon._load_monsters,
         # dungeon._load_monsters can't check a "housing_item"-kind drop's item_id itself (see
         # dungeon.DROP_KINDS' own comment for why) -- deferred here as an extra save-time check,
-        # same "rooms"/"recipes"/"npcs" pattern above.
-        "extra_validators": [lambda new_registry: quests.validate_monster_drop_housing_items(new_registry)],
+        # same "rooms"/"recipes"/"npcs" pattern above. Renaming/removing a monster id that some
+        # equipment's vs_monster_debuff still points at is caught the same way, in the opposite
+        # direction from "equipment" above.
+        "extra_validators": [
+            lambda new_registry: quests.validate_monster_drop_housing_items(new_registry),
+            lambda new_registry: dungeon.validate_vs_monster_debuffs(dungeon.EQUIPMENT, new_registry),
+        ],
         "list_columns": ["id", "name", "intended_level", "hp", "atk", "def", "spatk", "spdef", "spd"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
@@ -316,6 +321,13 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "EQUIPMENT",
         "loader": dungeon._load_equipment,
+        # dungeon._load_equipment can't check a vs_monster_debuff's monster_id against MONSTERS
+        # itself (EQUIPMENT loads before MONSTERS -- see dungeon.validate_vs_monster_debuffs' own
+        # docstring), so it's deferred here as an extra save-time check, same
+        # "rooms"/"recipes"/"npcs"/"classes" pattern elsewhere in this file.
+        "extra_validators": [
+            lambda new_registry: dungeon.validate_vs_monster_debuffs(new_registry, dungeon.MONSTERS),
+        ],
         "list_columns": ["id", "name", "slot", "rarity", "effects", "base_value"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
@@ -350,6 +362,12 @@ CONTENT_TYPES = {
                 "name": "unsmashable_message", "type": "text", "required": False, "group": "Flavor Text",
                 "hint": "optional -- if set, !smash refuses to destroy this item and shows this message "
                         "instead of removing it",
+            },
+            {
+                "name": "vs_monster_debuff", "type": "vs_monster_debuff", "required": False, "group": "Drop Info",
+                "hint": "optional -- when equipped, permanently shaves the listed stat(s) off this exact "
+                        "monster the moment it's rolled into a fight (checked once at room-entry, not on "
+                        "every hit). Leave the monster blank for an item with no monster-specific effect.",
             },
         ],
     },

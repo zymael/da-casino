@@ -2033,19 +2033,35 @@ def _render_material_row(prefix: str, material_id: str | None, qty) -> str:
 def _render_drop_row(prefix: str, drop: dict) -> str:
     """One row of a monster's "monster_drops" list -- see _parse_field's "monster_drops" case for
     the matching parse side. item_id is a _render_cascaded_select scoped to this row's own "kind"
-    (not a top-level sibling field, same reasoning as _render_shop_row)."""
+    (not a top-level sibling field, same reasoning as _render_shop_row).
+
+    The two "requires" inputs only ever round-trip a flag_at_least-shaped `requires` trigger (the
+    one real use case so far -- gating a drop on a quest's own progress flag, e.g.
+    {"key": "quest:some_id", "value": 1}, same idiom quests.py already uses everywhere else for
+    "has this quest been started"). dungeon._validate_monster_drops accepts any TRIGGER_SCHEMAS
+    shape structurally, so a hand-edited JSON drop with a different requires type will round-trip
+    fine as long as nobody re-saves that specific monster through this panel -- doing so would
+    silently drop a non-flag_at_least requires, since these two inputs are all this row can express.
+    Widen this if a second trigger type on a drop ever comes up for real."""
     kind = drop.get("kind")
     kind_options = "".join(
         f'<option value="{k}"{" selected" if k == kind else ""}>{k}</option>'
         for k in [""] + list(dungeon.DROP_KINDS)
     )
     item_select = _render_cascaded_select(f"{prefix}_item_id", "monster_drop", kind, drop.get("item_id"))
+    requires = drop.get("requires") or {}
+    requires_key = requires.get("key", "") if requires.get("type") == "flag_at_least" else ""
+    requires_value = requires.get("value", "") if requires.get("type") == "flag_at_least" else ""
     return (
         f'<div class="row-group">'
         f'<label>kind<select name="{prefix}_kind" class="cascade-select" data-cascade="monster_drop">{kind_options}</select></label>'
         f'<label>item_id{item_select}</label>'
         f'<label>chance (0-1)<input type="number" min="0" max="1" step="any" name="{prefix}_chance" '
         f'value="{drop.get("chance", "")}"></label>'
+        f'<label>requires flag key (optional)<input type="text" name="{prefix}_requires_key" '
+        f'value="{html.escape(str(requires_key))}"></label>'
+        f'<label>requires min value<input type="number" name="{prefix}_requires_value" '
+        f'value="{requires_value}"></label>'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
     )
 
@@ -2852,6 +2868,27 @@ def _render_field(field: dict, value, entry: dict | None = None, problems: list[
         repeatable = _render_repeatable(f"{name}-rows", rows_html, template_html, "+ Add effect")
         return f'<fieldset><legend>{label}</legend>{repeatable}</fieldset>'
 
+    if ftype == "vs_monster_debuff":
+        # Not a repeatable -- an item has at most one of these. Leaving "monster" blank on save
+        # means "no vs_monster_debuff at all" (see _parse_field's matching case), same "absent key,
+        # not an empty one" idea used elsewhere (e.g. npcs.json's shop).
+        vs = value or {}
+        vs_effects = vs.get("effects", {})
+        monster_options = "".join(
+            f'<option value="{mid}"{" selected" if mid == vs.get("monster_id") else ""}>{lbl}</option>'
+            for mid, lbl in [("", "—")] + _monster_option_choices()
+        )
+        stat_inputs = "".join(
+            f'<label>{stat}<input type="number" min="0" name="{name}_{stat}" value="{vs_effects.get(stat, "")}"></label>'
+            for stat in dungeon.VS_MONSTER_DEBUFF_STATS
+        )
+        return (
+            f'<fieldset><legend>{label}</legend>'
+            f'<label>monster<select name="{name}_monster_id">{monster_options}</select></label>'
+            f'{stat_inputs}'
+            f'</fieldset>'
+        )
+
     if ftype == "effects":
         effects = list(value or [])
         rows_html = [_render_effect_row(f"effect_{i}", e) for i, e in enumerate(effects)]
@@ -3173,6 +3210,19 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
     if ftype == "equipment_effects":
         return (name, _parse_equipment_effects(form))
 
+    if ftype == "vs_monster_debuff":
+        monster_id = form.get(f"{name}_monster_id", "").strip()
+        if not monster_id:
+            return None  # no monster picked -- this item has no vs_monster_debuff at all
+        effects = {}
+        for stat in dungeon.VS_MONSTER_DEBUFF_STATS:
+            raw = form.get(f"{name}_{stat}", "").strip()
+            if raw:
+                effects[stat] = float(raw) if "." in raw else int(raw)
+        if not effects:
+            return None  # a monster was picked but every stat was left blank -- nothing to apply
+        return (name, {"monster_id": monster_id, "effects": effects})
+
     if ftype == "effects":
         # Omitted entirely (not an empty list) when blank -- unlike every other "effects" field
         # before effect_groups existed, this one can legitimately be left blank on purpose (the
@@ -3240,7 +3290,12 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
             item_id = form.get(f"{prefix}_item_id", "").strip()
             chance = form.get(f"{prefix}_chance", "").strip()
             if kind and item_id and chance:
-                drops.append({"kind": kind, "item_id": item_id, "chance": float(chance)})
+                drop = {"kind": kind, "item_id": item_id, "chance": float(chance)}
+                requires_key = form.get(f"{prefix}_requires_key", "").strip()
+                requires_value = form.get(f"{prefix}_requires_value", "").strip()
+                if requires_key and requires_value:
+                    drop["requires"] = {"type": "flag_at_least", "key": requires_key, "value": int(requires_value)}
+                drops.append(drop)
         return (name, drops)
 
     # No case here for "delve_flowchart" -- like "image", each room can carry an uploaded

@@ -180,5 +180,26 @@
     "rarity": "Rare",
     "base_value": 25,
     "flavor": "A rock on a string that is magically able to tell the weather."
+  },
+  {
+    "id": "spanking_rod",
+    "name": "Spanking Rod",
+    "rarity": "uncommon",
+    "base_value": 40,
+    "flavor": "Once an ordinary fishing pole, until the Leather Daddy found other uses for it."
+  },
+  {
+    "id": "witchs_necklace",
+    "name": "The Witch's Necklace",
+    "rarity": "uncommon",
+    "base_value": 40,
+    "flavor": "Strung with knucklebones and something that might once have been fishing line."
+  },
+  {
+    "id": "tangled_hook",
+    "name": "Tangled Hook",
+    "rarity": "uncommon",
+    "base_value": 40,
+    "flavor": "Snagged deep in the comb's teeth, wound up in a truly upsetting amount of gnome body hair."
   }
 ]
