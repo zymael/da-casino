@@ -595,7 +595,15 @@
         "trigger": "on_hit",
         "chance": 1.0,
         "duration": 7,
-        "aoe": true
+        "aoe": true,
+        "target": "enemy"
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 1000,
+        "aoe": true,
+        "target": "enemy"
       }
     ],
     "special": false,
