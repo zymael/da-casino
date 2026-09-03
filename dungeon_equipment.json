@@ -1487,7 +1487,7 @@
   },
   {
     "id": "bane_rod",
-    "name": "The Bane Rod",
+    "name": "The Fishing Rod of N'Quackloth",
     "slot": "trinket",
     "rarity": "epic",
     "effects": [
@@ -1497,6 +1497,10 @@
         "value": 10
       }
     ],
+    "special": false,
+    "intended_level": 30,
+    "base_value": 1200,
+    "flavor": "A legendary fishing rod, it's parts reclaimed from a pervert, a grouch, and a comb nobody wanted to touch.",
     "vs_monster_debuff": {
       "monster_id": "z_goolok",
       "effects": {
@@ -1504,10 +1508,6 @@
         "spatk": 12,
         "speed": 24
       }
-    },
-    "special": false,
-    "intended_level": 30,
-    "base_value": 1200,
-    "flavor": "Reforged from a spanking rod, a witch's necklace, and a hook nobody wanted to touch."
+    }
   }
 ]
