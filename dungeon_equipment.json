@@ -1389,9 +1389,6 @@
     "name": "Studded Harness",
     "slot": "armor",
     "rarity": "epic",
-    "intended_level": 20,
-    "base_value": 2200,
-    "flavor": "He's very, very good at getting your attention.",
     "effects": [
       {
         "type": "hp_buff",
@@ -1413,7 +1410,11 @@
         "trigger": "constant",
         "value": 3
       }
-    ]
+    ],
+    "special": false,
+    "intended_level": 20,
+    "base_value": 2200,
+    "flavor": "You'll look ready for any Berlin rave wearing this much leather.   Since you're not there though, it's just going to draw a lot of attention."
   },
   {
     "id": "studded_collar",
