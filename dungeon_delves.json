@@ -331,14 +331,35 @@
           {
             "monsters": [
               "nakedgnome_1",
-              "nakedgnome_3",
               "nakedgnome_2"
             ],
-            "chance": 1,
+            "chance": 0.333,
+            "fork": true,
+            "next": "Sneaky Hobos",
+            "x": 951.0,
+            "y": 459.0
+          },
+          {
+            "monsters": [
+              "nakedgnome_1",
+              "nakedgnome_3"
+            ],
+            "chance": 0.333,
             "fork": true,
             "next": "Sneaky Hobos",
             "x": 951.0,
             "y": 499.0
+          },
+          {
+            "monsters": [
+              "nakedgnome_2",
+              "nakedgnome_3"
+            ],
+            "chance": 0.333,
+            "fork": true,
+            "next": "Sneaky Hobos",
+            "x": 951.0,
+            "y": 539.0
           },
           {
             "monsters": [
@@ -443,8 +464,21 @@
           {
             "monsters": [
               "nakedgnome_1",
-              "nakedgnome_3",
               "nakedgnome_2"
+            ],
+            "fork": false
+          },
+          {
+            "monsters": [
+              "nakedgnome_1",
+              "nakedgnome_3"
+            ],
+            "fork": false
+          },
+          {
+            "monsters": [
+              "nakedgnome_2",
+              "nakedgnome_3"
             ],
             "fork": false
           }
