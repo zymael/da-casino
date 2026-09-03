@@ -320,28 +320,5 @@
         "closes_hub": true
       }
     ]
-  },
-  {
-    "id": "gnome_market_sewer_copy",
-    "name": "\ud83d\udd73\ufe0f The Sewer",
-    "description": "You descend into the sewers.  An absolute cesspit lies before you, the sound of sewage dumping into the frothing lake an absolute cacophony filling the air.  Truly an assault on every sense.\r\n\r\nBut then again it's a sewer.  That's what they're like.  Anyone that would say otherwise would clearly be insane even if they did try to call it 'tunnels' or something nonsensical like that.",
-    "background_path": "assets/rooms/gnome_market_sewer.jpg",
-    "exits": [
-      {
-        "room_id": "gnomish_night_market",
-        "label": "\ud83c\udf44Gnomish Night Market"
-      }
-    ],
-    "commands": [
-      {
-        "key": "delve",
-        "kind": "none",
-        "label": "\ud83d\udec1 The Gnomish Bathhouse",
-        "const_args": [
-          "gnome_bathhouse"
-        ],
-        "closes_hub": true
-      }
-    ]
   }
 ]
