@@ -1583,22 +1583,37 @@ EFFECT_HANDLERS = {
 }
 
 
-def _apply_self_effects(actor, effects: list[dict], log_lines: list[str], mods: dict) -> None:
-    """Runs every effect in `effects` that does NOT resolve to "enemy" (self/ally, which collapse
-    to the same thing here -- a monster has no ally pool of its own, no inter-monster targeting
-    exists in this game) against `actor`, exactly once regardless of how many enemies this action's
-    own damage-shaped effect(s) end up reaching -- a self-buff shouldn't multiply just because an
-    "aoe" damage effect is hitting the whole party. Mutates `mods` in place for any MODS_ONLY effect
-    among them (a monster's damage_multiplier/extra_attack/lifesteal_fraction are always self-cast,
-    never "enemy", same as a player's). Enemy-targeted effects are NOT run here -- see
-    _resolve_monster_attack's own per-target loop for those."""
+def _apply_self_effects(
+    actor, effects: list[dict], log_lines: list[str], mods: dict, monster_allies: list | None = None,
+) -> None:
+    """Runs every effect in `effects` that does NOT resolve to "enemy" (self/ally) against `actor`,
+    exactly once regardless of how many enemies this action's own damage-shaped effect(s) end up
+    reaching -- a self-buff shouldn't multiply just because an "aoe" damage effect is hitting the
+    whole party. Mutates `mods` in place for any MODS_ONLY effect among them (a monster's
+    damage_multiplier/extra_attack/lifesteal_fraction only ever configure `actor`'s own upcoming
+    roll THIS turn -- there's no "every ally's roll" for those to configure, so they stay self-cast
+    regardless of "aoe", same as a player's). Enemy-targeted effects are NOT run here -- see
+    _resolve_monster_attack's own per-target loop for those.
+
+    `monster_allies` (optional) is every OTHER living monster sharing this fight with `actor` --
+    absent/empty for a solo monster or the last one standing, in which case "ally" collapses to
+    self exactly as it always has. A non-MODS_ONLY effect resolved to "ally" with "aoe" set reaches
+    `actor` plus every entry here (a real buff/heal/cleanse, not just a self-cast) -- this is what
+    makes a "buffer" monster archetype possible, rather than "ally" quietly meaning "self" no
+    matter what a skill author sets "aoe" to."""
+    allies = monster_allies or []
     for effect in effects:
         target = effect.get("target") or dungeon.default_effect_target(effect["type"])
         if target == "enemy":
             continue
-        # `actor` in both slots -- target and caster are the same entity here (a monster has no
-        # separate ally pool, see this function's own docstring), but _effect_heal_fraction still
-        # needs a caster reference in the second slot to scale off SpAtk.
+        if target == "ally" and effect.get("aoe") and allies and effect["type"] not in dungeon.MODS_ONLY_EFFECT_TYPES:
+            # `actor` in the second slot for every entity here, not just itself -- every other
+            # self/ally-shaped handler ignores it, but _effect_heal_fraction needs to know who's
+            # actually casting to scale off THEIR SpAtk, not the ally receiving the heal.
+            for entity in (actor, *allies):
+                EFFECT_HANDLERS[effect["type"]](entity, actor, effect, log_lines, mods)
+            continue
+        # `actor` in both slots -- either genuinely "self", or "ally" with no one else to reach.
         EFFECT_HANDLERS[effect["type"]](actor, actor, effect, log_lines, mods)
 
 
@@ -1890,7 +1905,7 @@ def _roll_on_hit_procs(
 
 def _resolve_monster_attack(
     attacker: "MonsterInstance", target_pool: list, default_target, moon_effect: str | None, log_lines: list[str],
-    *, ally_count: int = 0,
+    *, monster_group: list | None = None,
 ) -> tuple[list[tuple[object, int, bool]], dict | None]:
     """One monster's turn -- either its plain attack or one of its own skills
     (dungeon.pick_monster_action, weighted by the monster's own attack_chance vs. each skill's own
@@ -1901,19 +1916,22 @@ def _resolve_monster_attack(
     single-entry pool since there's only ever one player to hit). The skill has to be picked here
     (not by the caller) specifically so this "how many targets" decision can be made from ITS
     result -- peeking it beforehand would mean rolling dungeon.pick_monster_action's own randomness
-    twice. `ally_count` (how many OTHER monsters are still alive in this same fight) is passed
-    straight through to dungeon.pick_monster_action -- purely a gate on which skills are even
-    eligible to be picked, not a targeting pool, so it doesn't change the next paragraph at all.
+    twice. `monster_group` (every currently-living monster in this fight, `attacker` included --
+    both call sites already have this on hand as `session.living_monsters()`) feeds
+    dungeon.pick_monster_action its own `ally_count` gate (purely which skills are even eligible to
+    be picked, unrelated to targeting) and doubles as the actual ally pool for the paragraph below.
 
-    A monster has no ally pool distinct from itself (no inter-monster targeting exists in this
-    game), so any self/ally-targeted effect (heal/guard/buffs/the timed dodge/resist/dot/hot ones,
-    and the mods-only damage_multiplier/extra_attack/lifesteal_fraction trio, which always default
-    to configuring the attacker's own upcoming roll) applies to `attacker` exactly once via
-    _apply_self_effects, regardless of how many entities the enemy-targeted effects go on to reach.
-    Enemy-targeted effects (def_shred, the *_debuff family, and the damage roll itself) repeat once
-    per target -- each gets its own independent dodge roll (base DEF/SpDef minus its own debuff,
-    plus any active dodge_buff/resist_buff -- see _defended_dodge_chance) that negates only that
-    target's own share of the action, not the others'.
+    Any self/ally-targeted effect (heal/guard/buffs/the timed dodge/resist/dot/hot ones, and the
+    mods-only damage_multiplier/extra_attack/lifesteal_fraction trio, which always configure the
+    attacker's own upcoming roll and stay self-only regardless) applies via _apply_self_effects --
+    to `attacker` alone by default, or to `attacker` plus every OTHER living monster in
+    `monster_group` for a genuine buff/heal/cleanse flagged "target": "ally", "aoe": true (see that
+    function's own docstring) -- a "buffer" monster's whole reason to exist. This runs exactly once
+    regardless of how many entities the enemy-targeted effects go on to reach. Enemy-targeted
+    effects (def_shred, the *_debuff family, and the damage roll itself) repeat once per target --
+    each gets its own independent dodge roll (base DEF/SpDef minus its own debuff, plus any active
+    dodge_buff/resist_buff -- see _defended_dodge_chance) that negates only that target's own share
+    of the action, not the others'.
 
     Returns (results, skill-or-None, lifesteal_line) where results is one (target, damage, dodged)
     tuple per entry actually targeted, in order -- callers apply damage/knockout themselves (solo
@@ -1923,7 +1941,8 @@ def _resolve_monster_attack(
     damage is in, which is BEFORE the caller has appended its own "unleashes X for Y" announcement,
     so appending it here would read backwards (the drain narrated before the hit that caused it).
     Callers append it themselves, last, after their own announcement/flavor lines."""
-    skill = dungeon.pick_monster_action(attacker.monster, ally_count)
+    monster_group = monster_group or [attacker]
+    skill = dungeon.pick_monster_action(attacker.monster, len(monster_group) - 1)
     special = bool(skill.get("special")) if skill else False
     effects = dungeon.resolve_cast_effects(skill) if skill else []
 
@@ -1940,7 +1959,8 @@ def _resolve_monster_attack(
     for effect in enemy_effects:
         if effect["type"] in dungeon.MODS_ONLY_EFFECT_TYPES:
             EFFECT_HANDLERS[effect["type"]](attacker, None, effect, log_lines, mods)
-    _apply_self_effects(attacker, self_effects, log_lines, mods)
+    monster_allies = [m for m in monster_group if m is not attacker]
+    _apply_self_effects(attacker, self_effects, log_lines, mods, monster_allies)
 
     is_damage_action = skill is None or damage_effect is not None
     monster_moon_mult = _moon_combat_multiplier(moon_effect, "monster")
@@ -2056,7 +2076,7 @@ async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSe
 
         results, monster_skill, lifesteal_line = _resolve_monster_attack(
             monster, [session], session, moon_effect, log_lines,
-            ally_count=len(session.living_monsters()) - 1,
+            monster_group=session.living_monsters(),
         )
         _, monster_dmg, dodged = results[0]
         verb = f"unleashes **{monster_skill['name']}**" if monster_skill else "strikes back"
@@ -2415,7 +2435,7 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
         # skill (and a plain attack) still resolves to just the threat-picked `threat_target`.
         results, monster_skill, lifesteal_line = _resolve_monster_attack(
             monster, living, threat_target, moon_effect, log_lines,
-            ally_count=len(session.living_monsters()) - 1,
+            monster_group=session.living_monsters(),
         )
         flavor = monster_skill.get("flavor") if monster_skill else None
         if len(results) > 1:
