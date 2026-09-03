@@ -544,7 +544,7 @@
     "intended_level": 11,
     "shape": "hexagon",
     "color": "#000000",
-    "flavor": "Slippery thing!",
+    "flavor": "Enchanted Soap that keeps sliding around on the floor, in a manner that certainly breaks all occupational safety laws.",
     "loot_min": 20,
     "loot_max": 55,
     "drops": [
@@ -567,8 +567,8 @@
         "effects": [
           {
             "type": "dodge_buff",
-            "value": 0.2,
-            "duration": 2
+            "duration": 2,
+            "value": 0.2
           }
         ]
       }
