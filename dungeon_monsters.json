@@ -759,7 +759,7 @@
       }
     ],
     "sprite_path": "assets/dungeon/monsters/bath_witch.png",
-    "sprite_scale": 1.4
+    "sprite_scale": 2.0
   },
   {
     "id": "z_goolok",
