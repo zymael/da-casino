@@ -357,7 +357,7 @@
             ],
             "chance": 0.25,
             "fork": true,
-            "next": "witch_retrospective",
+            "next": "Witch Meltdown",
             "x": 1052.0,
             "y": 87.0
           }
@@ -366,7 +366,7 @@
         "prompt": "As you remove the curtains to enter in what you think is the main room, it turns out you stumble into a private bath!"
       },
       {
-        "id": "witch_retrospective",
+        "id": "Witch Meltdown",
         "type": "choice",
         "prompt": "The Frustrated Witch lies slumped against the tub, wheezing. Behind her, the floating bath apparatus she'd been wrangling all fight is now completely unsupervised and spinning wildly out of control as they spray suds -everywhere-.",
         "actions": [
@@ -403,7 +403,7 @@
       {
         "id": "Sneaky Hobos",
         "type": "choice",
-        "prompt": "Belly flattened, you catch your breath -- and notice you're not alone. A ragged group of hobos is huddled in the corner around a suspiciously well-organized dice game, using what you can only assume are stolen towels as a table cloth.",
+        "prompt": "You stop to catch your breath -- and notice you're not alone. A ragged group of hobos is huddled in the corner around a suspiciously well-organized dice game, using what you can only assume are stolen towels as a table cloth.",
         "actions": [
           {
             "label": "Tattle on them",
@@ -412,33 +412,35 @@
             },
             "on_success": {
               "next": "A desperate choice!",
-              "message": "You flag down a bathhouse attendant and quietly point out the freeloaders. They slip you a little something for your trouble before hauling the group off, muttering about \"freeloaders.\"",
+              "message": "You flag down a bathhouse attendant and quietly point out the hobos. They slip you a little something for your trouble before hauling the group off, muttering about \"freeloaders.\"",
               "currency_delta": 50
             },
             "on_fail": {
               "next": "Angry Gnomes",
               "message": "The attendant squints at you, then at the huddled hobos, then back at you. \"Wait... you're the one that's been causing trouble.\""
             },
-            "x": 1167.0,
-            "y": 689.0
+            "x": 1233.0,
+            "y": 786.0
           },
           {
-            "label": "Help a hobo out",
+            "label": "GAMBLE!!",
+            "cost": {
+              "currency": 50
+            },
             "check": {
               "chance": 0.5
             },
             "on_success": {
               "next": "A desperate choice!",
-              "message": "You buy in. Against all odds, you actually win a hand.",
-              "currency_delta": 40
+              "message": "You buy in and snatch the dice before any hobo can do their hobo hexes on them.  You blow on them and throw them down.  Seven!  That's a winner!",
+              "currency_delta": 100
             },
             "on_fail": {
               "next": "A desperate choice!",
-              "message": "You buy in. You do not win a hand. You suspect the dice were never fair to begin with.",
-              "currency_delta": -20
+              "message": "You buy in, but once the game starts the hobo's hands move so fast you can't even see what is happening.  Before you know it, you've lost.  You suspect the dice were never fair to begin with."
             },
-            "x": 1187.0,
-            "y": 791.0
+            "x": 1136.0,
+            "y": 575.0
           }
         ]
       },
@@ -456,7 +458,7 @@
           }
         ],
         "next": "A desperate choice!",
-        "prompt": "The bathhouse staff -- looking suspiciously like the gnomes you just flattened -- surround you, absolutely certain you're the real troublemaker here."
+        "prompt": "The bathhouse \"staff\", who look suspiciously like the gnomes you just flattened, surround you, absolutely certain you're the real troublemaker here."
       }
     ],
     "layout": {
@@ -492,7 +494,7 @@
         "x": 934.0,
         "y": 198.0
       },
-      "witch_retrospective": {
+      "Witch Meltdown": {
         "x": 1287.0,
         "y": 30.0
       },
@@ -501,11 +503,12 @@
         "y": 680.0
       },
       "Angry Gnomes": {
-        "x": 1238.0,
-        "y": 689.0
+        "x": 1493.0,
+        "y": 691.0
       }
     },
-    "start_room": "The Sewer"
+    "start_room": "The Sewer",
+    "background_path": "assets/dungeon/backgrounds/gnome_bathhouse.jpg"
   },
   {
     "id": "test",
