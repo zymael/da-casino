@@ -157,6 +157,14 @@ ACHIEVEMENTS = [
         "reward": 25,
     },
     {
+        "kind": "bath_witch_befriended",
+        "scope": "personal",
+        "emoji": "🧙‍♀️",
+        "name": "Wrangled It",
+        "description": "You helped the Frustrated Witch wrangle her out-of-control bath apparatus. She's still going to kick your ass next time she sees you.",
+        "reward": 0,
+    },
+    {
         "kind": "stolen_from",
         "scope": "personal",
         "emoji": "💃",

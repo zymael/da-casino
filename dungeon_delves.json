@@ -368,38 +368,95 @@
       {
         "id": "witch_retrospective",
         "type": "choice",
-        "prompt": "aaaaa",
+        "prompt": "The Frustrated Witch lies slumped against the tub, wheezing. Behind her, the floating bath apparatus she'd been wrangling all fight is now completely unsupervised -- and spinning wildly out of control, spraying suds everywhere.",
         "actions": [
           {
-            "label": "aaaa",
+            "label": "Help her wrangle it",
+            "check": {
+              "stat": "atk",
+              "dc": 35
+            },
             "on_success": {
-              "next": "A desperate choice!"
+              "next": "A desperate choice!",
+              "message": "Between the two of you, you wrestle the apparatus back under control. She glares at you, snatching it back. \"Thanks... I guess. Don't think this makes us friends -- next time I see you, I'm still kicking your ass.\"",
+              "achievement_kind": "bath_witch_befriended"
+            },
+            "on_fail": {
+              "next": "A desperate choice!",
+              "message": "You lunge for it. It does not want to be caught. It backhands you with what you can only describe as soap-slicked vengeance.",
+              "hp_delta": -10
             },
             "x": 1346.0,
             "y": 255.0
+          },
+          {
+            "label": "Leave her to it",
+            "on_success": {
+              "next": "A desperate choice!",
+              "message": "You decide this is not your problem and step over her, leaving her to fight the apparatus alone. Her muffled cursing follows you out."
+            },
+            "x": 1346.0,
+            "y": 403.0
           }
         ]
       },
       {
         "id": "Sneaky Hobos",
         "type": "choice",
-        "prompt": "aaaa",
+        "prompt": "Belly flattened, you catch your breath -- and notice you're not alone. A ragged group of hobos is huddled in the corner around a suspiciously well-organized dice game, using what you can only assume are stolen towels as a table cloth.",
         "actions": [
           {
             "label": "Tattle on them",
+            "check": {
+              "chance": 0.6
+            },
             "on_success": {
-              "next": "A desperate choice!"
+              "next": "A desperate choice!",
+              "message": "You flag down a bathhouse attendant and quietly point out the freeloaders. They slip you a little something for your trouble before hauling the group off, muttering about \"freeloaders.\"",
+              "currency_delta": 50
+            },
+            "on_fail": {
+              "next": "Angry Gnomes",
+              "message": "The attendant squints at you, then at the huddled hobos, then back at you. \"Wait... you're the one that's been causing trouble.\""
             },
             "x": 1167.0,
             "y": 689.0
           },
           {
             "label": "Help a hobo out",
-            "on_success": {},
+            "check": {
+              "chance": 0.5
+            },
+            "on_success": {
+              "next": "A desperate choice!",
+              "message": "You buy in. Against all odds, you actually win a hand.",
+              "currency_delta": 40
+            },
+            "on_fail": {
+              "next": "A desperate choice!",
+              "message": "You buy in. You do not win a hand. You suspect the dice were never fair to begin with.",
+              "currency_delta": -20
+            },
             "x": 1187.0,
             "y": 791.0
           }
         ]
+      },
+      {
+        "id": "Angry Gnomes",
+        "type": "combat",
+        "prompt": "The bathhouse staff -- looking suspiciously like the gnomes you just flattened -- surround you, absolutely certain you're the real troublemaker here.",
+        "monster_groups": [
+          {
+            "monsters": [
+              "nakedgnome_1",
+              "nakedgnome_3",
+              "nakedgnome_2"
+            ],
+            "fork": false
+          }
+        ],
+        "next": "A desperate choice!"
       }
     ],
     "layout": {
@@ -442,6 +499,10 @@
       "Sneaky Hobos": {
         "x": 955.0,
         "y": 680.0
+      },
+      "Angry Gnomes": {
+        "x": 1238.0,
+        "y": 689.0
       }
     },
     "start_room": "The Sewer"

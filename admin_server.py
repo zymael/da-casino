@@ -1206,7 +1206,8 @@ document.addEventListener('click', function (event) {
             var prefix = labelInput.name.slice(0, -('_label'.length));
             var statInput = actionRow.querySelector('[name="' + prefix + '_check_stat"]');
             var dcInput = actionRow.querySelector('[name="' + prefix + '_check_dc"]');
-            var hasCheck = !!(statInput && dcInput && statInput.value && dcInput.value);
+            var chanceInput = actionRow.querySelector('[name="' + prefix + '_check_chance"]');
+            var hasCheck = !!((chanceInput && chanceInput.value) || (statInput && dcInput && statInput.value && dcInput.value));
             var label = labelInput.value || '(unlabeled)';
 
             var node = document.createElement('div');
@@ -2190,11 +2191,11 @@ def _render_action_row(prefix: str, action: dict) -> str:
     the flowchart script (see _dynamic_script's "Delve flowchart editor" section) purely so a
     person looking at this panel can see where the action currently leads without having to go
     find the arrow on the canvas. `check`/`on_fail` are always rendered, not toggled by JS -- whether "check" ends up in
-    the saved action depends only on whether its stat+dc were actually filled in (see
-    _parse_actions), the same "blank means absent" convention every other optional field in this
-    panel already follows; this action's own on-canvas node (_render_action_node) only grows a
-    second "fail" connector handle once both are filled (see the flowchart script's
-    syncActionNodes)."""
+    the saved action depends only on whether its chance, or its stat+dc together, were actually
+    filled in (see _parse_actions), the same "blank means absent" convention every other optional
+    field in this panel already follows; this action's own on-canvas node (_render_action_node)
+    only grows a second "fail" connector handle once a check is actually configured (see the
+    flowchart script's syncActionNodes)."""
     cost = action.get("cost") or {}
     check = action.get("check") or {}
     on_success = action.get("on_success") or {}
@@ -2230,6 +2231,11 @@ def _render_action_row(prefix: str, action: dict) -> str:
         reward_item_select = _render_cascaded_select(
             f"{outcome_prefix}_item_id", "action_cost", outcome.get("item_kind"), outcome.get("item_id")
         )
+        achievement_options = "".join(
+            f'<option value="{a["kind"]}"{" selected" if a["kind"] == outcome.get("achievement_kind") else ""}>'
+            f'{html.escape(a["name"])} ({a["kind"]})</option>'
+            for a in [{"kind": "", "name": "(none)"}] + achievements.ACHIEVEMENTS
+        )
         return (
             f'<label>currency_delta (optional, +/-)<input type="number" name="{outcome_prefix}_currency_delta" '
             f'value="{outcome.get("currency_delta", "")}"></label>'
@@ -2238,6 +2244,11 @@ def _render_action_row(prefix: str, action: dict) -> str:
             f'<label>item_id{reward_item_select}</label>'
             f'<label>item_qty (optional, +/-)<input type="number" name="{outcome_prefix}_item_qty" '
             f'value="{outcome.get("item_qty", "")}"></label>'
+            f'<label>achievement (optional)<select name="{outcome_prefix}_achievement_kind">'
+            f'{achievement_options}</select>'
+            f'<small class="field-hint" data-tooltip="Awards this achievement (idempotently) when this '
+            f'outcome fires. In a party delve, every party member gets it, not just whoever attempted '
+            f'the action.">?</small></label>'
         )
 
     return (
@@ -2253,11 +2264,15 @@ def _render_action_row(prefix: str, action: dict) -> str:
         f'<label>item_id{item_select}</label>'
         f'<label>item_qty<input type="number" min="1" name="{prefix}_cost_item_qty" value="{cost.get("item_qty", "")}"></label>'
         f'</fieldset>'
-        f'<fieldset data-tooltip="Rolls this action against the character\'s own stat. Add a check '
-        f'to make this one action branch by luck, on top of (not instead of) branching by which '
-        f'action the player picks."><legend>check (optional -- scales against the character\'s own stat)</legend>'
+        f'<fieldset data-tooltip="Rolls this action against the character\'s own stat, or (fill in '
+        f'chance instead) a flat probability independent of any stat. Add a check to make this one '
+        f'action branch by luck, on top of (not instead of) branching by which action the player '
+        f'picks. Fill in EITHER stat+dc OR chance, not both -- chance wins if both are set.">'
+        f'<legend>check (optional -- stat-vs-DC, or a flat chance)</legend>'
         f'<label>stat<select name="{prefix}_check_stat" class="action-check-input">{stat_options}</select></label>'
         f'<label>dc<input type="number" min="1" name="{prefix}_check_dc" class="action-check-input" value="{check.get("dc", "")}"></label>'
+        f'<label>chance (0-1)<input type="number" min="0" max="1" step="0.01" name="{prefix}_check_chance" '
+        f'class="action-check-input" value="{check.get("chance", "")}"></label>'
         f'</fieldset>'
         f'<fieldset data-tooltip="Where this action leads if it succeeds (or always, if there\'s no '
         f'check above). Drag this action\'s green handle on the room\'s box, on the canvas above, to '
@@ -2319,7 +2334,7 @@ def _render_action_node(action_prefix: str, action: dict, pos: dict, error_messa
     still wrong, so a draft's still-broken actions are visible right on the canvas instead of only
     in a page-level banner."""
     check = action.get("check") or {}
-    has_check = bool(check.get("stat") and check.get("dc"))
+    has_check = bool(check.get("chance")) or bool(check.get("stat") and check.get("dc"))
     label = html.escape(action.get("label") or "(unlabeled)")
     fail_handle = (
         f'<div class="connector-handle fail" data-connector-role="fail" data-action-prefix="{action_prefix}" '
@@ -3495,11 +3510,11 @@ def _build_entry_from_form(spec: dict, form: dict, entry_id_for_upload: str, exi
 
 
 def _parse_outcome(prefix: str, form: dict) -> dict:
-    """An action's on_success/on_fail -- next/hp_delta/message/currency_delta/item give-or-take,
-    each omitted (not written as an empty string / null) if left blank, same "blank means absent"
-    convention every other optional field here follows. item_qty's sign is what decides give vs.
-    take (see dungeon._ACTION_OUTCOME_KEYS), so it's parsed as-is (a plain negative number), not
-    split into separate give/take inputs."""
+    """An action's on_success/on_fail -- next/hp_delta/message/currency_delta/item give-or-take/
+    achievement_kind, each omitted (not written as an empty string / null) if left blank, same
+    "blank means absent" convention every other optional field here follows. item_qty's sign is
+    what decides give vs. take (see dungeon._ACTION_OUTCOME_KEYS), so it's parsed as-is (a plain
+    negative number), not split into separate give/take inputs."""
     outcome: dict = {}
     next_room = form.get(f"{prefix}_next", "").strip()
     if next_room:
@@ -3520,6 +3535,9 @@ def _parse_outcome(prefix: str, form: dict) -> dict:
         qty = form.get(f"{prefix}_item_qty", "").strip()
         if qty:
             outcome["item_qty"] = int(qty)
+    achievement_kind = form.get(f"{prefix}_achievement_kind", "").strip()
+    if achievement_kind:
+        outcome["achievement_kind"] = achievement_kind
     return outcome
 
 
@@ -3540,8 +3558,8 @@ def _parse_actions(prefix: str, form: dict) -> tuple[list[dict], list[str]]:
     worse). Every blank label is reported, not just the first, so edit_view can show one error
     banner per problem in a single pass instead of a "fix one, resubmit, find the next" loop.
     Whether "check" (and therefore "on_fail") ends up in the saved action depends only on whether
-    stat+dc were both actually filled in -- see _render_action_row's docstring for why this isn't
-    toggled by JS instead."""
+    chance, or stat+dc together, were actually filled in (chance wins if both somehow are) -- see
+    _render_action_row's docstring for why this isn't toggled by JS instead."""
     indices = sorted(
         int(m.group(1)) for k in form if (m := re.fullmatch(rf"{re.escape(prefix)}_(\d+)_success_next", k))
     )
@@ -3574,8 +3592,11 @@ def _parse_actions(prefix: str, form: dict) -> tuple[list[dict], list[str]]:
 
         stat = form.get(f"{p}_check_stat", "").strip()
         dc = form.get(f"{p}_check_dc", "").strip()
-        has_check = bool(stat and dc)
-        if has_check:
+        chance = form.get(f"{p}_check_chance", "").strip()
+        has_check = bool(chance) or bool(stat and dc)
+        if chance:
+            action["check"] = {"chance": float(chance)}
+        elif has_check:
             action["check"] = {"stat": stat, "dc": float(dc) if "." in dc else int(dc)}
 
         action["on_success"] = _parse_outcome(f"{p}_success", form)

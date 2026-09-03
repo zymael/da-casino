@@ -561,6 +561,28 @@ async def _apply_outcome_rewards(
                 log_lines.append(f"{subject} {'lose' + s} **{abs(item_qty)}x {item_name}**.")
 
 
+async def _award_choice_achievement(
+    interaction: discord.Interaction, guild_id: int, user_id: int, display_name: str, outcome: dict,
+) -> None:
+    """Awards a choice action outcome's optional achievement_kind, if any -- called after the
+    interaction's own response has already been sent (edit_message), so this rides in as a
+    followup, same ordering _end_duel already uses for its own post-result achievement awards."""
+    kind = outcome.get("achievement_kind")
+    if kind:
+        await achievements.try_award_many(interaction.followup.send, guild_id, user_id, display_name, [kind])
+
+
+async def _award_party_choice_achievement(interaction: discord.Interaction, session: PartyDelveSession, outcome: dict) -> None:
+    """Party sibling of _award_choice_achievement -- an outcome's achievement_kind (once earned) is
+    shared with every party member, not just whoever attempted the check, since the party succeeded
+    together."""
+    kind = outcome.get("achievement_kind")
+    if not kind:
+        return
+    for member in session.members:
+        await achievements.try_award_many(interaction.followup.send, session.guild_id, member.user_id, member.label, [kind])
+
+
 def _cost_summary(cost: dict | None, currency_name: str) -> str | None:
     if not cost:
         return None
@@ -583,7 +605,10 @@ def _action_summary_lines(action: dict, currency_name: str) -> list[str]:
         lines.append(cost_line)
     check = action.get("check")
     if check:
-        lines.append(f"🎲 {_CHECK_STAT_LABELS[check['stat']]} check (DC {check['dc']})")
+        if "chance" in check:
+            lines.append(f"🎲 {check['chance']:.0%} chance")
+        else:
+            lines.append(f"🎲 {_CHECK_STAT_LABELS[check['stat']]} check (DC {check['dc']})")
     return lines
 
 
@@ -686,13 +711,20 @@ async def _handle_choice_action(
     log_lines = []
     check = action.get("check")
     if check is not None:
-        stat_value = _stat_value_for_check(session, check["stat"])
-        success, rolled = dungeon.roll_check(stat_value, check["dc"])
-        stat_label = _CHECK_STAT_LABELS[check["stat"]]
-        log_lines.append(
-            f"🎲 {stat_label} check: rolled **{rolled}** vs DC **{check['dc']}** — "
-            f"{'success!' if success else 'failure!'}"
-        )
+        if "chance" in check:
+            success, rolled = dungeon.roll_chance_check(check["chance"])
+            log_lines.append(
+                f"🎲 Chance check: rolled **{rolled:.0%}** vs **{check['chance']:.0%}** — "
+                f"{'success!' if success else 'failure!'}"
+            )
+        else:
+            stat_value = _stat_value_for_check(session, check["stat"])
+            success, rolled = dungeon.roll_check(stat_value, check["dc"])
+            stat_label = _CHECK_STAT_LABELS[check["stat"]]
+            log_lines.append(
+                f"🎲 {stat_label} check: rolled **{rolled}** vs DC **{check['dc']}** — "
+                f"{'success!' if success else 'failure!'}"
+            )
         outcome = action["on_success"] if success else action["on_fail"]
     else:
         outcome = action["on_success"]
@@ -718,6 +750,7 @@ async def _handle_choice_action(
             color=discord.Color.dark_red(),
         )
         await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+        await _award_choice_achievement(interaction, session.guild_id, session.user_id, session.display_name, outcome)
         return True
 
     next_room = outcome.get("next")
@@ -732,9 +765,11 @@ async def _handle_choice_action(
             color=discord.Color.gold(),
         )
         await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+        await _award_choice_achievement(interaction, session.guild_id, session.user_id, session.display_name, outcome)
         return True
 
     await _present_choice_outcome(interaction, session, next_room, log_lines)
+    await _award_choice_achievement(interaction, session.guild_id, session.user_id, session.display_name, outcome)
     return True
 
 
@@ -2740,11 +2775,13 @@ async def _handle_party_choice_action(
 ) -> bool:
     """Party sibling of _handle_choice_action -- requires/cost still always gate against the
     leader's own class/inventory/currency (the leader is the one deciding to spend the party's
-    resources), but an action with a skill check now hands off to a member picker
+    resources), but an action with a stat-based skill check now hands off to a member picker
     (PartyCheckActorPickerView) instead of always rolling against the leader's own stat -- see
     _resolve_party_choice_action for the part that actually rolls the check and applies its
     outcome (hp_delta included) to whichever member ends up attempting it. A single-survivor party
-    skips the picker (nothing to choose) and resolves against that one member directly."""
+    skips the picker (nothing to choose) and resolves against that one member directly. A
+    chance-check never shows the picker at all, stat-based or not -- nobody's stat affects a flat
+    coinflip, so there's nothing to choose between; it resolves straight against the leader."""
     requires = action.get("requires")
     if requires is not None:
         character = {"main_class": leader.main_class, "subclass": leader.subclass}
@@ -2765,7 +2802,8 @@ async def _handle_party_choice_action(
             return False
 
     living = session.living_members()
-    if action.get("check") is not None and len(living) > 1:
+    check = action.get("check")
+    if check is not None and "stat" in check and len(living) > 1:
         embed = discord.Embed(
             title="🎯 Who Attempts This?",
             description=f"Who in the party will attempt **{action['label']}**?",
@@ -2795,13 +2833,20 @@ async def _resolve_party_choice_action(
     log_lines = []
     check = action.get("check")
     if check is not None:
-        stat_value = _stat_value_for_check(actor, check["stat"])
-        success, rolled = dungeon.roll_check(stat_value, check["dc"])
-        stat_label = _CHECK_STAT_LABELS[check["stat"]]
-        log_lines.append(
-            f"🎲 {actor.label}'s {stat_label} check: rolled **{rolled}** vs DC **{check['dc']}** — "
-            f"{'success!' if success else 'failure!'}"
-        )
+        if "chance" in check:
+            success, rolled = dungeon.roll_chance_check(check["chance"])
+            log_lines.append(
+                f"🎲 {actor.label}'s chance check: rolled **{rolled:.0%}** vs **{check['chance']:.0%}** — "
+                f"{'success!' if success else 'failure!'}"
+            )
+        else:
+            stat_value = _stat_value_for_check(actor, check["stat"])
+            success, rolled = dungeon.roll_check(stat_value, check["dc"])
+            stat_label = _CHECK_STAT_LABELS[check["stat"]]
+            log_lines.append(
+                f"🎲 {actor.label}'s {stat_label} check: rolled **{rolled}** vs DC **{check['dc']}** — "
+                f"{'success!' if success else 'failure!'}"
+            )
         outcome = action["on_success"] if success else action["on_fail"]
     else:
         outcome = action["on_success"]
@@ -2831,6 +2876,7 @@ async def _resolve_party_choice_action(
                 color=discord.Color.dark_red(),
             )
             await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+            await _award_party_choice_achievement(interaction, session, outcome)
             return
 
     next_room = outcome.get("next")
@@ -2848,9 +2894,11 @@ async def _resolve_party_choice_action(
             color=discord.Color.gold(),
         )
         await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+        await _award_party_choice_achievement(interaction, session, outcome)
         return
 
     await _present_party_choice_outcome(interaction, session, next_room, log_lines)
+    await _award_party_choice_achievement(interaction, session, outcome)
 
 
 class PartyCheckActorSelect(discord.ui.Select):

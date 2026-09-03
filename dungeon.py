@@ -25,6 +25,7 @@ import math
 import os
 import random
 
+import achievements
 import horse_clothes
 
 # Base stats, display identity, and per-level growth for the four main classes -- editable through
@@ -412,8 +413,16 @@ _DELVES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_delves.json")
 _REQUIRED_DELVE_FIELDS = {"id", "name", "flavor", "rooms", "start_room"}
 # currency_delta/item_* let an outcome give (positive) or take (negative) currency/an item on top of
 # hp_delta -- item_qty's sign is what decides give vs. take, same single-field convention as
-# hp_delta/currency_delta rather than separate give/take fields.
-_ACTION_OUTCOME_KEYS = {"next", "hp_delta", "message", "currency_delta", "item_kind", "item_id", "item_qty"}
+# hp_delta/currency_delta rather than separate give/take fields. achievement_kind awards that
+# achievement.py achievement (must already be a known ACHIEVEMENTS entry -- new kinds are still
+# defined there, same as every other achievement, not authorable from delve content) via the same
+# achievements.try_award_many every other award site uses -- idempotent per user, and (see
+# dungeon_view.py) shared with every living party member for a party delve, not just whoever
+# attempted the action.
+_ACTION_OUTCOME_KEYS = {
+    "next", "hp_delta", "message", "currency_delta", "item_kind", "item_id", "item_qty",
+    "achievement_kind",
+}
 
 
 def _validate_action(action: dict, context: str) -> None:
@@ -454,10 +463,18 @@ def _validate_action(action: dict, context: str) -> None:
 
     check = action.get("check")
     if check is not None:
-        if check.get("stat") not in CHECK_STATS:
-            raise ValueError(f"{context}: check stat must be one of {CHECK_STATS}")
-        if not isinstance(check.get("dc"), (int, float)) or check["dc"] <= 0:
-            raise ValueError(f"{context}: check dc must be a positive number")
+        if "chance" in check:
+            chance = check["chance"]
+            if not isinstance(chance, (int, float)) or not (0 < chance <= 1):
+                raise ValueError(f"{context}: check chance must be a number in (0, 1]")
+            unknown_check = check.keys() - {"chance"}
+            if unknown_check:
+                raise ValueError(f"{context}: check has unknown field(s): {sorted(unknown_check)}")
+        else:
+            if check.get("stat") not in CHECK_STATS:
+                raise ValueError(f"{context}: check stat must be one of {CHECK_STATS}")
+            if not isinstance(check.get("dc"), (int, float)) or check["dc"] <= 0:
+                raise ValueError(f"{context}: check dc must be a positive number")
 
     if "on_success" not in action:
         raise ValueError(f"{context}: missing on_success")
@@ -490,6 +507,8 @@ def _validate_action(action: dict, context: str) -> None:
                 raise ValueError(f"{context}: {key}.item_qty must be a nonzero int")
         elif "item_kind" in outcome or "item_qty" in outcome:
             raise ValueError(f"{context}: {key} has item_kind/item_qty but no item_id")
+        if "achievement_kind" in outcome and outcome["achievement_kind"] not in achievements.BY_KIND:
+            raise ValueError(f"{context}: {key} references unknown achievement {outcome['achievement_kind']!r}")
 
 
 def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
@@ -1732,6 +1751,15 @@ def roll_check(stat_value: int, dc: int) -> tuple[bool, int]:
     the actual rolled value) -- the roll is exposed so callers can show it in combat-log text."""
     rolled = round(stat_value * random.uniform(DAMAGE_VARIANCE_LOW, DAMAGE_VARIANCE_HIGH))
     return rolled >= dc, rolled
+
+
+def roll_chance_check(chance: float) -> tuple[bool, float]:
+    """A choice room's flat-probability check -- the alternative to roll_check for content where
+    the outcome shouldn't depend on any character stat (e.g. buying into someone else's dice
+    game). Returns (success, the actual rolled value in [0, 1)) -- same "expose the roll" contract
+    as roll_check, for consistent log-line rendering."""
+    rolled = random.random()
+    return rolled < chance, rolled
 
 
 DEFAULT_MONSTER_ATTACK_CHANCE = 1.0
