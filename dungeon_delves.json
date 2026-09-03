@@ -305,7 +305,8 @@
             "x": 1471.0,
             "y": 478.0
           }
-        ]
+        ],
+        "background_path": "assets/dungeon/backgrounds/gnome_bathhouse_room_A desperate choice!.jpg"
       },
       {
         "id": "The Bog of Z'Goolok",
@@ -313,11 +314,12 @@
         "monster_groups": [
           {
             "monsters": [
-              "goblin_grunt"
+              "z_goolok"
             ],
             "fork": false
           }
-        ]
+        ],
+        "background_path": "assets/dungeon/backgrounds/gnome_bathhouse_room_The Bog of Z'Goolok.jpg"
       },
       {
         "id": "The Leather Daddy's Private Room",
@@ -325,11 +327,12 @@
         "monster_groups": [
           {
             "monsters": [
-              "goblin_grunt"
+              "gnome_leather_daddy"
             ],
             "fork": false
           }
-        ]
+        ],
+        "background_path": "assets/dungeon/backgrounds/gnome_bathhouse_room_The Leather Daddy's Private Room.jpg"
       },
       {
         "id": "A Private Bath",
@@ -342,7 +345,7 @@
               "nakedgnome_2"
             ],
             "fork": true,
-            "next": "sneaky_hobos",
+            "next": "Sneaky Hobos",
             "x": 951.0,
             "y": 499.0
           },
@@ -378,17 +381,23 @@
         ]
       },
       {
-        "id": "sneaky_hobos",
+        "id": "Sneaky Hobos",
         "type": "choice",
         "prompt": "aaaa",
         "actions": [
           {
-            "label": "aaa",
+            "label": "Tattle on them",
             "on_success": {
               "next": "A desperate choice!"
             },
-            "x": 1248.0,
-            "y": 664.0
+            "x": 1167.0,
+            "y": 689.0
+          },
+          {
+            "label": "Help a hobo out",
+            "on_success": {},
+            "x": 1187.0,
+            "y": 791.0
           }
         ]
       }
@@ -419,8 +428,8 @@
         "y": 377.0
       },
       "The Leather Daddy's Private Room": {
-        "x": 1712.0,
-        "y": 470.0
+        "x": 1711.0,
+        "y": 471.0
       },
       "A Private Bath": {
         "x": 934.0,
@@ -430,7 +439,7 @@
         "x": 1243.0,
         "y": 130.0
       },
-      "sneaky_hobos": {
+      "Sneaky Hobos": {
         "x": 955.0,
         "y": 680.0
       }
