@@ -1453,9 +1453,6 @@
     "name": "The Safe Word",
     "slot": "trinket",
     "rarity": "legendary",
-    "intended_level": 20,
-    "base_value": 3200,
-    "flavor": "Say it and everything stops. Mostly for you.",
     "effects": [
       {
         "type": "spatk_buff",
@@ -1468,10 +1465,15 @@
         "value": 15
       },
       {
-        "type": "cleanse_cc",
+        "type": "heal_fraction",
         "trigger": "on_hit",
-        "chance": 0.15
+        "chance": 0.15,
+        "value": 0.1
       }
-    ]
+    ],
+    "special": false,
+    "intended_level": 20,
+    "base_value": 3200,
+    "flavor": "...This is just a banana? \r\n\r\nThey're pretty healthy though."
   }
 ]
