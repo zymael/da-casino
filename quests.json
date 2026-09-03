@@ -166,10 +166,11 @@
         "ordinal": 0,
         "prompt": "*The Goo takes one look at you, still dripping and bruised, and goes very still.*\r\n\r\n*Then they start rummaging under the counter, pulling out fishing tackle you didn't know they sold, quivering the whole time.*",
         "journal_text": "The Goo has given you fishing tackle for something.",
-        "paths": [],
+        "topic_label": "Ask about Z'Goolok",
         "discuss_with": [
           "the_goo"
-        ]
+        ],
+        "paths": []
       }
     ],
     "layout": {
