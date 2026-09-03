@@ -1361,9 +1361,6 @@
     "name": "Daddy's Riding Crop",
     "slot": "weapon",
     "rarity": "epic",
-    "intended_level": 20,
-    "base_value": 2200,
-    "flavor": "Precision, not force. Mostly precision.",
     "effects": [
       {
         "type": "atk_buff",
@@ -1378,10 +1375,14 @@
       {
         "type": "speed_debuff",
         "trigger": "on_hit",
-        "value": 3,
-        "chance": 0.2
+        "chance": 0.2,
+        "value": 3
       }
-    ]
+    ],
+    "special": false,
+    "intended_level": 20,
+    "base_value": 2200,
+    "flavor": "You really don't like to hold this.  And it is covered in a strange substance that makes you incredibly uncomfortable. \r\n\r\nLuckily your enemies hate it too!"
   },
   {
     "id": "studded_harness",
