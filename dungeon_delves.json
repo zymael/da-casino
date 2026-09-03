@@ -371,14 +371,14 @@
           {
             "monsters": [
               "enchanted_towel",
-              "bath_witch",
-              "enchanted_comb"
+              "bath_witch"
             ],
             "chance": 0.25,
             "fork": true,
             "next": "Witch Meltdown",
             "x": 1052.0,
-            "y": 87.0
+            "y": 87.0,
+            "party_extra_monster": "enchanted_comb"
           }
         ],
         "prompt": "As you remove the curtains to enter in what you think is the main room, it turns out you stumble into a private bath!"
@@ -404,8 +404,8 @@
               "hp_delta": -10,
               "message": "You lunge for it. It does not want to be caught. It backhands you with what you can only describe as soap-slicked vengeance."
             },
-            "x": 1487.0,
-            "y": 234.0
+            "x": 1457.0,
+            "y": 191.0
           },
           {
             "label": "Leave her to it",
