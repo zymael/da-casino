@@ -2,8 +2,10 @@
 "hub of hubs"; now it's just another rooms.json entry with no commands) and the build_X_display/
 XView pair each of casino_view/ranch_view/dungeon_view used to own. One `build_room_display` and
 one `RoomView` work for every room in rooms.json, because by this point everything a room needs is
-either generic data (background, exits, commands -- rooms.py) or already-generic per-NPC state
-(npcs.json + quests.npcs_present_in_room/talk_to_npc, unchanged since Phase B).
+either generic data (background, exits, commands -- rooms.py) or already-generic per-NPC presence
+(npcs.json + quests.npcs_present_in_room, unchanged since Phase B) -- what each present NPC
+actually has to say lives entirely behind npc_view.TalkToNpcButton's own nested conversation flow
+(npc_view.py), not here.
 
 The one documented exception is `_SPECIALIZATIONS`: a small, fixed, hardcoded dict (never dynamic)
 from a room's optional "specialization" key to whichever of casino_view/ranch_view/dungeon_view
@@ -52,8 +54,6 @@ async def build_room_display(
     build_X_display used to follow individually)."""
     room = rooms.ROOMS[room_id]
     present_npcs = await quests.npcs_present_in_room(guild_id, user_id, room_id)
-    npc_states = {npc_id: await quests.talk_to_npc(guild_id, user_id, npc_id) for npc_id in present_npcs}
-    npc_talk_labels = {npc_id: await quests.npc_talk_label(guild_id, user_id, npc_id) for npc_id in present_npcs}
     visible_exits = [
         exit_entry for exit_entry in room["exits"]
         if exit_entry.get("visible_trigger") is None
@@ -77,7 +77,7 @@ async def build_room_display(
         for name, value, inline in await specialization.extra_embed_fields(guild_id, user_id):
             embed.add_field(name=name, value=value, inline=inline)
 
-    view = RoomView(guild_id, user_id, room_id, present_npcs, npc_states, npc_talk_labels, session, visible_exits)
+    view = RoomView(guild_id, user_id, room_id, present_npcs, session, visible_exits)
     return embed, view, file
 
 
@@ -101,18 +101,16 @@ class RoomExitButton(discord.ui.Button):
 class RoomView(discord.ui.View):
     """Launcher for whatever a room actually contains: the specialization's extra_items (if any),
     one NoArgButton/AmountButton per rooms.json commands[] entry, one TalkToNpcButton per NPC
-    currently present (npcs.json data -- see quests.npcs_present_in_room; its label is
-    quests.npc_talk_label's per-quest-stage override if one's set, else the button's own generic
-    "Talk to X" default) plus one ShopButton/SellButton per NPC with a non-empty "shop"/"buys_items"
-    checked and one TurnInButton per turn-in-able quest any of them has with this player, the
-    shared Inventory/Equipment buttons, and one RoomExitButton per exit. No manual row numbers
-    anywhere -- `_add` auto-flows every item into groups of 5, Discord's per-row limit, so
+    currently present (npcs.json data -- see quests.npcs_present_in_room; its own nested
+    conversation flow, not this view, is what shows any quest dialogue/turn-in with them -- see
+    npc_view.py) plus one ShopButton/SellButton per NPC with a non-empty "shop"/"buys_items"
+    checked, the shared Inventory/Equipment buttons, and one RoomExitButton per exit. No manual row
+    numbers anywhere -- `_add` auto-flows every item into groups of 5, Discord's per-row limit, so
     authoring a room's command order never has to think about Discord UI row math."""
 
     def __init__(
         self, guild_id: int, user_id: int, room_id: str, present_npcs: list[str],
-        npc_states: dict[str, list[dict]], npc_talk_labels: dict[str, str | None], session: hub_ui.HubSession,
-        visible_exits: list[dict],
+        session: hub_ui.HubSession, visible_exits: list[dict],
     ):
         super().__init__(timeout=300)
         self.guild_id = guild_id
@@ -147,19 +145,13 @@ class RoomView(discord.ui.View):
 
         for npc_id in present_npcs:
             self._add(npc_view.TalkToNpcButton(
-                npc_id, room["background_path"], self._rebuild, row=0,
-                label=npc_talk_labels.get(npc_id) or npcs.NPCS[npc_id].get("talk_label"),
+                npc_id, room["background_path"], self._back_to_room, row=0,
+                label=npcs.NPCS[npc_id].get("talk_label"),
             ))
             if npcs.NPCS[npc_id].get("shop"):
                 self._add(npc_view.ShopButton(npc_id, row=0))
             if npcs.NPCS[npc_id].get("buys_items"):
                 self._add(npc_view.SellButton(npc_id, row=0))
-            for state in npc_states[npc_id]:
-                if state["can_turn_in"]:
-                    self._add(npc_view.TurnInButton(
-                        state["quest_id"], room["background_path"], self._rebuild, row=0, item=state["item"],
-                        label=state["turn_in_label"],
-                    ))
 
         self._add(hub_ui.InventoryButton(row=0))
         self._add(hub_ui.EquipmentButton(row=0))
@@ -186,10 +178,10 @@ class RoomView(discord.ui.View):
         self.session.touch(interaction)
         return True
 
-    async def _rebuild(self, interaction: discord.Interaction, buf, filename: str):
-        """The `rebuild` callable threaded into every npc_view button on this room -- redraws the
-        room fresh and applies the dialogue image that button just rendered."""
-        embed, view, _file = await build_room_display(self.guild_id, self.user_id, self.room_id, self.session)
-        file = discord.File(buf, filename=filename)
-        embed.set_image(url=f"attachment://{filename}")
+    async def _back_to_room(self, interaction: discord.Interaction):
+        """The `back_to_room` callable threaded into npc_view.TalkToNpcButton -- the one transition
+        out of a conversation that needs a full, fresh room rebuild (every other conversation
+        screen-to-screen transition is handled entirely inside npc_view.py via _edit_dialogue,
+        without ever coming back through here)."""
+        embed, view, file = await build_room_display(self.guild_id, self.user_id, self.room_id, self.session)
         await interaction.response.edit_message(embed=embed, attachments=[file], view=view)

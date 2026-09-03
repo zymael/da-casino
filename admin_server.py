@@ -36,6 +36,7 @@ import dungeon_view
 import horse_clothes
 import housing
 import moon
+import npcs
 import quests
 import room_commands
 import rooms
@@ -3404,18 +3405,42 @@ def _render_path_row(prefix: str, path: dict) -> str:
     )
 
 
+def _render_discuss_with_row(name: str, npc_id: str | None) -> str:
+    """One NPC <select> row within a stage's own nested "discuss_with" repeatable -- every NPC
+    listed here offers this stage as a topic in their own conversation flow (npc_view.py), not just
+    this quest's own giver. Unlike every other row-builder here this one has just the one field, so
+    `name` is the input's actual name, not a "prefix_suffix" pair -- exact sibling of
+    _render_room_monster_row (delves)."""
+    options = "".join(
+        f'<option value="{nid}"{" selected" if nid == npc_id else ""}>{html.escape(npc["name"])} ({nid})</option>'
+        for nid, npc in npcs.NPCS.items()
+    )
+    return (
+        f'<div class="row-group" data-discuss-with-row><label>npc<select name="{name}">'
+        f'<option value=""{" selected" if not npc_id else ""}>—</option>{options}</select></label>'
+        f'<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
+    )
+
+
 def _render_stage_detail_panel(prefix: str, stage: dict) -> str:
-    """The collapsible per-stage field panel -- id/prompt/journal_text/button_label plus the
-    nested "paths" repeatable. Shown for at most one stage at a time (see the quest flowchart
-    script's selectStage), exact sibling of _render_room_detail_panel (delves) -- same "only the
-    selected stage's fields are ever on screen at once" idea. There is deliberately no "next" field
-    here at all -- each path's own connection is made by dragging its node's handle on the canvas
-    (_render_path_node), never typed."""
+    """The collapsible per-stage field panel -- id/prompt/journal_text/button_label/discuss_with
+    plus the nested "paths" repeatable. Shown for at most one stage at a time (see the quest
+    flowchart script's selectStage), exact sibling of _render_room_detail_panel (delves) -- same
+    "only the selected stage's fields are ever on screen at once" idea. There is deliberately no
+    "next" field here at all -- each path's own connection is made by dragging its node's handle on
+    the canvas (_render_path_node), never typed."""
     paths_container = f"{prefix}_paths"
     paths = stage.get("paths") or []
     path_rows_html = [_render_path_row(f"{paths_container}_{j}", p) for j, p in enumerate(paths)]
     path_template_html = _render_path_row(f"{paths_container}_ROWIDX", {})
     paths_repeatable = _render_repeatable(paths_container, path_rows_html, path_template_html, "+ Add path")
+
+    discuss_container = f"{prefix}_discuss_with"
+    discuss_with = stage.get("discuss_with") or []
+    discuss_rows_html = [_render_discuss_with_row(f"{discuss_container}_{j}", nid) for j, nid in enumerate(discuss_with)]
+    discuss_template_html = _render_discuss_with_row(f"{discuss_container}_ROWIDX", None)
+    discuss_repeatable = _render_repeatable(discuss_container, discuss_rows_html, discuss_template_html, "+ Add NPC")
+
     return (
         f'<div class="stage-detail-panel stage-row" data-stage-panel="{prefix}" hidden>'
         f'<div class="stage-detail-panel-header"><strong>Stage details</strong>'
@@ -3434,6 +3459,9 @@ def _render_stage_detail_panel(prefix: str, stage: dict) -> str:
         f'<label>button_label (optional)<input type="text" name="{prefix}_button_label" '
         f'placeholder="e.g. Ask about a place to stay" '
         f'value="{html.escape(stage.get("button_label", ""))}"></label>'
+        f'<label>discuss_with<small class="field-hint">Every NPC listed here offers this stage as '
+        f'a topic in their own Talk conversation while it\'s the player\'s current stage -- not '
+        f'just this quest\'s own giver.</small></label>{discuss_repeatable}'
         f'<label>paths<small class="field-hint">Each path gets its own arrow on the canvas -- two '
         f'or more paths already fork the quest by whichever trigger becomes satisfied first, no '
         f'separate "branch" concept needed. Leave empty for a dialogue-only stage that just sits '
@@ -4683,7 +4711,14 @@ def _parse_quest_flowchart(form: dict, existing_entry: dict) -> dict:
     _render_quest_flowchart). A stage discovered this way with a still-blank id (or, via
     _parse_paths, a path with no trigger) does NOT raise -- it's included in "stages" as-is and
     "errors" collects every such problem found, exactly the same non-raising philosophy
-    _parse_delve_flowchart documents at length."""
+    _parse_delve_flowchart documents at length.
+
+    "discuss_with" (a third nested repeatable, sibling to "paths") has no natural always-present
+    companion field the way a path's hidden "_next" input gives it one -- a bare <select> submits
+    whatever's currently chosen and nothing else -- so its rows are discovered by *non-blank value*
+    presence instead, the same convention _parse_delve_flowchart already uses for a combat room's
+    monster list. A row left on the blank "—" option is simply dropped, not stored as "" -- there's
+    nothing to "fix up" about an unset row the way a blank id/trigger is worth flagging as an error."""
     stage_indices = sorted(int(m.group(1)) for k in form if (m := re.fullmatch(r"stage_(\d+)_x", k)))
     next_ordinal = existing_entry.get("next_ordinal", 0)
 
@@ -4713,6 +4748,12 @@ def _parse_quest_flowchart(form: dict, existing_entry: dict) -> dict:
         button_label = form.get(f"{p}_button_label", "").strip()
         if button_label:
             stage["button_label"] = button_label
+
+        discuss_indices = sorted(
+            int(m.group(1)) for k in form
+            if (m := re.fullmatch(rf"{re.escape(p)}_discuss_with_(\d+)", k)) and form[k].strip()
+        )
+        stage["discuss_with"] = [form[f"{p}_discuss_with_{j}"].strip() for j in discuss_indices]
 
         paths, path_errors = _parse_paths(f"{p}_paths", form)
         errors.extend(path_errors)

@@ -156,16 +156,17 @@ Field types the generic form-builder knows how to render:
     on with this stage regardless of which path eventually resolves it. reward_item_kind picks
     which of quests.REWARD_REGISTRIES' kinds reward_item is looked up in (defaults to "equipment"
     if blank, for every quest authored before reward_item_kind existed). button_label is optional
-    -- while this stage is the player's current one with this NPC, it overrides the room's "Talk to
-    X" button (see quests.npc_talk_label); blank keeps the generic default. turn_in_label is the
-    same idea but for the *turn-in* button instead, and lives on the path (not the stage) since
-    different paths out of one stage can each want their own label -- blank keeps its own generic
-    default ("Give X the Y" for a turn_in_item trigger, else "Turn in to X"). button_label and
-    turn_in_label are separate fields because they're two different buttons: button_label only ever
-    relabels "Talk to X" (which just re-shows this stage's prompt), turn_in_label relabels the
-    button that actually resolves a specific path -- conflating them reads as a button lying about
-    what it does (e.g. a "Pay rent" button that only talks, while the real payment happens on a
-    separately-labeled "Turn in to X"). A stage's canvas position is written into a new top-level
+    -- it's this stage's own "topic" button text inside an NPC's conversation flow (see
+    npc_view.NpcConversationView/quests._topic_label), shown once this stage is discussable there;
+    blank keeps a generic computed default ("💬 Ask about {quest name}"). turn_in_label is the same
+    idea but for the *turn-in confirm* button one screen deeper, and lives on the path (not the
+    stage) since different paths out of one stage can each want their own label -- blank keeps its
+    own generic default ("Give X the Y" for a turn_in_item trigger, else "Turn in to X"). Which
+    NPCs offer this stage as a topic at all is a separate nested repeatable, "discuss_with" (a list
+    of npc ids, each row just one <select> sourced from npcs.NPCS -- see
+    admin_server._render_discuss_with_row) -- not gated to this quest's own giver, so a stage can be
+    made discussable with any NPC the story calls for; migrated content defaults every stage to
+    just the giver, matching pre-existing behavior. A stage's canvas position is written into a new top-level
     "layout" field on the quest (dict of stage id -> {x, y}, exact analog of a delve's own
     "layout"); a path's own canvas position is stored directly on the path (it has no stable id of
     its own to key an external layout dict by, exactly like a delve action). "ordinal" (also on
@@ -176,7 +177,8 @@ Field types the generic form-builder knows how to render:
     (though, unlike delve_flowchart, never image uploads -- quest stages carry no images), its
     render and parse sides are all special-cased outside the usual _render_field/_parse_field
     dispatch (see admin_server._render_quest_flowchart/_render_stage_box/
-    _render_stage_detail_panel/_render_path_row and _parse_quest_flowchart/_parse_paths) and
+    _render_stage_detail_panel/_render_path_row/_render_discuss_with_row and
+    _parse_quest_flowchart/_parse_paths) and
     _dynamic_script's wireRepeatAdd for how "+ Add Stage"/"+ Add path" wiring stays correct at the
     nested depth.
   - "room_exits" -- a repeatable list of {room_id, label}, room_id a <select> sourced live from
@@ -1004,8 +1006,7 @@ CONTENT_TYPES = {
             },
             {
                 "name": "talk_label", "type": "str", "required": False, "group": "Dialogue",
-                "hint": "optional -- overrides the Talk button's default \"Talk to X\" label. A "
-                        "quest's own button_label (while that quest is active) still wins over this.",
+                "hint": "optional -- overrides the Talk button's default \"Talk to X\" label.",
             },
             {
                 "name": "visible_trigger", "type": "trigger", "required": False,

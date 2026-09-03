@@ -31,6 +31,9 @@
             "x": 230,
             "y": 40
           }
+        ],
+        "discuss_with": [
+          "kel"
         ]
       }
     ]
@@ -70,6 +73,9 @@
             "y": 40,
             "reward_item": "greasy_pencil"
           }
+        ],
+        "discuss_with": [
+          "mondor"
         ]
       }
     ]
@@ -116,6 +122,9 @@
             "reward_item_kind": "housing_item",
             "next": "stage_1"
           }
+        ],
+        "discuss_with": [
+          "leto"
         ]
       },
       {
@@ -134,6 +143,9 @@
             "y": 40,
             "turn_in_label": "\ud83d\udcb0 Pay rent"
           }
+        ],
+        "discuss_with": [
+          "leto"
         ]
       }
     ]
@@ -154,7 +166,10 @@
         "ordinal": 0,
         "prompt": "*The Goo takes one look at you, still dripping and bruised, and goes very still.*\r\n\r\n*Then they start rummaging under the counter, pulling out fishing tackle you didn't know they sold, quivering the whole time.*",
         "journal_text": "The Goo has given you fishing tackle for something.",
-        "paths": []
+        "paths": [],
+        "discuss_with": [
+          "the_goo"
+        ]
       }
     ],
     "layout": {
@@ -201,6 +216,9 @@
             "y": 40,
             "turn_in_label": "\ud83d\udcc4 Show the flier"
           }
+        ],
+        "discuss_with": [
+          "the_goo"
         ]
       }
     ]

@@ -1,0 +1,106 @@
+{
+  "kel_romance": {
+    "id": "kel_romance",
+    "name": "Memories of Horses",
+    "npc": "kel",
+    "start_trigger": {
+      "type": "achievement",
+      "kind": "love_in_bloom"
+    },
+    "journal_startable": false,
+    "active": true,
+    "stages": [
+      {
+        "id": "stage_0",
+        "ordinal": 0,
+        "prompt": "*Kel scuffs his boot in the dirt.* \"...I used to whittle, you know. Haven't picked it back up in years. Lost the last thing I ever carved. Silly to miss a piece of wood this much.\"",
+        "journal_text": "Give Kel a wooden horse carving.",
+        "paths": [
+          {
+            "trigger": {
+              "type": "turn_in_item",
+              "item_id": "wooden_horse_carving"
+            },
+            "on_complete_message": "*Kel Blushes* ...You're giving this to me? It's beautiful. Thank you. Really.\"",
+            "x": 230.0,
+            "y": 40.0
+          }
+        ]
+      }
+    ],
+    "layout": {
+      "stage_0": {
+        "x": 40.0,
+        "y": 40.0
+      }
+    },
+    "start_stage": "stage_0",
+    "next_ordinal": 1
+  },
+  "leto_first_home": {
+    "id": "leto_first_home",
+    "name": "First Home",
+    "npc": "leto",
+    "start_trigger": {
+      "type": "achievement",
+      "kind": "greeted_leto"
+    },
+    "journal_startable": false,
+    "active": true,
+    "complete_message": "That's Shacktown, Baby.  that's Shacktown.",
+    "stages": [
+      {
+        "id": "stage_0",
+        "ordinal": 0,
+        "prompt": "You don't have a trailer... a tent... or even a sleeping bag. I can't have you just sitting in the dirt. Come back when you have something to use the land for.",
+        "journal_text": "Bring Leto a sleeping bag to prove you're serious about staying.",
+        "button_label": "\ud83c\udfd5\ufe0f Ask about a place to stay",
+        "paths": [
+          {
+            "trigger": {
+              "type": "turn_in_item",
+              "drop_monster": "goblin_grunt",
+              "item_id": "goblins_sleeping_bag"
+            },
+            "on_complete_message": "Is that... a sleeping bag?  I was joking you realize, you ne-\r\n\r\nNah, you know what fine. First month's rent is 100 flakes.  Pay it and you can live in squalor to your heart's content.",
+            "reward_item": "cozy_sleeping_bag",
+            "reward_item_kind": "housing_item",
+            "next": "stage_1",
+            "x": 230.0,
+            "y": 40.0
+          }
+        ]
+      },
+      {
+        "id": "stage_1",
+        "ordinal": 1,
+        "prompt": "Is that... a sleeping bag?  I was joking you realize, you ne-\r\n\r\nNah, you know what fine. First month's rent is 100 flakes.  Pay it and you can live in squalor to your heart's content.",
+        "journal_text": "Pay Leto 100 flakes for your first month's rent.",
+        "paths": [
+          {
+            "trigger": {
+              "type": "pay_currency",
+              "amount": 100
+            },
+            "on_complete_message": "Rent's paid. Land's yours to use. Don't make me regret this.",
+            "turn_in_label": "\ud83d\udcb0 Pay rent",
+            "x": 450.0,
+            "y": 40.0
+          }
+        ]
+      }
+    ],
+    "layout": {
+      "stage_0": {
+        "x": 40.0,
+        "y": 40.0
+      },
+      "stage_1": {
+        "x": 260.0,
+        "y": 40.0
+      }
+    },
+    "start_stage": "stage_0",
+    "next_ordinal": 2
+  }
+}

@@ -17,8 +17,8 @@ import quests
 class JournalTurnInButton(discord.ui.Button):
     """One per quest quest_log reports can_turn_in -- calls quests.turn_in directly (it only ever
     needed a quest_id, never an npc_id) and reports the result as a followup, same wording as
-    npc_view.TurnInButton's, just without that button's room-banner redraw since !journal isn't a
-    room."""
+    npc_view.NpcTurnInButton's, just without that button's conversation-screen redraw since
+    !journal isn't a room."""
 
     def __init__(self, entry: dict, row: int):
         npc = npcs.NPCS[quests.QUESTS_BY_ID[entry["quest_id"]]["npc"]]

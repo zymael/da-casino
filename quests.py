@@ -17,15 +17,26 @@ a room can freely be addressed by its own editable id -- a quest's progress has 
 sessions in an integer-only flags table, so its *durable* identity (ordinal) has to stay stable even
 while its *authoring* identity (id) can be freely renamed or the stage list reordered/extended.
 
-_try_start_quest has two callers: talk_to_npc (npc-scoped, the original "visit the NPC and it
-offers itself" flow) and check_new_quests (every quest at once, journal_view.py's !journal entry
-point for starting a quest without visiting anyone) -- both are equally real, a quest doesn't care
-which one triggered it. turn_in likewise has two callers: npc_view.py's TurnInButton (still fully
-supported) and journal_view.py's JournalTurnInButton -- turn_in itself only ever needed a quest_id,
-never an npc_id, so nothing about it had to change to support a second caller. An optional
-path_index lets a caller resolve one specific path explicitly (for a stage with more than one path
-open at once); omitted, turn_in auto-picks the first currently-satisfied path -- every quest today
-has exactly one path per stage, so this is the only behavior any existing content ever exercises.
+_try_start_quest has two callers: npc_greet (npc-scoped, the original "visit the NPC and it offers
+itself" flow) and check_new_quests (every quest at once, journal_view.py's !journal entry point for
+starting a quest without visiting anyone) -- both are equally real, a quest doesn't care which one
+triggered it. turn_in likewise has two callers: npc_view.py's NpcTurnInButton (nested inside a
+topic's detail screen, not a room-level button) and journal_view.py's JournalTurnInButton --
+turn_in itself only ever needed a quest_id, never an npc_id, so nothing about it had to change to
+support a second caller. An optional path_index lets a caller resolve one specific path explicitly
+(for a stage with more than one path open at once); omitted, turn_in auto-picks the first
+currently-satisfied path -- every quest today has exactly one path per stage, so this is the only
+behavior any existing content ever exercises.
+
+Which NPCs currently have anything to say about a stage is its own concern, orthogonal to the graph
+above: each stage carries a "discuss_with" list of npc ids (validated against npcs.NPCS, same as
+the quest's own top-level "npc"). npc_greet (an NPC's conversation entry point, replacing the old
+talk_to_npc) offers a "topic" button for a quest's current stage on every NPC listed there -- not
+just the quest's own giver -- plus a permanent giver-only wrap-up topic once the quest is complete
+(matching the pre-existing "complete_message shows forever" behavior, deliberately not gated by
+discuss_with since a completed stage no longer exists to carry the list). quest_topic_state is the
+one place "what does this quest currently look like to show" is computed, reused both by
+npc_greet's topic-list building and by npc_view.py's click-time refresh of an already-open topic.
 
 This module deliberately knows nothing about *why* an achievement was earned or a monster was
 killed -- it only ever reads state other systems already own (personal_achievements, inventory,
@@ -58,7 +69,7 @@ _QUESTS_PATH = os.path.join(os.path.dirname(__file__), "quests.json")
 _QUEST_DRAFTS_PATH = os.path.join(os.path.dirname(__file__), "quest_drafts.json")
 _REQUIRED_ITEM_FIELDS = {"id", "name", "emoji", "description"}
 _REQUIRED_QUEST_FIELDS = {"id", "name", "npc", "start_trigger", "start_stage", "stages"}
-_REQUIRED_STAGE_FIELDS = {"id", "ordinal", "prompt", "journal_text", "paths"}
+_REQUIRED_STAGE_FIELDS = {"id", "ordinal", "prompt", "journal_text", "paths", "discuss_with"}
 _REQUIRED_PATH_FIELDS = {"trigger", "on_complete_message"}
 
 # type -> (required param names, optional param names). Valid both as a quest's top-level
@@ -320,7 +331,7 @@ def _validate_trigger(trigger: dict, context: str):
 def _load_quests(path: str = _QUESTS_PATH) -> dict[str, dict]:
     """A quest's "start_trigger" is validated exactly like a path's "trigger" (see
     TRIGGER_SCHEMAS/_validate_trigger) -- both use the same condition vocabulary, just checked at
-    a different moment (talk_to_npc vs turn_in). Note an "achievement" trigger's "kind" isn't
+    a different moment (npc_greet vs turn_in). Note an "achievement" trigger's "kind" isn't
     cross-checked against achievements.ACHIEVEMENTS here -- quests.py can't import achievements.py
     (achievements.py has no reason to import quests.py either, now that starting is checked lazily
     rather than pushed from an achievement-unlock call site, but the reverse direction still would
@@ -330,8 +341,10 @@ def _load_quests(path: str = _QUESTS_PATH) -> dict[str, dict]:
 
     Each stage: "id" (referenced by a path's "next"), "ordinal" (permanent, never reused, never
     editable -- backs the durable progress flag), "prompt" (NPC dialogue shown while this stage is
-    active), "journal_text" (the !journal objective line), "button_label" (optional), and "paths"
-    (a list, possibly empty for a dialogue-only terminal). Each path: "trigger" (what advances it),
+    active), "journal_text" (the !journal objective line), "button_label" (optional), "discuss_with"
+    (a list of npc ids -- every one of them offers a topic button for this stage while it's the
+    player's current one, not just this quest's own giver; possibly empty), and "paths" (a list,
+    possibly empty for a dialogue-only terminal). Each path: "trigger" (what advances it),
     "on_complete_message", "next" (a stage id, or absent to end the quest), and either a currency
     "reward" or a "reward_item" (any REWARD_REGISTRIES kind, see turn_in -- an equipment one is
     always stored, never auto-equipped).
@@ -379,6 +392,9 @@ def _load_quests(path: str = _QUESTS_PATH) -> dict[str, dict]:
             if ordinal in ordinals:
                 raise ValueError(f"quests.json: quest {quest_id!r} has duplicate stage ordinal {ordinal!r}")
             ordinals.add(ordinal)
+            for npc_id in stage["discuss_with"]:
+                if npc_id not in npcs.NPCS:
+                    raise ValueError(f"{context} (id {stage_id!r}) discuss_with references unknown npc {npc_id!r}")
             for j, path in enumerate(stage["paths"]):
                 path_context = f"{context} (id {stage_id!r}) path {j}"
                 missing_path = _REQUIRED_PATH_FIELDS - path.keys()
@@ -518,6 +534,9 @@ def check_quest_problems(entry: dict, other_ids: set[str]) -> list[dict]:
         missing_stage = _REQUIRED_STAGE_FIELDS - stage.keys()
         if missing_stage:
             add(f"missing field(s): {sorted(missing_stage)}", stage_id=stage_id)
+        for npc_id in stage.get("discuss_with") or []:
+            if npc_id not in npcs.NPCS:
+                add(f"discuss_with references unknown npc {npc_id!r}", stage_id=stage_id)
         for i, path in enumerate(stage.get("paths") or []):
             missing_path = _REQUIRED_PATH_FIELDS - path.keys()
             if missing_path:
@@ -780,8 +799,8 @@ async def npcs_present_in_room(guild_id: int, user_id: int, room_id: str) -> lis
 
 async def _current_stage_matched_path(guild_id: int, user_id: int, quest: dict, stage: dict) -> dict | None:
     """The first path (in list order) on `stage` whose trigger is currently satisfied, or None --
-    shared by talk_to_npc/quest_log and turn_in's own auto-pick resolution, so "is this stage ready
-    to turn in, and via which path" is computed exactly one way. For every quest today (one path
+    shared by quest_topic_state/quest_log and turn_in's own auto-pick resolution, so "is this stage
+    ready to turn in, and via which path" is computed exactly one way. For every quest today (one path
     per stage) this is equivalent to the old single-trigger check; a future branching stage with
     several simultaneously-satisfiable paths picks whichever comes first in quests.json order."""
     for path in stage["paths"]:
@@ -795,7 +814,7 @@ async def quest_log(guild_id: int, user_id: int) -> list[dict]:
     "npc", "stage_index", "total_stages", "complete", "journal_text", "can_turn_in", "item",
     "turn_in_label"}. "journal_text" is the objective-style line !journal shows (or the quest's
     complete_message once done) -- distinct from a stage's "prompt" (only ever what the NPC itself
-    says, see talk_to_npc) because a journal entry reads like a task ("Give Kel a wooden horse
+    says, see quest_topic_state) because a journal entry reads like a task ("Give Kel a wooden horse
     carving") rather than dialogue. Backs !journal (journal_view.py, aliased as !quests); "name"
     (quests.json's own authored title) is what identifies each entry -- "npc" is only the giver,
     and multiple quests can share one NPC (e.g. the_goo), so npc alone can't tell two entries
@@ -885,29 +904,6 @@ def _quests_for_npc(npc_id: str) -> list[dict]:
     return [quest for quest in QUESTS_BY_ID.values() if quest["npc"] == npc_id]
 
 
-async def npc_talk_label(guild_id: int, user_id: int, npc_id: str) -> str | None:
-    """The first active, in-progress quest stage's own "button_label" for this NPC, if any is set
-    -- lets a room's TalkToNpcButton read as "Ask about a place to stay" or "Pay rent" instead of
-    a generic "Talk to X" once there's actually something specific going on, editable per-stage in
-    the admin panel's quest editor right alongside prompt/reward. Returns None (caller falls back
-    to its own default label) if no active quest with this NPC has an in-progress stage with a
-    button_label set -- deliberately read-only (only ever looks at an *already-started* quest's
-    current stage via _get_stage_ordinal) so calling this to build a room's display can never
-    itself start a quest the way talk_to_npc does; a quest that hasn't been started yet (or was
-    already completed) never overrides the default label."""
-    for quest in _quests_for_npc(npc_id):
-        ordinal = await _get_stage_ordinal(guild_id, user_id, quest["id"])
-        if ordinal is None:
-            continue
-        stage = _stage_by_ordinal(quest).get(ordinal)
-        if stage is None:
-            continue
-        label = stage.get("button_label")
-        if label:
-            return label
-    return None
-
-
 async def trigger_satisfied(
     guild_id: int, user_id: int, trigger: dict, *, quest_id: str | None = None, stage: int | None = None,
     character: dict | None = None,
@@ -965,7 +961,7 @@ async def record_progress(guild_id: int, user_id: int, event_type: str, **event_
     started quest's start_trigger, or every one of an in-progress quest's current-stage paths) if
     they're a counted type matching event_type. This never starts or advances anything itself -- it
     only ever moves a counter closer to satisfied; _start_quest and _advance_via_path are only ever
-    called from talk_to_npc / turn_in respectively, once the player actually visits the NPC (or
+    called from npc_greet / turn_in respectively, once the player actually visits the NPC (or
     !journal). No-ops for event types nothing is listening for (achievement isn't event-sourced at
     all -- see trigger_satisfied)."""
     matcher = _TRIGGER_MATCHERS.get(event_type)
@@ -991,7 +987,7 @@ async def record_progress(guild_id: int, user_id: int, event_type: str, **event_
 async def _try_start_quest(guild_id: int, user_id: int, quest: dict) -> bool:
     """True (and actually starts it) if `quest` is active, isn't started yet, and its start_trigger
     is now satisfied. The one place "how does a quest start" lives -- see the module docstring for
-    its two callers (talk_to_npc, npc-scoped, and check_new_quests, every quest at once). The
+    its two callers (npc_greet, npc-scoped, and check_new_quests, every quest at once). The
     active gate here (not anywhere else) is deliberate: it only ever blocks a *new* start, never an
     already-started player from continuing/turning in -- unlike a delve (whose active flag also
     gates entirely-ephemeral in-run state), a quest carries durable cross-session progress, and
@@ -1014,7 +1010,7 @@ async def check_new_quests(guild_id: int, user_id: int) -> list[str]:
     satisfied, regardless of which NPC it belongs to -- journal_view.py's !journal entry point for
     starting a quest without visiting anyone. journal_startable defaults False -- a quest only
     starts this way if it's explicitly opted in (quests.json/admin panel); every other quest still
-    only ever starts by talking to its NPC (talk_to_npc, unaffected by this flag -- it always starts
+    only ever starts by talking to its NPC (npc_greet, unaffected by this flag -- it always starts
     whatever it's scoped to, same as before). Returns the ids of whatever quests this call actually
     started, in quests.json order."""
     started = []
@@ -1026,64 +1022,84 @@ async def check_new_quests(guild_id: int, user_id: int) -> list[str]:
     return started
 
 
-async def talk_to_npc(guild_id: int, user_id: int, npc_id: str) -> list[dict]:
-    """Returns one {"quest_id", "prompt", "can_turn_in", "item", "turn_in_label", "complete",
-    "just_started"} entry per quest this player has active (or just started) with this NPC -- an
-    NPC can have more than one eligible quest at once, so this is a list rather than a single
-    merged dict (an earlier version collapsed every quest into one result and silently let
-    whichever quest came last in quests.json order clobber the rest, which also meant the
-    displayed prompt and the thing turn_in would actually resolve could disagree once a second
-    quest existed). A stage with no path currently satisfied reports can_turn_in False, same as one
-    with no paths at all (a dialogue-only endpoint). "complete" marks a quest whose complete_message
-    is now showing (every path taken ended it) -- callers that want a one-off visual (e.g. a reveal
-    sprite) for one specific quest check for its quest_id here rather than "any NPC quest is
-    done". "turn_in_label" is the matched path's own optional override for the TurnInButton's label
-    -- distinct from button_label (which only ever relabels the Talk button, see npc_talk_label)
-    because a turn-in with nothing physical to hand over (pay_currency, flag_at_least, ...) has no
-    `item` to build a "Give X the Y" default from, so it'd otherwise always read as the generic
-    "Turn in to X" -- confusable with a button_label like "Pay rent" sitting on the Talk button
-    instead, which just re-shows the prompt rather than actually paying anything. "just_started"
-    is True only for a quest that started on this very call (see below) -- callers use it to
-    notify the player a new quest showed up, without confusing it for a quest that was already
-    underway.
+def _topic_label(quest: dict, stage: dict | None) -> str:
+    """A topic button's own text -- the current stage's own "button_label" if the author set one
+    (e.g. "🏕️ Ask about a place to stay"), else a generic computed default. `stage` is None for a
+    completed quest's wrap-up topic (no current stage to draw a button_label from)."""
+    if stage is not None and stage.get("button_label"):
+        return stage["button_label"]
+    return f"💬 Ask about {quest['name']}" if stage is not None else f"💬 {quest['name']}"
+
+
+async def quest_topic_state(guild_id: int, user_id: int, quest_id: str) -> dict | None:
+    """None if this player hasn't started `quest_id` yet. Otherwise {"quest_id", "name", "label",
+    "prompt", "can_turn_in", "item", "turn_in_label", "complete"} -- the one place "what does this
+    quest currently look like to show" is computed, reused both by npc_greet's topic-list building
+    and by npc_view.py's click-time refresh of an already-open topic (so a topic's displayed state
+    is never resolved two different ways). "prompt" is the current stage's own dialogue, or the
+    quest's complete_message once done; "label" is this topic's own button text (_topic_label) --
+    included here too so a post-turn-in re-render of a still-open topic doesn't need a second
+    lookup to relabel it."""
+    quest = QUESTS_BY_ID[quest_id]
+    ordinal = await _get_stage_ordinal(guild_id, user_id, quest_id)
+    if ordinal is None:
+        return None
+    stage = _stage_by_ordinal(quest).get(ordinal)
+    if stage is None:
+        return {
+            "quest_id": quest_id, "name": quest["name"], "label": _topic_label(quest, None),
+            "prompt": quest.get("complete_message", DEFAULT_COMPLETE_MESSAGE),
+            "can_turn_in": False, "item": None, "turn_in_label": None, "complete": True,
+        }
+    matched = await _current_stage_matched_path(guild_id, user_id, quest, stage)
+    item = (
+        QUEST_ITEMS[matched["trigger"]["item_id"]]
+        if matched and matched["trigger"]["type"] == "turn_in_item" else None
+    )
+    return {
+        "quest_id": quest_id, "name": quest["name"], "label": _topic_label(quest, stage),
+        "prompt": stage["prompt"], "can_turn_in": matched is not None, "item": item,
+        "turn_in_label": matched.get("turn_in_label") if matched else None, "complete": False,
+    }
+
+
+async def npc_greet(guild_id: int, user_id: int, npc_id: str) -> dict:
+    """The entry point for opening a conversation with an NPC -- returns {"just_started":
+    [quest_id, ...], "topics": [quest_topic_state(...) dict, ...]}.
 
     Starts a not-yet-started quest exactly like check_new_quests does (via the same
-    _try_start_quest), just scoped to this one NPC's quests instead of every quest -- talking to
-    the giving NPC and opening !journal are equally valid ways to pick up a new quest."""
-    results = []
-    for quest in _quests_for_npc(npc_id):
+    _try_start_quest), just scoped to this one NPC's own quests (_quests_for_npc) instead of every
+    quest -- talking to the giving NPC and opening !journal are equally valid ways to pick up a new
+    quest. "just_started" lists whatever this call actually started, for a caller that wants to
+    notify the player a new quest showed up.
+
+    "topics" is every quest ANYWHERE (not just ones this npc gives) currently relevant to a
+    conversation with npc_id: an in-progress quest whose current stage's "discuss_with" includes
+    npc_id, or a quest THIS npc gives that's now complete (a wrap-up topic -- deliberately never
+    discuss_with-gated, since a completed stage no longer exists to carry that list; matches the
+    pre-existing "complete_message shows forever via the giving NPC" behavior)."""
+    just_started = [
+        quest["id"] for quest in _quests_for_npc(npc_id) if await _try_start_quest(guild_id, user_id, quest)
+    ]
+    topics = []
+    for quest in QUESTS_BY_ID.values():
         ordinal = await _get_stage_ordinal(guild_id, user_id, quest["id"])
-        just_started = False
         if ordinal is None:
-            if not await _try_start_quest(guild_id, user_id, quest):
-                continue
-            ordinal = _stages_by_id(quest)[quest["start_stage"]]["ordinal"]
-            just_started = True
-        stage = _stage_by_ordinal(quest).get(ordinal)
-        if stage is None:
-            results.append({
-                "quest_id": quest["id"], "prompt": quest.get("complete_message", DEFAULT_COMPLETE_MESSAGE),
-                "can_turn_in": False, "item": None, "complete": True, "just_started": just_started,
-            })
             continue
-        matched = await _current_stage_matched_path(guild_id, user_id, quest, stage)
-        can_turn_in = matched is not None
-        item = (
-            QUEST_ITEMS[matched["trigger"]["item_id"]]
-            if matched and matched["trigger"]["type"] == "turn_in_item" else None
-        )
-        turn_in_label = matched.get("turn_in_label") if matched else None
-        results.append({
-            "quest_id": quest["id"], "prompt": stage["prompt"], "can_turn_in": can_turn_in, "item": item,
-            "turn_in_label": turn_in_label, "complete": False, "just_started": just_started,
-        })
-    return results
+        stage = _stage_by_ordinal(quest).get(ordinal)
+        if stage is not None:
+            if npc_id not in stage["discuss_with"]:
+                continue
+        elif quest["npc"] != npc_id:
+            continue
+        topics.append(await quest_topic_state(guild_id, user_id, quest["id"]))
+    return {"just_started": just_started, "topics": topics}
 
 
 async def turn_in(guild_id: int, user_id: int, quest_id: str, path_index: int | None = None) -> dict:
     """Resolves this specific quest's current stage and, if one of its paths' triggers is
     satisfied, consumes its cost (if any) and advances via that path. Takes a quest_id rather than
-    an npc_id -- an NPC can have more than one eligible quest active at once (see talk_to_npc), so
+    an npc_id -- an NPC can have more than one eligible quest active at once (see npc_greet), so
     "which quest this button turns in" has to be decided by whoever built that button, not
     re-resolved ambiguously here. `path_index`, if given, resolves one specific path explicitly
     (for a stage with more than one path open at once); omitted (every caller today omits it --
