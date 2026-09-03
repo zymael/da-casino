@@ -334,6 +334,7 @@
               "nakedgnome_3",
               "nakedgnome_2"
             ],
+            "chance": 1,
             "fork": true,
             "next": "Sneaky Hobos",
             "x": 951.0,
@@ -345,7 +346,7 @@
               "bath_witch",
               "enchanted_comb"
             ],
-            "chance": 99,
+            "chance": 0.25,
             "fork": true,
             "next": "Witch Meltdown",
             "x": 1052.0,
