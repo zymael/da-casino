@@ -445,15 +445,14 @@ def _monster_card(monster: dict) -> dict:
 
 
 def _combat_intro_text(room: dict, monsters: list[dict]) -> str:
-    """The description shown the moment a combat room is entered -- the room's own optional
-    "prompt" (introducing the room itself, dungeon.py's module docstring) followed by every rolled
-    monster's own flavor text. Only ever used at room-entry (_build_room_display/
-    _build_party_room_display); a later combat-turn embed reuses _combat_embed/_party_combat_embed
-    with the fight's actual log lines instead, so a room's intro is shown exactly once per visit,
-    not repeated on every attack."""
-    parts = [f"*{room['prompt']}*"] if room.get("prompt") else []
-    parts.extend(f"*{m['flavor']}*" for m in monsters)
-    return "\n\n".join(parts)
+    """The description shown the moment a combat room is entered -- every rolled monster's own
+    flavor text. Only ever used at room-entry (_build_room_display/_build_party_room_display); a
+    later combat-turn embed reuses _combat_embed/_party_combat_embed with the fight's actual log
+    lines instead, so a monster's intro flavor is shown exactly once per visit, not repeated on
+    every attack. Does NOT include the room's own "prompt" -- that's _apply_room_header's job (a
+    persistent embed field stamped on every rebuild, entry included), so putting it here too would
+    just duplicate it on this first embed specifically."""
+    return "\n\n".join(f"*{m['flavor']}*" for m in monsters)
 
 
 def _solo_turn_order_cards(session: DelveSession) -> list[dict]:
