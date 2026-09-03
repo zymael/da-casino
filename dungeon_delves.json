@@ -338,8 +338,8 @@
             "chance": 0.333,
             "fork": true,
             "next": "Sneaky Hobos",
-            "x": 951.0,
-            "y": 459.0,
+            "x": 880.0,
+            "y": 318.0,
             "party_extra_monster": "nakedgnome_3"
           },
           {
@@ -350,8 +350,8 @@
             "chance": 0.333,
             "fork": true,
             "next": "Sneaky Hobos",
-            "x": 951.0,
-            "y": 499.0,
+            "x": 1046.0,
+            "y": 420.0,
             "party_extra_monster": "nakedgnome_2"
           },
           {
@@ -362,8 +362,8 @@
             "chance": 0.333,
             "fork": true,
             "next": "Sneaky Hobos",
-            "x": 951.0,
-            "y": 539.0,
+            "x": 851.0,
+            "y": 450.0,
             "party_extra_monster": "nakedgnome_1"
           },
           {
@@ -379,7 +379,6 @@
             "y": 87.0
           }
         ],
-        "next": "A desperate choice!",
         "prompt": "As you remove the curtains to enter in what you think is the main room, it turns out you stumble into a private bath!"
       },
       {
