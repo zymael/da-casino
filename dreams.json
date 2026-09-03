@@ -3,7 +3,7 @@
     "id": "the_gods",
     "name": "The First Encounter",
     "message": "As you sleep, you find yourself dreaming of a vast, blue skyscape that stretches in all directions around you.  Four strange figures, shrouded in either red or black float in a slow circle around, humming in a way that vibrates your very being.  Despite this, you feel safe.  At peace.\r\n\r\nWhen you wake up, you find in your hand a single gold coin, warm to the touch.\r\n\r\nIt makes you really feel like gambling.",
-    "active": true,
+    "active": false,
     "item_kind": "quest_item",
     "item_id": "lucky_coin"
   },
