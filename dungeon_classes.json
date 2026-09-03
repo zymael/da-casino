@@ -15,7 +15,7 @@
     "level_hp_gain": 3,
     "level_atk_gain": 2,
     "level_def_gain": 2,
-    "level_spatk_gain": 0,
+    "level_spatk_gain": 1,
     "level_spdef_gain": 1
   },
   {
@@ -51,8 +51,8 @@
     "chips": 45,
     "speed": 9,
     "level_hp_gain": 2,
-    "level_atk_gain": 0,
-    "level_def_gain": 0,
+    "level_atk_gain": 1,
+    "level_def_gain": 1,
     "level_spatk_gain": 2,
     "level_spdef_gain": 1
   },
@@ -71,8 +71,8 @@
     "speed": 16,
     "level_hp_gain": 2,
     "level_atk_gain": 2,
-    "level_def_gain": 0,
-    "level_spatk_gain": 0,
+    "level_def_gain": 1,
+    "level_spatk_gain": 1,
     "level_spdef_gain": 1
   }
 ]
