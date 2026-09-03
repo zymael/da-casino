@@ -503,7 +503,7 @@
     "intended_level": 14,
     "shape": "hexagon",
     "color": "#000000",
-    "flavor": "A gnome that likes to pat his phat belly",
+    "flavor": "A large gnome stands before you, patting his hairy belly.  He looks at you with sinister intent.  Gross.",
     "loot_min": 35,
     "loot_max": 70,
     "drops": [
@@ -522,6 +522,7 @@
       {
         "name": "Belly slam",
         "chance": 0.3,
+        "special": false,
         "effects": [
           {
             "type": "lifesteal_fraction",
