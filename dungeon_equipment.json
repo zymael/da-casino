@@ -1166,9 +1166,6 @@
     "name": "Leopard-Print Thong",
     "slot": "armor",
     "rarity": "rare",
-    "intended_level": 14,
-    "base_value": 950,
-    "flavor": "You don't want to know how it grants Special Attack. Nobody does. It just believes in itself, loudly.",
     "effects": [
       {
         "type": "spatk_buff",
@@ -1183,10 +1180,14 @@
       {
         "type": "spatk_buff",
         "trigger": "on_hit",
-        "value": 2,
-        "chance": 0.2
+        "chance": 0.2,
+        "value": 2
       }
-    ]
+    ],
+    "special": false,
+    "intended_level": 14,
+    "base_value": 950,
+    "flavor": "The way this caresses your bits gives you fills you with unearned confidence.\r\n\r\nEasy tiger.  Erm.  Leopard."
   },
   {
     "id": "massaging_wand",
