@@ -2001,18 +2001,26 @@ async def _build_combat_view(session: DelveSession) -> "CombatView":
     return CombatView(session, usable_items)
 
 
-async def _solo_death_embed(session: DelveSession, log_lines: list[str]) -> discord.Embed:
-    """Ends the delve (via _forfeit) and builds the "You Have Fallen" embed -- shared by every
-    place a solo player's hp can drop to 0 (their own action's aftermath, a monster's turn, or a
-    DoT ticking as their own turn comes up), so there's one death screen, not one per cause."""
+async def _solo_death_embed(interaction: discord.Interaction, session: DelveSession, log_lines: list[str]) -> None:
+    """Ends the delve (via _forfeit), sends the "You Have Fallen" embed as the interaction's own
+    response, and (as a followup, per achievements.py's "response must go out first" ordering)
+    awards killed_by_zgoolok if Z'Goolok is the one who did it -- shared by every place a solo
+    player's hp can drop to 0 (their own action's aftermath, a monster's turn, or a DoT ticking as
+    their own turn comes up), so there's one death screen, not one per cause."""
     currency = db.get_currency_name(session.guild_id)
+    killed_by_zgoolok = any(m.monster["id"] == "z_goolok" for m in session.monsters)
     await _forfeit(session)
-    return discord.Embed(
+    embed = discord.Embed(
         title="💀 You Have Fallen",
         description="\n".join(log_lines) + f"\n\nYou're carried out of the dungeon empty-handed, losing this "
         f"delve's **{session.loot_total}** {currency} haul.",
         color=discord.Color.dark_red(),
     )
+    await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+    if killed_by_zgoolok:
+        await achievements.try_award_many(
+            interaction.followup.send, session.guild_id, session.user_id, session.display_name, ["killed_by_zgoolok"]
+        )
 
 
 async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSession, log_lines: list[str]) -> None:
@@ -2047,8 +2055,7 @@ async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSe
             cc_type = _active_cc_type(session)
             _tick_timed_effects([session], log_lines)
             if session.hp <= 0:
-                embed = await _solo_death_embed(session, log_lines)
-                await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+                await _solo_death_embed(interaction, session, log_lines)
                 return
             if cc_type is not None:
                 log_lines.append(_crowd_control_skip_line(session, cc_type))
@@ -2095,8 +2102,7 @@ async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSe
                 log_lines.append(lifesteal_line)
 
         if session.hp <= 0:
-            embed = await _solo_death_embed(session, log_lines)
-            await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+            await _solo_death_embed(interaction, session, log_lines)
             return
 
 
@@ -2135,8 +2141,7 @@ async def _resolve_combat_turn(
     # if it happened, same "you're down" handling _advance_solo_turns already gives a
     # monster-inflicted death, just reached from this side instead.
     if session.hp <= 0:
-        embed = await _solo_death_embed(session, log_lines)
-        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+        await _solo_death_embed(interaction, session, log_lines)
         return True
 
     hit_monsters = [target for target in hit if isinstance(target, MonsterInstance)]
@@ -2356,7 +2361,9 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
             return
 
         if not session.living_members():
-            for m in session.members:
+            killed_by_zgoolok = any(m.monster["id"] == "z_goolok" for m in session.monsters)
+            members = list(session.members)
+            for m in members:
                 await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
             _cleanup(session)
             embed = discord.Embed(
@@ -2366,6 +2373,10 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
                 color=discord.Color.dark_red(),
             )
             await _send_party_update(interaction, session, embed, None, None)
+            if killed_by_zgoolok:
+                send = session.message.channel.send if session.message is not None else interaction.channel.send
+                for m in members:
+                    await achievements.try_award_many(send, session.guild_id, m.user_id, m.label, ["killed_by_zgoolok"])
             return
 
         combatants = [

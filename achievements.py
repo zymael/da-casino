@@ -257,6 +257,14 @@ ACHIEVEMENTS = [
         "reward": 25,
     },
     {
+        "kind": "killed_by_zgoolok",
+        "scope": "personal",
+        "emoji": "💀",
+        "name": "GNAM'd",
+        "description": "You woke up something that should have stayed asleep. Killed by Z'Goolok, the End of All.",
+        "reward": 25,
+    },
+    {
         "kind": "turron_heist",
         "scope": "personal",
         "emoji": "🍬",
