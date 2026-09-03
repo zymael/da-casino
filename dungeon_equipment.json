@@ -584,22 +584,23 @@
     "name": "Overpowered Jinkblade",
     "slot": "weapon",
     "rarity": "common",
-    "base_value": 100,
     "effects": [
       {
         "type": "atk_buff",
         "trigger": "constant",
-        "value": 1
+        "value": 1000
       },
       {
         "type": "stun",
         "trigger": "on_hit",
         "chance": 1.0,
-        "duration": 2
+        "duration": 7,
+        "aoe": true
       }
     ],
     "special": false,
     "intended_level": 1,
+    "base_value": 100,
     "flavor": "This thing is lame as heck"
   },
   {
