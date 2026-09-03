@@ -1154,11 +1154,11 @@
     "id": "bad_rat",
     "name": "Bad Rat",
     "hp": 16,
-    "atk": 21,
+    "atk": 12,
     "def": 11,
-    "spatk": 24,
+    "spatk": 6,
     "spdef": 10,
-    "spd": 16,
+    "spd": 11,
     "intended_level": 5,
     "shape": "hexagon",
     "color": "#ff0000",
@@ -1176,7 +1176,7 @@
       {
         "name": "Rat's Got Hands",
         "chance": 0.25,
-        "special": true,
+        "special": false,
         "effects": [
           {
             "type": "extra_attack",
