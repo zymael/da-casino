@@ -1,7 +1,7 @@
 [
   {
     "id": "goblin_disco",
-    "name": "Goblin Discothèque",
+    "name": "Goblin Discoth\u00e8que",
     "active": true,
     "flavor": "A wild goblin party that you were not invited to.   Not that that's going to stop you, of course.",
     "rooms": [
@@ -205,47 +205,36 @@
       {
         "id": "The Doorman",
         "type": "choice",
-        "prompt": "A locked door with a small sliding panel",
+        "prompt": "You finally make it to the entrance of the bathhouse.  Looks like they've got a coat check here too but... that coat check guy looks familiar.\r\n\r\nToo familiar.\r\n\r\nSeems like they might recognize you too.  What do you do?",
         "actions": [
           {
-            "label": "Flex",
+            "label": "Act Natural",
             "check": {
-              "stat": "atk",
+              "stat": "speed",
               "dc": 15
             },
             "on_success": {
               "next": "The Bathhouse",
-              "message": "He is impressed"
+              "message": "You slip right past him before they're able to put anything together.  Sucker."
             },
             "on_fail": {
               "next": "Fight the Doorman",
-              "message": "He is not impressed and atatcks!"
+              "message": "A hand on your shoulder stops you.  Uh oh."
             },
             "x": 336.0,
             "y": 188.0
           },
           {
-            "label": "Bribe",
-            "cost": {
-              "currency": 100
-            },
-            "on_success": {
-              "next": "The Bathhouse",
-              "message": "He pockets the bribe and lets you through"
-            },
-            "x": 336.0,
-            "y": 262.0
-          },
-          {
-            "label": "Break down the door",
+            "label": "Beat this nerd up again",
             "on_success": {
               "next": "Fight the Doorman",
-              "message": "You just break down the door, you don't have time for this.  The Gnome Doorman Attacks!"
+              "message": "You don't got no time for wimps like this guy."
             },
             "x": 336.0,
             "y": 336.0
           }
-        ]
+        ],
+        "background_path": "assets/dungeon/backgrounds/gnome_bathhouse_room_The Doorman.jpg"
       },
       {
         "id": "The Bathhouse",
@@ -287,12 +276,13 @@
         "monster_groups": [
           {
             "monsters": [
-              "gnome_doorman"
+              "goblin_grunt"
             ],
             "fork": false
           }
         ],
-        "next": "The Bathhouse"
+        "next": "The Bathhouse",
+        "prompt": "\"YOU AGAIN?  OH HOW I HAVE WAITED FOR THIS MOMENT.  YOU MAY HAVE GOT ME FIRED FROM MY LAST JOB, BUT I HAVE BEEN TRAINING EVERY WAKING MOMENT FOR THE CHANCE THAT I GET MY REVENGE\"\r\n\r\nThe Gnome...er.... Goblin's dorky, nasal voice is really starting to grate on your nerves.\r\n\r\n\"EN GARDE, MY NEMESIS.\"\r\n\r\nOh that is -it-."
       },
       {
         "id": "A desperate choice!",
@@ -323,7 +313,7 @@
         "monster_groups": [
           {
             "monsters": [
-              "z_goolok"
+              "goblin_grunt"
             ],
             "fork": false
           }
@@ -335,7 +325,7 @@
         "monster_groups": [
           {
             "monsters": [
-              "gnome_leather_daddy"
+              "goblin_grunt"
             ],
             "fork": false
           }
@@ -405,7 +395,7 @@
     ],
     "layout": {
       "The Sewer": {
-        "x": 40.0,
+        "x": 39.0,
         "y": 40.0
       },
       "The Doorman": {
@@ -417,8 +407,8 @@
         "y": 70.0
       },
       "Fight the Doorman": {
-        "x": 694.0,
-        "y": 424.0
+        "x": 630.0,
+        "y": 388.0
       },
       "A desperate choice!": {
         "x": 1238.0,
@@ -491,7 +481,7 @@
   },
   {
     "id": "goblin_disco_old",
-    "name": "Goblin Discothèque",
+    "name": "Goblin Discoth\u00e8que",
     "active": false,
     "flavor": "A wild goblin party that you were not invited to. ",
     "rooms": [
