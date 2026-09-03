@@ -1489,7 +1489,7 @@
     "id": "bane_rod",
     "name": "The Fishing Rod of N'Quackloth",
     "slot": "trinket",
-    "rarity": "epic",
+    "rarity": "legendary",
     "effects": [
       {
         "type": "hp_buff",
