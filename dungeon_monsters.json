@@ -662,7 +662,7 @@
             "type": "atk_buff",
             "value": 5,
             "aoe": true,
-            "target": "ally"
+            "target": "enemy"
           }
         ],
         "flavor": "They start to dance. You did not consent to see this. Somehow it's making them stronger."
