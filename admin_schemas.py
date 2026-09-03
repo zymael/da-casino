@@ -297,6 +297,15 @@ CONTENT_TYPES = {
                         "comes up.",
             },
             {"name": "sprite_path", "type": "image", "required": False, "subdir": "dungeon/monsters"},
+            {
+                "name": "sprite_scale", "type": "float", "required": False, "group": "Appearance",
+                "hint": "optional multiplier (default 1.0) on this monster's own on-screen height. "
+                        "Every sprite is normalized to the same height regardless of source "
+                        "resolution, so a slender/narrow sprite (e.g. a humanoid standing straight) "
+                        "reads as much smaller than a wide/blobby one at the same height -- bump "
+                        "this on a sprite that looks too small next to its cohort instead of "
+                        "re-exporting the art.",
+            },
         ],
     },
     "equipment": {

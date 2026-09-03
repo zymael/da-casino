@@ -52,7 +52,11 @@ def _draw_monster_shape(draw: ImageDraw.ImageDraw, cx: float, cy: float, radius:
 
 # Pixel-art sprites all get scaled to this height regardless of their source size, so mismatched
 # source resolutions (e.g. a 60px vs a 132px export) still read as the same in-world scale.
-# NEAREST keeps upscaling blocky/crisp instead of blurring the pixel art.
+# NEAREST keeps upscaling blocky/crisp instead of blurring the pixel art. Height-only scaling means
+# a narrow/slender sprite (a humanoid standing straight) occupies far less on-screen AREA than a
+# wide one (a blobby prop) at the same height, reading as "smaller" even though it isn't shorter --
+# a monster's own optional sprite_scale (render_room, dungeon_monsters.json) multiplies this target
+# height per-monster to compensate, rather than this constant changing for everyone.
 SPRITE_HEIGHT = 140
 
 
@@ -199,7 +203,8 @@ def render_room(
     offsets = _GROUP_X_OFFSETS.get(count, _GROUP_X_OFFSETS[4])
     for monster, x_offset in zip(monsters, offsets):
         mx = cx + x_offset
-        sprite = _load_monster_sprite(monster.get("sprite_path"), sprite_height)
+        target_height = round(sprite_height * monster.get("sprite_scale", 1.0))
+        sprite = _load_monster_sprite(monster.get("sprite_path"), target_height)
         if sprite:
             pos = (round(mx - sprite.width / 2), round(cy + 110 - sprite.height))
             img.alpha_composite(sprite, pos)
