@@ -119,11 +119,25 @@ def _roll_monster_instances(room: dict, equipped_item_ids=()) -> tuple[list[Mons
     .values()) seeds any matching vs_monster_debuff onto the freshly rolled instances -- the party
     equivalent is PartyDelveSession._enter_room, which inlines this same construction loop itself
     to also seed the threat table, so it applies the debuff the same way there instead of calling
-    this function."""
+    this function.
+
+    Solo-only guaranteed first move: every fresh monster instance's turn_clock starts at its own
+    turn_interval (a full tick ahead) instead of 0, while the player's own turn_clock stays 0 (see
+    DelveSession.__init__/_goto_room, both reset points) -- since preview_next_turns always picks
+    the lowest clock, the player is now guaranteed to act before any monster gets an ambush hit in,
+    no matter how fast that monster is. Applied AFTER _apply_vs_monster_debuffs so a vs_monster
+    speed_debuff (already active from turn 0) is reflected in that head start too. This is a
+    one-time offset, not a standing bonus -- once the player's own clock advances past 0 after
+    their first action, speed alone decides who's next exactly like before (a very fast monster
+    still gets extra turns over a long fight, it just never gets a free hit before the player's
+    first move). Party has no equivalent -- multiple players already blunt a single ambush hit's
+    impact the way one squishy solo player can't, and see PARTY_EXTRA_MONSTER_MIN_SIZE for the
+    party-specific balance lever instead."""
     group = dungeon.pick_monster_group(room)
     instances = [MonsterInstance(m, slot) for slot, m in enumerate(group["monsters"])]
     for instance in instances:
         _apply_vs_monster_debuffs(instance, equipped_item_ids)
+        instance.turn_clock = dungeon.turn_interval(max(1, instance.speed - instance.speed_debuff))
     return instances, group.get("next")
 
 
