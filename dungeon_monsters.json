@@ -954,12 +954,12 @@
       {
         "kind": "equipment",
         "item_id": "bottle_service",
-        "chance": 0.15
+        "chance": 0.25
       },
       {
         "kind": "equipment",
         "item_id": "half_drank_tiki_glass",
-        "chance": 0.15
+        "chance": 0.25
       },
       {
         "kind": "consumable",
