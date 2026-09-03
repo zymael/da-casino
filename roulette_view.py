@@ -41,6 +41,38 @@ DAUGHTERS_WIN_MESSAGE = (
 # per-guild migration needed.
 DAUGHTERS_NEGLECT_FLAG = "daughters_neglected"
 
+# The Tax Man gag -- another running joke against this same user (see DAUGHTERS_TARGET_ID above).
+# Rolled independently against each one of his bets as it settles in resolve() below (so a round
+# where he placed several bets gets several independent chances, not one per round), demanding
+# TAXMAN_CUT of his biggest single win to date (db.get_user_bet_summary's best_win) -- paid out of
+# his balance if he can cover it, otherwise his legs get broken (TAXMAN_LEGS_BROKEN_FLAG bumped,
+# shown on his own !stats via bot.py's stats_cmd). No persistent "still owes" state carried between
+# rolls -- each settle is its own independent shakedown at TAXMAN_TRIGGER_CHANCE odds.
+TAXMAN_TARGET_ID = 272816170749526027
+TAXMAN_CUT = 0.30
+TAXMAN_TRIGGER_CHANCE = 0.05
+TAXMAN_LEGS_BROKEN_FLAG = "legs_broken"
+
+
+async def _maybe_taxman_shakedown(guild_id: int, channel) -> None:
+    if random.random() >= TAXMAN_TRIGGER_CHANCE:
+        return
+    _, _, _, best_win, _ = await asyncio.to_thread(db.get_user_bet_summary, guild_id, TAXMAN_TARGET_ID)
+    demand = int((best_win or 0) * TAXMAN_CUT)
+    if demand <= 0:
+        return  # never won anything yet -- nothing worth shaking down
+    balance = await asyncio.to_thread(db.get_balance, guild_id, TAXMAN_TARGET_ID)
+    currency = db.get_currency_name(guild_id)
+    lines = [f"🕴️ A man in a cheap suit corners <@{TAXMAN_TARGET_ID}>. **\"Tax time.\"**"]
+    if balance >= demand:
+        await asyncio.to_thread(db.update_balance, guild_id, TAXMAN_TARGET_ID, -demand)
+        lines.append(f"He wants **{demand} {currency}**, 30% of his biggest win. He pays up.")
+    else:
+        legs_broken = await asyncio.to_thread(db.increment_flag, guild_id, TAXMAN_TARGET_ID, TAXMAN_LEGS_BROKEN_FLAG)
+        lines.append(f"He wants **{demand} {currency}**, 30% of his biggest win. He doesn't have it.")
+        lines.append(f"**CRACK.** 🦵💥 (Legs Broken: {legs_broken})")
+    await channel.send("\n".join(lines))
+
 
 class SicklyVictorianDaughtersView(discord.ui.View):
     """One-button dismissal for the Sickly Victorian Daughters popup (see RouletteView.resolve) --
@@ -696,6 +728,8 @@ class RouletteView(discord.ui.View):
                 net = payout - bet["amount"]
                 net_by_user[bet["user_id"]] = net_by_user.get(bet["user_id"], 0) + net
                 await asyncio.to_thread(db.log_bet, self.guild_id, bet["user_id"], "roulette", bet["amount"], net)
+                if bet["user_id"] == TAXMAN_TARGET_ID and self.message is not None:
+                    await _maybe_taxman_shakedown(self.guild_id, self.message.channel)
                 kinds = achievements.kinds_for_bet("roulette", net)
                 kinds += await achievements.record_and_check(self.guild_id, bet["user_id"], "roulette", net)
                 if stolen_by:
