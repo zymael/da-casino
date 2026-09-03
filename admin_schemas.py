@@ -134,21 +134,51 @@ Field types the generic form-builder knows how to render:
     as "effects") -- quests._validate_trigger (run at save time via the real loader) is what
     actually enforces which params a given type needs. See TRIGGER_PARAM_KINDS for how each
     param renders (a number input, or a <select> sourced from the right registry).
-  - "quest_stages" -- a repeatable list of {prompt, journal_text, trigger, on_complete_message,
-    reward, reward_item, reward_item_kind, button_label, turn_in_label}; each row's trigger portion
-    is the same flattened rendering as the "trigger" field type above. journal_text is the objective
-    line shown in !journal (quests.quest_log) -- distinct from prompt, which is only ever the NPC's
-    own spoken dialogue. reward_item_kind picks which of
-    quests.REWARD_REGISTRIES' kinds reward_item is looked up in (defaults to "equipment" if blank,
-    for every quest authored before reward_item_kind existed). button_label is optional -- while
-    this stage is the player's current one with this NPC, it overrides the room's "Talk to X"
-    button (see quests.npc_talk_label); blank keeps the generic default. turn_in_label is the same
-    idea but for the *turn-in* button instead -- blank keeps its own generic default ("Give X the
-    Y" for a turn_in_item trigger, else "Turn in to X"). The two are separate fields because
-    they're two different buttons: button_label only ever relabels "Talk to X" (which just re-shows
-    this stage's prompt), turn_in_label relabels the button that actually resolves the trigger --
-    conflating them reads as a button lying about what it does (e.g. a "Pay rent" button that only
-    talks, while the real payment happens on a separately-labeled "Turn in to X").
+  - "quest_flowchart" -- a quest's stages, authored as a visual flowchart, the same shape as
+    "delve_flowchart" above: each stage is a draggable box, and a path's "next" (the graph edge to
+    whichever stage it leads to, or nothing to end the quest) is made by dragging that path's own
+    connector handle onto the target stage -- never typed, so a typo'd/dangling reference can't
+    happen client-side (though quests._load_quests's reachability pass still re-checks everything
+    at Publish time, since a hand-edited JSON file bypasses this UI entirely). Each stage box also
+    carries a flag icon that sets the quest's start_stage, which is why that's no longer its own
+    top-level field in this schema -- same "sourced from a single page-level hidden input the
+    flowchart script owns" story as start_room. A stage's own id/prompt/journal_text/button_label
+    and its nested "paths" repeatable live in a per-stage detail panel shown for at most one stage
+    at a time (click a box to open it). Every stage is structurally the delve-choice-room shape --
+    there's no combat/choice split for quests -- so a path's own connector handle is always exactly
+    one (never a second dashed one; a path has no check/fail concept, only a trigger that either
+    holds or doesn't). A path's own fields (in the stage's detail panel) reuse _render_trigger_inputs
+    for its trigger (required here, unlike a delve action's optional "requires" -- a path with no
+    trigger could never actually be taken) and the same "quest_reward" cascade
+    _render_cascaded_select already uses for reward_item. journal_text is the objective line shown
+    in !journal (quests.quest_log) -- distinct from prompt, which is only ever the NPC's own spoken
+    dialogue, and kept at the stage level (not per-path) since it describes what's currently going
+    on with this stage regardless of which path eventually resolves it. reward_item_kind picks
+    which of quests.REWARD_REGISTRIES' kinds reward_item is looked up in (defaults to "equipment"
+    if blank, for every quest authored before reward_item_kind existed). button_label is optional
+    -- while this stage is the player's current one with this NPC, it overrides the room's "Talk to
+    X" button (see quests.npc_talk_label); blank keeps the generic default. turn_in_label is the
+    same idea but for the *turn-in* button instead, and lives on the path (not the stage) since
+    different paths out of one stage can each want their own label -- blank keeps its own generic
+    default ("Give X the Y" for a turn_in_item trigger, else "Turn in to X"). button_label and
+    turn_in_label are separate fields because they're two different buttons: button_label only ever
+    relabels "Talk to X" (which just re-shows this stage's prompt), turn_in_label relabels the
+    button that actually resolves a specific path -- conflating them reads as a button lying about
+    what it does (e.g. a "Pay rent" button that only talks, while the real payment happens on a
+    separately-labeled "Turn in to X"). A stage's canvas position is written into a new top-level
+    "layout" field on the quest (dict of stage id -> {x, y}, exact analog of a delve's own
+    "layout"); a path's own canvas position is stored directly on the path (it has no stable id of
+    its own to key an external layout dict by, exactly like a delve action). "ordinal" (also on
+    each stage) is never shown here at all -- it's an opaque, system-assigned integer the durable
+    per-player progress flag is encoded against (see quests.py's own module docstring for why a
+    stage needs this second identity alongside its editable "id"), carried through the form as a
+    hidden input and never touched by hand. Since this field mixes repeatables and drag state
+    (though, unlike delve_flowchart, never image uploads -- quest stages carry no images), its
+    render and parse sides are all special-cased outside the usual _render_field/_parse_field
+    dispatch (see admin_server._render_quest_flowchart/_render_stage_box/
+    _render_stage_detail_panel/_render_path_row and _parse_quest_flowchart/_parse_paths) and
+    _dynamic_script's wireRepeatAdd for how "+ Add Stage"/"+ Add path" wiring stays correct at the
+    nested depth.
   - "room_exits" -- a repeatable list of {room_id, label}, room_id a <select> sourced live from
     rooms.ROOMS.
   - "room_commands" -- a repeatable list of {key, kind, label, const_args?, modal_title?,
@@ -164,11 +194,11 @@ An "enum" field with "required": False gets a blank leading option (selectable, 
 when no value is set) -- required ones don't, since a real select never needs to represent "no
 value" and always defaults to its first real choice.
 
-"effects", "materials", "monster_drops", "delve_flowchart", and "quest_stages" all render as an
+"effects", "materials", "monster_drops", "delve_flowchart", and "quest_flowchart" all render as an
 add/remove-able list (a "+ Add row" button clones a <template>, each row gets its own "Remove"
 button) rather than padding the form with a fixed number of blank rows -- see admin_server.py's
 _render_repeatable and its per-type row-builder helpers (_render_effect_row, _render_material_row,
-_render_drop_row, _render_room_node, _render_stage_row).
+_render_drop_row, _render_room_node, _render_stage_node).
 
 Every content type reuses its actual owning-module loader (`loader`) as the save-time validator --
 see admin_server.py's save handler, which dispatches on each entry's `module` key (`dungeon` for
@@ -728,6 +758,14 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "DELVES",
         "loader": dungeon._load_delves,
+        # Presence of this key (not its content beyond these four names) is what admin_server.py
+        # checks to decide whether a content type gets the draft/autosave/Publish flow instead of
+        # a plain single Save button -- see FLOWCHART_FIELD_TYPES and every `"draft_publish" in
+        # spec` check there. quests' own "quests" entry below carries the equivalent four.
+        "draft_publish": {
+            "save_draft": dungeon.save_delve_draft, "load_drafts": dungeon.load_delve_drafts,
+            "delete_draft": dungeon.delete_delve_draft, "check_problems": dungeon.check_delve_problems,
+        },
         "list_columns": ["id", "name", "active", "rooms"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
@@ -1000,6 +1038,14 @@ CONTENT_TYPES = {
         "module": quests,
         "registry_attr": "QUESTS_BY_ID",
         "loader": quests._load_quests,
+        # Same draft/autosave/Publish flow as delves -- a quest is a stage GRAPH now too, and a
+        # mid-edit graph is routinely, harmlessly broken (a stage not yet connected, no start_stage
+        # picked yet) in exactly the way delves already needed this two-tier flow for. See the
+        # "delves" entry above for what each of these four callables does.
+        "draft_publish": {
+            "save_draft": quests.save_quest_draft, "load_drafts": quests.load_quest_drafts,
+            "delete_draft": quests.delete_quest_draft, "check_problems": quests.check_quest_problems,
+        },
         # quests._load_quests only checks an "equipment"-kind reward_item at load time (see
         # REWARD_REGISTRIES' own comment for why the other kinds -- material, consumable,
         # horse_clothes, housing_item -- can't be fully validated there yet) -- the rest are caught
@@ -1022,10 +1068,28 @@ CONTENT_TYPES = {
                 "hint": "lets this quest start just by opening !journal, not only by talking to its npc",
             },
             {
+                "name": "active", "type": "bool", "required": False, "default": True, "group": "Identity",
+                "hint": "whether this quest can be newly started at all (talking to its npc or, if "
+                        "journal_startable, opening !journal). Leave unchecked while you're still "
+                        "building it out -- an inactive quest can be saved even if some stages "
+                        "aren't wired up yet or aren't reachable from the start stage; only an "
+                        "active quest has to be fully connected to save. A player already partway "
+                        "through this quest is never affected either way -- this only ever gates a "
+                        "brand new start.",
+            },
+            {
                 "name": "complete_message", "type": "text", "required": False, "group": "Flavor Text",
                 "hint": "shown once every stage below is complete (blank = a generic default message)",
             },
-            {"name": "stages", "type": "quest_stages", "required": True},
+            {
+                "name": "stages", "type": "quest_flowchart", "required": True,
+                "hint": "drag stages to arrange them, drag a path's own handle onto another stage to "
+                        "connect them, click a stage to edit its fields, and click a stage's flag "
+                        "icon to make it the start stage -- see the tooltips throughout for what "
+                        "each control does. A stage with two or more paths already forks the quest "
+                        "by whichever path's trigger becomes satisfied first -- no separate "
+                        "'branch' concept, same idea as a delve choice room's actions.",
+            },
         ],
     },
     "horse_clothes": {

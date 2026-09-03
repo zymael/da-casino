@@ -72,6 +72,13 @@ ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10MB -- matches Discord's own non-boosted-server attachment cap
 
+# Field type -> the CSS class its <form> tag needs for a full-width flowchart canvas (see
+# .delve-canvas-wrap in _PAGE_CSS) -- edit_view checks membership in this dict's keys wherever it
+# used to hardcode `content_type == "delves"`, and uses the matching value as the form's class.
+# Each flowchart field type gets its own class (not one shared class) only because the delve and
+# quest canvases are separate scripts/stylesheets-in-spirit, not because the CSS itself differs.
+FLOWCHART_FORM_CLASSES = {"delve_flowchart": "delve-form", "quest_flowchart": "quest-form"}
+
 BACKUPS_DIR = os.path.join(os.path.dirname(__file__), "backups")
 
 
@@ -169,44 +176,53 @@ button:hover { background: #45454f; }
 .effect-tag { display: inline-block; background: #2c2c34; color: #9a9aa4; border-radius: 4px; padding: 1px 6px; font-size: 0.72rem; margin: 1px 2px 1px 0; }
 .delve-picker { flex-direction: row; align-items: center; gap: 8px; max-width: none; margin-bottom: 16px; }
 
-/* Delve flowchart editor (see admin_server.py's _render_delve_flowchart / _dynamic_script) */
-form.delve-form { max-width: none; }
+/* Delve flowchart editor (see admin_server.py's _render_delve_flowchart / _dynamic_script), and
+   the quest flowchart editor (_render_quest_flowchart / the "Quest flowchart editor" section of
+   _dynamic_script) -- a separate, simpler canvas/script (no room-type split, no monster groups, no
+   fail handles, no image uploads) rather than a shared factory, since the delve script turned out
+   to be far more tightly special-cased around room/action/group distinctions than a clean
+   parameterization could absorb without real regression risk to already-working delve editing.
+   Every selector below that lists both a room-* and stage-* class is intentionally shared styling
+   for what's visually the identical shape in both editors -- only the class *names* differ, so
+   each script's DOM queries stay unambiguous even though only one canvas is ever on a page at
+   once. */
+form.delve-form, form.quest-form { max-width: none; }
 .delve-canvas-wrap { position: relative; overflow: auto; max-height: 640px; padding: 0; border: 1px solid #35353f; border-radius: 8px; background: #14141a; margin-bottom: 8px; max-width: calc(100vw - 640px); min-width: 320px; }
-#delve-rooms-canvas { position: relative; width: 2000px; height: 1000px; }
+#delve-rooms-canvas, #quest-stages-canvas { position: relative; width: 2000px; height: 1000px; }
 svg.delve-arrows { position: absolute; top: 0; left: 0; width: 2000px; height: 1000px; pointer-events: none; overflow: visible; }
 svg.delve-arrows text { user-select: none; }
-.add-row[data-repeat-add="delve-rooms-canvas"] { position: sticky; bottom: 8px; left: 8px; z-index: 5; }
-.room-wrapper { display: contents; }
-.room-box { position: absolute; width: 170px; background: #26262e; border: 2px solid #45454f; border-radius: 8px; padding: 8px; cursor: grab; user-select: none; touch-action: none; z-index: 1; transition: border-color 0.1s, box-shadow 0.1s; }
-.room-box.dragging { cursor: grabbing; z-index: 2; }
-.room-box.selected { border-color: #e8813a; }
-.room-box.is-start { box-shadow: 0 0 0 2px #40a060; }
-.room-box.drop-target-hover { border-color: #e8813a; box-shadow: 0 0 0 3px rgba(232, 129, 58, 0.55); z-index: 3; }
-.room-box.has-error { border-color: #c04040; box-shadow: 0 0 0 2px rgba(192, 64, 64, 0.45); }
-.action-node.has-error { border-left-color: #c04040; box-shadow: 0 0 0 2px rgba(192, 64, 64, 0.45); }
+.add-row[data-repeat-add="delve-rooms-canvas"], .add-row[data-repeat-add="quest-stages-canvas"] { position: sticky; bottom: 8px; left: 8px; z-index: 5; }
+.room-wrapper, .stage-wrapper { display: contents; }
+.room-box, .stage-box { position: absolute; width: 170px; background: #26262e; border: 2px solid #45454f; border-radius: 8px; padding: 8px; cursor: grab; user-select: none; touch-action: none; z-index: 1; transition: border-color 0.1s, box-shadow 0.1s; }
+.room-box.dragging, .stage-box.dragging { cursor: grabbing; z-index: 2; }
+.room-box.selected, .stage-box.selected { border-color: #e8813a; }
+.room-box.is-start, .stage-box.is-start { box-shadow: 0 0 0 2px #40a060; }
+.room-box.drop-target-hover, .stage-box.drop-target-hover { border-color: #e8813a; box-shadow: 0 0 0 3px rgba(232, 129, 58, 0.55); z-index: 3; }
+.room-box.has-error, .stage-box.has-error { border-color: #c04040; box-shadow: 0 0 0 2px rgba(192, 64, 64, 0.45); }
+.action-node.has-error, .path-node.has-error { border-left-color: #c04040; box-shadow: 0 0 0 2px rgba(192, 64, 64, 0.45); }
 .draft-tag { background: #4a3a1f; border: 1px solid #a08040; color: #f0d0a0; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; }
 #draft-save-status.saving { color: #9a9aa4; }
 #draft-save-status.saved { color: #6ac080; }
 #draft-save-status.failed { color: #e08080; }
-.room-box-header { display: flex; align-items: center; gap: 4px; }
-.room-box-id { flex: 1; font-weight: bold; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.room-flag, .room-box-select { background: none; border: none; padding: 2px; font-size: 0.85rem; cursor: pointer; color: #9a9aa4; }
-.room-flag.is-start { color: #40a060; }
-.room-box-summary { font-size: 0.78rem; color: #9a9aa4; margin-top: 4px; }
+.room-box-header, .stage-box-header { display: flex; align-items: center; gap: 4px; }
+.room-box-id, .stage-box-id { flex: 1; font-weight: bold; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.room-flag, .room-box-select, .stage-flag, .stage-box-select { background: none; border: none; padding: 2px; font-size: 0.85rem; cursor: pointer; color: #9a9aa4; }
+.room-flag.is-start, .stage-flag.is-start { color: #40a060; }
+.room-box-summary, .stage-box-summary { font-size: 0.78rem; color: #9a9aa4; margin-top: 4px; }
 .connector-handle { position: absolute; right: -10px; bottom: -10px; width: 20px; height: 20px; border-radius: 50%; background: #40a060; border: 3px solid #1a1a1f; cursor: crosshair; touch-action: none; z-index: 4; }
 .connector-handle:hover { transform: scale(1.15); }
 .connector-handle.fail { background: #c04040; }
-.action-node, .group-node { position: absolute; min-width: 84px; max-width: 130px; background: #1c1c26; border: 1px solid #3a3a4a; border-left: 4px solid #7a7ae0; border-radius: 5px; padding: 5px 26px 5px 8px; font-size: 0.7rem; color: #c8c8f0; z-index: 1; user-select: none; cursor: grab; touch-action: none; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
-.action-node.dragging, .group-node.dragging { cursor: grabbing; z-index: 2; }
-.action-node:hover, .group-node:hover { border-left-color: #9a9af0; }
-.action-node .connector-handle, .group-node .connector-handle { width: 16px; height: 16px; }
+.action-node, .group-node, .path-node { position: absolute; min-width: 84px; max-width: 130px; background: #1c1c26; border: 1px solid #3a3a4a; border-left: 4px solid #7a7ae0; border-radius: 5px; padding: 5px 26px 5px 8px; font-size: 0.7rem; color: #c8c8f0; z-index: 1; user-select: none; cursor: grab; touch-action: none; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+.action-node.dragging, .group-node.dragging, .path-node.dragging { cursor: grabbing; z-index: 2; }
+.action-node:hover, .group-node:hover, .path-node:hover { border-left-color: #9a9af0; }
+.action-node .connector-handle, .group-node .connector-handle, .path-node .connector-handle { width: 16px; height: 16px; }
 .action-node .connector-handle.fail { right: 14px; }
-.action-node-label, .group-node-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.action-node-label, .group-node-label, .path-node-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .action-owner-line { stroke: #7a7ae0; stroke-width: 1.5; stroke-dasharray: 4,3; opacity: 0.75; }
 .arrow-disconnect { opacity: 0.55; transition: opacity 0.15s; }
 .arrow-disconnect:hover { opacity: 1; }
-.room-detail-panel { position: fixed; top: 90px; right: 24px; width: 340px; max-height: calc(100vh - 120px); overflow-y: auto; background: #202027; border: 1px solid #45454f; border-radius: 8px; padding: 14px; z-index: 20; max-width: 340px; box-shadow: -4px 0 16px rgba(0,0,0,0.5); }
-.room-detail-panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.room-detail-panel, .stage-detail-panel { position: fixed; top: 90px; right: 24px; width: 340px; max-height: calc(100vh - 120px); overflow-y: auto; background: #202027; border: 1px solid #45454f; border-radius: 8px; padding: 14px; z-index: 20; max-width: 340px; box-shadow: -4px 0 16px rgba(0,0,0,0.5); }
+.room-detail-panel-header, .stage-detail-panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .live-next-tag { font-weight: normal; color: #9a9aa4; font-size: 0.78rem; margin-left: 6px; }
 #tooltip-bubble { position: fixed; z-index: 999; background: #101014; color: #e8e8ec; border: 1px solid #52525e; padding: 6px 10px; border-radius: 6px; font-size: 0.78rem; max-width: 260px; display: none; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
 
@@ -275,7 +291,7 @@ _ROOM_COMMAND_KINDS = ["none", "amount"]
 #      changes. Unlike (1)/(3), the *initial* render already has the right options (the row-
 #      builder knows the current kind server-side -- see _render_cascaded_select), so this only
 #      needs to run on change, not immediately at wire time.
-#   3. Every repeatable list (effects, materials, monster_drops, delve_rooms, quest_stages,
+#   3. Every repeatable list (effects, materials, monster_drops, delve_rooms, quest stages/paths,
 #      room_commands, shop_items) no longer pads the form with a fixed number of blank rows -- a "+ Add" button
 #      clones a <template> instead, and each row gets its own "Remove" button. Server-side parsing
 #      (see each "+ Add"-using field's own _parse_field case) reads whatever *_<N>_* indices are
@@ -746,12 +762,14 @@ function wireRepeatAdd(root) {
             wireEffectsModeToggles(container.lastElementChild);
             wireRepeatAdd(container.lastElementChild);
             // Flowchart-only hooks -- no-ops everywhere else (window.wireFlowchartNode only
-            // exists on a delve's edit page, see the flowchart script below). Handles both a
-            // freshly-cloned room (a .room-wrapper straight from "+ Add Room") and a freshly-
-            // cloned monster/action row nested inside an already-open room's detail panel.
+            // exists on a delve's or a quest's own edit page, see the two flowchart scripts
+            // below -- whichever one's canvas is actually on the page is the one that sets these).
+            // Handles both a freshly-cloned top-level node (a .room-wrapper/.stage-wrapper straight
+            // from "+ Add Room"/"+ Add Stage") and a freshly-cloned row nested inside an
+            // already-open detail panel (a room's monster/action row, or a stage's path row).
             if (window.wireFlowchartNode) window.wireFlowchartNode(container.lastElementChild);
             if (window.refreshRoomBoxIfNested) window.refreshRoomBoxIfNested(container.lastElementChild);
-            if (window.__scheduleDelveAutosave) window.__scheduleDelveAutosave();
+            if (window.__scheduleFlowchartAutosave) window.__scheduleFlowchartAutosave();
             updateSkillOdds();
             updateGroupOdds();
             nextIndex++;
@@ -779,16 +797,25 @@ document.addEventListener('input', updateGroupOdds);
 document.addEventListener('click', function (event) {
     if (event.target.matches('[data-remove-row]')) {
         var group = event.target.closest('.row-group');
-        var wrapper = group.closest('.room-wrapper');
+        // A row being removed can be nested inside either flowchart's own wrapper (a delve room's
+        // monster/action row, or a quest stage's path row) -- both flowchart scripts expose the
+        // same window.refreshRoomBoxIfNested hook name for their own kind of node, so whichever
+        // wrapper is actually found (at most one ever will be, since the two never coexist on one
+        // page) drives the same generic call.
+        var wrapper = group.closest('.room-wrapper') || group.closest('.stage-wrapper');
         group.remove();
         if (wrapper && window.refreshRoomBoxIfNested) window.refreshRoomBoxIfNested(wrapper);
-        if (window.__scheduleDelveAutosave) window.__scheduleDelveAutosave();
+        if (window.__scheduleFlowchartAutosave) window.__scheduleFlowchartAutosave();
         updateSkillOdds();
         updateGroupOdds();
     } else if (event.target.matches('[data-remove-room]')) {
         event.target.closest('.room-wrapper').remove();
         if (window.__redrawDelveArrows) window.__redrawDelveArrows();
-        if (window.__scheduleDelveAutosave) window.__scheduleDelveAutosave();
+        if (window.__scheduleFlowchartAutosave) window.__scheduleFlowchartAutosave();
+    } else if (event.target.matches('[data-remove-stage]')) {
+        event.target.closest('.stage-wrapper').remove();
+        if (window.__redrawQuestArrows) window.__redrawQuestArrows();
+        if (window.__scheduleFlowchartAutosave) window.__scheduleFlowchartAutosave();
     }
 });
 
@@ -1525,7 +1552,7 @@ document.addEventListener('click', function (event) {
     }
 
     // Draft autosave -- a delve's edit form has no "Save" button at all (see edit_view/
-    // delve_autosave_view); every meaningful change instead debounces a background POST that
+    // flowchart_autosave_view); every meaningful change instead debounces a background POST that
     // persists a draft (dungeon.save_delve_draft) with no validation gate, and the response's
     // structured problem list (dungeon.check_delve_problems) drives the .has-error highlighting
     // on the canvas below, so a still-broken draft is visible right where it's wrong without
@@ -1582,7 +1609,7 @@ document.addEventListener('click', function (event) {
         if (autosaveInFlight) { autosavePending = true; return; }
         autosaveInFlight = true;
         setStatus('Saving…', 'saving');
-        var itemId = form.dataset.delveItemId;
+        var itemId = form.dataset.flowchartItemId;
         fetch('/edit/delves/' + encodeURIComponent(itemId) + '/autosave', { method: 'POST', body: new FormData(form) })
             .then(function (r) { return r.json(); })
             .then(function (data) {
@@ -1593,7 +1620,7 @@ document.addEventListener('click', function (event) {
                     // renamed) -- retarget future autosave/publish calls and the visible URL
                     // without a reload, so the draft stays findable if the tab is closed/reopened
                     // (edit_view looks a draft up by the URL's own item_id).
-                    form.dataset.delveItemId = data.id;
+                    form.dataset.flowchartItemId = data.id;
                     var publishBtn = form.querySelector('button[formaction]');
                     if (publishBtn) publishBtn.setAttribute('formaction', '/edit/delves/' + encodeURIComponent(data.id) + '/publish');
                     history.replaceState(null, '', '/edit/delves/' + encodeURIComponent(data.id));
@@ -1622,13 +1649,596 @@ document.addEventListener('click', function (event) {
         form.addEventListener('input', function (e) { if (e.target.type !== 'file' || e.target.value) scheduleAutosave(); });
         form.addEventListener('change', scheduleAutosave);
     }
-    window.__scheduleDelveAutosave = scheduleAutosave;
+    window.__scheduleFlowchartAutosave = scheduleAutosave;
 
     window.wireFlowchartNode = wireFlowchartNode;
     window.refreshRoomBoxIfNested = refreshRoomBoxIfNested;
     window.__redrawDelveArrows = redrawAllArrows;
 
     canvas.querySelectorAll('.room-wrapper').forEach(wireFlowchartNode);
+    redrawAllArrows();
+})();
+
+// --- Quest flowchart editor -------------------------------------------------------------------
+// No-ops on every page except a quest's edit page (guarded by the #quest-stages-canvas lookup
+// below) -- see admin_schemas.py's "quest_flowchart" doc block and admin_server.py's
+// _render_quest_flowchart/_render_stage_box/_render_stage_detail_panel for the HTML this operates
+// on. A separate, simpler script from the delve one above rather than a shared factory -- a quest
+// stage is always structurally the delve-choice-room shape (no type split, no monster groups, no
+// check/fail concept on a path), so this needs none of that branching, and duplicating the small
+// amount of shared geometry math (boxCenter/boxRect/clipToRect/drawEdge) was judged a better
+// tradeoff than risking a regression to the already-working delve script for the sake of one
+// shared factory -- see the CSS comment at the top of _PAGE_CSS for the same reasoning. Exposes
+// wireFlowchartNode/refreshRoomBoxIfNested/__redrawQuestArrows on window under the SAME hook
+// names the delve script above uses (never both at once -- only one canvas is ever on a page, so
+// only one script's own guard below ever passes and actually assigns these), so the generic
+// wireRepeatAdd/remove-row handlers (which know nothing about either flowchart specifically) can
+// call into whichever one is active without needing to know which.
+(function () {
+    var canvas = document.getElementById('quest-stages-canvas');
+    var svg = canvas ? canvas.parentElement.querySelector('svg.delve-arrows') : null;
+    if (!canvas || !svg) return;
+
+    function stagesById() {
+        var map = {};
+        canvas.querySelectorAll('.stage-wrapper').forEach(function (w) {
+            var idInput = w.querySelector('.stage-id-input');
+            if (idInput && idInput.value) map[idInput.value] = w;
+        });
+        return map;
+    }
+
+    // Same geometry as the delve script's own boxCenter/boxRect/clipToRect -- duplicated rather
+    // than imported, since these are small, pure, canvas-local functions (each script has its own
+    // `canvas` closed over) and not worth threading a shared module for.
+    function boxCenter(el) {
+        var canvasRect = canvas.getBoundingClientRect();
+        var r = el.getBoundingClientRect();
+        return { x: r.left - canvasRect.left + r.width / 2, y: r.top - canvasRect.top + r.height / 2 };
+    }
+
+    function boxRect(el) {
+        var canvasRect = canvas.getBoundingClientRect();
+        var r = el.getBoundingClientRect();
+        return { left: r.left - canvasRect.left, top: r.top - canvasRect.top, right: r.right - canvasRect.left, bottom: r.bottom - canvasRect.top };
+    }
+
+    function clipToRect(source, target, rect) {
+        var dx = target.x - source.x, dy = target.y - source.y;
+        var tmin = 0, tmax = 1;
+        if (dx !== 0) {
+            var tx1 = (rect.left - source.x) / dx, tx2 = (rect.right - source.x) / dx;
+            tmin = Math.max(tmin, Math.min(tx1, tx2));
+            tmax = Math.min(tmax, Math.max(tx1, tx2));
+        } else if (source.x < rect.left || source.x > rect.right) {
+            return target;
+        }
+        if (dy !== 0) {
+            var ty1 = (rect.top - source.y) / dy, ty2 = (rect.bottom - source.y) / dy;
+            tmin = Math.max(tmin, Math.min(ty1, ty2));
+            tmax = Math.min(tmax, Math.max(ty1, ty2));
+        } else if (source.y < rect.top || source.y > rect.bottom) {
+            return target;
+        }
+        if (tmin > tmax) return target;
+        return { x: source.x + tmin * dx, y: source.y + tmin * dy };
+    }
+
+    function clearSvg() {
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        var defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+        // Only 'success' and 'owner' -- a quest path never has a 'fail' edge (see the module
+        // comment above: no check/fail concept exists for a path at all).
+        [['success', '#40a060'], ['owner', '#7a7ae0']].forEach(function (pair) {
+            var marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+            marker.setAttribute('id', 'arrowhead-' + pair[0]);
+            marker.setAttribute('markerWidth', '10');
+            marker.setAttribute('markerHeight', '10');
+            marker.setAttribute('refX', '8');
+            marker.setAttribute('refY', '3');
+            marker.setAttribute('orient', 'auto');
+            var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', 'M0,0 L8,3 L0,6 Z');
+            path.setAttribute('fill', pair[1]);
+            marker.appendChild(path);
+            defs.appendChild(marker);
+        });
+        svg.appendChild(defs);
+    }
+
+    function drawEdge(fromBox, toBox, label, onClear) {
+        var from = boxCenter(fromBox);
+        var to = clipToRect(from, boxCenter(toBox), boxRect(toBox));
+        var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', from.x); line.setAttribute('y1', from.y);
+        line.setAttribute('x2', to.x); line.setAttribute('y2', to.y);
+        line.setAttribute('stroke', '#40a060');
+        line.setAttribute('stroke-width', '2');
+        line.setAttribute('marker-end', 'url(#arrowhead-success)');
+        svg.appendChild(line);
+
+        var labelX = from.x + (to.x - from.x) * 0.35, labelY = from.y + (to.y - from.y) * 0.35;
+        if (label) {
+            var bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            var w = Math.min(label.length * 6 + 8, 140), h = 14;
+            bg.setAttribute('x', labelX - w / 2); bg.setAttribute('y', labelY - 10 - h + 3);
+            bg.setAttribute('width', w); bg.setAttribute('height', h);
+            bg.setAttribute('fill', '#14141a'); bg.setAttribute('opacity', '0.85');
+            svg.appendChild(bg);
+            var text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            text.setAttribute('x', labelX); text.setAttribute('y', labelY - 10);
+            text.setAttribute('fill', '#c0c0c8'); text.setAttribute('font-size', '11');
+            text.setAttribute('text-anchor', 'middle');
+            text.textContent = label;
+            svg.appendChild(text);
+        }
+        var clearGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        clearGroup.setAttribute('class', 'arrow-disconnect');
+        var clearDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        clearDot.setAttribute('cx', labelX); clearDot.setAttribute('cy', labelY); clearDot.setAttribute('r', '6');
+        clearDot.setAttribute('fill', '#1a1a1f'); clearDot.setAttribute('stroke', '#52525e');
+        clearDot.style.cursor = 'pointer'; clearDot.style.pointerEvents = 'auto';
+        clearDot.setAttribute('data-tooltip', 'Disconnect this arrow');
+        var clearX = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        clearX.setAttribute('x', labelX); clearX.setAttribute('y', labelY + 3);
+        clearX.setAttribute('fill', '#e8e8ec'); clearX.setAttribute('font-size', '8'); clearX.setAttribute('text-anchor', 'middle');
+        clearX.style.pointerEvents = 'none';
+        clearX.textContent = '✕';
+        clearDot.addEventListener('click', function (e) { e.stopPropagation(); onClear(); redrawAllArrows(); scheduleAutosave(); });
+        clearGroup.appendChild(clearDot);
+        clearGroup.appendChild(clearX);
+        svg.appendChild(clearGroup);
+    }
+
+    function drawOwnerLine(stageBox, pathNode) {
+        var stageRect = boxRect(stageBox), pathRect = boxRect(pathNode);
+        var stageCenter = boxCenter(stageBox), pathCenter = boxCenter(pathNode);
+        var from = clipToRect(pathCenter, stageCenter, stageRect);
+        var to = clipToRect(stageCenter, pathCenter, pathRect);
+        var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', from.x); line.setAttribute('y1', from.y);
+        line.setAttribute('x2', to.x); line.setAttribute('y2', to.y);
+        line.setAttribute('marker-end', 'url(#arrowhead-owner)');
+        line.setAttribute('class', 'action-owner-line');
+        svg.appendChild(line);
+    }
+
+    function redrawAllArrows() {
+        clearSvg();
+        var byId = stagesById();
+        canvas.querySelectorAll('.stage-wrapper').forEach(function (w) {
+            var box = w.querySelector('.stage-box');
+            w.querySelectorAll('.path-node').forEach(function (node) {
+                drawOwnerLine(box, node);
+                var prefix = node.dataset.pathNode;
+                var nextInput = document.getElementsByName(prefix + '_next')[0];
+                var handle = node.querySelector('.connector-handle');
+                var labelSpan = node.querySelector('.path-node-label');
+                var label = labelSpan ? labelSpan.textContent : null;
+                if (handle && nextInput && nextInput.value && byId[nextInput.value]) {
+                    drawEdge(handle, byId[nextInput.value].querySelector('.stage-box'), label,
+                        function () { nextInput.value = ''; });
+                }
+            });
+        });
+    }
+
+    function updateLiveNextTags(root) {
+        (root || document).querySelectorAll('[data-live-next]').forEach(function (span) {
+            var input = document.getElementsByName(span.getAttribute('data-live-next'))[0];
+            if (!input) return;
+            span.textContent = input.value ? ('→ ' + input.value) : '→ (ends the quest)';
+        });
+    }
+
+    function refreshStageBox(wrapper) {
+        var box = wrapper.querySelector('.stage-box');
+        var summary = box.querySelector('[data-stage-box-summary]');
+        var pathCount = wrapper.querySelectorAll('.path-row').length;
+        summary.textContent = pathCount
+            ? (pathCount + (pathCount === 1 ? ' path' : ' paths'))
+            : 'Dialogue only (no paths yet)';
+        var idInput = wrapper.querySelector('.stage-id-input');
+        var idLabel = box.querySelector('[data-stage-box-id]');
+        if (idInput && idLabel) idLabel.textContent = idInput.value || '(no id yet)';
+        updateLiveNextTags(wrapper);
+        redrawAllArrows();
+    }
+
+    function stageBoxAtPoint(clientX, clientY) {
+        var found = null;
+        canvas.querySelectorAll('.stage-box').forEach(function (otherBox) {
+            if (found) return;
+            var r = otherBox.getBoundingClientRect();
+            if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) found = otherBox;
+        });
+        return found;
+    }
+
+    function wireConnectorHandle(handle) {
+        if (!handle || handle.dataset.connectWired) return;
+        handle.dataset.connectWired = '1';
+        handle.addEventListener('pointerdown', function (e) {
+            e.stopPropagation();
+            e.preventDefault();
+            handle.setPointerCapture(e.pointerId);
+            var pathPrefix = handle.dataset.pathPrefix;
+            var wrapper = handle.closest('.stage-wrapper');
+            var canvasRect = canvas.getBoundingClientRect();
+            var start = boxCenter(handle);
+            var rubberBand = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            rubberBand.setAttribute('x1', start.x); rubberBand.setAttribute('y1', start.y);
+            rubberBand.setAttribute('x2', start.x); rubberBand.setAttribute('y2', start.y);
+            rubberBand.setAttribute('stroke', '#40a060');
+            rubberBand.setAttribute('stroke-width', '2');
+            rubberBand.setAttribute('stroke-dasharray', '4,4');
+            svg.appendChild(rubberBand);
+            var hoverTarget = null;
+
+            function setHover(box) {
+                if (hoverTarget === box) return;
+                if (hoverTarget) hoverTarget.classList.remove('drop-target-hover');
+                hoverTarget = box;
+                if (hoverTarget) hoverTarget.classList.add('drop-target-hover');
+            }
+            function onMove(ev) {
+                rubberBand.setAttribute('x2', ev.clientX - canvasRect.left);
+                rubberBand.setAttribute('y2', ev.clientY - canvasRect.top);
+                setHover(stageBoxAtPoint(ev.clientX, ev.clientY));
+            }
+            function onUp(ev) {
+                handle.removeEventListener('pointermove', onMove);
+                handle.removeEventListener('pointerup', onUp);
+                if (rubberBand.parentNode) rubberBand.parentNode.removeChild(rubberBand);
+                setHover(null);
+
+                // A miss leaves the existing connection exactly as it was -- it must NOT silently
+                // clear to blank, since blank means "this path ends the quest." Only an explicit
+                // click on an arrow's own "disconnect" glyph (see drawEdge) is allowed to do that.
+                var targetBox = stageBoxAtPoint(ev.clientX, ev.clientY);
+                if (!targetBox) { redrawAllArrows(); return; }
+                var otherIdInput = targetBox.closest('.stage-wrapper').querySelector('.stage-id-input');
+                if (!otherIdInput || !otherIdInput.value) { redrawAllArrows(); return; }
+
+                var targetInput = document.getElementsByName(pathPrefix + '_next')[0];
+                if (targetInput) {
+                    targetInput.value = otherIdInput.value;
+                    updateLiveNextTags(wrapper);
+                    scheduleAutosave();
+                }
+                redrawAllArrows();
+            }
+            handle.addEventListener('pointermove', onMove);
+            handle.addEventListener('pointerup', onUp);
+        });
+    }
+
+    function wirePathNodeClick(node, wrapper) {
+        if (node.dataset.clickWired) return;
+        node.dataset.clickWired = '1';
+        node.addEventListener('click', function (e) {
+            if (e.target.closest('[data-connector-role]')) return;
+            selectStage(wrapper);
+        });
+    }
+
+    function wirePathNodeDrag(node) {
+        if (node.dataset.dragWired) return;
+        node.dataset.dragWired = '1';
+        node.addEventListener('pointerdown', function (e) {
+            if (e.target.closest('[data-connector-role]')) return;
+            node.setPointerCapture(e.pointerId);
+            node.classList.add('dragging');
+            var xInput = node.querySelector('.path-x-input');
+            var yInput = node.querySelector('.path-y-input');
+            function onMove(ev) {
+                var newLeft = parseFloat(node.style.left) + ev.movementX;
+                var newTop = parseFloat(node.style.top) + ev.movementY;
+                node.style.left = newLeft + 'px';
+                node.style.top = newTop + 'px';
+                xInput.value = Math.round(newLeft);
+                yInput.value = Math.round(newTop);
+                redrawAllArrows();
+            }
+            function onUp() {
+                node.classList.remove('dragging');
+                node.removeEventListener('pointermove', onMove);
+                node.removeEventListener('pointerup', onUp);
+                scheduleAutosave();
+            }
+            node.addEventListener('pointermove', onMove);
+            node.addEventListener('pointerup', onUp);
+        });
+    }
+
+    // Rebuilds this stage's path nodes from scratch from whatever path rows currently exist in
+    // its (possibly still-hidden) detail panel -- same "clear and rebuild" approach
+    // syncActionNodes (delves) uses. Existing nodes' dragged positions are captured before the
+    // rebuild and carried over by prefix -- without this, editing anything about a path (its
+    // trigger, its turn_in_label) would silently snap every path in the stage back to its default
+    // stacked position.
+    function syncPathNodes(wrapper) {
+        var existingPositions = {};
+        wrapper.querySelectorAll('.path-node').forEach(function (n) {
+            existingPositions[n.dataset.pathNode] = { x: parseFloat(n.style.left) || 0, y: parseFloat(n.style.top) || 0 };
+        });
+        wrapper.querySelectorAll('.path-node').forEach(function (n) { n.remove(); });
+
+        var box = wrapper.querySelector('.stage-box');
+        var stagePos = { x: parseFloat(box.style.left) || 0, y: parseFloat(box.style.top) || 0 };
+        var freshIndex = 0;
+        wrapper.querySelectorAll('.path-row').forEach(function (pathRow) {
+            var nextInput = pathRow.querySelector('input[name$="_next"]');
+            if (!nextInput) return;
+            var prefix = nextInput.name.slice(0, -('_next'.length));
+            var turnInLabelInput = pathRow.querySelector('[name="' + prefix + '_turn_in_label"]');
+            var typeSelect = pathRow.querySelector('[name="' + prefix + '_trigger_type"]');
+            var label = (turnInLabelInput && turnInLabelInput.value) ||
+                (typeSelect && typeSelect.value) || '(no trigger yet)';
+
+            var node = document.createElement('div');
+            node.className = 'path-node';
+            node.dataset.pathNode = prefix;
+            var pos = existingPositions[prefix];
+            if (!pos) { pos = { x: stagePos.x + 190, y: stagePos.y + freshIndex * 74 }; freshIndex++; }
+            node.style.left = pos.x + 'px';
+            node.style.top = pos.y + 'px';
+
+            var xInput = document.createElement('input');
+            xInput.type = 'hidden'; xInput.className = 'path-x-input'; xInput.name = prefix + '_x'; xInput.value = pos.x;
+            node.appendChild(xInput);
+            var yInput = document.createElement('input');
+            yInput.type = 'hidden'; yInput.className = 'path-y-input'; yInput.name = prefix + '_y'; yInput.value = pos.y;
+            node.appendChild(yInput);
+
+            var labelSpan = document.createElement('span');
+            labelSpan.className = 'path-node-label';
+            labelSpan.textContent = label;
+            node.appendChild(labelSpan);
+
+            var dot = document.createElement('div');
+            dot.className = 'connector-handle';
+            dot.dataset.connectorRole = 'success';
+            dot.dataset.pathPrefix = prefix;
+            dot.dataset.tooltip = 'Drag onto another stage -- where ' + label + ' leads once its trigger is satisfied.';
+            node.appendChild(dot);
+            wireConnectorHandle(dot);
+
+            wirePathNodeClick(node, wrapper);
+            wirePathNodeDrag(node);
+            wrapper.appendChild(node);
+        });
+        redrawAllArrows();
+    }
+
+    function selectStage(wrapper) {
+        canvas.querySelectorAll('.stage-box').forEach(function (b) { b.classList.remove('selected'); });
+        document.querySelectorAll('.stage-detail-panel').forEach(function (p) { p.hidden = true; });
+        wrapper.querySelector('.stage-box').classList.add('selected');
+        wrapper.querySelector('.stage-detail-panel').hidden = false;
+    }
+
+    function setStartStage(wrapper) {
+        var idInput = wrapper.querySelector('.stage-id-input');
+        if (!idInput || !idInput.value) return;
+        document.querySelectorAll('.stage-box').forEach(function (b) { b.classList.remove('is-start'); });
+        document.querySelectorAll('.stage-flag').forEach(function (f) { f.classList.remove('is-start'); });
+        wrapper.querySelector('.stage-box').classList.add('is-start');
+        wrapper.querySelector('.stage-flag').classList.add('is-start');
+        document.getElementById('start_stage_field').value = idInput.value;
+        scheduleAutosave();
+    }
+
+    function renameStageReferences(oldId, newId) {
+        if (!oldId || oldId === newId) return;
+        canvas.querySelectorAll('input[name$="_next"]').forEach(function (input) {
+            if (input.value === oldId) input.value = newId;
+        });
+        var startField = document.getElementById('start_stage_field');
+        if (startField.value === oldId) startField.value = newId;
+        updateLiveNextTags(document);
+        redrawAllArrows();
+    }
+
+    function wireIdInput(wrapper) {
+        var idInput = wrapper.querySelector('.stage-id-input');
+        if (!idInput || idInput.dataset.wired) return;
+        idInput.dataset.wired = '1';
+        var lastValue = idInput.value;
+        idInput.addEventListener('input', function () {
+            wrapper.querySelector('[data-stage-box-id]').textContent = idInput.value || '(no id yet)';
+        });
+        idInput.addEventListener('blur', function () {
+            renameStageReferences(lastValue, idInput.value);
+            lastValue = idInput.value;
+            if (!document.getElementById('start_stage_field').value) setStartStage(wrapper);
+        });
+    }
+
+    function wireBoxDrag(box) {
+        if (box.dataset.dragWired) return;
+        box.dataset.dragWired = '1';
+        box.addEventListener('pointerdown', function (e) {
+            if (e.target.closest('[data-connector-role]') || e.target.closest('button')) return;
+            box.setPointerCapture(e.pointerId);
+            box.classList.add('dragging');
+            var wrapper = box.closest('.stage-wrapper');
+            var xInput = wrapper.querySelector('.stage-x-input');
+            var yInput = wrapper.querySelector('.stage-y-input');
+            function onMove(ev) {
+                var newLeft = parseFloat(box.style.left) + ev.movementX;
+                var newTop = parseFloat(box.style.top) + ev.movementY;
+                box.style.left = newLeft + 'px';
+                box.style.top = newTop + 'px';
+                xInput.value = Math.round(newLeft);
+                yInput.value = Math.round(newTop);
+                redrawAllArrows();
+            }
+            function onUp() {
+                box.classList.remove('dragging');
+                box.removeEventListener('pointermove', onMove);
+                box.removeEventListener('pointerup', onUp);
+                scheduleAutosave();
+            }
+            box.addEventListener('pointermove', onMove);
+            box.addEventListener('pointerup', onUp);
+        });
+        box.addEventListener('click', function (e) {
+            if (e.target.closest('[data-connector-role]') || e.target.closest('button')) return;
+            selectStage(box.closest('.stage-wrapper'));
+        });
+    }
+
+    // Keeps a path's on-canvas node (label, live-next text) in sync as its trigger type or
+    // turn_in_label changes -- see _describe_path's own docstring for why those two fields decide
+    // a path node's displayed label. Same "root can be a whole stage or just one freshly-added
+    // path row" flexibility wireActionSyncInputs (delves) documents, for the same reason: a new
+    // path row is cloned into an already-open detail panel, not as part of a new stage.
+    function wirePathSyncInputs(root, wrapper) {
+        root.querySelectorAll('select[name$="_trigger_type"], input[name$="_turn_in_label"]').forEach(function (input) {
+            if (input.dataset.pathSyncWired) return;
+            input.dataset.pathSyncWired = '1';
+            input.addEventListener('input', function () { syncPathNodes(wrapper); refreshStageBox(wrapper); });
+        });
+    }
+
+    function wireFlowchartNode(node) {
+        if (!node || !node.classList || !node.classList.contains('stage-wrapper')) return;
+        var box = node.querySelector('.stage-box');
+        wireBoxDrag(box);
+        node.querySelectorAll('[data-connector-role]').forEach(wireConnectorHandle);
+        node.querySelectorAll('.path-node').forEach(function (pathNode) {
+            wirePathNodeClick(pathNode, node);
+            wirePathNodeDrag(pathNode);
+        });
+        var flag = node.querySelector('[data-set-start]');
+        if (flag && !flag.dataset.wired) {
+            flag.dataset.wired = '1';
+            flag.addEventListener('click', function (e) { e.stopPropagation(); setStartStage(node); });
+        }
+        var selectBtn = node.querySelector('.stage-box-select');
+        if (selectBtn && !selectBtn.dataset.wired) {
+            selectBtn.dataset.wired = '1';
+            selectBtn.addEventListener('click', function (e) { e.stopPropagation(); selectStage(node); });
+        }
+        var closeBtn = node.querySelector('.stage-detail-close');
+        if (closeBtn && !closeBtn.dataset.wired) {
+            closeBtn.dataset.wired = '1';
+            closeBtn.addEventListener('click', function () {
+                node.querySelector('.stage-detail-panel').hidden = true;
+                box.classList.remove('selected');
+            });
+        }
+        wireIdInput(node);
+        wirePathSyncInputs(node, node);
+        refreshStageBox(node);
+    }
+
+    function refreshRoomBoxIfNested(el) {
+        var wrapper = el && el.closest ? el.closest('.stage-wrapper') : null;
+        if (!wrapper) return;
+        wirePathSyncInputs(el, wrapper);
+        syncPathNodes(wrapper);
+        refreshStageBox(wrapper);
+    }
+
+    // Draft autosave -- same shape as the delve script's own scheduleAutosave/runAutosave, just
+    // posting to this quest's own autosave/publish routes. See that script's own comment for why
+    // this is the one place besides it that uses fetch()/AJAX rather than a plain form POST.
+    var form = canvas.closest('form');
+    var statusEl = document.getElementById('draft-save-status');
+    var autosaveTimer = null;
+    var autosaveInFlight = false;
+    var autosavePending = false;
+
+    function setStatus(text, cls) {
+        if (!statusEl) return;
+        statusEl.textContent = text;
+        statusEl.className = 'field-hint' + (cls ? ' ' + cls : '');
+    }
+
+    function applyProblems(problems) {
+        canvas.querySelectorAll('.stage-box.has-error, .path-node.has-error').forEach(function (el) {
+            el.classList.remove('has-error');
+            el.removeAttribute('data-tooltip');
+        });
+        var byId = stagesById();
+        var stageMsgs = {}, pathMsgs = {};
+        (problems || []).forEach(function (p) {
+            if (!p.stage_id) return; // quest-level (e.g. unreachable stages) -- page banner only
+            if (p.path_index === null || p.path_index === undefined) {
+                (stageMsgs[p.stage_id] = stageMsgs[p.stage_id] || []).push(p.message);
+            } else {
+                pathMsgs[p.stage_id] = pathMsgs[p.stage_id] || {};
+                (pathMsgs[p.stage_id][p.path_index] = pathMsgs[p.stage_id][p.path_index] || []).push(p.message);
+            }
+        });
+        Object.keys(stageMsgs).forEach(function (sid) {
+            var wrapper = byId[sid];
+            if (!wrapper) return;
+            var box = wrapper.querySelector('.stage-box');
+            box.classList.add('has-error');
+            box.setAttribute('data-tooltip', stageMsgs[sid].join(' / '));
+        });
+        Object.keys(pathMsgs).forEach(function (sid) {
+            var wrapper = byId[sid];
+            if (!wrapper) return;
+            Object.keys(pathMsgs[sid]).forEach(function (idx) {
+                var node = wrapper.querySelector('[data-path-node="' + wrapper.dataset.stageWrapper + '_paths_' + idx + '"]');
+                if (!node) return;
+                node.classList.add('has-error');
+                node.setAttribute('data-tooltip', pathMsgs[sid][idx].join(' / '));
+            });
+        });
+    }
+
+    function runAutosave(isRetry) {
+        if (autosaveInFlight) { autosavePending = true; return; }
+        autosaveInFlight = true;
+        setStatus('Saving…', 'saving');
+        var itemId = form.dataset.flowchartItemId;
+        fetch('/edit/quests/' + encodeURIComponent(itemId) + '/autosave', { method: 'POST', body: new FormData(form) })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                autosaveInFlight = false;
+                if (!data.ok) throw new Error(data.error || 'autosave rejected');
+                if (data.id && data.id !== itemId) {
+                    form.dataset.flowchartItemId = data.id;
+                    var publishBtn = form.querySelector('button[formaction]');
+                    if (publishBtn) publishBtn.setAttribute('formaction', '/edit/quests/' + encodeURIComponent(data.id) + '/publish');
+                    history.replaceState(null, '', '/edit/quests/' + encodeURIComponent(data.id));
+                }
+                setStatus(data.id ? ('Saved as draft · ' + new Date().toLocaleTimeString()) : 'Waiting for an id…', 'saved');
+                applyProblems(data.problems);
+                if (autosavePending) { autosavePending = false; scheduleAutosave(); }
+            })
+            .catch(function () {
+                autosaveInFlight = false;
+                if (!isRetry) {
+                    setStatus('Autosave failed, retrying…', 'failed');
+                    setTimeout(function () { runAutosave(true); }, 3000);
+                } else {
+                    setStatus('Autosave failed -- edits are only in this browser tab until it succeeds.', 'failed');
+                }
+            });
+    }
+
+    function scheduleAutosave() {
+        if (autosaveTimer) clearTimeout(autosaveTimer);
+        autosaveTimer = setTimeout(runAutosave, 1800);
+    }
+
+    if (form) {
+        form.addEventListener('input', function (e) { if (e.target.type !== 'file' || e.target.value) scheduleAutosave(); });
+        form.addEventListener('change', scheduleAutosave);
+    }
+    window.__scheduleFlowchartAutosave = scheduleAutosave;
+
+    window.wireFlowchartNode = wireFlowchartNode;
+    window.refreshRoomBoxIfNested = refreshRoomBoxIfNested;
+    window.__redrawQuestArrows = redrawAllArrows;
+
+    canvas.querySelectorAll('.stage-wrapper').forEach(wireFlowchartNode);
     redrawAllArrows();
 })();
 
@@ -1743,7 +2353,7 @@ def _render_trigger_inputs(prefix: str, trigger: dict) -> str:
     param flattened into the row (same "let the real loader enforce which params a given type
     actually needs" idea as _render_field's "effects" case). `prefix` namespaces the field names
     so this can be reused both for a quest's single top-level start_trigger and for each row of a
-    "quest_stages" list.
+    stage's "paths" list.
 
     Wrapped in a "trigger-fields" div and each param label carries data-param="<name>" -- that's
     what the page script hooks onto TRIGGER_PARAMS_BY_TYPE to hide whichever params don't apply to
@@ -1764,7 +2374,7 @@ def _render_trigger_inputs(prefix: str, trigger: dict) -> str:
             # every flag key already in use, live from the DB -- still free text (new content can
             # still invent a brand-new key), but no longer a guessing game for what's already
             # meaningful. Each row needs its own datalist id (not shared globally) since the same
-            # param name can appear in more than one row on a "quest_stages" page.
+            # param name can appear in more than one row on a quest flowchart page.
             datalist_id = f"{prefix}_{p}_options"
             options = "".join(f"<option value=\"{html.escape(k)}\">" for k in db.get_distinct_flag_keys())
             field_html = (
@@ -1806,7 +2416,7 @@ def _parse_trigger(prefix: str, form: dict) -> dict | None:
 
 def _render_repeatable(container_id: str, rows_html: list[str], template_row_html: str, add_label: str) -> str:
     """Shared shell for every add/remove-able repeatable field (effects, materials, monster_drops,
-    quest_stages): the existing rows, a hidden <template> row the page script clones on "+ Add",
+    quest stages/paths): the existing rows, a hidden <template> row the page script clones on "+ Add",
     and the add button itself. Each individual row (built by a per-type row-builder like
     _render_effect_row) supplies its own "Remove" button -- see the page script's
     data-repeat-add/data-remove-row wiring, which is generic over any field using this shell."""
@@ -1822,7 +2432,7 @@ def _render_effect_row(
 ) -> str:
     """One row of an "effects" list. See _parse_field's "effects" case (and _parse_effects_list,
     reused by monster skills' own nested effects) for the matching parse side, and
-    _render_stage_row for why `prefix` is sometimes a "ROWIDX" placeholder.
+    _render_stage_node for why `prefix` is sometimes a "ROWIDX" placeholder.
 
     `allowed_types` narrows which types the dropdown even offers -- unused today (a monster's own
     skill has full parity with a player skill/consumable's effect vocabulary, so every caller uses
@@ -2659,47 +3269,268 @@ def _render_delve_flowchart(label: str, rooms: list[dict], entry: dict, problems
     )
 
 
-def _render_stage_row(prefix: str, stage: dict) -> str:
-    """One row of a "quest_stages" list -- shared by real rows (prefix like "stage_0") and the
-    blank <template> row (prefix "stage_ROWIDX") that "+ Add stage" clones. See _parse_field's
-    "quest_stages" case for the matching parse side. reward_item_kind/reward_item is the same
-    kind-select + _render_cascaded_select pairing as _render_shop_row's kind/item_id, scoped to the
-    "quest_reward" cascade (quests.REWARD_REGISTRIES' kinds) instead of "shop" -- reward_item_kind
-    defaults to "equipment" (blank in the dropdown resolves to the same default at parse/runtime
-    time) for every quest authored before reward_item_kind existed. button_label is optional --
-    quests.npc_talk_label reads it to override this NPC's "Talk to X" room button while this stage
-    is the player's current one with them (e.g. "Ask about a place to stay"), blank means keep the
-    generic default. turn_in_label is the same idea for the separate TurnInButton (the one that
-    actually resolves the trigger) -- blank keeps its own generic default; see admin_schemas.py's
-    "quest_stages" doc for why these are two different fields rather than one shared label."""
-    reward_item_kind = stage.get("reward_item_kind")
+def _default_stage_position(index: int) -> dict:
+    """Deterministic grid fallback for a stage with no stored `layout` entry yet -- keeps a quest
+    that's never been opened in the flowchart editor from stacking every stage's box at (0, 0).
+    Exact sibling of _default_room_position (delves)."""
+    columns = 4
+    return {"x": 40 + (index % columns) * 220, "y": 40 + (index // columns) * 170}
+
+
+def _default_path_position(stage_pos: dict, index: int) -> dict:
+    """Fallback position for a path's own connector box (see _render_path_node) that has never
+    been dragged yet -- stacked below-and-right of its parent stage. Exact sibling of
+    _default_action_position (delves). Once dragged, a path's real position is persisted directly
+    on the path itself ("x"/"y")."""
+    return {"x": stage_pos["x"] + 190, "y": stage_pos["y"] + index * 74}
+
+
+def _describe_path(path: dict) -> str:
+    """Short label for a path's own canvas node -- a path has no free-text "label" field of its
+    own (unlike a delve action), so this is derived from whatever's most identifying: its
+    turn_in_label if the author set one, else its trigger's type."""
+    if path.get("turn_in_label"):
+        return path["turn_in_label"]
+    trigger_type = (path.get("trigger") or {}).get("type")
+    return trigger_type or "(no trigger yet)"
+
+
+def _render_path_node(path_prefix: str, path: dict, pos: dict, error_messages: list[str] | None = None) -> str:
+    """A stage path's own connector box on the canvas -- exact sibling of _render_action_node
+    (delves), simpler in one respect: a path never gets a "fail" handle (a path has no check/fail
+    concept at all, only a trigger that currently either holds or doesn't), so it always carries
+    exactly one connector handle. Purely a connection anchor -- its editable fields live in the
+    parent stage's detail panel (see _render_path_row); this box only carries a label (kept in
+    sync client-side, see _describe_path), its own x/y hidden inputs, and the one handle.
+
+    `error_messages`, if given, is this path's own share of quests.check_quest_problems's output
+    (see _group_quest_problems)."""
+    label = html.escape(_describe_path(path))
+    error_attr = f' data-tooltip="{html.escape(" / ".join(error_messages))}"' if error_messages else ""
+    return (
+        f'<div class="path-node{" has-error" if error_messages else ""}" data-path-node="{path_prefix}" '
+        f'style="left:{pos["x"]}px;top:{pos["y"]}px"{error_attr}>'
+        f'<input type="hidden" name="{path_prefix}_x" class="path-x-input" value="{pos["x"]}">'
+        f'<input type="hidden" name="{path_prefix}_y" class="path-y-input" value="{pos["y"]}">'
+        f'<span class="path-node-label" data-path-node-label>{label}</span>'
+        f'<div class="connector-handle" data-connector-role="success" data-path-prefix="{path_prefix}" '
+        f'data-tooltip="Drag onto another stage -- where this path leads once its trigger is '
+        f'satisfied. Drop on empty canvas to disconnect (that ends the quest via this path)."></div>'
+        f'</div>'
+    )
+
+
+def _render_stage_box(prefix: str, stage: dict, pos: dict, is_start: bool, error_messages: list[str] | None = None) -> str:
+    """The draggable box on the flowchart canvas -- id, an icon, and a summary of how many paths
+    lead out of this stage (or "Dialogue only" for a terminal stage with none yet). Exact sibling
+    of _render_room_box (delves), simplified since a quest stage is always structurally the
+    delve-choice-room shape -- no type split, and so no connector handle of its own either: every
+    path gets its own separate node instead (see _render_path_node), same "lines from different
+    paths never bunch up at one corner" reasoning. id/prompt/journal_text/button_label/paths live
+    in the paired detail panel (_render_stage_detail_panel). The hidden "ordinal" input here is
+    opaque bookkeeping only -- see quests.py's own module docstring for what it's for -- carried
+    through unchanged on every save, never rendered as an editable field anywhere.
+
+    `error_messages`, if given, is this stage's own share of quests.check_quest_problems's output
+    (see _group_quest_problems)."""
+    stage_id = stage.get("id", "")
+    paths = stage.get("paths") or []
+    summary = f"{len(paths)} path{'s' if len(paths) != 1 else ''}" if paths else "Dialogue only (no paths yet)"
+    error_attr = f' data-tooltip="{html.escape(" / ".join(error_messages))}"' if error_messages else ""
+    return (
+        f'<div class="stage-box{" is-start" if is_start else ""}{" has-error" if error_messages else ""}" '
+        f'data-stage-prefix="{prefix}" style="left:{pos["x"]}px;top:{pos["y"]}px"{error_attr}>'
+        f'<input type="hidden" name="{prefix}_x" class="stage-x-input" value="{pos["x"]}">'
+        f'<input type="hidden" name="{prefix}_y" class="stage-y-input" value="{pos["y"]}">'
+        f'<input type="hidden" name="{prefix}_ordinal" value="{html.escape(str(stage["ordinal"]) if "ordinal" in stage else "")}">'
+        f'<div class="stage-box-header">'
+        f'<button type="button" class="stage-flag{" is-start" if is_start else ""}" data-set-start '
+        f'data-tooltip="Set as the stage every player starts this quest at.">🚩</button>'
+        f'<span class="stage-box-icon">📖</span>'
+        f'<span class="stage-box-id" data-stage-box-id>{html.escape(stage_id) or "(no id yet)"}</span>'
+        f'<button type="button" class="stage-box-select" data-tooltip="Click to edit this stage\'s fields.">✏️</button>'
+        f'</div>'
+        f'<div class="stage-box-summary" data-stage-box-summary>{summary}</div>'
+        f'</div>'
+    )
+
+
+def _render_path_row(prefix: str, path: dict) -> str:
+    """One path within a stage's own nested "paths" repeatable -- a third level of nesting
+    (stages -> stage -> paths), same wireRepeatAdd/ROWIDX machinery already proven
+    nesting-depth-agnostic by _render_action_row (delves). "trigger" reuses _render_trigger_inputs
+    verbatim, required here (unlike a delve action's optional "requires") -- a path with no
+    trigger could never actually be taken. reward_item_kind/reward_item is the same kind-select +
+    _render_cascaded_select pairing _render_shop_row's kind/item_id uses, scoped to the
+    "quest_reward" cascade (quests.REWARD_REGISTRIES' kinds) -- reward_item_kind defaults to
+    "equipment" (blank in the dropdown resolves to the same default at parse/runtime time) for
+    every quest authored before reward_item_kind existed.
+
+    Like a delve action's on_success/on_fail "next", this path's own "next" is NOT a typed input
+    -- it's set by dragging this path's own connector handle (_render_path_node) onto a target
+    stage on the canvas. The value lives in a same-named hidden input (`{prefix}_next`, read by
+    _parse_paths unchanged), just written by JS instead of a person; the visible
+    <span data-live-next> mirrors it read-only so this panel shows where the path currently leads
+    without hunting for the arrow on the canvas."""
+    reward_item_kind = path.get("reward_item_kind")
     reward_item_kind_options = "".join(
         f'<option value="{k}"{" selected" if k == reward_item_kind else ""}>{k}</option>'
         for k in [""] + sorted(quests.REWARD_REGISTRIES.keys())
     )
     reward_item_select = _render_cascaded_select(
-        f"{prefix}_reward_item", "quest_reward", reward_item_kind or "equipment", stage.get("reward_item")
+        f"{prefix}_reward_item", "quest_reward", reward_item_kind or "equipment", path.get("reward_item")
     )
     return (
-        f'<div class="row-group">'
-        f'<label>prompt<textarea name="{prefix}_prompt">{html.escape(stage.get("prompt", ""))}</textarea></label>'
-        f'<label>journal_text<textarea name="{prefix}_journal_text">'
-        f'{html.escape(stage.get("journal_text", ""))}</textarea></label>'
-        f'{_render_trigger_inputs(f"{prefix}_trigger", stage.get("trigger") or {})}'
+        f'<div class="row-group path-row">'
+        f'{_render_trigger_inputs(f"{prefix}_trigger", path.get("trigger") or {})}'
         f'<label>on_complete_message<textarea name="{prefix}_message">'
-        f'{html.escape(stage.get("on_complete_message", ""))}</textarea></label>'
-        f'<label>reward<input type="number" min="0" name="{prefix}_reward" value="{stage.get("reward", "")}"></label>'
+        f'{html.escape(path.get("on_complete_message", ""))}</textarea></label>'
+        f'<label>reward (currency, optional)<input type="number" min="0" name="{prefix}_reward" '
+        f'value="{path.get("reward", "")}"></label>'
         f'<label>reward_item_kind<select name="{prefix}_reward_item_kind" class="cascade-select" '
         f'data-cascade="quest_reward">{reward_item_kind_options}</select></label>'
         f'<label>reward_item{reward_item_select}</label>'
-        f'<label>button_label<input type="text" name="{prefix}_button_label" '
+        f'<label>turn_in_label (optional)<input type="text" name="{prefix}_turn_in_label" '
+        f'placeholder="e.g. Pay rent" '
+        f'value="{html.escape(path.get("turn_in_label", ""))}"></label>'
+        f'<fieldset data-tooltip="Where this path leads once its trigger is satisfied. Drag this '
+        f'path\'s handle, on the canvas above, to the target stage -- it can\'t be typed here.">'
+        f'<legend>next <span class="live-next-tag" data-live-next="{prefix}_next">'
+        f'{html.escape("→ " + path["next"]) if path.get("next") else "→ (ends the quest)"}'
+        f'</span></legend>'
+        f'<input type="hidden" name="{prefix}_next" value="{html.escape(path.get("next") or "")}">'
+        f'</fieldset>'
+        f'<button type="button" class="remove-row" data-remove-row>✕ Remove path</button></div>'
+    )
+
+
+def _render_stage_detail_panel(prefix: str, stage: dict) -> str:
+    """The collapsible per-stage field panel -- id/prompt/journal_text/button_label plus the
+    nested "paths" repeatable. Shown for at most one stage at a time (see the quest flowchart
+    script's selectStage), exact sibling of _render_room_detail_panel (delves) -- same "only the
+    selected stage's fields are ever on screen at once" idea. There is deliberately no "next" field
+    here at all -- each path's own connection is made by dragging its node's handle on the canvas
+    (_render_path_node), never typed."""
+    paths_container = f"{prefix}_paths"
+    paths = stage.get("paths") or []
+    path_rows_html = [_render_path_row(f"{paths_container}_{j}", p) for j, p in enumerate(paths)]
+    path_template_html = _render_path_row(f"{paths_container}_ROWIDX", {})
+    paths_repeatable = _render_repeatable(paths_container, path_rows_html, path_template_html, "+ Add path")
+    return (
+        f'<div class="stage-detail-panel stage-row" data-stage-panel="{prefix}" hidden>'
+        f'<div class="stage-detail-panel-header"><strong>Stage details</strong>'
+        f'<button type="button" class="stage-detail-close" '
+        f'data-tooltip="Close this panel -- the stage stays on the canvas.">✕ Close</button></div>'
+        f'<label>id<input type="text" name="{prefix}_id" class="stage-id-input" '
+        f'value="{html.escape(stage.get("id", ""))}">'
+        f'<small class="field-hint">Other stages\' paths connect to this stage by this id -- '
+        f'renaming it here automatically fixes up any arrows already pointing here.</small></label>'
+        f'<label>prompt<small class="field-hint">What the NPC actually says while this is the '
+        f'player\'s current stage.</small>'
+        f'<textarea name="{prefix}_prompt">{html.escape(stage.get("prompt", ""))}</textarea></label>'
+        f'<label>journal_text<small class="field-hint">The objective line shown in !journal -- '
+        f'distinct from prompt, which is only ever what the NPC actually says.</small>'
+        f'<textarea name="{prefix}_journal_text">{html.escape(stage.get("journal_text", ""))}</textarea></label>'
+        f'<label>button_label (optional)<input type="text" name="{prefix}_button_label" '
         f'placeholder="e.g. Ask about a place to stay" '
         f'value="{html.escape(stage.get("button_label", ""))}"></label>'
-        f'<label>turn_in_label<input type="text" name="{prefix}_turn_in_label" '
-        f'placeholder="e.g. Pay rent" '
-        f'value="{html.escape(stage.get("turn_in_label", ""))}"></label>'
-        f'<button type="button" class="remove-row" data-remove-row>✕ Remove stage</button>'
+        f'<label>paths<small class="field-hint">Each path gets its own arrow on the canvas -- two '
+        f'or more paths already fork the quest by whichever trigger becomes satisfied first, no '
+        f'separate "branch" concept needed. Leave empty for a dialogue-only stage that just sits '
+        f'here until more content is added.</small></label>{paths_repeatable}'
+        f'<button type="button" class="remove-row" data-remove-stage>✕ Remove stage</button></div>'
+    )
+
+
+def _render_stage_node(
+    prefix: str, stage: dict, pos: dict, is_start: bool,
+    stage_errors: list[str] | None = None, path_errors: dict[int, list[str]] | None = None,
+) -> str:
+    """Box + path nodes + detail panel for one stage, wrapped in a single .stage-wrapper -- the
+    unit _render_repeatable's existing <template>/ROWIDX clone mechanism (see wireRepeatAdd)
+    operates on, so "+ Add Stage" keeps working with zero changes to that shared primitive. Path
+    nodes are siblings of the stage's own box (not nested inside it) so each gets its own
+    independent position in the same canvas coordinate space -- see _render_path_node. Exact
+    sibling of _render_room_node (delves), simplified (no group-node concept -- quest stages have
+    no monster-group equivalent).
+
+    `stage_errors`/`path_errors` are this one stage's slice of a quest-wide problem map (see
+    _group_quest_problems) -- path_errors is keyed by path index within this stage."""
+    path_nodes_html = "".join(
+        _render_path_node(
+            f"{prefix}_paths_{j}", path,
+            {"x": path["x"], "y": path["y"]} if "x" in path and "y" in path else _default_path_position(pos, j),
+            (path_errors or {}).get(j),
+        )
+        for j, path in enumerate(stage.get("paths", []))
+    )
+    return (
+        f'<div class="stage-wrapper" data-stage-wrapper="{prefix}">'
+        f'{_render_stage_box(prefix, stage, pos, is_start, stage_errors)}'
+        f'{path_nodes_html}'
+        f'{_render_stage_detail_panel(prefix, stage)}'
         f'</div>'
+    )
+
+
+def _group_quest_problems(problems: list[dict]) -> tuple[dict[str, list[str]], dict[str, dict[int, list[str]]]]:
+    """Splits quests.check_quest_problems's flat output into (stage_id -> messages, stage_id ->
+    {path_index -> messages}) -- the shape _render_quest_flowchart needs to hand each stage/path
+    node its own slice. Exact sibling of _group_delve_problems. A quest-level problem (stage_id is
+    None -- e.g. unreachable stages, a bad start_stage) has nowhere on the canvas to attach to, so
+    it's dropped here; it's still shown in the page-level banner (see edit_view), same as always."""
+    stage_msgs: dict[str, list[str]] = {}
+    path_msgs: dict[str, dict[int, list[str]]] = {}
+    for p in problems:
+        stage_id = p["stage_id"]
+        if stage_id is None:
+            continue
+        if p["path_index"] is None:
+            stage_msgs.setdefault(stage_id, []).append(p["message"])
+        else:
+            path_msgs.setdefault(stage_id, {}).setdefault(p["path_index"], []).append(p["message"])
+    return stage_msgs, path_msgs
+
+
+def _render_quest_flowchart(label: str, stages: list[dict], entry: dict, problems: list[dict] | None = None) -> str:
+    """Top-level renderer for a quest's "stages" field -- a flowchart canvas (draggable stage
+    boxes + an SVG arrow overlay, see the "Quest flowchart editor" section of _dynamic_script)
+    instead of a flat stack of text-box rows. Exact sibling of _render_delve_flowchart, kept as a
+    separate script/render tree rather than sharing one with delves -- see the CSS comment at the
+    top of _PAGE_CSS for why. `entry` is the full quest dict, not just its "stages" value --
+    _render_field already passes this through for every field type, so this reads
+    entry.get("layout")/entry.get("start_stage") with no new plumbing. The single page-level
+    hidden "start_stage" input lives here, replacing what would otherwise be its own top-level
+    field entirely (see admin_schemas.py) -- it's set by clicking a stage's own flag icon
+    (_render_stage_box) instead.
+
+    `problems`, if given, is quests.check_quest_problems's output for this exact entry -- grouped
+    per stage/path (see _group_quest_problems) so a draft's still-broken spots are highlighted
+    directly on the canvas, not just named in a page-level banner."""
+    layout = entry.get("layout") or {}
+    start_stage = entry.get("start_stage") or (stages[0]["id"] if stages else "")
+    stage_msgs, path_msgs = _group_quest_problems(problems or [])
+
+    stage_nodes_html = []
+    for i, stage in enumerate(stages):
+        prefix = f"stage_{i}"
+        pos = layout.get(stage.get("id"), _default_stage_position(i))
+        stage_id = stage.get("id")
+        stage_nodes_html.append(_render_stage_node(
+            prefix, stage, pos, stage.get("id") == start_stage,
+            stage_msgs.get(stage_id), path_msgs.get(stage_id),
+        ))
+    template_html = _render_stage_node("stage_ROWIDX", {}, _default_stage_position(len(stages)), False)
+
+    canvas_html = _render_repeatable("quest-stages-canvas", stage_nodes_html, template_html, "+ Add Stage")
+    return (
+        f'<fieldset><legend>{label}</legend>'
+        f'<small class="field-hint">Drag stages to arrange them, drag a path\'s handle onto '
+        f'another stage to connect them, click a stage to edit its fields, and click the flag to '
+        f'set the start stage.</small>'
+        f'<input type="hidden" name="start_stage" id="start_stage_field" value="{html.escape(start_stage)}">'
+        f'<div class="delve-canvas-wrap">{canvas_html}<svg class="delve-arrows"></svg></div>'
+        f'</fieldset>'
     )
 
 
@@ -2957,17 +3788,9 @@ def _render_field(field: dict, value, entry: dict | None = None, problems: list[
     if ftype == "trigger":
         return f'<fieldset><legend>{label}</legend>{_render_trigger_inputs(name, value or {})}</fieldset>'
 
-    if ftype == "quest_stages":
-        # A row's index is a placeholder ("ROWIDX") in the template rather than a real number --
-        # the page script clones it and substitutes a real, ever-increasing index in every cloned
-        # name attribute each time "+ Add" is clicked. Never reused, so removing a row and adding
-        # another can't collide with an index still present in the form (see every _parse_field
-        # case below that discovers indices via regex rather than assuming they're contiguous).
+    if ftype == "quest_flowchart":
         stages = list(value or [])
-        rows_html = [_render_stage_row(f"stage_{i}", stage) for i, stage in enumerate(stages)]
-        template_html = _render_stage_row("stage_ROWIDX", {})
-        repeatable = _render_repeatable(f"{name}-rows", rows_html, template_html, "+ Add stage")
-        return f'<fieldset><legend>{label}</legend>{repeatable}</fieldset>'
+        return _render_quest_flowchart(label, stages, entry or {}, problems)
 
     raise ValueError(f"admin_schemas.py: unknown field type {ftype!r}")
 
@@ -3324,45 +4147,8 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
         trigger = _parse_trigger(name, form)
         return (name, trigger) if trigger is not None else None
 
-    if ftype == "quest_stages":
-        # Indices aren't contiguous from 0 any more -- rows can be added/removed client-side in
-        # any order (see _render_field's "quest_stages" case) -- so this discovers whatever
-        # stage_<N>_prompt keys actually made it into the submission instead of walking 0, 1, 2...
-        # until one's missing.
-        indices = sorted(int(m.group(1)) for k in form if (m := re.fullmatch(r"stage_(\d+)_prompt", k)))
-        stages = []
-        for i in indices:
-            prefix = f"stage_{i}"
-            prompt = form.get(f"{prefix}_prompt", "").strip()
-            if not prompt:
-                continue
-            stage = {"prompt": prompt}
-            journal_text = form.get(f"{prefix}_journal_text", "").strip()
-            if journal_text:
-                stage["journal_text"] = journal_text
-            trigger = _parse_trigger(f"{prefix}_trigger", form)
-            if trigger is not None:
-                stage["trigger"] = trigger
-            message = form.get(f"{prefix}_message", "").strip()
-            if message:
-                stage["on_complete_message"] = message
-            reward = form.get(f"{prefix}_reward", "").strip()
-            if reward and int(reward) != 0:
-                stage["reward"] = int(reward)
-            reward_item = form.get(f"{prefix}_reward_item", "").strip()
-            if reward_item:
-                stage["reward_item"] = reward_item
-                reward_item_kind = form.get(f"{prefix}_reward_item_kind", "").strip()
-                if reward_item_kind and reward_item_kind != "equipment":
-                    stage["reward_item_kind"] = reward_item_kind
-            button_label = form.get(f"{prefix}_button_label", "").strip()
-            if button_label:
-                stage["button_label"] = button_label
-            turn_in_label = form.get(f"{prefix}_turn_in_label", "").strip()
-            if turn_in_label:
-                stage["turn_in_label"] = turn_in_label
-            stages.append(stage)
-        return (name, stages)
+    # No case here for "quest_flowchart" -- like "delve_flowchart" above, it mixes repeatables and
+    # drag state, so it's parsed separately in _build_entry_from_form, via _parse_quest_flowchart.
 
     if ftype == "room_exits":
         indices = sorted(int(m.group(1)) for k in form if (m := re.fullmatch(r"room_exit_(\d+)_room_id", k)))
@@ -3562,6 +4348,18 @@ def _build_entry_from_form(spec: dict, form: dict, entry_id_for_upload: str, exi
                     new_entry["layout"] = parsed["layout"]
                 new_entry["start_room"] = parsed["start_room"]
                 soft_errors.extend(parsed["errors"])
+            continue
+        if field["type"] == "quest_flowchart":
+            # Never raises (see _parse_quest_flowchart's own docstring -- no image uploads means
+            # no ValueError path at all here, unlike delve_flowchart above) -- always applied, same
+            # "blank id/trigger is carried in errors, not raised" non-raising philosophy.
+            parsed = _parse_quest_flowchart(form, existing_entry)
+            new_entry[field["name"]] = parsed["stages"]
+            if parsed["layout"]:
+                new_entry["layout"] = parsed["layout"]
+            new_entry["start_stage"] = parsed["start_stage"]
+            new_entry["next_ordinal"] = parsed["next_ordinal"]
+            soft_errors.extend(parsed["errors"])
             continue
         parsed = _parse_field(field, form)
         if parsed is not None:
@@ -3796,6 +4594,142 @@ def _parse_delve_flowchart(form: dict, entry_id_for_upload: str, existing_entry:
     return {"rooms": rooms, "layout": layout, "start_room": form.get("start_room", "").strip(), "errors": errors}
 
 
+def _parse_paths(prefix: str, form: dict) -> tuple[list[dict], list[str]]:
+    """Parses a stage's nested "paths" repeatable -- path index i discovered from whichever
+    "<prefix>_<i>_next" keys are *present* (every path row always renders this hidden input, even
+    one added and left otherwise untouched -- blank is the valid "ends the quest" state, same
+    reasoning _parse_actions uses for a delve action's own success_next), rather than something
+    like "non-blank trigger type", since an empty trigger is itself a real state worth reporting,
+    not a sign the row was never really added.
+
+    Returns (paths, errors) rather than raising immediately when a path still has no trigger --
+    the caller (_parse_quest_flowchart) needs the *rest* of this stage's data regardless, so the
+    canvas can still be redrawn exactly as submitted (see _parse_delve_flowchart's own docstring
+    for why silently dropping one instead would be worse). Only a missing trigger gets its own
+    explicit message here, same "the one truly load-bearing field gets checked immediately, every
+    other blank-but-required field is caught by the next check_quest_problems pass instead" split
+    _parse_delve_flowchart/_parse_actions already use for a room's id / an action's label -- a
+    blank on_complete_message is simply omitted (not written as ""), which is exactly what makes
+    quests._REQUIRED_PATH_FIELDS' own "missing field(s)" check able to catch it later."""
+    indices = sorted(int(m.group(1)) for k in form if (m := re.fullmatch(rf"{re.escape(prefix)}_(\d+)_next", k)))
+    paths = []
+    errors = []
+    for i in indices:
+        p = f"{prefix}_{i}"
+        trigger = _parse_trigger(f"{p}_trigger", form)
+        if trigger is None:
+            errors.append("A path on the canvas needs a trigger before this can be saved.")
+        path: dict = {}
+        if trigger is not None:
+            path["trigger"] = trigger
+
+        message = form.get(f"{p}_message", "").strip()
+        if message:
+            path["on_complete_message"] = message
+
+        reward = form.get(f"{p}_reward", "").strip()
+        if reward and int(reward) != 0:
+            path["reward"] = int(reward)
+        reward_item = form.get(f"{p}_reward_item", "").strip()
+        if reward_item:
+            path["reward_item"] = reward_item
+            reward_item_kind = form.get(f"{p}_reward_item_kind", "").strip()
+            if reward_item_kind and reward_item_kind != "equipment":
+                path["reward_item_kind"] = reward_item_kind
+        turn_in_label = form.get(f"{p}_turn_in_label", "").strip()
+        if turn_in_label:
+            path["turn_in_label"] = turn_in_label
+
+        next_stage = form.get(f"{p}_next", "").strip()
+        if next_stage:
+            path["next"] = next_stage
+
+        x, y = form.get(f"{p}_x", "").strip(), form.get(f"{p}_y", "").strip()
+        if x and y:
+            path["x"], path["y"] = float(x), float(y)
+
+        paths.append(path)
+    return paths, errors
+
+
+def _parse_quest_flowchart(form: dict, existing_entry: dict) -> dict:
+    """Parses a "quest_flowchart" field's submission -- pulled out of _parse_field entirely (like
+    "delve_flowchart"), called directly from edit_view's POST handler and the quest autosave/
+    publish routes. Meaningfully simpler than _parse_delve_flowchart: quest stages carry no image
+    uploads at all, so this never needs an entry-id-for-upload or subdir, and can never raise.
+
+    Stage index i is discovered from whichever "stage_<i>_x" keys are present -- every stage ever
+    added to the canvas has a position, even one added and left otherwise untouched, same reasoning
+    _parse_delve_flowchart uses for room index discovery. Each stage's own "paths" nested
+    repeatable is parsed by _parse_paths (path index discovered the same way, from "_next" key
+    presence -- see that function's own docstring).
+
+    Ordinal assignment is the one genuinely new concern here, with no delve precedent (a delve room
+    has no equivalent second identity): each stage's own hidden "stage_<i>_ordinal" input is
+    non-blank if it already had one assigned (an existing stage resubmitting itself); blank means
+    this stage was added to the canvas this session and has never been saved before, so it gets the
+    next value off a running counter seeded from `existing_entry`'s own "next_ordinal" (0 for a
+    brand-new quest). The freshly-assigned ordinal is written into the returned stage dict, which
+    is what makes it back into the *next* render automatically -- edit_view always re-renders from
+    this function's own `new_entry`, never the raw submitted form, so the newly-minted ordinal is
+    what a resubmission (e.g. the very next autosave tick) sees as "already assigned," closing the
+    loop without any separate wiring. This is the correctness-critical property the whole "assigned
+    once, never reused" guarantee quests.py's progress-flag encoding depends on: if a fresh
+    ordinal's value were ever silently dropped on re-render, autosaving the same still-new stage
+    twice before a page reload would assign it a *different* ordinal each tick.
+
+    Also collects each stage's canvas position ("stage_<i>_x"/"_y", also script-written) into a
+    top-level "layout" dict, and reads the one page-level "start_stage" hidden input (see
+    _render_quest_flowchart). A stage discovered this way with a still-blank id (or, via
+    _parse_paths, a path with no trigger) does NOT raise -- it's included in "stages" as-is and
+    "errors" collects every such problem found, exactly the same non-raising philosophy
+    _parse_delve_flowchart documents at length."""
+    stage_indices = sorted(int(m.group(1)) for k in form if (m := re.fullmatch(r"stage_(\d+)_x", k)))
+    next_ordinal = existing_entry.get("next_ordinal", 0)
+
+    stages = []
+    layout: dict = {}
+    errors = []
+    for i in stage_indices:
+        p = f"stage_{i}"
+        stage_id = form.get(f"{p}_id", "").strip()
+        if not stage_id:
+            errors.append(f"Stage #{i + 1} on the canvas needs an id before this can be saved.")
+        stage: dict = {"id": stage_id}
+
+        raw_ordinal = form.get(f"{p}_ordinal", "").strip()
+        if raw_ordinal:
+            stage["ordinal"] = int(raw_ordinal)
+        else:
+            stage["ordinal"] = next_ordinal
+            next_ordinal += 1
+
+        prompt = form.get(f"{p}_prompt", "").strip()
+        if prompt:
+            stage["prompt"] = prompt
+        journal_text = form.get(f"{p}_journal_text", "").strip()
+        if journal_text:
+            stage["journal_text"] = journal_text
+        button_label = form.get(f"{p}_button_label", "").strip()
+        if button_label:
+            stage["button_label"] = button_label
+
+        paths, path_errors = _parse_paths(f"{p}_paths", form)
+        errors.extend(path_errors)
+        stage["paths"] = paths
+
+        stages.append(stage)
+
+        x, y = form.get(f"{p}_x", "").strip(), form.get(f"{p}_y", "").strip()
+        if stage_id and x and y:
+            layout[stage_id] = {"x": float(x), "y": float(y)}
+
+    return {
+        "stages": stages, "layout": layout, "start_stage": form.get("start_stage", "").strip(),
+        "next_ordinal": next_ordinal, "errors": errors,
+    }
+
+
 def _list_asset_files() -> list[tuple[str, float]]:
     """Every file under assets/, as (path-relative-to-repo-root, size-in-KB) pairs sorted by path
     -- e.g. ("assets/dungeon/monsters/goblin_grunt.png", 12.4). Backs the standalone Assets page's
@@ -3986,12 +4920,13 @@ async def list_view(request: web.Request) -> web.Response:
     # None for a column name that isn't a real field (there aren't any today, but "" is a saner
     # fallback than a KeyError if list_columns and fields ever drift).
     field_by_name = {f["name"]: f for f in spec["fields"]}
-    is_delve = content_type == "delves"
-    # Delves get one extra column beyond their own: whether there's a draft with unpublished
-    # changes, or (for a delve never published at all) whether the row IS only a draft -- see
-    # dungeon.load_delve_drafts. No other content type has this two-tier draft/publish split.
-    header = "".join(f"<th>{html.escape(c)}</th>" for c in columns) + ("<th></th>" if is_delve else "")
-    drafts = dungeon.load_delve_drafts() if is_delve else {}
+    draft_publish = spec.get("draft_publish")
+    # A draft/publish content type (delves, quests) gets one extra column beyond its own: whether
+    # there's a draft with unpublished changes, or (for an entry never published at all) whether
+    # the row IS only a draft -- see the "draft_publish" spec entry. No other content type has this
+    # two-tier draft/publish split.
+    header = "".join(f"<th>{html.escape(c)}</th>" for c in columns) + ("<th></th>" if draft_publish else "")
+    drafts = draft_publish["load_drafts"]() if draft_publish else {}
     dup_link = lambda item_id: (
         f'<td><a class="row-link" data-tooltip="Duplicate -- opens a new entry pre-filled from this '
         f'one" href="/edit/{content_type}/new?duplicate_from={item_id}">📋</a></td>'
@@ -4001,7 +4936,7 @@ async def list_view(request: web.Request) -> web.Response:
         cells = "".join(
             f"<td>{html.escape(_list_cell_text(field_by_name.get(c), entry.get(c)))}</td>" for c in columns
         )
-        if is_delve:
+        if draft_publish:
             has_unpublished = item_id in drafts and drafts[item_id] != entry
             status = (
                 '<span class="draft-tag" data-tooltip="Has unpublished draft changes.">Draft</span>'
@@ -4012,7 +4947,7 @@ async def list_view(request: web.Request) -> web.Response:
             f'<tr><td><a class="row-link" href="/edit/{content_type}/{item_id}">✏️</a></td>'
             f'{dup_link(item_id)}{cells}</tr>'
         )
-    if is_delve:
+    if draft_publish:
         live_ids = set(getattr(spec["module"], spec["registry_attr"]).keys())
         for draft_id, draft_entry in drafts.items():
             if draft_id in live_ids:
@@ -4081,20 +5016,20 @@ def _apply_generate_level(content_type: str, entry: dict, query) -> dict:
     return entry
 
 
-def _resolve_duplicate_source(spec: dict, content_type: str, source_id: str) -> dict | None:
+def _resolve_duplicate_source(spec: dict, source_id: str) -> dict | None:
     """Looks up `source_id` the same way edit_view resolves an existing item to display for editing
-    (a delve's own unpublished draft wins over its published version, otherwise the live registry)
-    -- so Duplicate always clones whatever the admin is currently looking at, not a stale published
-    copy behind an open draft. None if `source_id` doesn't exist (a stale link)."""
-    is_delve = content_type == "delves"
-    draft_entry = dungeon.load_delve_drafts().get(source_id) if is_delve else None
+    (a draft/publish entry's own unpublished draft wins over its published version, otherwise the
+    live registry) -- so Duplicate always clones whatever the admin is currently looking at, not a
+    stale published copy behind an open draft. None if `source_id` doesn't exist (a stale link)."""
+    draft_publish = spec.get("draft_publish")
+    draft_entry = draft_publish["load_drafts"]().get(source_id) if draft_publish else None
     if draft_entry is not None:
         return draft_entry
     registry = getattr(spec["module"], spec["registry_attr"])
     return registry.get(source_id)
 
 
-def _duplicate_entry(spec: dict, content_type: str, source_id: str) -> dict | None:
+def _duplicate_entry(spec: dict, source_id: str) -> dict | None:
     """A deep copy of `source_id`'s entry with a fresh, not-yet-taken id (`<source_id>_copy`, then
     `_copy2`, `_copy3`, ... on collision against every id currently on disk) -- everything else
     left exactly as the source had it, since the whole point of Duplicate is "start from a working
@@ -4105,7 +5040,7 @@ def _duplicate_entry(spec: dict, content_type: str, source_id: str) -> dict | No
     duplicate that's never renamed just fails loudly at Save time with the same "duplicate id"
     error every hand-typed collision already gets -- no new validation needed here. Returns None if
     `source_id` doesn't exist."""
-    source = _resolve_duplicate_source(spec, content_type, source_id)
+    source = _resolve_duplicate_source(spec, source_id)
     if source is None:
         return None
     existing_ids = {e.get("id") for e in _load_raw_entries(spec)}
@@ -4127,14 +5062,15 @@ async def edit_view(request: web.Request) -> web.Response:
         raise web.HTTPNotFound()
 
     is_new = item_id == "new"
-    is_delve = content_type == "delves"
+    draft_publish = spec.get("draft_publish")
     registry = getattr(spec["module"], spec["registry_attr"])
-    # A delve prefers its own draft over the live published version, if one exists -- that's the
-    # entire point of the draft/publish split (see dungeon.save_delve_draft): reopening a delve
-    # that's mid-edit shows exactly the unpublished state it was left in, not what's actually
-    # live. A brand-new delve never has a draft under "new" itself (see delve_autosave_view --
-    # drafts are always keyed by the delve's own real id, assigned client-side once typed).
-    draft_entry = dungeon.load_delve_drafts().get(item_id) if is_delve else None
+    # A draft/publish entry prefers its own draft over the live published version, if one exists --
+    # that's the entire point of the draft/publish split (see the "draft_publish" spec entry):
+    # reopening one that's mid-edit shows exactly the unpublished state it was left in, not what's
+    # actually live. A brand-new entry never has a draft under "new" itself (see
+    # flowchart_autosave_view -- drafts are always keyed by the entry's own real id, assigned
+    # client-side once typed).
+    draft_entry = draft_publish["load_drafts"]().get(item_id) if draft_publish else None
     entry = draft_entry if draft_entry is not None else ({} if is_new else registry.get(item_id))
     if entry is None and not is_new:
         raise web.HTTPNotFound()
@@ -4142,7 +5078,7 @@ async def edit_view(request: web.Request) -> web.Response:
     # button next to Delete below) instead links to /edit/<type>/new?duplicate_from=<id> -- a dead
     # link (source since deleted) just falls through to the ordinary blank-new-entry form.
     if is_new and not entry and request.query.get("duplicate_from"):
-        duplicated = _duplicate_entry(spec, content_type, request.query["duplicate_from"])
+        duplicated = _duplicate_entry(spec, request.query["duplicate_from"])
         if duplicated is not None:
             entry = duplicated
     entry = _apply_generate_level(content_type, entry, request.query)
@@ -4176,13 +5112,14 @@ async def edit_view(request: web.Request) -> web.Response:
                 entries.append(new_entry)
                 entry_index = len(entries) - 1
 
-            # A delve's flowchart editor no longer submits to this generic route in normal use --
-            # it autosaves to a draft and only ever commits through the dedicated publish route
-            # below (delve_publish_view), which is the one place "get rid of saving broken delves
-            # entirely" is actually enforced. This path stays exactly as it always was for every
-            # other content type, and as a harmless fallback if anything still posts here directly.
+            # A draft/publish content type's flowchart editor no longer submits to this generic
+            # route in normal use -- it autosaves to a draft and only ever commits through the
+            # dedicated publish route (flowchart_publish_view), which is the one place "get rid of
+            # saving broken entries entirely" is actually enforced. This path stays exactly as it
+            # always was for every other content type, and as a harmless fallback if anything still
+            # posts here directly.
             redirect_url = (
-                f"/edit/{content_type}/{new_entry.get('id', item_id)}" if is_delve
+                f"/edit/{content_type}/{new_entry.get('id', item_id)}" if draft_publish
                 else f"/edit/{content_type}"
             )
 
@@ -4196,21 +5133,21 @@ async def edit_view(request: web.Request) -> web.Response:
         error = '<p class="success">Published.</p>'
     elif request.method == "GET" and request.query.get("publish_error"):
         error = (
-            '<p class="error">Publish failed — see the highlighted room(s)/action(s) below for '
+            '<p class="error">Publish failed, see the highlighted spots below for '
             "what's still wrong. Nothing changed; your draft is untouched.</p>"
         )
     elif request.method == "GET" and request.query.get("saved"):
         error = '<p class="success">Saved.</p>'
 
-    # A delve's own structured problem list -- always computed for display (not just on a failed
-    # Publish), so reopening a still-broken draft shows its red highlights immediately rather than
-    # waiting for the next autosave tick. Skipped for a genuinely blank new-delve page (entry == {}
-    # is falsy) -- there's nothing to report yet and every required-field message would just be
-    # noise before the author's typed anything.
+    # A draft/publish entry's own structured problem list -- always computed for display (not just
+    # on a failed Publish), so reopening a still-broken draft shows its red highlights immediately
+    # rather than waiting for the next autosave tick. Skipped for a genuinely blank new-entry page
+    # (entry == {} is falsy) -- there's nothing to report yet and every required-field message
+    # would just be noise before the author's typed anything.
     problems: list[dict] = []
-    if is_delve and entry:
-        other_ids = set(dungeon.DELVES.keys()) - {item_id, entry.get("id", "")}
-        problems = dungeon.check_delve_problems(entry, other_ids)
+    if draft_publish and entry:
+        other_ids = set(getattr(spec["module"], spec["registry_attr"]).keys()) - {item_id, entry.get("id", "")}
+        problems = draft_publish["check_problems"](entry, other_ids)
 
     fields_html = _render_fields(spec["fields"], entry, problems)
     delete_button = (
@@ -4224,10 +5161,12 @@ async def edit_view(request: web.Request) -> web.Response:
         if not is_new else ""
     )
     crumb_label = "New" if is_new else f"Edit: {item_id}"
-    # A delve's flowchart canvas needs real width to be usable, unlike every other content type's
-    # form -- see .delve-canvas-wrap in _PAGE_CSS -- so this is the one place a schema field type
-    # needs to reach the <form> tag itself rather than just its own rendered markup.
-    form_class = " delve-form" if any(f["type"] == "delve_flowchart" for f in spec["fields"]) else ""
+    # A flowchart-field content type's canvas needs real width to be usable, unlike every other
+    # content type's form -- see .delve-canvas-wrap in _PAGE_CSS -- so this is the one place a
+    # schema field type needs to reach the <form> tag itself rather than just its own rendered
+    # markup.
+    flowchart_field_type = next((f["type"] for f in spec["fields"] if f["type"] in FLOWCHART_FORM_CLASSES), None)
+    form_class = f" {FLOWCHART_FORM_CLASSES[flowchart_field_type]}" if flowchart_field_type else ""
 
     # "Generate stats for level" + the reverse "≈ balanced for level X" hint -- see
     # _apply_generate_level's docstring for how the GET sub-form below feeds back into this same
@@ -4278,22 +5217,22 @@ async def edit_view(request: web.Request) -> web.Response:
             f'{slot_input}{generate_buttons}</form></div>'
         )
 
-    # Delves have no "Save" button at all -- edits autosave to a draft in the background (see
-    # delve_autosave_view + the flowchart script's scheduleAutosave), so the only explicit action
-    # left is Publish (delve_publish_view), which is also the one place a broken delve can ever be
-    # rejected outright instead of silently accepted. `data-delve-item-id` is how the autosave/
-    # publish JS knows what id to target -- updated client-side (no reload) the first time a
-    # brand-new delve's draft gets assigned a real id.
-    if is_delve:
+    # A draft/publish entry has no "Save" button at all -- edits autosave to a draft in the
+    # background (see flowchart_autosave_view + the flowchart script's scheduleAutosave), so the
+    # only explicit action left is Publish (flowchart_publish_view), which is also the one place a
+    # broken entry can ever be rejected outright instead of silently accepted.
+    # `data-flowchart-item-id` is how the autosave/publish JS knows what id to target -- updated
+    # client-side (no reload) the first time a brand-new entry's draft gets assigned a real id.
+    if draft_publish:
         draft_notice = (
-            '<p class="field-hint">📝 Draft — autosaving as you edit. Nothing here is live '
+            '<p class="field-hint">📝 Draft, autosaving as you edit. Nothing here is live '
             "until you hit Publish.</p>" if draft_entry is not None else ""
         )
         form_html = (
             f'<form method="post" enctype="multipart/form-data" class="{form_class.strip()}" '
-            f'data-delve-item-id="{html.escape(item_id)}">{fields_html}'
+            f'data-flowchart-item-id="{html.escape(item_id)}">{fields_html}'
             f'<div class="row-group"><span id="draft-save-status" class="field-hint"></span>'
-            f'<button type="submit" formaction="/edit/delves/{html.escape(item_id)}/publish">Publish</button>'
+            f'<button type="submit" formaction="/edit/{content_type}/{html.escape(item_id)}/publish">Publish</button>'
             f'</div></form>'
         )
     else:
@@ -4317,18 +5256,22 @@ async def edit_view(request: web.Request) -> web.Response:
     return _html_response(_page(f"Edit {spec['label']}", body, active=content_type, breadcrumbs=breadcrumbs))
 
 
-async def delve_autosave_view(request: web.Request) -> web.Response:
-    """AJAX draft-autosave for one delve's flowchart editor (see the flowchart script's
-    scheduleAutosave) -- never blocked by content problems, a draft can be arbitrarily broken,
-    that's the entire point (see dungeon.save_delve_draft). The one exception is a genuinely bad
-    image upload, which has no sensible partial state worth persisting, same as everywhere else
-    this codebase handles uploads. Always responds with the freshly-saved entry's structured
-    problem list (dungeon.check_delve_problems) so the canvas can update its red highlights
-    without waiting for an explicit Publish attempt."""
+async def flowchart_autosave_view(request: web.Request) -> web.Response:
+    """AJAX draft-autosave for a draft/publish content type's flowchart editor (delves, quests --
+    see the "draft_publish" spec entry, and the matching content_type in the URL) -- never blocked
+    by content problems, a draft can be arbitrarily broken, that's the entire point (see e.g.
+    quests.save_quest_draft). The one exception is a genuinely bad image upload (delves only --
+    quest stages carry none), which has no sensible partial state worth persisting, same as
+    everywhere else this codebase handles uploads. Always responds with the freshly-saved entry's
+    structured problem list so the canvas can update its red highlights without waiting for an
+    explicit Publish attempt."""
+    content_type = request.match_info["content_type"]
     item_id = request.match_info["item_id"]
-    spec = CONTENT_TYPES["delves"]
-    drafts = dungeon.load_delve_drafts()
-    existing = drafts.get(item_id) or dungeon.DELVES.get(item_id, {})
+    spec = CONTENT_TYPES[content_type]
+    draft_publish = spec["draft_publish"]
+    registry = getattr(spec["module"], spec["registry_attr"])
+    drafts = draft_publish["load_drafts"]()
+    existing = drafts.get(item_id) or registry.get(item_id, {})
     form = dict(await request.post())
     entry_id_for_upload = form.get("id", "").strip() or item_id
     new_entry, fatal_errors, _soft_errors = _build_entry_from_form(spec, form, entry_id_for_upload, existing)
@@ -4339,41 +5282,44 @@ async def delve_autosave_view(request: web.Request) -> web.Response:
     new_id = new_entry.get("id", "").strip()
     if not new_id:
         # Nothing to key a draft by yet -- report problems (which will include the missing "id"
-        # itself, via dungeon._REQUIRED_DELVE_FIELDS) without persisting anything.
-        problems = dungeon.check_delve_problems(new_entry, set(dungeon.DELVES.keys()))
+        # itself) without persisting anything.
+        problems = draft_publish["check_problems"](new_entry, set(registry.keys()))
         return web.json_response({"ok": True, "id": None, "problems": problems})
 
-    dungeon.save_delve_draft(new_entry)
+    draft_publish["save_draft"](new_entry)
     if item_id not in ("new", new_id) and item_id in drafts:
-        # The delve's own id was renamed mid-draft -- drop the stale draft filed under its old id
+        # The entry's own id was renamed mid-draft -- drop the stale draft filed under its old id
         # so it doesn't linger as an orphan now that everything's keyed by the new one.
-        dungeon.delete_delve_draft(item_id)
+        draft_publish["delete_draft"](item_id)
 
-    problems = dungeon.check_delve_problems(new_entry, set(dungeon.DELVES.keys()) - {new_id})
+    problems = draft_publish["check_problems"](new_entry, set(registry.keys()) - {new_id})
     return web.json_response({"ok": True, "id": new_id, "problems": problems})
 
 
-async def delve_publish_view(request: web.Request) -> web.Response:
-    """Runs a delve draft through full validation and, only if it passes, commits it to the real
-    dungeon_delves.json -- the one place a broken delve can ever be rejected outright instead of
-    silently accepted (see CLAUDE.md's "content is data" section and the module docstring above).
-    On failure the live file is never touched and the draft is left exactly as it was, so nothing
-    is lost -- the redirect back to the edit page recomputes the same structured problems fresh
-    from that untouched draft (see edit_view) to highlight what's still wrong."""
+async def flowchart_publish_view(request: web.Request) -> web.Response:
+    """Runs a draft/publish content type's draft through full validation and, only if it passes,
+    commits it to the real content JSON -- the one place a broken entry can ever be rejected
+    outright instead of silently accepted (see CLAUDE.md's "content is data" section). On failure
+    the live file is never touched and the draft is left exactly as it was, so nothing is lost --
+    the redirect back to the edit page recomputes the same structured problems fresh from that
+    untouched draft (see edit_view) to highlight what's still wrong."""
+    content_type = request.match_info["content_type"]
     item_id = request.match_info["item_id"]
-    spec = CONTENT_TYPES["delves"]
-    draft = dungeon.load_delve_drafts().get(item_id)
+    spec = CONTENT_TYPES[content_type]
+    draft_publish = spec["draft_publish"]
+    registry = getattr(spec["module"], spec["registry_attr"])
+    draft = draft_publish["load_drafts"]().get(item_id)
     if draft is None:
         # Nothing autosaved yet under this id (Publish clicked before the first autosave tick
         # landed, or with JS unavailable) -- build it fresh from whatever the form just submitted,
         # same shape every other save path uses.
-        existing = dungeon.DELVES.get(item_id, {})
+        existing = registry.get(item_id, {})
         form = dict(await request.post())
         entry_id_for_upload = form.get("id", "").strip() or item_id
         draft, fatal_errors, _soft = _build_entry_from_form(spec, form, entry_id_for_upload, existing)
         if fatal_errors:
-            raise web.HTTPFound(f"/edit/delves/{item_id}?publish_error=1")
-        dungeon.save_delve_draft(draft)
+            raise web.HTTPFound(f"/edit/{content_type}/{item_id}?publish_error=1")
+        draft_publish["save_draft"](draft)
 
     new_id = draft.get("id", "").strip() or item_id
     entries = _load_raw_entries(spec)
@@ -4388,11 +5334,11 @@ async def delve_publish_view(request: web.Request) -> web.Response:
 
     error_msg = _write_and_validate(spec, entries)
     if error_msg is None:
-        dungeon.delete_delve_draft(new_id)
+        draft_publish["delete_draft"](new_id)
         if new_id != item_id:
-            dungeon.delete_delve_draft(item_id)
-        raise web.HTTPFound(f"/edit/delves/{new_id}?published=1")
-    raise web.HTTPFound(f"/edit/delves/{new_id}?publish_error=1")
+            draft_publish["delete_draft"](item_id)
+        raise web.HTTPFound(f"/edit/{content_type}/{new_id}?published=1")
+    raise web.HTTPFound(f"/edit/{content_type}/{new_id}?publish_error=1")
 
 
 def _delete_blockers(content_type: str, item_id: str) -> list[str]:
@@ -5070,8 +6016,8 @@ def build_app(bot=None) -> web.Application:
     app.router.add_get("/edit/{content_type}", list_view)
     app.router.add_get("/edit/{content_type}/{item_id}", edit_view)
     app.router.add_post("/edit/{content_type}/{item_id}", edit_view)
-    app.router.add_post("/edit/delves/{item_id}/autosave", delve_autosave_view)
-    app.router.add_post("/edit/delves/{item_id}/publish", delve_publish_view)
+    app.router.add_post("/edit/{content_type}/{item_id}/autosave", flowchart_autosave_view)
+    app.router.add_post("/edit/{content_type}/{item_id}/publish", flowchart_publish_view)
     app.router.add_post("/delete/{content_type}/{item_id}", delete_view)
     app.router.add_get("/assets", assets_view)
     app.router.add_post("/assets", assets_view)

@@ -1,29 +1,44 @@
-"""Framework for multi-stage NPC storylines: a quest starts once its own "start_trigger" condition
-is met, and each stage advances once its "trigger" condition is met -- turning in an item, killing
-enough of a monster, crafting enough of a recipe, earning an achievement, another quest already
-being complete, or an arbitrary flag reaching some value (see TRIGGER_SCHEMAS). Nothing here ever
-starts or advances a quest on its own -- starting only ever happens through _try_start_quest, and
-advancing only ever happens through turn_in (through db.py's generic per-player flags table -- a
-quest's stage lives at flag key "quest:<id>", see _quest_flag_key/_get_stage/_start_quest/
-_advance_stage). _try_start_quest has two callers: talk_to_npc (npc-scoped, the original "visit the
-NPC and it offers itself" flow) and check_new_quests (every quest at once, journal_view.py's
-!journal entry point for starting a quest without visiting anyone) -- both are equally real, a
-quest doesn't care which one triggered it. turn_in likewise has two callers now: npc_view.py's
-TurnInButton (still fully supported) and journal_view.py's JournalTurnInButton -- turn_in itself
-only ever needed a quest_id, never an npc_id, so nothing about it had to change to support a second
-caller.
+"""Framework for multi-stage NPC storylines: a quest is a stage GRAPH, not a flat sequence -- each
+stage has one or more "paths" out of it (mirroring a delve choice room's actions), each path gated
+by its own "trigger" condition and pointing at whichever stage comes "next" (or nothing, ending the
+quest). A quest starts once its own "start_trigger" condition is met; a stage advances once one of
+its paths' triggers is met (see TRIGGER_SCHEMAS). Nothing here ever starts or advances a quest on
+its own -- starting only ever happens through _try_start_quest, and advancing only ever happens
+through turn_in.
+
+Two identities per stage, doing different jobs: "id" (a string) is what a path's "next" points at --
+editable, drag-connectable in the admin flowchart editor, exactly like a delve room's own id.
+"ordinal" (an integer, assigned once and never reused, never shown in the editor) is what a
+player's actual progress is stored as, in db.py's generic per-player flags table (a quest's stage
+lives at flag key "quest:<id>", encoded as ordinal + 1 so 0 unambiguously means "not started" --
+see _quest_flag_key/_get_stage_ordinal/_start_quest/_advance_via_path). The split exists because
+delve rooms track progress in an ephemeral in-memory session that never outlives one delve run, so
+a room can freely be addressed by its own editable id -- a quest's progress has to survive across
+sessions in an integer-only flags table, so its *durable* identity (ordinal) has to stay stable even
+while its *authoring* identity (id) can be freely renamed or the stage list reordered/extended.
+
+_try_start_quest has two callers: talk_to_npc (npc-scoped, the original "visit the NPC and it
+offers itself" flow) and check_new_quests (every quest at once, journal_view.py's !journal entry
+point for starting a quest without visiting anyone) -- both are equally real, a quest doesn't care
+which one triggered it. turn_in likewise has two callers: npc_view.py's TurnInButton (still fully
+supported) and journal_view.py's JournalTurnInButton -- turn_in itself only ever needed a quest_id,
+never an npc_id, so nothing about it had to change to support a second caller. An optional
+path_index lets a caller resolve one specific path explicitly (for a stage with more than one path
+open at once); omitted, turn_in auto-picks the first currently-satisfied path -- every quest today
+has exactly one path per stage, so this is the only behavior any existing content ever exercises.
 
 This module deliberately knows nothing about *why* an achievement was earned or a monster was
 killed -- it only ever reads state other systems already own (personal_achievements, inventory,
 flags), so e.g. achievements.py doesn't need to import this module or know quests exist.
 
-New quests are added as data in quests.json (mirroring achievements.py's ACHIEVEMENTS and
-dungeon.py's EQUIPMENT registry) -- no new plumbing needed per quest, and no new admin-panel
-plumbing needed per trigger *param* (only a genuinely new trigger *type* needs a schema entry here
-plus, if it's a counted type, a hook-point call to record_progress).
+New quests are authored through the admin panel's flowchart editor (mirroring the dungeon delve
+editor -- see admin_schemas.py's "quest_flowchart" field type), autosaved to quest_drafts.json with
+no validation gate mid-edit (see check_quest_problems) and only checked for real (including full
+reachability from start_stage) at Publish time -- the same two-tier draft/publish flow delves
+already have.
 
-A stage with no "trigger" key is a dialogue-only endpoint (the quest's current end, until more
-stages are appended).
+A stage with an empty "paths" list is a dialogue-only endpoint (the quest's current end, until more
+paths/stages are appended).
 """
 
 import asyncio
@@ -40,23 +55,25 @@ import rooms
 
 _QUEST_ITEMS_PATH = os.path.join(os.path.dirname(__file__), "quest_items.json")
 _QUESTS_PATH = os.path.join(os.path.dirname(__file__), "quests.json")
+_QUEST_DRAFTS_PATH = os.path.join(os.path.dirname(__file__), "quest_drafts.json")
 _REQUIRED_ITEM_FIELDS = {"id", "name", "emoji", "description"}
-_REQUIRED_QUEST_FIELDS = {"id", "name", "npc", "start_trigger", "stages"}
-_REQUIRED_STAGE_FIELDS = {"prompt", "journal_text", "on_complete_message"}
+_REQUIRED_QUEST_FIELDS = {"id", "name", "npc", "start_trigger", "start_stage", "stages"}
+_REQUIRED_STAGE_FIELDS = {"id", "ordinal", "prompt", "journal_text", "paths"}
+_REQUIRED_PATH_FIELDS = {"trigger", "on_complete_message"}
 
 # type -> (required param names, optional param names). Valid both as a quest's top-level
-# "start_trigger" and as a stage's "trigger" -- starting and advancing use the exact same
-# condition vocabulary, and (via the public trigger_satisfied) the same vocabulary NPC-presence
-# and room-exit conditions use too (see rooms.py). turn_in_item is checked against the player's
-# inventory (roll_item_drop is what actually gets the item into their hands), achievement against
-# personal_achievements, quest_complete against another quest's own flag, and flag_at_least
-# against an arbitrary flag key -- all four are live state this module can check on demand, no
-# counter needed. kill_monster/craft_item are "counted" types (they have a required "count"):
-# checked against a flag scoped to the specific quest stage asking, bumped by record_progress from
-# whatever game event matches -- deliberately quest-stage-scoped rather than generic counters (see
-# module docstring in the project plan for why). Adding a new type here is the whole cost of a new
-# trigger *kind* -- the admin panel's trigger field flattens every type's params into one row
-# generically (see admin_schemas.TRIGGER_PARAM_KINDS), so it needs no changes of its own.
+# "start_trigger" and as a path's "trigger" -- starting and advancing use the exact same condition
+# vocabulary, and (via the public trigger_satisfied) the same vocabulary NPC-presence and room-exit
+# conditions use too (see rooms.py). turn_in_item is checked against the player's inventory
+# (roll_item_drop is what actually gets the item into their hands), achievement against
+# personal_achievements, quest_complete against another quest's own flag, and flag_at_least against
+# an arbitrary flag key -- all four are live state this module can check on demand, no counter
+# needed. kill_monster/craft_item are "counted" types (they have a required "count"): checked
+# against a flag scoped to the specific quest stage asking, bumped by record_progress from whatever
+# game event matches -- deliberately quest-stage-scoped rather than generic counters. Adding a new
+# type here is the whole cost of a new trigger *kind* -- the admin panel's trigger field flattens
+# every type's params into one row generically (see admin_schemas.TRIGGER_PARAM_KINDS), so it needs
+# no changes of its own.
 TRIGGER_SCHEMAS = {
     "turn_in_item": ({"item_id"}, {"drop_monster"}),
     "achievement": ({"kind"}, set()),
@@ -98,50 +115,110 @@ _TRIGGER_MATCHERS = {
 }
 
 # Sentinel "stage" a counted trigger's flag key uses for progress toward a quest's start_trigger,
-# before it has a real stage index (stage 0 is the first real stage) -- keeps start-progress and
+# before it has a real stage ordinal (real ordinals are always >= 0) -- keeps start-progress and
 # stage-progress addressed the same way rather than needing a separate scheme.
 _START_STAGE = -1
 
+# Sentinel ordinal _advance_via_path writes when a path has no "next" (ending the quest). Must be
+# -2, not -1: the flag actually stored is `ordinal + 1` (see _quest_flag_key), and 0 is already
+# reserved to mean "not started" -- if this were -1, a just-completed quest would encode as
+# `-1 + 1 == 0`, indistinguishable from never having started at all (a real bug caught by this
+# module's own test suite: a "completed" player would vanish from !journal and _try_start_quest
+# would happily restart them). -2 encodes as -1, which collides with neither 0 (not started) nor
+# any real ordinal's own `+1` encoding (real ordinals are always >= 0, so their encoded values are
+# always >= 1). Unrelated to _START_STAGE above despite the near-identical name and numeral --
+# _START_STAGE only ever names a counter-key *string*, never a raw flag value; _COMPLETE_ORDINAL is
+# only ever a raw flag value (after its own +1 encoding), never a counter-key name -- the two are
+# never compared to each other or stored under the same key.
+_COMPLETE_ORDINAL = -2
+
 
 def _quest_flag_key(quest_id: str) -> str:
-    """A quest's own progress lives at this flag key -- stored as stage_index + 1 (see
-    _get_stage/_start_quest/_advance_stage) so 0 unambiguously means "not started" without
-    colliding with real stage 0, since db.get_flag's own "absence = 0" default can't distinguish
-    "never written" from "written as 0" any other way."""
+    """A quest's own progress lives at this flag key -- stored as ordinal + 1 (see
+    _get_stage_ordinal/_start_quest/_advance_via_path) so 0 unambiguously means "not started"
+    without colliding with a real ordinal of 0, since db.get_flag's own "absence = 0" default can't
+    distinguish "never written" from "written as 0" any other way."""
     return f"quest:{quest_id}"
 
 
-def _stage_counter_key(quest_id: str, stage: int) -> str:
-    """Where a counted trigger's (kill_monster/craft_item) progress toward *this* stage (or the
-    quest's start_trigger, if stage is _START_STAGE) lives. Scoped to one quest's one stage --
-    once that stage advances, its old counter key is simply never read again (no cleanup needed,
-    same "stale flags are harmless" idea the old quest_counters table already relied on)."""
-    if stage == _START_STAGE:
+def _stage_counter_key(quest_id: str, ordinal: int) -> str:
+    """Where a counted trigger's (kill_monster/craft_item) progress toward the stage at `ordinal`
+    (or the quest's start_trigger, if ordinal is _START_STAGE) lives. Scoped to one quest's one
+    stage -- once that stage advances, its old counter key is simply never read again (no cleanup
+    needed, same "stale flags are harmless" idea the old quest_counters table already relied on).
+    If a future branching stage ever has two or more counted-type paths at once, they'd collide on
+    this one key (scoped to (quest, stage), not (quest, stage, path)) -- no existing content does
+    this; deferred until it's actually needed, since a path has no stable identity of its own to
+    scope a finer key to (mirroring a delve action, which has the same limitation)."""
+    if ordinal == _START_STAGE:
         return f"quest:{quest_id}:start:count"
-    return f"quest:{quest_id}:stage{stage}:count"
+    return f"quest:{quest_id}:stage{ordinal}:count"
 
 
-async def _get_stage(guild_id: int, user_id: int, quest_id: str) -> int | None:
-    """This user's current stage index in `quest_id`, or None if they haven't started it."""
+async def _get_stage_ordinal(guild_id: int, user_id: int, quest_id: str) -> int | None:
+    """This user's current stage ordinal in `quest_id`, or None if they haven't started it."""
     raw = await asyncio.to_thread(db.get_flag, guild_id, user_id, _quest_flag_key(quest_id))
     return None if raw == 0 else raw - 1
 
 
-async def _start_quest(guild_id: int, user_id: int, quest_id: str) -> bool:
-    """Starts `quest_id` at stage 0 if they haven't already started it. Returns whether this call
-    was the one that started it -- idempotent, so a quest's start trigger can be re-checked (e.g.
-    every time its NPC is talked to) without restarting progress."""
-    return await asyncio.to_thread(db.set_flag_if_zero, guild_id, user_id, _quest_flag_key(quest_id), 1)
+async def _start_quest(guild_id: int, user_id: int, quest_id: str, ordinal: int) -> bool:
+    """Starts `quest_id` at the stage whose ordinal is `ordinal` (its start_stage) if they haven't
+    already started it. Returns whether this call was the one that started it -- idempotent, so a
+    quest's start trigger can be re-checked (e.g. every time its NPC is talked to) without
+    restarting progress."""
+    return await asyncio.to_thread(db.set_flag_if_zero, guild_id, user_id, _quest_flag_key(quest_id), ordinal + 1)
 
 
-async def _advance_stage(guild_id: int, user_id: int, quest_id: str, from_stage: int) -> bool:
-    """Advances `quest_id` from `from_stage` to `from_stage + 1`. Returns whether it actually
-    moved -- False if the stored stage no longer matches `from_stage` (e.g. a stale view double
-    button-clicked), same stale-state guard the old quest_progress table's UPDATE...WHERE relied
-    on, now expressed as a compare-and-set against the flag's encoded (stage + 1) value."""
+async def _advance_via_path(guild_id: int, user_id: int, quest: dict, from_ordinal: int, path: dict) -> bool:
+    """Advances `quest` from `from_ordinal` to whichever stage `path["next"]` names, or to the
+    reserved _COMPLETE_ORDINAL sentinel if `path` has no "next" (ending the quest). Returns whether
+    it actually moved -- False if the stored ordinal no longer matches `from_ordinal` (e.g. a stale
+    view double button-clicked), same stale-state CAS guard as before, now resolving its target
+    ordinal from the stage graph instead of a hardcoded +1."""
+    next_id = path.get("next")
+    new_ordinal = _COMPLETE_ORDINAL if next_id is None else _stages_by_id(quest)[next_id]["ordinal"]
     return await asyncio.to_thread(
-        db.compare_and_set_flag, guild_id, user_id, _quest_flag_key(quest_id), from_stage + 1, from_stage + 2,
+        db.compare_and_set_flag, guild_id, user_id, _quest_flag_key(quest["id"]), from_ordinal + 1, new_ordinal + 1,
     )
+
+
+def _stages_by_id(quest: dict) -> dict[str, dict]:
+    return {stage["id"]: stage for stage in quest["stages"]}
+
+
+def _stage_by_ordinal(quest: dict) -> dict[int, dict]:
+    return {stage["ordinal"]: stage for stage in quest["stages"]}
+
+
+def _is_complete(quest: dict, ordinal: int) -> bool:
+    """Whether `ordinal` (a player's current decoded stage position, from _get_stage_ordinal)
+    corresponds to a real stage of `quest` -- False means still in progress, True means done. One
+    rule that transparently covers both the legacy "one past the last array index" encoding every
+    already-completed player's flag already carries from before this module tracked stages by
+    ordinal (see the module docstring), and the explicit _COMPLETE_ORDINAL sentinel
+    _advance_via_path writes going forward -- neither is ever a real stage's ordinal, so "not
+    found" is definitionally "complete" either way."""
+    return ordinal not in _stage_by_ordinal(quest)
+
+
+def _stage_chain(quest: dict) -> list[str]:
+    """Walks `quest` from start_stage via each visited stage's own *first* path's "next",
+    collecting the ordered chain of stage ids -- used only to compute !journal's "Stage X/Y"
+    display (see quest_log). Well-defined for any currently-linear quest (every stage has at most
+    one path); a stage only reachable via a second/later path, or a cycle, simply won't extend the
+    chain past the point it diverges from a straight line -- an explicitly accepted limitation once
+    real branching content exists (see the module docstring), not something this function tries to
+    solve in general."""
+    stages_by_id = _stages_by_id(quest)
+    chain: list[str] = []
+    seen: set[str] = set()
+    stage_id = quest["start_stage"]
+    while stage_id is not None and stage_id not in seen and stage_id in stages_by_id:
+        seen.add(stage_id)
+        chain.append(stage_id)
+        stage = stages_by_id[stage_id]
+        stage_id = stage["paths"][0].get("next") if stage["paths"] else None
+    return chain
 
 
 # Shown once every stage is turned in, for a quest with no quest-level "complete_message" of its
@@ -180,7 +257,7 @@ _item_id_collisions = QUEST_ITEMS.keys() & (dungeon.MATERIALS.keys() | dungeon.C
 if _item_id_collisions:
     raise ValueError(f"quest_items.json ids collide with dungeon materials/consumables: {sorted(_item_id_collisions)}")
 
-# kind -> item registry a stage's "reward_item" can be drawn from -- same shape and grant-logic
+# kind -> item registry a path's "reward_item" can be drawn from -- same shape and grant-logic
 # split (equipment is always stored, never auto-equipped -- see turn_in below; everything else
 # gets add_inventory_item) as shop.py's and dreams.py's own REGISTRIES. housing.py deliberately is
 # NOT imported here to add a
@@ -206,8 +283,9 @@ REWARD_REGISTRIES = {
 
 
 def _validate_trigger(trigger: dict, context: str):
-    """Shared by every stage's trigger -- `context` is an f-string-ready label (e.g. "quests.json:
-    quest 'foo' stage 0") prefixed onto every error, same convention as dungeon._validate_effects."""
+    """Shared by every quest's start_trigger and every path's trigger -- `context` is an
+    f-string-ready label (e.g. "quests.json: quest 'foo' stage 'bar' path 0") prefixed onto every
+    error, same convention as dungeon._validate_effects."""
     trigger_type = trigger.get("type")
     if trigger_type not in TRIGGER_SCHEMAS:
         raise ValueError(f"{context} has unknown trigger type {trigger_type!r}")
@@ -240,7 +318,7 @@ def _validate_trigger(trigger: dict, context: str):
 
 
 def _load_quests(path: str = _QUESTS_PATH) -> dict[str, dict]:
-    """A quest's "start_trigger" is validated exactly like a stage's "trigger" (see
+    """A quest's "start_trigger" is validated exactly like a path's "trigger" (see
     TRIGGER_SCHEMAS/_validate_trigger) -- both use the same condition vocabulary, just checked at
     a different moment (talk_to_npc vs turn_in). Note an "achievement" trigger's "kind" isn't
     cross-checked against achievements.ACHIEVEMENTS here -- quests.py can't import achievements.py
@@ -250,10 +328,21 @@ def _load_quests(path: str = _QUESTS_PATH) -> dict[str, dict]:
     so a typo there just means the quest never auto-starts rather than a load-time crash; the
     admin panel's enum field is what actually prevents that typo at entry time.
 
-    Each stage: "prompt" (NPC dialogue shown while this stage is active), "trigger" (what advances
-    it, or absent for a dialogue-only endpoint), "on_complete_message", and either a currency
+    Each stage: "id" (referenced by a path's "next"), "ordinal" (permanent, never reused, never
+    editable -- backs the durable progress flag), "prompt" (NPC dialogue shown while this stage is
+    active), "journal_text" (the !journal objective line), "button_label" (optional), and "paths"
+    (a list, possibly empty for a dialogue-only terminal). Each path: "trigger" (what advances it),
+    "on_complete_message", "next" (a stage id, or absent to end the quest), and either a currency
     "reward" or a "reward_item" (any REWARD_REGISTRIES kind, see turn_in -- an equipment one is
-    always stored, never auto-equipped). Later stages are just appended to a quest's list."""
+    always stored, never auto-equipped).
+
+    Beyond field presence, this also enforces the stage GRAPH is well-formed: every stage id/
+    ordinal is unique within the quest, start_stage names a real stage, next_ordinal exceeds every
+    assigned ordinal (the admin editor's "never reuse an ordinal" invariant), every path's "next"
+    names a real stage (no dangling edges), and -- unless the quest is explicitly inactive
+    (quest.get("active", True) is False, same "still being authored" exemption dungeon._load_delves
+    gives an inactive delve) -- every stage is reachable from start_stage (a plain BFS over the
+    "next" edges, mirroring dungeon._load_delves' own reachability check)."""
     with open(path) as f:
         raw = json.load(f)
     quests_by_id: dict[str, dict] = {}
@@ -270,29 +359,97 @@ def _load_quests(path: str = _QUESTS_PATH) -> dict[str, dict]:
         stages = entry["stages"]
         if not stages:
             raise ValueError(f"quests.json: quest {quest_id!r} has no stages")
+
+        stage_ids: set[str] = set()
+        ordinals: set[int] = set()
         for i, stage in enumerate(stages):
             context = f"quests.json: quest {quest_id!r} stage {i}"
             missing_stage = _REQUIRED_STAGE_FIELDS - stage.keys()
             if missing_stage:
                 raise ValueError(f"{context} missing field(s): {sorted(missing_stage)}")
-            trigger = stage.get("trigger")
-            if trigger is not None:
-                _validate_trigger(trigger, context)
-            reward_item_id = stage.get("reward_item")
-            reward_item_kind = stage.get("reward_item_kind", "equipment")
-            # Only the "equipment" kind (the original, and only, reward kind before housing_item
-            # existed) is checked here -- REWARD_REGISTRIES doesn't have "housing_item" registered
-            # yet at this point in module load order (see its own comment above), so a
-            # housing_item reward is checked later instead, by validate_reward_item_kinds().
-            if reward_item_id and reward_item_kind == "equipment" and reward_item_id not in dungeon.EQUIPMENT:
-                raise ValueError(f"{context} reward_item {reward_item_id!r} not in dungeon.EQUIPMENT")
+            stage_id = stage["id"]
+            if not stage_id:
+                raise ValueError(f"{context} has a blank id")
+            if stage_id in stage_ids:
+                raise ValueError(f"quests.json: quest {quest_id!r} has duplicate stage id {stage_id!r}")
+            stage_ids.add(stage_id)
+            ordinal = stage["ordinal"]
+            if not isinstance(ordinal, int) or isinstance(ordinal, bool) or ordinal < 0:
+                raise ValueError(f"{context} (id {stage_id!r}) ordinal must be a non-negative integer")
+            if ordinal in ordinals:
+                raise ValueError(f"quests.json: quest {quest_id!r} has duplicate stage ordinal {ordinal!r}")
+            ordinals.add(ordinal)
+            for j, path in enumerate(stage["paths"]):
+                path_context = f"{context} (id {stage_id!r}) path {j}"
+                missing_path = _REQUIRED_PATH_FIELDS - path.keys()
+                if missing_path:
+                    raise ValueError(f"{path_context} missing field(s): {sorted(missing_path)}")
+                _validate_trigger(path["trigger"], path_context)
+                reward_item_id = path.get("reward_item")
+                reward_item_kind = path.get("reward_item_kind", "equipment")
+                # Only the "equipment" kind (the original, and only, reward kind before
+                # housing_item existed) is checked here -- REWARD_REGISTRIES doesn't have
+                # "housing_item" registered yet at this point in module load order (see its own
+                # comment above), so a housing_item reward is checked later instead, by
+                # validate_reward_item_kinds().
+                if reward_item_id and reward_item_kind == "equipment" and reward_item_id not in dungeon.EQUIPMENT:
+                    raise ValueError(f"{path_context} reward_item {reward_item_id!r} not in dungeon.EQUIPMENT")
+
+        if entry["start_stage"] not in stage_ids:
+            raise ValueError(
+                f"quests.json: quest {quest_id!r} start_stage {entry['start_stage']!r} is not a stage here"
+            )
+
+        next_ordinal = entry.get("next_ordinal")
+        if next_ordinal is None:
+            # Missing entirely (e.g. a hand-edited file) -- self-heal to one past the highest
+            # assigned ordinal, same value the backfill migration / admin editor would have written.
+            next_ordinal = (max(ordinals) if ordinals else -1) + 1
+            entry["next_ordinal"] = next_ordinal
+        if not isinstance(next_ordinal, int) or next_ordinal <= (max(ordinals) if ordinals else -1):
+            raise ValueError(
+                f"quests.json: quest {quest_id!r} next_ordinal must be greater than every stage ordinal"
+            )
+
+        # Dangling `next` check -- every path's target, if set, must be a real stage here.
+        for i, stage in enumerate(stages):
+            for j, path in enumerate(stage["paths"]):
+                target = path.get("next")
+                if target is not None and target not in stage_ids:
+                    raise ValueError(
+                        f"quests.json: quest {quest_id!r} stage {stage['id']!r} path {j} "
+                        f"next {target!r} is not a stage here"
+                    )
+
+        # Reachability -- plain BFS from start_stage over every path's "next" edge, exempted for an
+        # explicitly inactive (still being authored) quest, same exemption dungeon._load_delves
+        # gives an inactive delve.
+        if entry.get("active", True):
+            stages_by_id_local = {s["id"]: s for s in stages}
+            reachable = {entry["start_stage"]}
+            frontier = [entry["start_stage"]]
+            while frontier:
+                current = frontier.pop()
+                for path in stages_by_id_local[current]["paths"]:
+                    target = path.get("next")
+                    if target is not None and target not in reachable:
+                        reachable.add(target)
+                        frontier.append(target)
+            unreachable = stage_ids - reachable
+            if unreachable:
+                raise ValueError(
+                    f"quests.json: quest {quest_id!r} has unreachable stage(s): {sorted(unreachable)}"
+                )
+
         quests_by_id[quest_id] = entry
 
     # Second pass: a quest_complete trigger references another quest by id, which might not have
     # been loaded yet at the point its own trigger was validated above (quests.json order doesn't
     # have to match reference order) -- checked here instead, once every quest id is known.
     for quest_id, entry in quests_by_id.items():
-        triggers = [entry["start_trigger"]] + [s["trigger"] for s in entry["stages"] if s.get("trigger")]
+        triggers = [entry["start_trigger"]] + [
+            path["trigger"] for stage in entry["stages"] for path in stage["paths"]
+        ]
         for trigger in triggers:
             if trigger["type"] == "quest_complete" and trigger["quest_id"] not in quests_by_id:
                 raise ValueError(
@@ -305,6 +462,123 @@ def _load_quests(path: str = _QUESTS_PATH) -> dict[str, dict]:
 QUESTS_BY_ID = _load_quests()
 
 
+def check_quest_problems(entry: dict, other_ids: set[str]) -> list[dict]:
+    """Non-raising sibling of _load_quests' per-entry validation -- same rules (minus the
+    reachability check, see below), but collects every problem found (instead of raising on the
+    first) as {"stage_id", "path_index", "message"} dicts so the flowchart editor can highlight
+    every broken stage/path at once rather than forcing one-fix-at-a-time. stage_id/path_index are
+    None for a quest-level problem (e.g. a duplicate id against `other_ids` -- the currently-
+    published quests this entry isn't itself). Deliberately omits the reachability check
+    _load_quests enforces -- a draft is allowed to be arbitrarily broken mid-edit (see
+    admin_server.py's quest_autosave_view); only Publish (which runs the real loader) enforces full
+    reachability. Used for a draft; unlike _load_quests this never raises -- an empty return means
+    "would pass Publish"."""
+    problems: list[dict] = []
+
+    def add(message: str, stage_id: str | None = None, path_index: int | None = None):
+        problems.append({"stage_id": stage_id, "path_index": path_index, "message": message})
+
+    entry_id = entry.get("id", "")
+    if entry_id and entry_id in other_ids:
+        add(f"id {entry_id!r} is already used by another quest")
+    missing = _REQUIRED_QUEST_FIELDS - entry.keys()
+    if missing:
+        add(f"missing field(s): {sorted(missing)}")
+    if entry.get("npc") and entry["npc"] not in npcs.NPCS:
+        add(f"unknown npc {entry['npc']!r}")
+    start_trigger = entry.get("start_trigger")
+    if start_trigger is not None:
+        try:
+            _validate_trigger(start_trigger, "start_trigger")
+        except ValueError as e:
+            add(str(e))
+
+    stages = entry.get("stages") or []
+    if not stages:
+        add("has no stages")
+        return problems
+
+    stage_ids: set[str] = set()
+    ordinals: set[int] = set()
+    for stage in stages:
+        stage_id = stage.get("id")
+        if not stage_id:
+            add("a stage has no id")
+            continue
+        if stage_id in stage_ids:
+            add(f"duplicate stage id {stage_id!r}", stage_id=stage_id)
+        stage_ids.add(stage_id)
+        ordinal = stage.get("ordinal")
+        if not isinstance(ordinal, int) or isinstance(ordinal, bool) or ordinal < 0:
+            add("ordinal must be a non-negative integer", stage_id=stage_id)
+        elif ordinal in ordinals:
+            add(f"duplicate stage ordinal {ordinal!r}", stage_id=stage_id)
+        else:
+            ordinals.add(ordinal)
+        missing_stage = _REQUIRED_STAGE_FIELDS - stage.keys()
+        if missing_stage:
+            add(f"missing field(s): {sorted(missing_stage)}", stage_id=stage_id)
+        for i, path in enumerate(stage.get("paths") or []):
+            missing_path = _REQUIRED_PATH_FIELDS - path.keys()
+            if missing_path:
+                add(f"missing field(s): {sorted(missing_path)}", stage_id=stage_id, path_index=i)
+                continue
+            try:
+                _validate_trigger(path["trigger"], "path trigger")
+            except ValueError as e:
+                add(str(e), stage_id=stage_id, path_index=i)
+            reward_item_id = path.get("reward_item")
+            reward_item_kind = path.get("reward_item_kind", "equipment")
+            registry = REWARD_REGISTRIES.get(reward_item_kind)
+            if reward_item_id and registry is not None and reward_item_id not in registry():
+                add(f"reward_item {reward_item_id!r} not in {reward_item_kind}", stage_id=stage_id, path_index=i)
+            elif reward_item_id and registry is None:
+                add(f"unknown reward_item_kind {reward_item_kind!r}", stage_id=stage_id, path_index=i)
+
+    start_stage = entry.get("start_stage")
+    if start_stage and start_stage not in stage_ids:
+        add(f"start_stage {start_stage!r} is not a stage here")
+
+    for stage in stages:
+        stage_id = stage.get("id")
+        if not stage_id:
+            continue
+        for i, path in enumerate(stage.get("paths") or []):
+            next_id = path.get("next")
+            if next_id is not None and next_id not in stage_ids:
+                add(f"next {next_id!r} is not a stage here", stage_id=stage_id, path_index=i)
+
+    return problems
+
+
+def load_quest_drafts() -> dict[str, dict]:
+    if not os.path.exists(_QUEST_DRAFTS_PATH):
+        return {}
+    with open(_QUEST_DRAFTS_PATH) as f:
+        return json.load(f)
+
+
+def _write_quest_drafts(drafts: dict[str, dict]) -> None:
+    with open(_QUEST_DRAFTS_PATH, "w") as f:
+        json.dump(drafts, f, indent=2)
+
+
+def save_quest_draft(entry: dict) -> None:
+    drafts = load_quest_drafts()
+    drafts[entry["id"]] = entry
+    _write_quest_drafts(drafts)
+
+
+def delete_quest_draft(item_id: str) -> None:
+    """No-op if item_id isn't actually a draft -- callers (admin_server.py's quest_autosave_view/
+    quest_publish_view) call this speculatively during id-rename/publish cleanup without checking
+    existence first."""
+    drafts = load_quest_drafts()
+    if item_id in drafts:
+        del drafts[item_id]
+        _write_quest_drafts(drafts)
+
+
 def validate_reward_item_kinds(quests_by_id: dict[str, dict] | None = None):
     """Called from bot.py once every REWARD_REGISTRIES-contributing module (including housing.py)
     is fully loaded -- see the REWARD_REGISTRIES comment above for why this can't happen inside
@@ -315,19 +589,20 @@ def validate_reward_item_kinds(quests_by_id: dict[str, dict] | None = None):
     instead" shape."""
     for quest in (QUESTS_BY_ID if quests_by_id is None else quests_by_id).values():
         for stage in quest["stages"]:
-            reward_item_id = stage.get("reward_item")
-            if not reward_item_id:
-                continue
-            reward_item_kind = stage.get("reward_item_kind", "equipment")
-            registry = REWARD_REGISTRIES.get(reward_item_kind)
-            if registry is None:
-                raise ValueError(
-                    f"quests.json: quest {quest['id']!r} references unknown reward_item_kind {reward_item_kind!r}"
-                )
-            if reward_item_id not in registry():
-                raise ValueError(
-                    f"quests.json: quest {quest['id']!r} reward_item {reward_item_id!r} not in {reward_item_kind}"
-                )
+            for path in stage["paths"]:
+                reward_item_id = path.get("reward_item")
+                if not reward_item_id:
+                    continue
+                reward_item_kind = path.get("reward_item_kind", "equipment")
+                registry = REWARD_REGISTRIES.get(reward_item_kind)
+                if registry is None:
+                    raise ValueError(
+                        f"quests.json: quest {quest['id']!r} references unknown reward_item_kind {reward_item_kind!r}"
+                    )
+                if reward_item_id not in registry():
+                    raise ValueError(
+                        f"quests.json: quest {quest['id']!r} reward_item {reward_item_id!r} not in {reward_item_kind}"
+                    )
 
 
 def validate_shop_housing_items(npcs_by_id: dict[str, dict] | None = None):
@@ -503,6 +778,18 @@ async def npcs_present_in_room(guild_id: int, user_id: int, room_id: str) -> lis
     return present
 
 
+async def _current_stage_matched_path(guild_id: int, user_id: int, quest: dict, stage: dict) -> dict | None:
+    """The first path (in list order) on `stage` whose trigger is currently satisfied, or None --
+    shared by talk_to_npc/quest_log and turn_in's own auto-pick resolution, so "is this stage ready
+    to turn in, and via which path" is computed exactly one way. For every quest today (one path
+    per stage) this is equivalent to the old single-trigger check; a future branching stage with
+    several simultaneously-satisfiable paths picks whichever comes first in quests.json order."""
+    for path in stage["paths"]:
+        if await trigger_satisfied(guild_id, user_id, path["trigger"], quest_id=quest["id"], stage=stage["ordinal"]):
+            return path
+    return None
+
+
 async def quest_log(guild_id: int, user_id: int) -> list[dict]:
     """Every quest this player has started (in quests.json order), each as {"quest_id", "name",
     "npc", "stage_index", "total_stages", "complete", "journal_text", "can_turn_in", "item",
@@ -512,29 +799,41 @@ async def quest_log(guild_id: int, user_id: int) -> list[dict]:
     carving") rather than dialogue. Backs !journal (journal_view.py, aliased as !quests); "name"
     (quests.json's own authored title) is what identifies each entry -- "npc" is only the giver,
     and multiple quests can share one NPC (e.g. the_goo), so npc alone can't tell two entries
-    apart. can_turn_in/item/turn_in_label mirror talk_to_npc's own per-stage fields (same
-    _current_stage_can_turn_in helper) so journal_view can build its own turn-in button without
-    visiting the NPC."""
+    apart. can_turn_in/item/turn_in_label come from whichever path (if any) is currently satisfied
+    on the current stage (_current_stage_matched_path) so journal_view can build its own turn-in
+    button without visiting the NPC. stage_index/total_stages are computed by walking the quest's
+    first-path chain from start_stage (_stage_chain) -- well-defined for any currently-linear
+    quest; see that helper's own docstring for the accepted limitation once real branching content
+    exists."""
     entries = []
     for quest in QUESTS_BY_ID.values():
-        stage_index = await _get_stage(guild_id, user_id, quest["id"])
-        if stage_index is None:
+        ordinal = await _get_stage_ordinal(guild_id, user_id, quest["id"])
+        if ordinal is None:
             continue
-        complete = stage_index >= len(quest["stages"])
+        stage = _stage_by_ordinal(quest).get(ordinal)
+        complete = stage is None
+        chain = _stage_chain(quest)
+        total_stages = len(chain)
         if complete:
             journal_text = quest.get("complete_message", DEFAULT_COMPLETE_MESSAGE)
             can_turn_in, item, turn_in_label = False, None, None
+            stage_index = total_stages
         else:
-            stage = quest["stages"][stage_index]
             journal_text = stage["journal_text"]
-            can_turn_in, item = await _current_stage_can_turn_in(guild_id, user_id, quest, stage_index)
-            turn_in_label = stage.get("turn_in_label")
+            matched = await _current_stage_matched_path(guild_id, user_id, quest, stage)
+            can_turn_in = matched is not None
+            item = (
+                QUEST_ITEMS[matched["trigger"]["item_id"]]
+                if matched and matched["trigger"]["type"] == "turn_in_item" else None
+            )
+            turn_in_label = matched.get("turn_in_label") if matched else None
+            stage_index = chain.index(stage["id"]) if stage["id"] in chain else 0
         entries.append({
             "quest_id": quest["id"],
             "name": quest["name"],
             "npc": quest["npc"],
             "stage_index": stage_index,
-            "total_stages": len(quest["stages"]),
+            "total_stages": total_stages,
             "complete": complete,
             "journal_text": journal_text,
             "can_turn_in": can_turn_in,
@@ -547,28 +846,32 @@ async def quest_log(guild_id: int, user_id: int) -> list[dict]:
 async def roll_item_drop(guild_id: int, user_id: int, room_id: str, monster_id: str) -> dict | None:
     """None most of the time. When it hits, adds one quest item to the player's inventory and
     returns it -- but only an item their *current* stage on some in-progress quest is actually
-    waiting on, so players not on that quest never see unrelated flavor items. A stage whose
-    trigger sets "drop_monster" only offers its item after killing that specific dungeon.MONSTERS
-    id; room_id (a dungeon delve room id, unrelated to the casino-hub "room" concept elsewhere in
-    this file) is accepted for symmetry with dungeon.roll_drops's call site (no quest item is
-    room-gated, only monster-gated)."""
+    waiting on (any turn_in_item path on that stage, not just a single one -- a stage can have more
+    than one path today), so players not on that quest never see unrelated flavor items. A path
+    whose trigger sets "drop_monster" only offers its item after killing that specific
+    dungeon.MONSTERS id; room_id (a dungeon delve room id, unrelated to the casino-hub "room"
+    concept elsewhere in this file) is accepted for symmetry with dungeon.roll_drops's call site
+    (no quest item is room-gated, only monster-gated)."""
     candidates = []
     for quest in QUESTS_BY_ID.values():
-        stage_index = await _get_stage(guild_id, user_id, quest["id"])
-        if stage_index is None or stage_index >= len(quest["stages"]):
+        ordinal = await _get_stage_ordinal(guild_id, user_id, quest["id"])
+        if ordinal is None:
             continue
-        stage = quest["stages"][stage_index]
-        trigger = stage.get("trigger")
-        if trigger is None or trigger["type"] != "turn_in_item":
+        stage = _stage_by_ordinal(quest).get(ordinal)
+        if stage is None:
             continue
-        item_id = trigger["item_id"]
-        required_monster = trigger.get("drop_monster")
-        if required_monster is not None and required_monster != monster_id:
-            continue
-        held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
-        if held.get(item_id, 0) > 0:
-            continue  # already holding it, waiting on the turn-in itself
-        candidates.append(item_id)
+        for path in stage["paths"]:
+            trigger = path["trigger"]
+            if trigger["type"] != "turn_in_item":
+                continue
+            item_id = trigger["item_id"]
+            required_monster = trigger.get("drop_monster")
+            if required_monster is not None and required_monster != monster_id:
+                continue
+            held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
+            if held.get(item_id, 0) > 0:
+                continue  # already holding it, waiting on the turn-in itself
+            candidates.append(item_id)
 
     if not candidates or random.random() > QUEST_ITEM_DROP_CHANCE:
         return None
@@ -587,16 +890,19 @@ async def npc_talk_label(guild_id: int, user_id: int, npc_id: str) -> str | None
     -- lets a room's TalkToNpcButton read as "Ask about a place to stay" or "Pay rent" instead of
     a generic "Talk to X" once there's actually something specific going on, editable per-stage in
     the admin panel's quest editor right alongside prompt/reward. Returns None (caller falls back
-    to its own default label) if no active quest with this NPC has a stage past _START_STAGE with
-    a button_label set -- deliberately read-only (only ever looks at an *already-started* quest's
-    current stage via _get_stage) so calling this to build a room's display can never itself start
-    a quest the way talk_to_npc does; a quest that hasn't been started yet (or was already
-    completed) never overrides the default label."""
+    to its own default label) if no active quest with this NPC has an in-progress stage with a
+    button_label set -- deliberately read-only (only ever looks at an *already-started* quest's
+    current stage via _get_stage_ordinal) so calling this to build a room's display can never
+    itself start a quest the way talk_to_npc does; a quest that hasn't been started yet (or was
+    already completed) never overrides the default label."""
     for quest in _quests_for_npc(npc_id):
-        stage_index = await _get_stage(guild_id, user_id, quest["id"])
-        if stage_index is None or stage_index >= len(quest["stages"]):
+        ordinal = await _get_stage_ordinal(guild_id, user_id, quest["id"])
+        if ordinal is None:
             continue
-        label = quest["stages"][stage_index].get("button_label")
+        stage = _stage_by_ordinal(quest).get(ordinal)
+        if stage is None:
+            continue
+        label = stage.get("button_label")
         if label:
             return label
     return None
@@ -608,18 +914,19 @@ async def trigger_satisfied(
 ) -> bool:
     """Whether a trigger condition currently holds. `quest_id`/`stage` are only needed for the two
     *counted* types (kill_monster/craft_item), whose progress is scoped to one quest stage's own
-    counter -- every other type is fully self-contained and callable from anywhere, which is what
-    lets NPC-presence and room-exit conditions (rooms.py) reuse this exact function and vocabulary
-    instead of quests needing their own bespoke condition-checking. turn_in_item is checked
-    against the player's inventory; achievement against personal_achievements; quest_complete
-    against another quest's own flag; flag_at_least against an arbitrary flag key -- all four are
-    live state this function can just read, no counter needed. `character` is only needed for
-    "class" (a dungeon character dict, e.g. from db.get_character or a live DelveSession/
-    PartyMember) -- the one type that checks something about the caller's own build rather than
-    persistent per-player state this function can fetch itself; every other type ignores it.
-    pay_currency is a non-consuming "can they afford it" check, same relationship to its own
-    actual deduction (turn_in()'s special-cased db.spend_currency call) as turn_in_item has to
-    db.consume_inventory_item."""
+    counter (`stage` is that stage's *ordinal*, not any position in a list) -- every other type is
+    fully self-contained and callable from anywhere, which is what lets NPC-presence and room-exit
+    conditions (rooms.py) reuse this exact function and vocabulary instead of quests needing their
+    own bespoke condition-checking. turn_in_item is checked against the player's inventory;
+    achievement against personal_achievements; quest_complete against another quest's own flag
+    (via _is_complete, so it means the same thing here as it does everywhere else in this module);
+    flag_at_least against an arbitrary flag key -- all four are live state this function can just
+    read, no counter needed. `character` is only needed for "class" (a dungeon character dict, e.g.
+    from db.get_character or a live DelveSession/PartyMember) -- the one type that checks something
+    about the caller's own build rather than persistent per-player state this function can fetch
+    itself; every other type ignores it. pay_currency is a non-consuming "can they afford it"
+    check, same relationship to its own actual deduction (turn_in()'s special-cased
+    db.spend_currency call) as turn_in_item has to db.consume_inventory_item."""
     trigger_type = trigger["type"]
     if trigger_type == "turn_in_item":
         held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
@@ -632,8 +939,8 @@ async def trigger_satisfied(
         return trigger["kind"] in earned
     if trigger_type == "quest_complete":
         target = QUESTS_BY_ID[trigger["quest_id"]]
-        target_stage = await _get_stage(guild_id, user_id, trigger["quest_id"])
-        return target_stage is not None and target_stage >= len(target["stages"])
+        target_ordinal = await _get_stage_ordinal(guild_id, user_id, trigger["quest_id"])
+        return target_ordinal is not None and _is_complete(target, target_ordinal)
     if trigger_type == "flag_at_least":
         value = await asyncio.to_thread(db.get_flag, guild_id, user_id, trigger["key"])
         return value >= trigger["value"]
@@ -654,57 +961,52 @@ async def trigger_satisfied(
 
 async def record_progress(guild_id: int, user_id: int, event_type: str, **event_data):
     """Called from wherever a countable game event happens (a monster kill, a successful craft) --
-    bumps the flag counter for whichever checkpoint a player is currently waiting on (a not-yet-
-    started quest's start_trigger, or an in-progress quest's current-stage trigger) if it's a
-    counted type matching event_type. This never starts or advances anything itself -- it only
-    ever moves a counter closer to satisfied; _start_quest and _advance_stage are only ever called
-    from talk_to_npc / turn_in respectively, once the player actually visits the NPC. No-ops for
-    event types nothing is listening for (achievement isn't event-sourced at all -- see
-    trigger_satisfied)."""
+    bumps the flag counter for whichever checkpoint(s) a player is currently waiting on (a not-yet-
+    started quest's start_trigger, or every one of an in-progress quest's current-stage paths) if
+    they're a counted type matching event_type. This never starts or advances anything itself -- it
+    only ever moves a counter closer to satisfied; _start_quest and _advance_via_path are only ever
+    called from talk_to_npc / turn_in respectively, once the player actually visits the NPC (or
+    !journal). No-ops for event types nothing is listening for (achievement isn't event-sourced at
+    all -- see trigger_satisfied)."""
     matcher = _TRIGGER_MATCHERS.get(event_type)
     if matcher is None:
         return
     for quest in QUESTS_BY_ID.values():
-        stage_index = await _get_stage(guild_id, user_id, quest["id"])
-        if stage_index is None:
-            trigger, stage = quest["start_trigger"], _START_STAGE
-        elif stage_index < len(quest["stages"]):
-            trigger, stage = quest["stages"][stage_index].get("trigger"), stage_index
+        ordinal = await _get_stage_ordinal(guild_id, user_id, quest["id"])
+        if ordinal is None:
+            candidates = [(quest["start_trigger"], _START_STAGE)]
         else:
-            continue
-        if trigger is None or trigger["type"] != event_type:
-            continue
-        if not matcher(trigger, event_data):
-            continue
-        await asyncio.to_thread(db.increment_flag, guild_id, user_id, _stage_counter_key(quest["id"], stage))
+            stage = _stage_by_ordinal(quest).get(ordinal)
+            if stage is None:
+                continue  # already complete
+            candidates = [(path["trigger"], ordinal) for path in stage["paths"]]
+        for trigger, counter_ordinal in candidates:
+            if trigger["type"] != event_type or not matcher(trigger, event_data):
+                continue
+            await asyncio.to_thread(
+                db.increment_flag, guild_id, user_id, _stage_counter_key(quest["id"], counter_ordinal)
+            )
 
 
 async def _try_start_quest(guild_id: int, user_id: int, quest: dict) -> bool:
-    """True (and actually starts it) if `quest` isn't started yet and its start_trigger is now
-    satisfied. The one place "how does a quest start" lives -- see the module docstring for its two
-    callers (talk_to_npc, npc-scoped, and check_new_quests, every quest at once)."""
-    if await _get_stage(guild_id, user_id, quest["id"]) is not None:
+    """True (and actually starts it) if `quest` is active, isn't started yet, and its start_trigger
+    is now satisfied. The one place "how does a quest start" lives -- see the module docstring for
+    its two callers (talk_to_npc, npc-scoped, and check_new_quests, every quest at once). The
+    active gate here (not anywhere else) is deliberate: it only ever blocks a *new* start, never an
+    already-started player from continuing/turning in -- unlike a delve (whose active flag also
+    gates entirely-ephemeral in-run state), a quest carries durable cross-session progress, and
+    flipping a content flag should never strand someone already partway through."""
+    if not quest.get("active", True):
+        return False
+    if await _get_stage_ordinal(guild_id, user_id, quest["id"]) is not None:
         return False
     if not await trigger_satisfied(
         guild_id, user_id, quest["start_trigger"], quest_id=quest["id"], stage=_START_STAGE,
     ):
         return False
-    await _start_quest(guild_id, user_id, quest["id"])
+    start_ordinal = _stages_by_id(quest)[quest["start_stage"]]["ordinal"]
+    await _start_quest(guild_id, user_id, quest["id"], start_ordinal)
     return True
-
-
-async def _current_stage_can_turn_in(guild_id: int, user_id: int, quest: dict, stage_index: int) -> tuple[bool, dict | None]:
-    """(can_turn_in, item) for `quest`'s stage `stage_index` -- shared by talk_to_npc and
-    quest_log/journal_view so "is this stage ready to turn in" is computed exactly one way. item is
-    the QUEST_ITEMS entry a turn_in_item trigger is waiting on (for a "Give X the Y" button label),
-    None for every other trigger type or when it isn't satisfied yet."""
-    stage = quest["stages"][stage_index]
-    trigger = stage.get("trigger")
-    can_turn_in = trigger is not None and await trigger_satisfied(
-        guild_id, user_id, trigger, quest_id=quest["id"], stage=stage_index,
-    )
-    item = QUEST_ITEMS[trigger["item_id"]] if can_turn_in and trigger["type"] == "turn_in_item" else None
-    return can_turn_in, item
 
 
 async def check_new_quests(guild_id: int, user_id: int) -> list[str]:
@@ -731,12 +1033,12 @@ async def talk_to_npc(guild_id: int, user_id: int, npc_id: str) -> list[dict]:
     merged dict (an earlier version collapsed every quest into one result and silently let
     whichever quest came last in quests.json order clobber the rest, which also meant the
     displayed prompt and the thing turn_in would actually resolve could disagree once a second
-    quest existed). A stage with no trigger (dialogue-only endpoint) reports can_turn_in False,
-    same as one whose trigger isn't satisfied yet. "complete" marks a quest whose complete_message
-    is now showing (all stages turned in) -- callers that want a one-off visual (e.g. a reveal
+    quest existed). A stage with no path currently satisfied reports can_turn_in False, same as one
+    with no paths at all (a dialogue-only endpoint). "complete" marks a quest whose complete_message
+    is now showing (every path taken ended it) -- callers that want a one-off visual (e.g. a reveal
     sprite) for one specific quest check for its quest_id here rather than "any NPC quest is
-    done". "turn_in_label" is the stage's own optional override for the TurnInButton's label --
-    distinct from button_label (which only ever relabels the Talk button, see npc_talk_label)
+    done". "turn_in_label" is the matched path's own optional override for the TurnInButton's label
+    -- distinct from button_label (which only ever relabels the Talk button, see npc_talk_label)
     because a turn-in with nothing physical to hand over (pay_currency, flag_at_least, ...) has no
     `item` to build a "Give X the Y" default from, so it'd otherwise always read as the generic
     "Turn in to X" -- confusable with a button_label like "Pay rent" sitting on the Talk button
@@ -750,53 +1052,75 @@ async def talk_to_npc(guild_id: int, user_id: int, npc_id: str) -> list[dict]:
     the giving NPC and opening !journal are equally valid ways to pick up a new quest."""
     results = []
     for quest in _quests_for_npc(npc_id):
-        stage_index = await _get_stage(guild_id, user_id, quest["id"])
+        ordinal = await _get_stage_ordinal(guild_id, user_id, quest["id"])
         just_started = False
-        if stage_index is None:
+        if ordinal is None:
             if not await _try_start_quest(guild_id, user_id, quest):
                 continue
-            stage_index = 0
+            ordinal = _stages_by_id(quest)[quest["start_stage"]]["ordinal"]
             just_started = True
-        if stage_index >= len(quest["stages"]):
+        stage = _stage_by_ordinal(quest).get(ordinal)
+        if stage is None:
             results.append({
                 "quest_id": quest["id"], "prompt": quest.get("complete_message", DEFAULT_COMPLETE_MESSAGE),
                 "can_turn_in": False, "item": None, "complete": True, "just_started": just_started,
             })
             continue
-        stage = quest["stages"][stage_index]
-        can_turn_in, item = await _current_stage_can_turn_in(guild_id, user_id, quest, stage_index)
+        matched = await _current_stage_matched_path(guild_id, user_id, quest, stage)
+        can_turn_in = matched is not None
+        item = (
+            QUEST_ITEMS[matched["trigger"]["item_id"]]
+            if matched and matched["trigger"]["type"] == "turn_in_item" else None
+        )
+        turn_in_label = matched.get("turn_in_label") if matched else None
         results.append({
             "quest_id": quest["id"], "prompt": stage["prompt"], "can_turn_in": can_turn_in, "item": item,
-            "turn_in_label": stage.get("turn_in_label"), "complete": False, "just_started": just_started,
+            "turn_in_label": turn_in_label, "complete": False, "just_started": just_started,
         })
     return results
 
 
-async def turn_in(guild_id: int, user_id: int, quest_id: str) -> dict:
-    """Resolves this specific quest's current stage and, if its trigger is satisfied, consumes
-    its cost (if any) and advances the stage. Takes a quest_id rather than an npc_id -- an NPC can
-    have more than one eligible quest active at once (see talk_to_npc), so "which quest this
-    button turns in" has to be decided by whoever built that button, not re-resolved ambiguously
-    here. Returns {"success", "message", "reward", "reward_item", "reward_item_kind",
-    "quest_complete"} -- success is False (everything else None/0/False) if there's nothing to
-    turn in. reward_item is the REWARD_REGISTRIES[reward_item_kind] dict if this stage grants one
-    (None otherwise, kind defaults to "equipment" for backward compatibility) -- reward_item_kind
-    is always reported alongside it so a caller can tell what it's showing. An "equipment" kind
-    reward is always stored in equipment_inventory, never auto-equipped -- the player equips
-    manually via !equipment. Every other kind is simply added to inventory."""
+async def turn_in(guild_id: int, user_id: int, quest_id: str, path_index: int | None = None) -> dict:
+    """Resolves this specific quest's current stage and, if one of its paths' triggers is
+    satisfied, consumes its cost (if any) and advances via that path. Takes a quest_id rather than
+    an npc_id -- an NPC can have more than one eligible quest active at once (see talk_to_npc), so
+    "which quest this button turns in" has to be decided by whoever built that button, not
+    re-resolved ambiguously here. `path_index`, if given, resolves one specific path explicitly
+    (for a stage with more than one path open at once); omitted (every caller today omits it --
+    every quest so far has exactly one path per stage), the first currently-satisfied path is
+    picked automatically. Returns {"success", "message", "reward", "reward_item",
+    "reward_item_kind", "quest_complete"} -- success is False (everything else None/0/False) if
+    there's nothing to turn in. reward_item is the REWARD_REGISTRIES[reward_item_kind] dict if the
+    resolved path grants one (None otherwise, kind defaults to "equipment" for backward
+    compatibility) -- reward_item_kind is always reported alongside it so a caller can tell what
+    it's showing. An "equipment" kind reward is always stored in equipment_inventory, never
+    auto-equipped -- the player equips manually via !equipment. Every other kind is simply added to
+    inventory. quest_complete is True exactly when the resolved path has no "next" (this transition
+    ends the quest) -- kept in lockstep with _is_complete's own "resting state" definition of
+    complete by construction, since _advance_via_path writes _COMPLETE_ORDINAL in exactly that
+    case."""
     failure = {
         "success": False, "message": None, "reward": 0, "reward_item": None,
         "reward_item_kind": None, "quest_complete": False,
     }
     quest = QUESTS_BY_ID[quest_id]
-    stage_index = await _get_stage(guild_id, user_id, quest_id)
-    if stage_index is None or stage_index >= len(quest["stages"]):
+    ordinal = await _get_stage_ordinal(guild_id, user_id, quest_id)
+    if ordinal is None:
         return failure
+    stage = _stage_by_ordinal(quest).get(ordinal)
+    if stage is None:
+        return failure  # already complete
 
-    stage = quest["stages"][stage_index]
-    trigger = stage.get("trigger")
-    if trigger is None:
-        return failure
+    if path_index is not None:
+        if not (0 <= path_index < len(stage["paths"])):
+            return failure
+        path = stage["paths"][path_index]
+    else:
+        path = await _current_stage_matched_path(guild_id, user_id, quest, stage)
+        if path is None:
+            return failure
+
+    trigger = path["trigger"]
     if trigger["type"] == "turn_in_item":
         if not await asyncio.to_thread(db.consume_inventory_item, guild_id, user_id, trigger["item_id"]):
             return failure
@@ -804,10 +1128,10 @@ async def turn_in(guild_id: int, user_id: int, quest_id: str) -> dict:
         status, _ = await asyncio.to_thread(db.spend_currency, guild_id, user_id, trigger["amount"])
         if status != "ok":
             return failure
-    elif not await trigger_satisfied(guild_id, user_id, trigger, quest_id=quest_id, stage=stage_index):
+    elif not await trigger_satisfied(guild_id, user_id, trigger, quest_id=quest_id, stage=ordinal):
         return failure
 
-    advanced = await _advance_stage(guild_id, user_id, quest_id, stage_index)
+    advanced = await _advance_via_path(guild_id, user_id, quest, ordinal, path)
     if not advanced:
         # Lost a race (e.g. a double-clicked button) -- give back whatever was just consumed
         # rather than eat it.
@@ -817,14 +1141,14 @@ async def turn_in(guild_id: int, user_id: int, quest_id: str) -> dict:
             await asyncio.to_thread(db.update_balance, guild_id, user_id, trigger["amount"])
         return failure
 
-    reward = stage.get("reward", 0)
+    reward = path.get("reward", 0)
     if reward:
         await asyncio.to_thread(db.update_balance, guild_id, user_id, reward)
 
     reward_item, reward_item_kind = None, None
-    reward_item_id = stage.get("reward_item")
+    reward_item_id = path.get("reward_item")
     if reward_item_id:
-        reward_item_kind = stage.get("reward_item_kind", "equipment")
+        reward_item_kind = path.get("reward_item_kind", "equipment")
         reward_item = REWARD_REGISTRIES[reward_item_kind]()[reward_item_id]
         if reward_item_kind == "equipment":
             await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, reward_item_id)
@@ -832,7 +1156,7 @@ async def turn_in(guild_id: int, user_id: int, quest_id: str) -> dict:
             await asyncio.to_thread(db.add_inventory_item, guild_id, user_id, reward_item_id, 1)
 
     return {
-        "success": True, "message": stage.get("on_complete_message"), "reward": reward,
+        "success": True, "message": path.get("on_complete_message"), "reward": reward,
         "reward_item": reward_item, "reward_item_kind": reward_item_kind,
-        "quest_complete": stage_index + 1 >= len(quest["stages"]),
+        "quest_complete": path.get("next") is None,
     }

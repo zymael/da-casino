@@ -7,15 +7,31 @@
       "type": "achievement",
       "kind": "love_in_bloom"
     },
+    "start_stage": "stage_0",
+    "next_ordinal": 1,
+    "layout": {
+      "stage_0": {
+        "x": 40,
+        "y": 40
+      }
+    },
     "stages": [
       {
+        "id": "stage_0",
+        "ordinal": 0,
         "prompt": "*Kel scuffs his boot in the dirt.* \"...I used to whittle, you know. Haven't picked it back up in years. Lost the last thing I ever carved. Silly to miss a piece of wood this much.\"",
         "journal_text": "Give Kel a wooden horse carving.",
-        "trigger": {
-          "type": "turn_in_item",
-          "item_id": "wooden_horse_carving"
-        },
-        "on_complete_message": "*Kel Blushes* ...You're giving this to me? It's beautiful. Thank you. Really.\""
+        "paths": [
+          {
+            "trigger": {
+              "type": "turn_in_item",
+              "item_id": "wooden_horse_carving"
+            },
+            "on_complete_message": "*Kel Blushes* ...You're giving this to me? It's beautiful. Thank you. Really.\"",
+            "x": 230,
+            "y": 40
+          }
+        ]
       }
     ]
   },
@@ -28,17 +44,33 @@
       "kind": "dared_by_mondor"
     },
     "complete_message": "You have returned the \"Princess\" to her rightful place at Mondor's side.",
+    "start_stage": "stage_0",
+    "next_ordinal": 1,
+    "layout": {
+      "stage_0": {
+        "x": 40,
+        "y": 40
+      }
+    },
     "stages": [
       {
+        "id": "stage_0",
+        "ordinal": 0,
         "prompt": "THE GOBLIN CHIEFTAIN HAS KIDNAPPED THE PRINCESS THAT IS NOT THREE RATS IN A TRENCHCOAT. SAVE HER BRAVE ADVENTURER AND YOU WILL BE REWARDED HANDSOMELY.",
         "journal_text": "Defeat the Goblin Chieftain and bring the \"Princess\" back to Mondor.",
-        "trigger": {
-          "type": "turn_in_item",
-          "item_id": "three_rats_in_a_trenchcoat",
-          "drop_monster": "goblin_chief"
-        },
-        "on_complete_message": "YOU HAVE DONE WELL ADVENTURER. PLEASE TAKE THIS SLIPPERY PENCIL AND MY THANKS. OW SHE IS BITING ME JESUS CHRIST.",
-        "reward_item": "greasy_pencil"
+        "paths": [
+          {
+            "trigger": {
+              "type": "turn_in_item",
+              "item_id": "three_rats_in_a_trenchcoat",
+              "drop_monster": "goblin_chief"
+            },
+            "on_complete_message": "YOU HAVE DONE WELL ADVENTURER. PLEASE TAKE THIS SLIPPERY PENCIL AND MY THANKS. OW SHE IS BITING ME JESUS CHRIST.",
+            "x": 230,
+            "y": 40,
+            "reward_item": "greasy_pencil"
+          }
+        ]
       }
     ]
   },
@@ -51,29 +83,58 @@
       "kind": "greeted_leto"
     },
     "complete_message": "That's Shacktown, Baby.  that's Shacktown.",
+    "start_stage": "stage_0",
+    "next_ordinal": 2,
+    "layout": {
+      "stage_0": {
+        "x": 40,
+        "y": 40
+      },
+      "stage_1": {
+        "x": 260,
+        "y": 40
+      }
+    },
     "stages": [
       {
+        "id": "stage_0",
+        "ordinal": 0,
         "prompt": "You don't have a trailer... a tent... or even a sleeping bag. I can't have you just sitting in the dirt. Come back when you have something to use the land for.",
         "journal_text": "Bring Leto a sleeping bag to prove you're serious about staying.",
-        "trigger": {
-          "type": "turn_in_item",
-          "drop_monster": "goblin_grunt",
-          "item_id": "goblins_sleeping_bag"
-        },
-        "on_complete_message": "Is that... a sleeping bag?  I was joking you realize, you ne-\r\n\r\nNah, you know what fine. First month's rent is 100 flakes.  Pay it and you can live in squalor to your heart's content.",
-        "reward_item": "cozy_sleeping_bag",
-        "reward_item_kind": "housing_item",
-        "button_label": "\ud83c\udfd5\ufe0f Ask about a place to stay"
+        "button_label": "\ud83c\udfd5\ufe0f Ask about a place to stay",
+        "paths": [
+          {
+            "trigger": {
+              "type": "turn_in_item",
+              "drop_monster": "goblin_grunt",
+              "item_id": "goblins_sleeping_bag"
+            },
+            "on_complete_message": "Is that... a sleeping bag?  I was joking you realize, you ne-\r\n\r\nNah, you know what fine. First month's rent is 100 flakes.  Pay it and you can live in squalor to your heart's content.",
+            "x": 230,
+            "y": 40,
+            "reward_item": "cozy_sleeping_bag",
+            "reward_item_kind": "housing_item",
+            "next": "stage_1"
+          }
+        ]
       },
       {
+        "id": "stage_1",
+        "ordinal": 1,
         "prompt": "Is that... a sleeping bag?  I was joking you realize, you ne-\r\n\r\nNah, you know what fine. First month's rent is 100 flakes.  Pay it and you can live in squalor to your heart's content.",
         "journal_text": "Pay Leto 100 flakes for your first month's rent.",
-        "trigger": {
-          "type": "pay_currency",
-          "amount": 100
-        },
-        "on_complete_message": "Rent's paid. Land's yours to use. Don't make me regret this.",
-        "turn_in_label": "\ud83d\udcb0 Pay rent"
+        "paths": [
+          {
+            "trigger": {
+              "type": "pay_currency",
+              "amount": 100
+            },
+            "on_complete_message": "Rent's paid. Land's yours to use. Don't make me regret this.",
+            "x": 450,
+            "y": 40,
+            "turn_in_label": "\ud83d\udcb0 Pay rent"
+          }
+        ]
       }
     ]
   },
@@ -85,11 +146,21 @@
       "type": "achievement",
       "kind": "killed_by_zgoolok"
     },
+    "start_stage": "stage_0",
+    "next_ordinal": 1,
+    "layout": {
+      "stage_0": {
+        "x": 40,
+        "y": 40
+      }
+    },
     "stages": [
       {
+        "id": "stage_0",
+        "ordinal": 0,
         "prompt": "*The Goo takes one look at you, still dripping and bruised, and goes very still.*\n\n*Then they start rummaging under the counter, pulling out fishing tackle you didn't know they sold, quivering the whole time.*",
         "journal_text": "The Goo has given you fishing tackle for something. Nothing to turn in yet.",
-        "on_complete_message": "*The Goo sets the tackle down in front of you and waits, quivering.*"
+        "paths": []
       }
     ]
   },
@@ -103,16 +174,32 @@
       "value": 1
     },
     "complete_message": "*The Goo jiggles excitedly like a 70s Jello mold.  Or is it anxiously?  You can't really tell.*",
+    "start_stage": "stage_0",
+    "next_ordinal": 1,
+    "layout": {
+      "stage_0": {
+        "x": 40,
+        "y": 40
+      }
+    },
     "stages": [
       {
+        "id": "stage_0",
+        "ordinal": 0,
         "prompt": "*The Goo vibrates as they notice your wet note.  You notice that they are, in fact, pretty wet.*",
         "journal_text": "Show the Goo the bathhouse flier you found.",
-        "trigger": {
-          "type": "turn_in_item",
-          "item_id": "bathhouse_flier"
-        },
-        "on_complete_message": "*The Goo gyrates, convulses and shimmies in a series of movements not unlike an interpretive dance.  Somehow, you understand this to mean that the bath house is in the sewers beneath the gnome market.*",
-        "turn_in_label": "\ud83d\udcc4 Show the flier"
+        "paths": [
+          {
+            "trigger": {
+              "type": "turn_in_item",
+              "item_id": "bathhouse_flier"
+            },
+            "on_complete_message": "*The Goo gyrates, convulses and shimmies in a series of movements not unlike an interpretive dance.  Somehow, you understand this to mean that the bath house is in the sewers beneath the gnome market.*",
+            "x": 230,
+            "y": 40,
+            "turn_in_label": "\ud83d\udcc4 Show the flier"
+          }
+        ]
       }
     ]
   }
