@@ -1418,12 +1418,9 @@
   },
   {
     "id": "studded_collar",
-    "name": "Studded Collar",
+    "name": "Spiked Collar",
     "slot": "trinket",
     "rarity": "rare",
-    "intended_level": 20,
-    "base_value": 1400,
-    "flavor": "Doesn't jingle. He had it modified. Quiet is part of the professionalism.",
     "effects": [
       {
         "type": "hp_buff",
@@ -1445,7 +1442,11 @@
         "trigger": "constant",
         "value": 2
       }
-    ]
+    ],
+    "special": false,
+    "intended_level": 20,
+    "base_value": 1400,
+    "flavor": "The metal really brings out your submissive eyes.\r\n\r\nOthers will do their best to avoid eye contact in general."
   },
   {
     "id": "the_safe_word",
