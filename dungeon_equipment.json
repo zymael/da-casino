@@ -1133,9 +1133,6 @@
     "name": "Wet Towel",
     "slot": "armor",
     "rarity": "rare",
-    "intended_level": 14,
-    "base_value": 950,
-    "flavor": "Wrapped twice around the shoulders, still dripping. Doesn't slow you down any \u2014 the puddle it leaves behind slows down whoever's chasing you.",
     "effects": [
       {
         "type": "hp_buff",
@@ -1155,10 +1152,14 @@
       {
         "type": "speed_debuff",
         "trigger": "on_hit",
-        "value": 2,
-        "chance": 0.2
+        "chance": 0.2,
+        "value": 2
       }
-    ]
+    ],
+    "special": false,
+    "intended_level": 14,
+    "base_value": 950,
+    "flavor": "Still soggy and dripping bath water.  The puddle it leaves behind slows down whoever is chasing you."
   },
   {
     "id": "leopard_print_thong",
