@@ -352,10 +352,10 @@
           {
             "monsters": [
               "enchanted_towel",
-              "enchanted_comb",
-              "bath_witch"
+              "bath_witch",
+              "enchanted_comb"
             ],
-            "chance": 0.25,
+            "chance": 99,
             "fork": true,
             "next": "Witch Meltdown",
             "x": 1052.0,
