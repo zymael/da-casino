@@ -671,7 +671,7 @@
     "intended_level": 15,
     "shape": "hexagon",
     "color": "#560075",
-    "flavor": "More interlopers??\r\nThat's enough, get out!",
+    "flavor": "This Witch appears to be the only staff member, other than the floating bathroom apparatus she seems to be struggling to wrangle.\r\n\r\nYou catch her attention and she stomps towards you.",
     "loot_min": 80,
     "loot_max": 160,
     "drops": [
