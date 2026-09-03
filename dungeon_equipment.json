@@ -1194,9 +1194,6 @@
     "name": "Massaging Wand",
     "slot": "weapon",
     "rarity": "epic",
-    "intended_level": 15,
-    "base_value": 1600,
-    "flavor": "Industrial-grade, she says, strictly for sore shoulders. It hums like a small appliance because it is one, and it's exactly the model you're picturing. Every adventurer who's picked it up has gone very quiet and set it back down without a single follow-up question.",
     "effects": [
       {
         "type": "spatk_buff",
@@ -1216,11 +1213,15 @@
       {
         "type": "dot",
         "trigger": "on_hit",
-        "value": 4,
+        "chance": 0.2,
         "duration": 2,
-        "chance": 0.2
+        "value": 4
       }
-    ]
+    ],
+    "special": false,
+    "intended_level": 15,
+    "base_value": 1600,
+    "flavor": "And Industrial-grade, standard Spa tool that vibrates the very fabric of reality when it's turned on.  Strictly for sore shoulders.  Nothing else.  Really."
   },
   {
     "id": "steam_soaked_robe",
