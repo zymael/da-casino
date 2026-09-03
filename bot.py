@@ -389,7 +389,7 @@ MAX_STATS_HORSES = 10
 # callbacks (placing a roulette bet, hitting in blackjack, ...), which never go through
 # commands.Bot's invoke cycle at all, so an @bot.after_invoke hook here would silently miss almost
 # every real way this user's balance actually hits 0.
-TAXMAN_TARGET_ID = 1538948361921499247
+TAXMAN_TARGET_ID = 272816170749526027
 TAXMAN_CUT = 0.30
 TAXMAN_RECHECK_CHANCE = 0.10
 TAXMAN_CHECK_SECONDS = 20
