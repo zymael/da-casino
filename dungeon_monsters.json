@@ -1134,8 +1134,9 @@
             "multiplier": 0.5
           }
         ],
-        "flavor": "Doesn't wait for a fair fight. Never has. To be fair, he's rat-sized, so waiting for a fair one would just mean losing on a schedule."
+        "flavor": "The rat showers you in a surprisingly painful flurry of tiny punches."
       }
-    ]
+    ],
+    "sprite_path": "assets/dungeon/monsters/bad_rat.png"
   }
 ]
