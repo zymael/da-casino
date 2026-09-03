@@ -398,7 +398,8 @@
             "x": 1235.0,
             "y": 199.0
           }
-        ]
+        ],
+        "background_path": "assets/dungeon/backgrounds/gnome_bathhouse_room_Witch Meltdown.gif"
       },
       {
         "id": "Sneaky Hobos",
