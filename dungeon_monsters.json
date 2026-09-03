@@ -770,7 +770,7 @@
     "intended_level": 30,
     "shape": "hexagon",
     "color": "#1a90ea",
-    "flavor": "GNAM GNAM GNAM!\r\nHE APPEARS!",
+    "flavor": "GNAM GNAM GNAM!\r\n\r\nHE APPEARS!",
     "loot_min": 790,
     "loot_max": 1050,
     "drops": [
