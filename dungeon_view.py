@@ -445,22 +445,26 @@ def _monster_card(monster: dict) -> dict:
 
 
 def _combat_intro_text(room: dict, monsters: list[dict]) -> str:
-    """The description shown the moment a combat room is entered -- every rolled monster's own
-    flavor text, deduplicated by monster id (first-appearance order) so a group with multiples of
-    the same monster (e.g. two Belly Gnomes) only introduces that monster once, not once per
-    instance. Only ever used at room-entry (_build_room_display/_build_party_room_display); a
-    later combat-turn embed reuses _combat_embed/_party_combat_embed with the fight's actual log
-    lines instead, so a monster's intro flavor is shown exactly once per visit, not repeated on
-    every attack. Does NOT include the room's own "prompt" -- that's _apply_room_header's job (a
-    persistent embed field stamped on every rebuild, entry included), so putting it here too would
-    just duplicate it on this first embed specifically."""
+    """The description shown the moment a combat room is entered -- the room's own optional
+    "prompt" (introducing the room itself, dungeon.py's module docstring) first, then every rolled
+    monster's own flavor text, deduplicated by monster id (first-appearance order) so a group with
+    multiples of the same monster (e.g. two Belly Gnomes) only introduces that monster once, not
+    once per instance. Only ever used at room-entry (_build_room_display/_build_party_room_display);
+    a later combat-turn embed reuses _combat_embed/_party_combat_embed with the fight's actual log
+    lines instead, so a room's intro is shown exactly once per visit, not repeated on every attack.
+    Room prompt has to come first and monster flavor second, in this same description block --
+    Discord always renders an embed's fields below its description, so a room prompt stashed in a
+    field (as it once was, see _apply_room_header) can never appear before description text no
+    matter what order it's added in."""
     seen = set()
     unique = []
     for m in monsters:
         if m["id"] not in seen:
             seen.add(m["id"])
             unique.append(m)
-    return "\n\n".join(f"*{m['flavor']}*" for m in unique)
+    parts = [f"*{room['prompt']}*"] if room.get("prompt") else []
+    parts.extend(f"*{m['flavor']}*" for m in unique)
+    return "\n\n".join(parts)
 
 
 def _solo_turn_order_cards(session: DelveSession) -> list[dict]:
@@ -479,14 +483,15 @@ def _solo_turn_order_cards(session: DelveSession) -> list[dict]:
 
 
 def _apply_room_header(embed: discord.Embed, room: dict) -> None:
-    """Stamps a combat embed with which room this fight is in -- unlike log_text (only seeded with
-    the room's own prompt once, at entry, by _combat_intro_text/_build_room_display; later turns'
-    embeds overwrite it with just that turn's log lines), this runs on every _combat_embed/
-    _party_combat_embed rebuild, so the room's identity and intro flavor stay visible for the whole
-    fight instead of scrolling away after the first action."""
+    """Stamps a combat embed with which room this fight is in -- just the room id, in the footer,
+    on every _combat_embed/_party_combat_embed rebuild. Does NOT also repeat the room's own
+    "prompt" here: that's shown once, up top, by _combat_intro_text at room-entry (ahead of monster
+    flavor, in the same description block -- an embed field can't be positioned above the
+    description, so stashing the prompt in a field here would either duplicate it on entry or
+    require suppressing it there, and either way it'd render below monster flavor instead of
+    before it). The prompt scrolling out of the log after the first action (same as monster flavor
+    already does) is the accepted tradeoff for that ordering."""
     embed.set_footer(text=f"📍 {room['id']}")
-    if room.get("prompt"):
-        embed.add_field(name="📜", value=room["prompt"], inline=False)
 
 
 def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.Embed, discord.File]:
