@@ -276,7 +276,7 @@
         "monster_groups": [
           {
             "monsters": [
-              "goblin_grunt"
+              "gnome_doorman"
             ],
             "fork": false
           }
@@ -475,7 +475,7 @@
         "y": 70.0
       },
       "Fight the Doorman": {
-        "x": 630.0,
+        "x": 631.0,
         "y": 388.0
       },
       "A desperate choice!": {
