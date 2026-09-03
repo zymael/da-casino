@@ -389,15 +389,20 @@ class PartyDelveSession:
         (party_hp_multiplier), not the party's original size, so a roster thinned by earlier
         knockouts faces a fight scaled to its current strength; the multiplier applies per monster,
         not again on top of a group's already-higher aggregate danger from every monster getting
-        its own turn in the CTB schedule (see _advance_party_turns). Doesn't touch rooms_visited --
-        callers bump that themselves, since __init__'s first call shouldn't double-count the
-        starting room."""
+        its own turn in the CTB schedule (see _advance_party_turns). The rolled group's own
+        optional "party_extra_monster" (dungeon.py's module docstring, "combat" room shape) adds
+        one more monster instance -- at the SAME hp multiplier as everyone else in the group, not
+        exempt from it -- only once living_count clears dungeon.PARTY_EXTRA_MONSTER_MIN_SIZE;
+        solo's own _roll_monster_instances has no equivalent, by design (see that constant's own
+        comment). Doesn't touch rooms_visited -- callers bump that themselves, since __init__'s
+        first call shouldn't double-count the starting room."""
         self.current_room_id = room_id
         room = self.rooms_by_id[room_id]
         self.member_target_slots = {}
         self.member_ally_target_ids = {}
         if room["type"] == "combat":
-            mult = dungeon.party_hp_multiplier(len(self.living_members()))
+            living_count = len(self.living_members())
+            mult = dungeon.party_hp_multiplier(living_count)
             # Precomputed once per member, not per monster -- a member's constant-trigger taunt/
             # lower_threat gear doesn't depend on which monster it's seeding, just summed across
             # whatever they have equipped right now (dungeon.constant_threat_bonus). This is what
@@ -416,8 +421,12 @@ class PartyDelveSession:
             party_equipped_ids = [iid for m in self.members for iid in m.equipped.values()]
             group = dungeon.pick_monster_group(room)
             self.group_next_override = group.get("next")
+            spawn_monsters = list(group["monsters"])
+            extra_monster_id = group.get("party_extra_monster")
+            if extra_monster_id and living_count >= dungeon.PARTY_EXTRA_MONSTER_MIN_SIZE:
+                spawn_monsters.append(dungeon.MONSTERS[extra_monster_id])
             self.monsters = []
-            for slot, monster in enumerate(group["monsters"]):
+            for slot, monster in enumerate(spawn_monsters):
                 instance = MonsterInstance(monster, slot)
                 instance.max_hp = round(monster["hp"] * mult)
                 instance.hp = instance.max_hp

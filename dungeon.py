@@ -375,7 +375,14 @@ def roll_drops(monster: dict, chance_mult: float = 1.0) -> list[dict]:
 #     today's "last room", just explicit now instead of positional). prompt (optional, unlike a
 #     choice room's required one) introduces the room itself -- shown once, right when the room is
 #     entered, ahead of the monsters' own flavor text (see dungeon_view._combat_intro_text) --
-#     purely flavor, never read by combat logic itself.
+#     purely flavor, never read by combat logic itself. party_extra_monster (optional, a monster
+#     id) spawns one extra instance of that monster alongside this group, but ONLY in a party delve
+#     with at least PARTY_EXTRA_MONSTER_MIN_SIZE living members (dungeon_view.PartyDelveSession.
+#     _enter_room) -- solo/duo never see it. Exists so a group that got its monster COUNT cut for a
+#     solo-sized action economy (e.g. a fixed 3-monster trio split into 2-monster pairs -- see the
+#     "balance: fix Angry Gnomes/A Private Bath's overtuned naked-gnome trio" and "rework The
+#     Bathhouse to 2-monster groups" commits) can still put its full trio back in front of a big
+#     enough party, instead of a full party finding every such room trivial forever.
 #   "choice": {"id", "type": "choice", "prompt": str, "actions": [...], "background_path"?}
 #     a non-combat room: flavor text plus a menu of player-chosen actions (see _validate_action),
 #     each carrying its own optional gate/cost/skill-check and its own next-room outcome -- this is
@@ -658,6 +665,15 @@ def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
                         raise ValueError(
                             f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} "
                             f"monster group fork must be true/false"
+                        )
+                    # "party_extra_monster" (optional monster id) -- see this section's own module
+                    # docstring above for what it does at runtime; validated here the same way each
+                    # entry of "monsters" already is.
+                    if "party_extra_monster" in group and group["party_extra_monster"] not in MONSTERS:
+                        raise ValueError(
+                            f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} "
+                            f"monster group party_extra_monster references unknown monster "
+                            f"{group['party_extra_monster']!r}"
                         )
                 next_room = room.get("next")
                 if next_room is not None:
@@ -1821,6 +1837,14 @@ def party_hp_multiplier(living_count: int) -> float:
     (roughly 1.0/1.41/1.73/2.0 for party sizes 1-4). Recomputed fresh at every new monster off
     however many members are still standing at that moment, not the party's original size."""
     return math.sqrt(max(1, living_count))
+
+
+# A monster group's own optional "party_extra_monster" (see this file's module docstring, the
+# "combat" room shape section) only spawns once a party has at least this many LIVING members --
+# below this, action economy already favors the party enough on its own (see party_hp_multiplier)
+# that adding a whole extra attacker would just reintroduce the overtuned-trio problem the group's
+# monster count was cut to fix in the first place.
+PARTY_EXTRA_MONSTER_MIN_SIZE = 3
 
 
 def roll_check(stat_value: int, dc: int) -> tuple[bool, int]:

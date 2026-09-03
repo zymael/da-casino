@@ -2722,17 +2722,24 @@ def _monster_option_choices() -> list[tuple[str, str]]:
     ]
 
 
+def _monster_options_html(selected_id: str | None) -> str:
+    """<option> tags for a monster <select> -- a blank "—" choice first, then every monster
+    (_monster_option_choices), shared by _render_room_monster_row and a monster group's own
+    optional party_extra_monster select (_render_room_monster_group_row)."""
+    return "".join(
+        f'<option value="{mid}"{" selected" if mid == selected_id else ""}>{html.escape(label)}</option>'
+        for mid, label in [("", "—")] + _monster_option_choices()
+    )
+
+
 def _render_room_monster_row(name: str, monster_id: str | None) -> str:
     """One monster <select> row within a delve room's own nested repeatable list -- see
     _render_room_detail_panel below and _parse_delve_flowchart's matching parse side. Unlike every
     other row-builder here this one has just the one field, so `name` is the input's actual name,
     not a "prefix_suffix" pair."""
-    options = "".join(
-        f'<option value="{mid}"{" selected" if mid == monster_id else ""}>{html.escape(label)}</option>'
-        for mid, label in [("", "—")] + _monster_option_choices()
-    )
     return (
-        f'<div class="row-group" data-monster-row><label>monster<select name="{name}">{options}</select></label>'
+        f'<div class="row-group" data-monster-row><label>monster'
+        f'<select name="{name}">{_monster_options_html(monster_id)}</select></label>'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
     )
 
@@ -2797,6 +2804,14 @@ def _render_room_monster_group_row(prefix: str, group: dict) -> str:
         f'<input type="hidden" class="group-next-input" name="{prefix}_next" '
         f'value="{html.escape(group.get("next") or "")}">'
         f'{monsters_repeatable}'
+        f'<label data-tooltip="Adds one extra instance of this monster on top of the group above, '
+        f'but ONLY in a party delve with {dungeon.PARTY_EXTRA_MONSTER_MIN_SIZE}+ living members -- '
+        f'solo and duos never see it. Use this to restore a monster a group\'s count was cut for '
+        f'(e.g. a trio split into pairs for solo\'s action economy) once a big enough party can '
+        f'actually handle it.">party bonus monster ({dungeon.PARTY_EXTRA_MONSTER_MIN_SIZE}+ '
+        f'players only)'
+        f'<select name="{prefix}_party_extra_monster">{_monster_options_html(group.get("party_extra_monster"))}</select>'
+        f'</label>'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove group</button></fieldset>'
     )
 
@@ -4587,6 +4602,9 @@ def _parse_delve_flowchart(form: dict, entry_id_for_upload: str, existing_entry:
                         gx, gy = form.get(f"{gp}_x", "").strip(), form.get(f"{gp}_y", "").strip()
                         if gx and gy:
                             group["x"], group["y"] = float(gx), float(gy)
+                    extra_monster = form.get(f"{gp}_party_extra_monster", "").strip()
+                    if extra_monster:
+                        group["party_extra_monster"] = extra_monster
                     groups.append(group)
             if groups:
                 room["monster_groups"] = groups

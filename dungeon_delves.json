@@ -245,14 +245,16 @@
               "enchanted_comb",
               "enchanted_soap"
             ],
-            "fork": false
+            "fork": false,
+            "party_extra_monster": "enchanted_towel"
           },
           {
             "monsters": [
               "enchanted_comb",
               "enchanted_towel"
             ],
-            "fork": false
+            "fork": false,
+            "party_extra_monster": "enchanted_soap"
           }
         ],
         "next": "A Private Bath",
@@ -337,7 +339,8 @@
             "fork": true,
             "next": "Sneaky Hobos",
             "x": 951.0,
-            "y": 459.0
+            "y": 459.0,
+            "party_extra_monster": "nakedgnome_3"
           },
           {
             "monsters": [
@@ -348,7 +351,8 @@
             "fork": true,
             "next": "Sneaky Hobos",
             "x": 951.0,
-            "y": 499.0
+            "y": 499.0,
+            "party_extra_monster": "nakedgnome_2"
           },
           {
             "monsters": [
@@ -359,7 +363,8 @@
             "fork": true,
             "next": "Sneaky Hobos",
             "x": 951.0,
-            "y": 539.0
+            "y": 539.0,
+            "party_extra_monster": "nakedgnome_1"
           },
           {
             "monsters": [
@@ -466,21 +471,24 @@
               "nakedgnome_1",
               "nakedgnome_2"
             ],
-            "fork": false
+            "fork": false,
+            "party_extra_monster": "nakedgnome_3"
           },
           {
             "monsters": [
               "nakedgnome_1",
               "nakedgnome_3"
             ],
-            "fork": false
+            "fork": false,
+            "party_extra_monster": "nakedgnome_2"
           },
           {
             "monsters": [
               "nakedgnome_2",
               "nakedgnome_3"
             ],
-            "fork": false
+            "fork": false,
+            "party_extra_monster": "nakedgnome_1"
           }
         ],
         "next": "A desperate choice!",
