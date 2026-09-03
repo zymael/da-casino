@@ -1383,15 +1383,16 @@ async def smash_cmd(ctx):
 
 @bot.command(name="journal", aliases=["quests"])
 async def journal_cmd(ctx):
-    """Your quest journal: objective-style summaries plus Turn In buttons, so you can pick up and
-    advance quests without visiting the giving NPC (talking to them still works too): !journal or !quests"""
-    embed, view, newly_started = await journal_view.build_journal_display(
+    """Your quest journal: objective-style summaries of every quest you've started, and picks up
+    any new quest that's eligible to start without visiting anyone: !journal or !quests. Turning
+    a stage in still only ever happens by talking to the NPC -- see that quest's giving NPC."""
+    embed, newly_started = await journal_view.build_journal_display(
         ctx.guild.id, ctx.author.id, ctx.author.display_name
     )
     if newly_started:
         names = ", ".join(quests.QUESTS_BY_ID[qid]["name"] for qid in newly_started)
         await ctx.send(f"🆕 New quest(s) started: {names}")
-    await ctx.send(embed=embed, view=view)
+    await ctx.send(embed=embed)
 
 
 @bot.command(name="buyhorse")

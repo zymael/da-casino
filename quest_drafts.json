@@ -15,6 +15,7 @@
         "ordinal": 0,
         "prompt": "*Kel scuffs his boot in the dirt.* \"...I used to whittle, you know. Haven't picked it back up in years. Lost the last thing I ever carved. Silly to miss a piece of wood this much.\"",
         "journal_text": "Give Kel a wooden horse carving.",
+        "discuss_with": [],
         "paths": [
           {
             "trigger": {
@@ -22,7 +23,7 @@
               "item_id": "wooden_horse_carving"
             },
             "on_complete_message": "*Kel Blushes* ...You're giving this to me? It's beautiful. Thank you. Really.\"",
-            "x": 230.0,
+            "x": 229.0,
             "y": 40.0
           }
         ]
@@ -103,6 +104,51 @@
     "start_stage": "stage_0",
     "next_ordinal": 2
   },
+  "goo_bathhouse_flier": {
+    "id": "goo_bathhouse_flier",
+    "name": "A Wet Flier",
+    "npc": "the_goo",
+    "start_trigger": {
+      "type": "flag_at_least",
+      "key": "dream_claimed:the_lost_temple",
+      "value": 1
+    },
+    "journal_startable": false,
+    "active": true,
+    "complete_message": "*The Goo jiggles excitedly like a 70s Jello mold.  Or is it anxiously?  You can't really tell.*",
+    "stages": [
+      {
+        "id": "stage_0",
+        "ordinal": 0,
+        "prompt": "*The Goo vibrates as they notice your wet note.  You notice that they are, in fact, pretty wet.*",
+        "journal_text": "Show the Goo the bathhouse flier you found.",
+        "topic_label": "\ud83d\udcc4 Show the flier",
+        "discuss_with": [
+          "the_goo"
+        ],
+        "paths": [
+          {
+            "trigger": {
+              "type": "turn_in_item",
+              "item_id": "bathhouse_flier"
+            },
+            "on_complete_message": "*The Goo gyrates, convulses and shimmies in a series of movements not unlike an interpretive dance.  Somehow, you understand this to mean that the bath house is in the sewers beneath the gnome market.*",
+            "turn_in_label": "\ud83d\udcc4 Show the flier",
+            "x": 229.0,
+            "y": 39.0
+          }
+        ]
+      }
+    ],
+    "layout": {
+      "stage_0": {
+        "x": 39.0,
+        "y": 40.0
+      }
+    },
+    "start_stage": "stage_0",
+    "next_ordinal": 1
+  },
   "goo_zgoolok_bane": {
     "id": "goo_zgoolok_bane",
     "name": "I got my ass kicked in Z'Goolok's Bog and all I got was my ass kicked as previously mentioned",
@@ -118,7 +164,8 @@
         "id": "stage_0",
         "ordinal": 0,
         "prompt": "*The Goo takes one look at you, still dripping and bruised, and goes very still.*\r\n\r\n*Then they start rummaging under the counter, pulling out fishing tackle you didn't know they sold, quivering the whole time.*",
-        "journal_text": "The Goo has given you fishing tackle for something.",
+        "journal_text": "The Goo has given you fishing tackle for something?  What are you supposed to do with this?",
+        "topic_label": "Ask about Z'Goolok",
         "discuss_with": [
           "the_goo"
         ],

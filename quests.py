@@ -20,13 +20,12 @@ while its *authoring* identity (id) can be freely renamed or the stage list reor
 _try_start_quest has two callers: npc_greet (npc-scoped, the original "visit the NPC and it offers
 itself" flow) and check_new_quests (every quest at once, journal_view.py's !journal entry point for
 starting a quest without visiting anyone) -- both are equally real, a quest doesn't care which one
-triggered it. turn_in likewise has two callers: npc_view.py's NpcTurnInButton (nested inside a
-topic's detail screen, not a room-level button) and journal_view.py's JournalTurnInButton --
-turn_in itself only ever needed a quest_id, never an npc_id, so nothing about it had to change to
-support a second caller. An optional path_index lets a caller resolve one specific path explicitly
-(for a stage with more than one path open at once); omitted, turn_in auto-picks the first
-currently-satisfied path -- every quest today has exactly one path per stage, so this is the only
-behavior any existing content ever exercises.
+triggered it. turn_in has exactly one caller: npc_view.py's NpcTurnInButton, nested inside a
+topic's detail screen -- deliberately no !journal shortcut (an earlier version of journal_view.py
+had one; removed so turning in always means actually talking to the NPC). An optional path_index
+lets a caller resolve one specific path explicitly (for a stage with more than one path open at
+once); omitted, turn_in auto-picks the first currently-satisfied path -- every quest today has
+exactly one path per stage, so this is the only behavior any existing content ever exercises.
 
 Which NPCs currently have anything to say about a stage is its own concern, orthogonal to the graph
 above: each stage carries a "discuss_with" list of npc ids (validated against npcs.NPCS, same as
@@ -811,19 +810,19 @@ async def _current_stage_matched_path(guild_id: int, user_id: int, quest: dict, 
 
 async def quest_log(guild_id: int, user_id: int) -> list[dict]:
     """Every quest this player has started (in quests.json order), each as {"quest_id", "name",
-    "npc", "stage_index", "total_stages", "complete", "journal_text", "can_turn_in", "item",
-    "turn_in_label"}. "journal_text" is the objective-style line !journal shows (or the quest's
-    complete_message once done) -- distinct from a stage's "prompt" (only ever what the NPC itself
-    says, see quest_topic_state) because a journal entry reads like a task ("Give Kel a wooden horse
+    "npc", "stage_index", "total_stages", "complete", "journal_text", "can_turn_in"}.
+    "journal_text" is the objective-style line !journal shows (or the quest's complete_message
+    once done) -- distinct from a stage's "prompt" (only ever what the NPC itself says, see
+    quest_topic_state) because a journal entry reads like a task ("Give Kel a wooden horse
     carving") rather than dialogue. Backs !journal (journal_view.py, aliased as !quests); "name"
     (quests.json's own authored title) is what identifies each entry -- "npc" is only the giver,
     and multiple quests can share one NPC (e.g. the_goo), so npc alone can't tell two entries
-    apart. can_turn_in/item/turn_in_label come from whichever path (if any) is currently satisfied
-    on the current stage (_current_stage_matched_path) so journal_view can build its own turn-in
-    button without visiting the NPC. stage_index/total_stages are computed by walking the quest's
-    first-path chain from start_stage (_stage_chain) -- well-defined for any currently-linear
-    quest; see that helper's own docstring for the accepted limitation once real branching content
-    exists."""
+    apart. can_turn_in is a hint only ("go talk to X") -- journal_view.py deliberately builds no
+    turn-in button of its own; actually resolving which path and consuming its cost only ever
+    happens via quest_topic_state/turn_in, triggered by talking to the NPC (npc_view.py).
+    stage_index/total_stages are computed by walking the quest's first-path chain from start_stage
+    (_stage_chain) -- well-defined for any currently-linear quest; see that helper's own docstring
+    for the accepted limitation once real branching content exists."""
     entries = []
     for quest in QUESTS_BY_ID.values():
         ordinal = await _get_stage_ordinal(guild_id, user_id, quest["id"])
@@ -835,17 +834,11 @@ async def quest_log(guild_id: int, user_id: int) -> list[dict]:
         total_stages = len(chain)
         if complete:
             journal_text = quest.get("complete_message", DEFAULT_COMPLETE_MESSAGE)
-            can_turn_in, item, turn_in_label = False, None, None
+            can_turn_in = False
             stage_index = total_stages
         else:
             journal_text = stage["journal_text"]
-            matched = await _current_stage_matched_path(guild_id, user_id, quest, stage)
-            can_turn_in = matched is not None
-            item = (
-                QUEST_ITEMS[matched["trigger"]["item_id"]]
-                if matched and matched["trigger"]["type"] == "turn_in_item" else None
-            )
-            turn_in_label = matched.get("turn_in_label") if matched else None
+            can_turn_in = await _current_stage_matched_path(guild_id, user_id, quest, stage) is not None
             stage_index = chain.index(stage["id"]) if stage["id"] in chain else 0
         entries.append({
             "quest_id": quest["id"],
@@ -856,8 +849,6 @@ async def quest_log(guild_id: int, user_id: int) -> list[dict]:
             "complete": complete,
             "journal_text": journal_text,
             "can_turn_in": can_turn_in,
-            "item": item,
-            "turn_in_label": turn_in_label,
         })
     return entries
 
