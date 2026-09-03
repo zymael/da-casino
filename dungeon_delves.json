@@ -287,10 +287,10 @@
       {
         "id": "A desperate choice!",
         "type": "choice",
-        "prompt": "You can go pipe or curtain",
+        "prompt": "The gnomes are gaining on you. Soaked, furious, and closing fast.\r\n\r\nUp ahead: a beaded curtain, glowing red, reeking of sweat and leather. Or a crack in the pipes, just barely wide enough to squeeze through, that might lead outside.\r\n\r\nNo time to think. Pick one.",
         "actions": [
           {
-            "label": "Pipe",
+            "label": "Squeeze into the pipe",
             "on_success": {
               "next": "The Bog of Z'Goolok"
             },
@@ -298,7 +298,7 @@
             "y": 385.0
           },
           {
-            "label": "Curtain",
+            "label": "Push through the curtain",
             "on_success": {
               "next": "The Leather Daddy's Private Room"
             },
