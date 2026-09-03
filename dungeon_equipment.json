@@ -1509,5 +1509,27 @@
         "speed": 24
       }
     }
+  },
+  {
+    "id": "pompadour_toupee",
+    "name": "Pompadour Toupee",
+    "slot": "trinket",
+    "rarity": "uncommon",
+    "effects": [
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 4
+      },
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 1
+      }
+    ],
+    "special": false,
+    "intended_level": 9,
+    "base_value": 200,
+    "flavor": "\"You call this slicked back? This is PUSHED back.\"\r\n\r\nThe wind flows freely through your hair in this thing.  Or rather right over it like the wing of an airplane due to how much pomade you used."
   }
 ]
