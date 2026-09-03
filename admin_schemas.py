@@ -1018,6 +1018,10 @@ CONTENT_TYPES = {
             },
             {"name": "start_trigger", "type": "trigger", "required": True},
             {
+                "name": "journal_startable", "type": "bool", "required": False, "default": False, "group": "Identity",
+                "hint": "lets this quest start just by opening !journal, not only by talking to its npc",
+            },
+            {
                 "name": "complete_message", "type": "text", "required": False, "group": "Flavor Text",
                 "hint": "shown once every stage below is complete (blank = a generic default message)",
             },

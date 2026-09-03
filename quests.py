@@ -708,13 +708,17 @@ async def _current_stage_can_turn_in(guild_id: int, user_id: int, quest: dict, s
 
 
 async def check_new_quests(guild_id: int, user_id: int) -> list[str]:
-    """Starts every not-yet-started quest whose start_trigger is now satisfied, regardless of
-    which NPC it belongs to -- journal_view.py's !journal entry point for starting a quest without
-    visiting anyone (talk_to_npc still starts the same way, npc-scoped, so visiting the NPC first
-    works exactly as before too). Returns the ids of whatever quests this call actually started, in
-    quests.json order."""
+    """Starts every not-yet-started quest with "journal_startable" set whose start_trigger is now
+    satisfied, regardless of which NPC it belongs to -- journal_view.py's !journal entry point for
+    starting a quest without visiting anyone. journal_startable defaults False -- a quest only
+    starts this way if it's explicitly opted in (quests.json/admin panel); every other quest still
+    only ever starts by talking to its NPC (talk_to_npc, unaffected by this flag -- it always starts
+    whatever it's scoped to, same as before). Returns the ids of whatever quests this call actually
+    started, in quests.json order."""
     started = []
     for quest in QUESTS_BY_ID.values():
+        if not quest.get("journal_startable", False):
+            continue
         if await _try_start_quest(guild_id, user_id, quest):
             started.append(quest["id"])
     return started

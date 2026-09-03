@@ -75,7 +75,9 @@ async def build_journal_display(
     if not log:
         embed.description = "No quests started yet."
     else:
-        for entry in log:
+        # In Progress before Complete -- sorted() is stable, so quests.json order is preserved
+        # within each group.
+        for entry in sorted(log, key=lambda e: e["complete"]):
             status = "✅ Complete" if entry["complete"] else f"Stage {entry['stage_index'] + 1}/{entry['total_stages']}"
             npc_name = npcs.NPCS[entry["npc"]]["name"]
             value = f"*Giver: {npc_name}*\n{entry['journal_text']}"
