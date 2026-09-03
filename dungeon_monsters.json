@@ -489,7 +489,8 @@
         ]
       }
     ],
-    "sprite_path": "assets/dungeon/monsters/enchanted_towel.png"
+    "sprite_path": "assets/dungeon/monsters/enchanted_towel.png",
+    "sprite_scale": 0.5
   },
   {
     "id": "nakedgnome_1",
