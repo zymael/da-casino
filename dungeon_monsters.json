@@ -1098,7 +1098,8 @@
         ],
         "flavor": "It goos all over you. Your armor feels heavier."
       }
-    ]
+    ],
+    "sprite_path": "assets/dungeon/monsters/feral_goo.png"
   },
   {
     "id": "bad_rat",
