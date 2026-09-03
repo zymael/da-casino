@@ -10,6 +10,7 @@
     "stages": [
       {
         "prompt": "*Kel scuffs his boot in the dirt.* \"...I used to whittle, you know. Haven't picked it back up in years. Lost the last thing I ever carved. Silly to miss a piece of wood this much.\"",
+        "journal_text": "Give Kel a wooden horse carving.",
         "trigger": {
           "type": "turn_in_item",
           "item_id": "wooden_horse_carving"
@@ -30,6 +31,7 @@
     "stages": [
       {
         "prompt": "THE GOBLIN CHIEFTAIN HAS KIDNAPPED THE PRINCESS THAT IS NOT THREE RATS IN A TRENCHCOAT. SAVE HER BRAVE ADVENTURER AND YOU WILL BE REWARDED HANDSOMELY.",
+        "journal_text": "Defeat the Goblin Chieftain and bring the \"Princess\" back to Mondor.",
         "trigger": {
           "type": "turn_in_item",
           "item_id": "three_rats_in_a_trenchcoat",
@@ -52,6 +54,7 @@
     "stages": [
       {
         "prompt": "You don't have a trailer... a tent... or even a sleeping bag. I can't have you just sitting in the dirt. Come back when you have something to use the land for.",
+        "journal_text": "Bring Leto a sleeping bag to prove you're serious about staying.",
         "trigger": {
           "type": "turn_in_item",
           "drop_monster": "goblin_grunt",
@@ -64,6 +67,7 @@
       },
       {
         "prompt": "Is that... a sleeping bag?  I was joking you realize, you ne-\r\n\r\nNah, you know what fine. First month's rent is 100 flakes.  Pay it and you can live in squalor to your heart's content.",
+        "journal_text": "Pay Leto 100 flakes for your first month's rent.",
         "trigger": {
           "type": "pay_currency",
           "amount": 100
@@ -84,6 +88,7 @@
     "stages": [
       {
         "prompt": "*The Goo takes one look at you, still dripping and bruised, and goes very still.*\n\n*Then they start rummaging under the counter, pulling out fishing tackle you didn't know they sold, quivering the whole time.*",
+        "journal_text": "The Goo has given you fishing tackle for something. Nothing to turn in yet.",
         "on_complete_message": "*The Goo sets the tackle down in front of you and waits, quivering.*"
       }
     ]
@@ -101,6 +106,7 @@
     "stages": [
       {
         "prompt": "*The Goo vibrates as they notice your wet note.  You notice that they are, in fact, pretty wet.*",
+        "journal_text": "Show the Goo the bathhouse flier you found.",
         "trigger": {
           "type": "turn_in_item",
           "item_id": "bathhouse_flier"

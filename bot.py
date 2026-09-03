@@ -43,6 +43,7 @@ from horserace_view import HorseRaceView, active_races
 import hub_ui
 import inventory_view
 import jackpot
+import journal_view
 from connect4_view import (
     Connect4ChallengeView,
     build_connect4_challenge_embed,
@@ -136,7 +137,7 @@ HELP_CATEGORIES = [
     ("💰 Economy", ["balance", "stats", "rest", "mine", "tip", "transfer", "pizza", "leaderboard"]),
     ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
     ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost", "horseequip"]),
-    ("🗡️ Dungeon", ["class", "combathelp", "delve", "inventory", "equipment", "craft", "smash", "quests"]),
+    ("🗡️ Dungeon", ["class", "combathelp", "delve", "inventory", "equipment", "craft", "smash", "journal"]),
     ("🏆 Achievements", ["achievements"]),
     ("⚙️ Utility", ["ping", "setcasino", "setcurrency", "setdelvetest", "rub", "roy", "deletebot"]),
 ]
@@ -1380,19 +1381,17 @@ async def smash_cmd(ctx):
     await ctx.send(embed=embed, view=view)
 
 
-@bot.command(name="quests")
-async def quests_cmd(ctx):
-    """See your active and completed quests: !quests"""
-    log = await quests.quest_log(ctx.guild.id, ctx.author.id)
-    embed = discord.Embed(title=f"🗺️ {ctx.author.display_name}'s Quest Log", color=discord.Color.blurple())
-    if not log:
-        embed.description = "No quests started yet."
-    else:
-        for entry in log:
-            status = "✅ Complete" if entry["complete"] else f"Stage {entry['stage_index'] + 1}/{entry['total_stages']}"
-            value = f"*Giver: {entry['npc'].title()}*\n{entry['prompt']}"
-            embed.add_field(name=f"{entry['name']} — {status}", value=value, inline=False)
-    await ctx.send(embed=embed)
+@bot.command(name="journal", aliases=["quests"])
+async def journal_cmd(ctx):
+    """Your quest journal: objective-style summaries plus Turn In buttons, so you can pick up and
+    advance quests without visiting the giving NPC (talking to them still works too): !journal or !quests"""
+    embed, view, newly_started = await journal_view.build_journal_display(
+        ctx.guild.id, ctx.author.id, ctx.author.display_name
+    )
+    if newly_started:
+        names = ", ".join(quests.QUESTS_BY_ID[qid]["name"] for qid in newly_started)
+        await ctx.send(f"🆕 New quest(s) started: {names}")
+    await ctx.send(embed=embed, view=view)
 
 
 @bot.command(name="buyhorse")

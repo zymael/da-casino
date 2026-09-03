@@ -68,7 +68,7 @@ class TalkToNpcButton(discord.ui.Button):
                 [npc["greet_achievement"]],
             )
         if any(state["just_started"] for state in states):
-            await interaction.followup.send("🗺️ New quest! Check `!quests`.", ephemeral=True)
+            await interaction.followup.send("🗺️ New quest! Check `!journal`.", ephemeral=True)
 
 
 class ShopButton(discord.ui.Button):
@@ -154,5 +154,5 @@ class TurnInButton(discord.ui.Button):
                 # here, which showed a nonsense "your current weapon is better" message for e.g. a
                 # housing_item reward that was never compared to any weapon at all.
                 lines.append(f"🎁 Received **{reward_item['name']}**! Check `!inventory`.")
-        lines.append("🗺️ Quest complete! Check `!quests`." if result["quest_complete"] else "🗺️ Quest updated! Check `!quests`.")
+        lines.append("🗺️ Quest complete! Check `!journal`." if result["quest_complete"] else "🗺️ Quest updated! Check `!journal`.")
         await interaction.followup.send("\n".join(lines), ephemeral=True)

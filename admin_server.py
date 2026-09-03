@@ -2683,6 +2683,8 @@ def _render_stage_row(prefix: str, stage: dict) -> str:
     return (
         f'<div class="row-group">'
         f'<label>prompt<textarea name="{prefix}_prompt">{html.escape(stage.get("prompt", ""))}</textarea></label>'
+        f'<label>journal_text<textarea name="{prefix}_journal_text">'
+        f'{html.escape(stage.get("journal_text", ""))}</textarea></label>'
         f'{_render_trigger_inputs(f"{prefix}_trigger", stage.get("trigger") or {})}'
         f'<label>on_complete_message<textarea name="{prefix}_message">'
         f'{html.escape(stage.get("on_complete_message", ""))}</textarea></label>'
@@ -3335,6 +3337,9 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
             if not prompt:
                 continue
             stage = {"prompt": prompt}
+            journal_text = form.get(f"{prefix}_journal_text", "").strip()
+            if journal_text:
+                stage["journal_text"] = journal_text
             trigger = _parse_trigger(f"{prefix}_trigger", form)
             if trigger is not None:
                 stage["trigger"] = trigger

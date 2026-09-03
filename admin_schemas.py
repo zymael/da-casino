@@ -134,9 +134,11 @@ Field types the generic form-builder knows how to render:
     as "effects") -- quests._validate_trigger (run at save time via the real loader) is what
     actually enforces which params a given type needs. See TRIGGER_PARAM_KINDS for how each
     param renders (a number input, or a <select> sourced from the right registry).
-  - "quest_stages" -- a repeatable list of {prompt, trigger, on_complete_message, reward,
-    reward_item, reward_item_kind, button_label, turn_in_label}; each row's trigger portion is the
-    same flattened rendering as the "trigger" field type above. reward_item_kind picks which of
+  - "quest_stages" -- a repeatable list of {prompt, journal_text, trigger, on_complete_message,
+    reward, reward_item, reward_item_kind, button_label, turn_in_label}; each row's trigger portion
+    is the same flattened rendering as the "trigger" field type above. journal_text is the objective
+    line shown in !journal (quests.quest_log) -- distinct from prompt, which is only ever the NPC's
+    own spoken dialogue. reward_item_kind picks which of
     quests.REWARD_REGISTRIES' kinds reward_item is looked up in (defaults to "equipment" if blank,
     for every quest authored before reward_item_kind existed). button_label is optional -- while
     this stage is the player's current one with this NPC, it overrides the room's "Talk to X"
@@ -1008,7 +1010,7 @@ CONTENT_TYPES = {
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {
                 "name": "name", "type": "str", "required": True, "group": "Identity",
-                "hint": "shown on !quests -- what identifies this quest, since multiple quests can share one npc",
+                "hint": "shown on !journal -- what identifies this quest, since multiple quests can share one npc",
             },
             {
                 "name": "npc", "type": "enum", "required": True, "choices": list(npcs.NPCS.keys()), "group": "Identity",

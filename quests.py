@@ -1,12 +1,17 @@
 """Framework for multi-stage NPC storylines: a quest starts once its own "start_trigger" condition
 is met, and each stage advances once its "trigger" condition is met -- turning in an item, killing
 enough of a monster, crafting enough of a recipe, earning an achievement, another quest already
-being complete, or an arbitrary flag reaching some value (see TRIGGER_SCHEMAS). Both starting and
-completing a stage are always NPC-delivered: even a trigger with nothing to physically hand over
-just makes that NPC's greeting/turn-in available, nothing here ever starts or advances a quest on
-its own -- see talk_to_npc and turn_in, the only two places that write quest progress (through
-db.py's generic per-player flags table -- a quest's stage lives at flag key "quest:<id>", see
-_quest_flag_key/_get_stage/_start_quest/_advance_stage).
+being complete, or an arbitrary flag reaching some value (see TRIGGER_SCHEMAS). Nothing here ever
+starts or advances a quest on its own -- starting only ever happens through _try_start_quest, and
+advancing only ever happens through turn_in (through db.py's generic per-player flags table -- a
+quest's stage lives at flag key "quest:<id>", see _quest_flag_key/_get_stage/_start_quest/
+_advance_stage). _try_start_quest has two callers: talk_to_npc (npc-scoped, the original "visit the
+NPC and it offers itself" flow) and check_new_quests (every quest at once, journal_view.py's
+!journal entry point for starting a quest without visiting anyone) -- both are equally real, a
+quest doesn't care which one triggered it. turn_in likewise has two callers now: npc_view.py's
+TurnInButton (still fully supported) and journal_view.py's JournalTurnInButton -- turn_in itself
+only ever needed a quest_id, never an npc_id, so nothing about it had to change to support a second
+caller.
 
 This module deliberately knows nothing about *why* an achievement was earned or a monster was
 killed -- it only ever reads state other systems already own (personal_achievements, inventory,
@@ -37,7 +42,7 @@ _QUEST_ITEMS_PATH = os.path.join(os.path.dirname(__file__), "quest_items.json")
 _QUESTS_PATH = os.path.join(os.path.dirname(__file__), "quests.json")
 _REQUIRED_ITEM_FIELDS = {"id", "name", "emoji", "description"}
 _REQUIRED_QUEST_FIELDS = {"id", "name", "npc", "start_trigger", "stages"}
-_REQUIRED_STAGE_FIELDS = {"prompt", "on_complete_message"}
+_REQUIRED_STAGE_FIELDS = {"prompt", "journal_text", "on_complete_message"}
 
 # type -> (required param names, optional param names). Valid both as a quest's top-level
 # "start_trigger" and as a stage's "trigger" -- starting and advancing use the exact same
@@ -500,10 +505,16 @@ async def npcs_present_in_room(guild_id: int, user_id: int, room_id: str) -> lis
 
 async def quest_log(guild_id: int, user_id: int) -> list[dict]:
     """Every quest this player has started (in quests.json order), each as {"quest_id", "name",
-    "npc", "stage_index", "total_stages", "complete", "prompt"} -- prompt is the current stage's
-    own text (or None once complete). Backs !quests; "name" (quests.json's own authored title) is
-    what identifies each entry -- "npc" is only the giver, and multiple quests can share one NPC
-    (e.g. the_goo), so npc alone can't tell two entries apart."""
+    "npc", "stage_index", "total_stages", "complete", "journal_text", "can_turn_in", "item",
+    "turn_in_label"}. "journal_text" is the objective-style line !journal shows (or the quest's
+    complete_message once done) -- distinct from a stage's "prompt" (only ever what the NPC itself
+    says, see talk_to_npc) because a journal entry reads like a task ("Give Kel a wooden horse
+    carving") rather than dialogue. Backs !journal (journal_view.py, aliased as !quests); "name"
+    (quests.json's own authored title) is what identifies each entry -- "npc" is only the giver,
+    and multiple quests can share one NPC (e.g. the_goo), so npc alone can't tell two entries
+    apart. can_turn_in/item/turn_in_label mirror talk_to_npc's own per-stage fields (same
+    _current_stage_can_turn_in helper) so journal_view can build its own turn-in button without
+    visiting the NPC."""
     entries = []
     for quest in QUESTS_BY_ID.values():
         stage_index = await _get_stage(guild_id, user_id, quest["id"])
@@ -511,9 +522,13 @@ async def quest_log(guild_id: int, user_id: int) -> list[dict]:
             continue
         complete = stage_index >= len(quest["stages"])
         if complete:
-            prompt = quest.get("complete_message", DEFAULT_COMPLETE_MESSAGE)
+            journal_text = quest.get("complete_message", DEFAULT_COMPLETE_MESSAGE)
+            can_turn_in, item, turn_in_label = False, None, None
         else:
-            prompt = quest["stages"][stage_index]["prompt"]
+            stage = quest["stages"][stage_index]
+            journal_text = stage["journal_text"]
+            can_turn_in, item = await _current_stage_can_turn_in(guild_id, user_id, quest, stage_index)
+            turn_in_label = stage.get("turn_in_label")
         entries.append({
             "quest_id": quest["id"],
             "name": quest["name"],
@@ -521,7 +536,10 @@ async def quest_log(guild_id: int, user_id: int) -> list[dict]:
             "stage_index": stage_index,
             "total_stages": len(quest["stages"]),
             "complete": complete,
-            "prompt": prompt,
+            "journal_text": journal_text,
+            "can_turn_in": can_turn_in,
+            "item": item,
+            "turn_in_label": turn_in_label,
         })
     return entries
 
@@ -661,6 +679,47 @@ async def record_progress(guild_id: int, user_id: int, event_type: str, **event_
         await asyncio.to_thread(db.increment_flag, guild_id, user_id, _stage_counter_key(quest["id"], stage))
 
 
+async def _try_start_quest(guild_id: int, user_id: int, quest: dict) -> bool:
+    """True (and actually starts it) if `quest` isn't started yet and its start_trigger is now
+    satisfied. The one place "how does a quest start" lives -- see the module docstring for its two
+    callers (talk_to_npc, npc-scoped, and check_new_quests, every quest at once)."""
+    if await _get_stage(guild_id, user_id, quest["id"]) is not None:
+        return False
+    if not await trigger_satisfied(
+        guild_id, user_id, quest["start_trigger"], quest_id=quest["id"], stage=_START_STAGE,
+    ):
+        return False
+    await _start_quest(guild_id, user_id, quest["id"])
+    return True
+
+
+async def _current_stage_can_turn_in(guild_id: int, user_id: int, quest: dict, stage_index: int) -> tuple[bool, dict | None]:
+    """(can_turn_in, item) for `quest`'s stage `stage_index` -- shared by talk_to_npc and
+    quest_log/journal_view so "is this stage ready to turn in" is computed exactly one way. item is
+    the QUEST_ITEMS entry a turn_in_item trigger is waiting on (for a "Give X the Y" button label),
+    None for every other trigger type or when it isn't satisfied yet."""
+    stage = quest["stages"][stage_index]
+    trigger = stage.get("trigger")
+    can_turn_in = trigger is not None and await trigger_satisfied(
+        guild_id, user_id, trigger, quest_id=quest["id"], stage=stage_index,
+    )
+    item = QUEST_ITEMS[trigger["item_id"]] if can_turn_in and trigger["type"] == "turn_in_item" else None
+    return can_turn_in, item
+
+
+async def check_new_quests(guild_id: int, user_id: int) -> list[str]:
+    """Starts every not-yet-started quest whose start_trigger is now satisfied, regardless of
+    which NPC it belongs to -- journal_view.py's !journal entry point for starting a quest without
+    visiting anyone (talk_to_npc still starts the same way, npc-scoped, so visiting the NPC first
+    works exactly as before too). Returns the ids of whatever quests this call actually started, in
+    quests.json order."""
+    started = []
+    for quest in QUESTS_BY_ID.values():
+        if await _try_start_quest(guild_id, user_id, quest):
+            started.append(quest["id"])
+    return started
+
+
 async def talk_to_npc(guild_id: int, user_id: int, npc_id: str) -> list[dict]:
     """Returns one {"quest_id", "prompt", "can_turn_in", "item", "turn_in_label", "complete",
     "just_started"} entry per quest this player has active (or just started) with this NPC -- an
@@ -682,20 +741,16 @@ async def talk_to_npc(guild_id: int, user_id: int, npc_id: str) -> list[dict]:
     notify the player a new quest showed up, without confusing it for a quest that was already
     underway.
 
-    This is the only place a not-yet-started quest ever actually starts: whenever the player talks
-    to its NPC and its start_trigger is satisfied (an achievement already earned, an item already
-    held, or a counter record_progress has already brought up to target), it starts right here --
-    same "nothing happens until you visit the NPC" rule every other quest beat follows."""
+    Starts a not-yet-started quest exactly like check_new_quests does (via the same
+    _try_start_quest), just scoped to this one NPC's quests instead of every quest -- talking to
+    the giving NPC and opening !journal are equally valid ways to pick up a new quest."""
     results = []
     for quest in _quests_for_npc(npc_id):
         stage_index = await _get_stage(guild_id, user_id, quest["id"])
         just_started = False
         if stage_index is None:
-            if not await trigger_satisfied(
-                guild_id, user_id, quest["start_trigger"], quest_id=quest["id"], stage=_START_STAGE,
-            ):
+            if not await _try_start_quest(guild_id, user_id, quest):
                 continue
-            await _start_quest(guild_id, user_id, quest["id"])
             stage_index = 0
             just_started = True
         if stage_index >= len(quest["stages"]):
@@ -705,11 +760,7 @@ async def talk_to_npc(guild_id: int, user_id: int, npc_id: str) -> list[dict]:
             })
             continue
         stage = quest["stages"][stage_index]
-        trigger = stage.get("trigger")
-        can_turn_in = trigger is not None and await trigger_satisfied(
-            guild_id, user_id, trigger, quest_id=quest["id"], stage=stage_index,
-        )
-        item = QUEST_ITEMS[trigger["item_id"]] if can_turn_in and trigger["type"] == "turn_in_item" else None
+        can_turn_in, item = await _current_stage_can_turn_in(guild_id, user_id, quest, stage_index)
         results.append({
             "quest_id": quest["id"], "prompt": stage["prompt"], "can_turn_in": can_turn_in, "item": item,
             "turn_in_label": stage.get("turn_in_label"), "complete": False, "just_started": just_started,
