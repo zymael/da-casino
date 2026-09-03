@@ -243,25 +243,13 @@
           {
             "monsters": [
               "enchanted_comb",
-              "enchanted_soap",
-              "enchanted_towel"
+              "enchanted_soap"
             ],
             "fork": false
           },
           {
             "monsters": [
               "enchanted_comb",
-              "enchanted_soap",
-              "enchanted_soap",
-              "enchanted_towel"
-            ],
-            "fork": false
-          },
-          {
-            "monsters": [
-              "enchanted_comb",
-              "enchanted_soap",
-              "enchanted_towel",
               "enchanted_towel"
             ],
             "fork": false
