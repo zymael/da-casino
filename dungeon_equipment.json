@@ -681,7 +681,7 @@
       {
         "type": "def_buff",
         "trigger": "constant",
-        "value": 5
+        "value": 7
       }
     ],
     "special": false,
@@ -699,6 +699,13 @@
         "type": "spatk_buff",
         "trigger": "constant",
         "value": 6
+      },
+      {
+        "type": "def_shred",
+        "trigger": "on_hit",
+        "chance": 0.2,
+        "value": 2,
+        "target": "enemy"
       }
     ],
     "special": false,
@@ -754,6 +761,11 @@
     "effects": [
       {
         "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 4
+      },
+      {
+        "type": "def_buff",
         "trigger": "constant",
         "value": 4
       }
@@ -820,6 +832,11 @@
         "type": "spatk_buff",
         "trigger": "constant",
         "value": 9
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 6
       }
     ],
     "special": false,
@@ -969,6 +986,11 @@
         "trigger": "on_hit",
         "chance": 0.2,
         "value": 0.08
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 6
       }
     ],
     "special": false,
@@ -1021,6 +1043,11 @@
         "chance": 0.25,
         "duration": 2,
         "value": 0.15
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 7
       }
     ],
     "special": false,
@@ -1070,7 +1097,7 @@
       {
         "type": "def_buff",
         "trigger": "constant",
-        "value": 9
+        "value": 11
       }
     ],
     "special": false,
@@ -1213,6 +1240,11 @@
         "type": "speed_buff",
         "trigger": "constant",
         "value": 2
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 17
       }
     ]
   },
@@ -1298,7 +1330,7 @@
       {
         "type": "def_buff",
         "trigger": "constant",
-        "value": 6
+        "value": 8
       },
       {
         "type": "spatk_buff",
@@ -1360,7 +1392,7 @@
       {
         "type": "def_buff",
         "trigger": "constant",
-        "value": 13
+        "value": 15
       },
       {
         "type": "taunt",
@@ -1393,6 +1425,11 @@
         "type": "lower_threat",
         "trigger": "constant",
         "value": 2
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 8
       }
     ],
     "special": false,
