@@ -1114,7 +1114,7 @@
       {
         "name": "Adhere",
         "chance": 0.2,
-        "special": false,
+        "special": true,
         "effects": [
           {
             "type": "def_shred",
