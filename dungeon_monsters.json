@@ -291,8 +291,8 @@
     "shape": "rectangle",
     "color": "#a153ca",
     "flavor": "A shiny comb that flies about getting tangled in just about any hair it can find...\r\n\r\nThe amount of Gnomish body hair stuck in it's teeth makes you feel ill.",
-    "loot_min": 15,
-    "loot_max": 30,
+    "loot_min": 130,
+    "loot_max": 180,
     "drops": [
       {
         "kind": "material",
@@ -345,8 +345,8 @@
     "shape": "hexagon",
     "color": "#b30000",
     "flavor": "The same doorman from the disco, fired for getting beat up once already. Disguised, but not forgiving.",
-    "loot_min": 50,
-    "loot_max": 90,
+    "loot_min": 150,
+    "loot_max": 200,
     "drops": [
       {
         "kind": "material",
@@ -393,8 +393,8 @@
     "shape": "circle",
     "color": "#000000",
     "flavor": "Oh no...\r\n\r\nOh no this just can't be. \r\n\r\nYou hike up the back of your pants, and prepare for the worst.",
-    "loot_min": 100,
-    "loot_max": 200,
+    "loot_min": 260,
+    "loot_max": 340,
     "drops": [
       {
         "kind": "equipment",
@@ -478,8 +478,8 @@
     "shape": "hexagon",
     "color": "#b5b5b5",
     "flavor": "This towel seems to move about on it's own, viciously drying anyone it comes across.\r\n\r\nThat can't be sanitary.",
-    "loot_min": 25,
-    "loot_max": 45,
+    "loot_min": 130,
+    "loot_max": 180,
     "drops": [
       {
         "kind": "material",
@@ -527,8 +527,8 @@
     "shape": "hexagon",
     "color": "#000000",
     "flavor": "A large gnome stands before you, patting their hairy belly.  They look at you with sinister intent.  Gross.",
-    "loot_min": 35,
-    "loot_max": 70,
+    "loot_min": 170,
+    "loot_max": 230,
     "drops": [
       {
         "kind": "equipment",
@@ -570,8 +570,8 @@
     "shape": "hexagon",
     "color": "#000000",
     "flavor": "Enchanted Soap that keeps sliding around on the floor, in a manner that certainly breaks all occupational safety laws.",
-    "loot_min": 20,
-    "loot_max": 55,
+    "loot_min": 130,
+    "loot_max": 180,
     "drops": [
       {
         "kind": "equipment",
@@ -615,8 +615,8 @@
     "shape": "hexagon",
     "color": "#000000",
     "flavor": "You hear the snap of a towel barely miss your rear end and spin about to see this little asshole giggling in front of you.  You really hate gnomes.",
-    "loot_min": 35,
-    "loot_max": 65,
+    "loot_min": 170,
+    "loot_max": 230,
     "drops": [
       {
         "kind": "material",
@@ -658,8 +658,8 @@
     "shape": "hexagon",
     "color": "#000000",
     "flavor": "This gnome wiggles their toes as they stand before you wearing... \r\n\r\nOh god.\r\n\r\nYou regret ever coming here. ",
-    "loot_min": 15,
-    "loot_max": 65,
+    "loot_min": 170,
+    "loot_max": 230,
     "drops": [
       {
         "kind": "material",
@@ -703,8 +703,8 @@
     "shape": "hexagon",
     "color": "#560075",
     "flavor": "This Witch appears to be the only staff member, other than the floating bathroom apparatus she seems to be struggling to wrangle.\r\n\r\nYou catch her attention and she stomps towards you.",
-    "loot_min": 80,
-    "loot_max": 160,
+    "loot_min": 200,
+    "loot_max": 260,
     "drops": [
       {
         "kind": "material",
@@ -818,8 +818,8 @@
     "shape": "hexagon",
     "color": "#1a90ea",
     "flavor": "GNAM GNAM GNAM!\r\n\r\nTHEY APPEAR!",
-    "loot_min": 790,
-    "loot_max": 1050,
+    "loot_min": 400,
+    "loot_max": 500,
     "drops": [
       {
         "kind": "material",
@@ -1120,8 +1120,8 @@
     "shape": "triangle",
     "color": "#ff0080",
     "flavor": "It doesn't so much attack you as happen to you. Someone's draped a ragged cloak over it. It shivers in a rhythm, three wet slaps over and over, like it's repeating something back to itself.",
-    "loot_min": 25,
-    "loot_max": 50,
+    "loot_min": 100,
+    "loot_max": 140,
     "drops": [
       {
         "kind": "equipment",
@@ -1163,8 +1163,8 @@
     "shape": "hexagon",
     "color": "#ff0000",
     "flavor": "This Rat has gone really bad.  It's part of a gang and to your dismay it doesn't even know differential calculus.  \r\n\r\nYou prepare to use your plucky, 80s feel good movie protagonist charm to educate it.\r\n\r\nOr just beat it up. ",
-    "loot_min": 50,
-    "loot_max": 100,
+    "loot_min": 100,
+    "loot_max": 140,
     "drops": [
       {
         "kind": "equipment",
