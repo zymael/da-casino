@@ -246,6 +246,7 @@ class DelveSession:
 PARTY_SIZE_CAP = 4  # default lobby cap (see _party_size_cap) -- a delve's own max_party_size overrides this, e.g. for a raid
 PARTY_LOBBY_TIMEOUT = 300  # 5 minutes to gather a party -- longer than DelvePickerView's 120s since it needs multiple humans, not just one player picking a dropdown
 PARTY_ACTION_TIMEOUT = 150  # 2.5 minutes -- solo's 20-minute DELVE_ACTION_TIMEOUT only ever blocks the one player waiting on themselves; a party turn blocks everyone else too, so it has to be much tighter
+ROULETTE_WEDGES = 6  # dungeon.py's "roulette" room type -- fixed rather than per-room-configurable, so RouletteView's button layout never has to vary
 
 
 class PartyMember:
@@ -605,6 +606,17 @@ def _stat_value_for_check(actor, stat: str) -> int:
     """The actor's own value for whichever stat a skill check rolls against -- "hp" reads max_hp,
     not current wounded HP, so a check's odds don't depend on unrelated earlier combat damage."""
     return getattr(actor, _CHECK_STAT_ATTRS[stat])
+
+
+def _party_average_stat(session: "PartyDelveSession", stat: str) -> int:
+    """The party's own average `stat` across EVERY member, knocked-out included (session.members,
+    not living_members()) -- a raid delve's own check convention (see
+    _handle_party_choice_action/_resolve_party_choice_action's party_wide path): a raid-sized check
+    rolls against the whole group's build, not just whoever's still standing or whoever got picked
+    to attempt it. Rounds to the nearest int since dungeon.roll_check wants a plain stat value, the
+    same rounding dungeon_view already does elsewhere for an averaged/derived stat."""
+    values = [_stat_value_for_check(m, stat) for m in session.members]
+    return round(sum(values) / len(values))
 
 
 def _core_stat_line(stats: dict) -> str:
@@ -3076,6 +3088,21 @@ async def _build_party_room_display(
         log_lines = [intro_text] if intro_text else []
         log_lines.append(_combat_intro_text(room, [m.monster for m in session.living_monsters()]))
         await _advance_party_turns(interaction, session, log_lines, is_room_entry=True)
+    elif room["type"] == "roulette":
+        description = f"*{room['prompt']}*"
+        if intro_text:
+            description = f"{intro_text}\n\n{description}"
+        embed = discord.Embed(title="🎡 Place Your Bets", description=description, color=discord.Color.gold())
+        for m in session.members:
+            status = "💀 Knocked out" if m.knocked_out else "🎲 Ready to bet"
+            embed.add_field(name=m.label, value=status, inline=True)
+        render_result = await asyncio.to_thread(
+            dungeon_render.render_room, session.rooms_visited, [], _room_background_path(session.delve, room),
+        )
+        file, image_url = _room_image_file(render_result)
+        embed.set_image(url=image_url)
+        view = RouletteView(session, room)
+        await _send_party_update(interaction, session, embed, file, view)
     else:
         embed, file = await _party_choice_embed(session, room, room["prompt"])
         if intro_text:
@@ -3097,13 +3124,16 @@ async def _handle_party_choice_action(
 ) -> bool:
     """Party sibling of _handle_choice_action -- requires/cost still always gate against the
     leader's own class/inventory/currency (the leader is the one deciding to spend the party's
-    resources), but an action with a stat-based skill check now hands off to a member picker
+    resources). A stat-based check in a raid delve (session.delve["raid"]) rolls against the whole
+    party's own average stat instead of any one member's (see _party_average_stat) -- an 8-person
+    moment shouldn't hinge on whoever happens to be leader, or on picking one member to gamble the
+    whole party's fate on. A non-raid delve keeps the original behavior: a member picker
     (PartyCheckActorPickerView) instead of always rolling against the leader's own stat -- see
     _resolve_party_choice_action for the part that actually rolls the check and applies its
-    outcome (hp_delta included) to whichever member ends up attempting it. A single-survivor party
-    skips the picker (nothing to choose) and resolves against that one member directly. A
-    chance-check never shows the picker at all, stat-based or not -- nobody's stat affects a flat
-    coinflip, so there's nothing to choose between; it resolves straight against the leader."""
+    outcome. A single-survivor non-raid party skips the picker (nothing to choose) and resolves
+    against that one member directly. A chance-check never shows the picker at all, stat-based or
+    not, raid or not -- nobody's stat affects a flat coinflip, so there's nothing to choose between
+    or average; it resolves straight against the leader."""
     requires = action.get("requires")
     if requires is not None:
         character = {"main_class": leader.main_class, "subclass": leader.subclass}
@@ -3125,6 +3155,9 @@ async def _handle_party_choice_action(
 
     living = session.living_members()
     check = action.get("check")
+    if check is not None and "stat" in check and session.delve.get("raid"):
+        await _resolve_party_choice_action(interaction, session, leader, leader, room, action, party_wide=True)
+        return True
     if check is not None and "stat" in check and len(living) > 1:
         embed = discord.Embed(
             title="🎯 Who Attempts This?",
@@ -3142,7 +3175,7 @@ async def _handle_party_choice_action(
 
 async def _resolve_party_choice_action(
     interaction: discord.Interaction, session: PartyDelveSession, leader: PartyMember, actor: PartyMember,
-    room: dict, action: dict,
+    room: dict, action: dict, party_wide: bool = False,
 ):
     """The rest of a party choice action once requires/cost have already passed and (for a check)
     the party has settled on who's attempting it -- `actor` is that member (same as `leader` for a
@@ -3151,7 +3184,16 @@ async def _resolve_party_choice_action(
     member step up for a rough check should mean *they* take the hit, not whoever happened to be
     clicking the button. A knocked-out actor is treated exactly like a combat knockout (skipped,
     party continues) rather than ending the delve -- unless it leaves nobody standing, the same
-    full-wipe path _advance_party_turns already uses."""
+    full-wipe path _advance_party_turns already uses.
+
+    `party_wide` (only ever True via _handle_party_choice_action's raid-delve branch) rolls the
+    check once against _party_average_stat instead of `actor`'s own stat, and applies the resulting
+    outcome to every currently-living member individually (each gets their own hp_delta/reward
+    application, same "everyone shares the consequence" shape _award_kill's own party loop already
+    uses) instead of just to `actor` -- `actor` is ignored entirely in this mode (still passed in as
+    `leader` by the caller, since the check itself doesn't need a single attempter to roll against).
+    A knockout still only wipes the party if EVERY living member goes down from it, not any one of
+    them."""
     log_lines = []
     check = action.get("check")
     if check is not None:
@@ -3160,6 +3202,14 @@ async def _resolve_party_choice_action(
             log_lines.append(
                 f"🎲 {actor.label}'s chance check: rolled **{rolled:.0%}** vs **{check['chance']:.0%}** — "
                 f"{'success!' if success else 'failure!'}"
+            )
+        elif party_wide:
+            stat_value = _party_average_stat(session, check["stat"])
+            success, rolled = dungeon.roll_check(stat_value, check["dc"])
+            stat_label = dungeon.stat_label(check["stat"])
+            log_lines.append(
+                f"🎲 The party's average {stat_label} check (avg **{stat_value}**): rolled **{rolled}** "
+                f"vs DC **{check['dc']}** — {'success!' if success else 'failure!'}"
             )
         else:
             stat_value = _stat_value_for_check(actor, check["stat"])
@@ -3177,29 +3227,30 @@ async def _resolve_party_choice_action(
         log_lines.append(outcome["message"])
 
     hp_delta = outcome.get("hp_delta", 0)
-    if hp_delta:
-        actor.hp = min(actor.max_hp, actor.hp + hp_delta)
-        verb = "recovers" if hp_delta > 0 else "takes"
-        log_lines.append(f"{actor.label} {verb} **{abs(hp_delta)}** HP.")
+    targets = session.living_members() if party_wide else [actor]
+    for target in targets:
+        if hp_delta:
+            target.hp = min(target.max_hp, target.hp + hp_delta)
+            verb = "recovers" if hp_delta > 0 else "takes"
+            log_lines.append(f"{target.label} {verb} **{abs(hp_delta)}** HP.")
+        await _apply_outcome_rewards(session.guild_id, target.user_id, target, outcome, log_lines, label=target.label)
+        if target.hp <= 0:
+            target.knocked_out = True
+            log_lines.append(f"💀 **{target.label}** is knocked out!")
 
-    await _apply_outcome_rewards(session.guild_id, actor.user_id, actor, outcome, log_lines, label=actor.label)
-
-    if actor.hp <= 0:
-        actor.knocked_out = True
-        log_lines.append(f"💀 **{actor.label}** is knocked out!")
-        if not session.living_members():
-            for m in session.members:
-                await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
-            _cleanup(session)
-            embed = discord.Embed(
-                title="💀 Your Party Has Fallen",
-                description="\n".join(log_lines) + "\n\nEveryone's down — the party stumbles out empty-handed, "
-                "losing every haul from this delve.",
-                color=discord.Color.dark_red(),
-            )
-            await interaction.response.edit_message(embed=embed, attachments=[], view=None)
-            await _award_party_choice_achievement(interaction, session, outcome)
-            return
+    if not session.living_members():
+        for m in session.members:
+            await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
+        _cleanup(session)
+        embed = discord.Embed(
+            title="💀 Your Party Has Fallen",
+            description="\n".join(log_lines) + "\n\nEveryone's down — the party stumbles out empty-handed, "
+            "losing every haul from this delve.",
+            color=discord.Color.dark_red(),
+        )
+        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+        await _award_party_choice_achievement(interaction, session, outcome)
+        return
 
     next_room = outcome.get("next")
     if next_room is None:
@@ -3384,6 +3435,138 @@ class PartyChoiceOutcomeView(discord.ui.View):
             await session.message.edit(embed=embed, attachments=[], view=None)
         except discord.HTTPException:
             pass
+
+
+class RouletteWedgeButton(discord.ui.Button):
+    """One wedge of a "roulette" room's wheel (dungeon.py's room type) -- just forwards its own
+    wedge number to RouletteView.handle_pick, which owns all the actual betting logic."""
+
+    def __init__(self, wedge: int):
+        super().__init__(label=str(wedge), style=discord.ButtonStyle.secondary, row=(wedge - 1) // 3)
+        self.wedge = wedge
+
+    async def callback(self, interaction: discord.Interaction):
+        await self.view.handle_pick(interaction, self.wedge)
+
+
+class RouletteView(discord.ui.View):
+    """A raid-only set-piece room's betting screen (dungeon.py's "roulette" room type). Unlike
+    every other view in this file -- gated to the leader, or to whoever's turn it is -- this one
+    accepts a bet from ANY currently-living, non-knocked-out member: the whole point of the room is
+    every raid member betting in parallel instead of one person deciding for the group (see
+    dungeon_view's _party_average_stat docstring for the same idea applied to skill checks).
+    Resolves the instant every living member has bet, or PARTY_ACTION_TIMEOUT after the view opens
+    if stragglers never click -- a member who never bets is simply exempt from this wedge's outcome
+    (see _resolve_roulette), not forced into one, so a timeout can't retroactively hurt someone who
+    wasn't there to choose."""
+
+    def __init__(self, session: PartyDelveSession, room: dict):
+        super().__init__(timeout=PARTY_ACTION_TIMEOUT)
+        self.session = session
+        self.room = room
+        self.picks: dict[int, int] = {}
+        self.resolved = False
+        for wedge in range(1, ROULETTE_WEDGES + 1):
+            self.add_item(RouletteWedgeButton(wedge))
+        session.current_view = self
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        member = self.session.members_by_id.get(interaction.user.id)
+        if member is None:
+            await interaction.response.send_message("You're not in this party.", ephemeral=True)
+            return False
+        if member.knocked_out:
+            await interaction.response.send_message("You're knocked out — sit this one out.", ephemeral=True)
+            return False
+        return True
+
+    async def handle_pick(self, interaction: discord.Interaction, wedge: int):
+        if self.resolved or self.session.current_view is not self:
+            await interaction.response.send_message("The wheel's already stopped.", ephemeral=True)
+            return
+        if interaction.user.id in self.picks:
+            await interaction.response.send_message(
+                f"You already bet wedge **{self.picks[interaction.user.id]}**.", ephemeral=True,
+            )
+            return
+        self.picks[interaction.user.id] = wedge
+        living_ids = {m.user_id for m in self.session.living_members()}
+        if living_ids <= self.picks.keys():
+            self.resolved = True
+            self.session.current_view = None
+            self.stop()
+            await _resolve_roulette(interaction, self.session, self.room, self.picks)
+        else:
+            await interaction.response.send_message(
+                f"🎲 You bet wedge **{wedge}**! Waiting on the rest of the party...", ephemeral=True,
+            )
+
+    async def on_timeout(self):
+        if self.resolved or self.session.current_view is not self:
+            return
+        self.resolved = True
+        self.session.current_view = None
+        await _resolve_roulette(None, self.session, self.room, self.picks)
+
+
+async def _resolve_roulette(
+    interaction: discord.Interaction | None, session: PartyDelveSession, room: dict, picks: dict[int, int],
+) -> None:
+    """Reveals the wheel's landing wedge and applies room["hit_hp_delta"] (always negative -- see
+    dungeon.py's own validation) to whoever bet it -- called either from RouletteView.handle_pick
+    (everyone's in) or its on_timeout (stragglers never bet, simply exempt -- see RouletteView's own
+    docstring). `interaction` is None on the timeout path, same "no live interaction to respond
+    through" shape _send_party_update already branches on for a skipped party turn."""
+    landing = random.randint(1, ROULETTE_WEDGES)
+    hit_hp_delta = room["hit_hp_delta"]
+    log_lines = [f"🎡 The wheel spins... and lands on **wedge {landing}**!"]
+    living = session.living_members()
+    for m in living:
+        bet = picks.get(m.user_id)
+        if bet == landing:
+            m.hp = max(0, min(m.max_hp, m.hp + hit_hp_delta))
+            log_lines.append(f"💥 **{m.label}** bet wedge {landing} and takes **{abs(hit_hp_delta)}** HP!")
+            if m.hp <= 0:
+                m.knocked_out = True
+                log_lines.append(f"💀 **{m.label}** is knocked out!")
+        elif bet is not None:
+            log_lines.append(f"✅ **{m.label}** bet wedge {bet} and clears it clean.")
+        else:
+            log_lines.append(f"➖ **{m.label}** never placed a bet — exempt this round.")
+
+    if not session.living_members():
+        for m in session.members:
+            await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
+        _cleanup(session)
+        embed = discord.Embed(
+            title="💀 Your Party Has Fallen",
+            description="\n".join(log_lines) + "\n\nEveryone's down — the party stumbles out empty-handed, "
+            "losing every haul from this delve.",
+            color=discord.Color.dark_red(),
+        )
+        await _send_party_update(interaction, session, embed, None, None)
+        return
+
+    next_room = room.get("next")
+    if next_room is None:
+        currency = db.get_currency_name(session.guild_id)
+        payouts = []
+        for m in session.members:
+            balance = await asyncio.to_thread(db.update_balance, session.guild_id, m.user_id, m.loot_total)
+            await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
+            payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
+        _cleanup(session)
+        embed = discord.Embed(
+            title="🏆 Victory!",
+            description="\n".join(log_lines) + "\n\nThe party has cleared the dungeon!\n" + "\n".join(payouts),
+            color=discord.Color.gold(),
+        )
+        await _send_party_update(interaction, session, embed, None, None)
+        return
+
+    embed = discord.Embed(title="🎡 The Wheel Stops", description="\n".join(log_lines), color=discord.Color.blurple())
+    view = PartyChoiceOutcomeView(session, next_room)
+    await _send_party_update(interaction, session, embed, None, view)
 
 
 async def _present_party_choice_outcome(
@@ -4297,7 +4480,12 @@ class DelveModeChoiceView(discord.ui.View):
     """Shown every time !delve resolves which delve to run (typed, pinned via a room button, or
     picked from DelvePickerView) -- the player chooses to delve alone (unchanged existing flow) or
     open a party others can join for free. Energy is only ever spent once a delve actually starts
-    (Solo here, or Start Delve in the lobby), never just for opening this choice."""
+    (Solo here, or Start Delve in the lobby), never just for opening this choice.
+
+    A "raid" delve (dungeon_delves.json) drops the Solo Delve button entirely -- its own party-wide
+    check convention (_party_average_stat) and set-piece rooms (RouletteView's parallel betting)
+    are built around a real multi-person party and degrade to nonsense alone, so there's no solo
+    path into one at all rather than a solo path that quietly plays worse."""
 
     def __init__(self, guild_id: int, user_id: int, character: dict, delve: dict):
         super().__init__(timeout=120)
@@ -4305,6 +4493,8 @@ class DelveModeChoiceView(discord.ui.View):
         self.user_id = user_id
         self.character = character
         self.delve = delve
+        if delve.get("raid"):
+            self.remove_item(self.solo_button)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:

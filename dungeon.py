@@ -394,6 +394,15 @@ def roll_drops(monster: dict, chance_mult: float = 1.0) -> list[dict]:
 #     carried directly on the action instead of in an external dict (an action has no stable id of
 #     its own to key such a dict by -- its position within "actions" can shift as rows are added/
 #     removed/reordered, unlike a room id).
+#   "roulette": {"id", "type": "roulette", "prompt": str, "hit_hp_delta": negative int,
+#                "background_path"?, "next"?}
+#     party-only set-piece room (dungeon_view.PartyDelveSession only -- a solo delve can never reach
+#     one, see DelveModeChoiceView hiding Solo Delve for a "raid"-flagged delve): every living party
+#     member bets on one of dungeon_view.ROULETTE_WEDGES wedges in parallel, then one shared reveal
+#     -- whoever bet the landing wedge takes hit_hp_delta (always negative, this is a "you got hit"
+#     amount, not a real threat -- see dungeon_view._resolve_roulette), everyone else clears it
+#     clean. next is another room's id, or absent to win the delve, same convention as a combat
+#     room's own next.
 # background_path (either room type) optionally overrides the delve's own top-level
 # background_path for just that room -- a room without one falls back to the delve's (see
 # dungeon_view.py's _room_background_path).
@@ -423,13 +432,18 @@ def roll_drops(monster: dict, chance_mult: float = 1.0) -> list[dict]:
 # cross-validation pass for that half; _load_delves below only checks that "requires"/quest_item
 # costs are shaped like plain dicts, nothing about their actual contents.
 
-ROOM_TYPES = ("combat", "choice")
+ROOM_TYPES = ("combat", "choice", "roulette")
 # which of a character's own stats a skill check can roll against -- every stat compute_effective_stats
 # produces, so a check can be calibrated against any of them, not just the original atk/def/hp trio.
 CHECK_STATS = ("hp", "atk", "def", "spatk", "speed")
 ACTION_COST_ITEM_KINDS = ("material", "consumable", "quest_item")
-_REQUIRED_ROOM_FIELDS_BY_TYPE = {"combat": {"monster_groups"}, "choice": {"prompt", "actions"}}
-_OPTIONAL_ROOM_FIELDS_BY_TYPE = {"combat": {"background_path", "next", "prompt"}, "choice": {"background_path"}}
+_REQUIRED_ROOM_FIELDS_BY_TYPE = {
+    "combat": {"monster_groups"}, "choice": {"prompt", "actions"}, "roulette": {"prompt", "hit_hp_delta"},
+}
+_OPTIONAL_ROOM_FIELDS_BY_TYPE = {
+    "combat": {"background_path", "next", "prompt"}, "choice": {"background_path"},
+    "roulette": {"background_path", "next"},
+}
 
 _DELVES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_delves.json")
 _REQUIRED_DELVE_FIELDS = {"id", "name", "flavor", "rooms", "start_room"}
@@ -697,6 +711,22 @@ def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
                 # (and a group that doesn't override it) is the ordinary "this fight can win the
                 # delve" case, same as today; a group's own override just lets THAT roll continue
                 # deeper instead, it's not required to.
+            elif room["type"] == "roulette":
+                if not room.get("prompt"):
+                    raise ValueError(f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} has no prompt")
+                hit_hp_delta = room["hit_hp_delta"]
+                if not isinstance(hit_hp_delta, int) or isinstance(hit_hp_delta, bool) or hit_hp_delta >= 0:
+                    raise ValueError(
+                        f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} hit_hp_delta must be a negative integer"
+                    )
+                next_room = room.get("next")
+                if next_room is not None:
+                    if next_room not in room_ids:
+                        raise ValueError(
+                            f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} "
+                            f"next {next_room!r} is not a room here"
+                        )
+                    edges[room_id].append(next_room)
             else:  # choice
                 if not room.get("prompt"):
                     raise ValueError(f"dungeon_delves.json: delve {entry_id!r} room {room_id!r} has no prompt")
