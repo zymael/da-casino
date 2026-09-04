@@ -550,7 +550,7 @@ def _room_image_file(render_result: tuple, basename: str = "room") -> tuple[disc
     return discord.File(buf, filename=filename), f"attachment://{filename}"
 
 
-async def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.Embed, discord.File]:
+async def _combat_embed(session: DelveSession, log_text: str, fight_intro: bool = False) -> tuple[discord.Embed, discord.File]:
     living = session.living_monsters()
     title = f"🗡️ {living[0].monster['name']}" if len(living) == 1 else "🗡️ Combat"
     embed = discord.Embed(title=title, description=log_text, color=discord.Color.dark_red())
@@ -568,6 +568,7 @@ async def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.E
     render_result = await asyncio.to_thread(
         dungeon_render.render_room, session.rooms_visited, [m.monster for m in living],
         _room_background_path(session.delve, room), turn_order=_solo_turn_order_cards(session),
+        fight_intro=fight_intro,
     )
     file, image_url = _room_image_file(render_result)
     embed.set_image(url=image_url)
@@ -747,7 +748,7 @@ async def _build_room_display(interaction: discord.Interaction, session: DelveSe
     if room["type"] == "combat":
         log_lines = [intro_text] if intro_text else []
         log_lines.append(_combat_intro_text(room, [m.monster for m in session.living_monsters()]))
-        await _advance_solo_turns(interaction, session, log_lines)
+        await _advance_solo_turns(interaction, session, log_lines, is_room_entry=True)
     else:
         embed, file = await _choice_embed(session, room, room["prompt"])
         if intro_text:
@@ -2109,7 +2110,9 @@ async def _solo_death_embed(interaction: discord.Interaction, session: DelveSess
         )
 
 
-async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSession, log_lines: list[str]) -> None:
+async def _advance_solo_turns(
+    interaction: discord.Interaction, session: DelveSession, log_lines: list[str], is_room_entry: bool = False,
+) -> None:
     """Resolves consecutive automatic monster turns (per dungeon.preview_next_turns) until either
     the player's own turn comes up or the fight/room ends -- called both when entering/resuming a
     combat room (_build_room_display, log_lines seeded with room/monster flavor -- a fast enough
@@ -2119,7 +2122,14 @@ async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSe
     interaction.response.edit_message -- the player's own turn view, a death screen, or a
     room-cleared screen. A monster's own DoT-caused death is handled inline here (award the kill,
     `continue` the loop) rather than the old batch-collect-casualties pattern -- there's no longer
-    a "round" to batch within, just this one monster's turn."""
+    a "round" to batch within, just this one monster's turn.
+
+    `is_room_entry` (only True via _build_room_display, on every fresh combat-room arrival) plays
+    the fight_intro banner on whichever render actually ends up being sent -- the player's own
+    first turn here, same as any other. If a CTB ambush kills the player or clears the room before
+    they ever get a turn, this loop exits through _solo_death_embed/_present_room_result instead,
+    neither of which renders via _combat_embed, so the intro is simply skipped that one time rather
+    than forced onto an unrelated screen."""
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
     while True:
@@ -2147,7 +2157,7 @@ async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSe
                 log_lines.append(_crowd_control_skip_line(session, cc_type))
                 session.turn_clock += dungeon.turn_interval(max(1, session.speed - session.speed_debuff))
                 continue
-            embed, file = await _combat_embed(session, "\n".join(log_lines))
+            embed, file = await _combat_embed(session, "\n".join(log_lines), fight_intro=is_room_entry)
             view = await _build_combat_view(session)
             await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
             return
@@ -2352,7 +2362,7 @@ def _party_turn_order_cards(session: PartyDelveSession) -> list[dict]:
 
 
 async def _party_combat_embed(
-    session: PartyDelveSession, log_text: str, current_actor: PartyMember,
+    session: PartyDelveSession, log_text: str, current_actor: PartyMember, fight_intro: bool = False,
 ) -> tuple[discord.Embed, discord.File]:
     living_monsters = session.living_monsters()
     title = f"🗡️ {living_monsters[0].monster['name']}" if len(living_monsters) == 1 else "🗡️ Combat"
@@ -2376,6 +2386,7 @@ async def _party_combat_embed(
     render_result = await asyncio.to_thread(
         dungeon_render.render_room, session.rooms_visited, [m.monster for m in living_monsters],
         _room_background_path(session.delve, room), turn_order=_party_turn_order_cards(session),
+        fight_intro=fight_intro,
     )
     file, image_url = _room_image_file(render_result)
     embed.set_image(url=image_url)
@@ -2436,7 +2447,10 @@ async def _send_party_update(
             pass
 
 
-async def _advance_party_turns(interaction: discord.Interaction | None, session: PartyDelveSession, log_lines: list[str]) -> None:
+async def _advance_party_turns(
+    interaction: discord.Interaction | None, session: PartyDelveSession, log_lines: list[str],
+    is_room_entry: bool = False,
+) -> None:
     """Party sibling of _advance_solo_turns: resolves consecutive automatic monster turns (per
     dungeon.preview_next_turns, scheduled across every living member AND every living monster at
     once -- member ids are real Discord user_ids, monster ids are their small 0-3 slot, so the two
@@ -2448,7 +2462,12 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
     sending exactly one response via _send_party_update -- the next acting member's own turn view,
     a party-wipe screen, or a room-cleared screen. A monster's own DoT-caused death is handled
     inline here (award the kill to every living member, `continue` the loop) rather than the old
-    batch-collect-casualties pattern -- there's no longer a "round" to batch within."""
+    batch-collect-casualties pattern -- there's no longer a "round" to batch within.
+
+    `is_room_entry` -- see _advance_solo_turns' own docstring, same idea: only True via
+    _build_party_room_display, on every fresh combat-room arrival, and only actually plays if this
+    loop's first rendered screen turns out to be a living member's own turn rather than a wipe/
+    room-clear."""
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
     while True:
@@ -2500,7 +2519,7 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
                 log_lines.append(_crowd_control_skip_line(member, cc_type))
                 member.turn_clock += dungeon.turn_interval(max(1, member.speed - member.speed_debuff))
                 continue
-            embed, file = await _party_combat_embed(session, "\n".join(log_lines), member)
+            embed, file = await _party_combat_embed(session, "\n".join(log_lines), member, fight_intro=is_room_entry)
             view = await _build_party_combat_view(session, member)
             await _send_party_update(interaction, session, embed, file, view, ping_user_id=member.user_id)
             return
@@ -2918,7 +2937,7 @@ async def _build_party_room_display(
     if room["type"] == "combat":
         log_lines = [intro_text] if intro_text else []
         log_lines.append(_combat_intro_text(room, [m.monster for m in session.living_monsters()]))
-        await _advance_party_turns(interaction, session, log_lines)
+        await _advance_party_turns(interaction, session, log_lines, is_room_entry=True)
     else:
         embed, file = await _party_choice_embed(session, room, room["prompt"])
         if intro_text:

@@ -23,6 +23,11 @@ _card_initial_font = ImageFont.truetype(_FONT_PATH, 13)
 # owns the path, same as ranch_render.BANNER_PATH/casino_render.BANNER_PATH.
 BANNER_PATH = "assets/dungeon_banner.png"
 
+# Fighting-game-style "FIGHT!" stinger, composited over a fresh combat room's first render (see
+# render_room's fight_intro param). A plain art asset, same "missing file just means it's skipped"
+# forgiveness as monster sprites -- no banner shouldn't crash a delve.
+FIGHT_BANNER_PATH = "assets/dungeon/fight.png"
+
 
 def _parse_color(hex_color: str) -> tuple[int, int, int, int]:
     hex_color = hex_color.lstrip("#")
@@ -108,6 +113,46 @@ def _load_background_frames(background_path: str | None) -> tuple[list[Image.Ima
             durations.append(frame.info.get("duration", 100) or 100)
         loop = src.info.get("loop", 0)
         return frames, durations, loop
+
+
+def _load_fight_banner() -> Image.Image | None:
+    if not os.path.exists(FIGHT_BANNER_PATH):
+        return None
+    return Image.open(FIGHT_BANNER_PATH).convert("RGBA")
+
+
+# (scale, opacity, duration_ms) keyframes for the fight-intro banner, punched over the room's own
+# first composited frame (background + monsters + label, already built by render_room) rather than
+# a blank canvas -- the combatants are already standing there when "FIGHT!" slams in, same beat as
+# a fighting game's own intro. Oversized and faint -> overshoots slightly past full size for a
+# little bounce -> holds -> fades out. The LAST keyframe (opacity 0) hands off to render_room's own
+# already-built frame(s) with no banner at all, so the animation's final visible state always
+# matches whatever the next per-turn render shows -- no visible seam when this stops playing.
+_FIGHT_INTRO_KEYFRAMES = [
+    (1.8, 0.4, 40),
+    (1.35, 0.85, 45),
+    (0.95, 1.0, 60),
+    (1.08, 1.0, 60),
+    (1.0, 1.0, 500),
+    (1.0, 0.5, 70),
+]
+
+
+def _banner_frame(base: Image.Image, banner: Image.Image, scale: float, opacity: float) -> Image.Image:
+    """One fight-intro frame -- `base` (already has background/monsters/label/turn-order strip
+    composited) with `banner` scaled and alpha-faded on top, centered on the WIDTH x HEIGHT scene
+    area specifically (not the taller turn-order-strip image `base` may actually be), so the banner
+    never bleeds down into the card strip."""
+    img = base.copy()
+    size = (max(1, round(banner.width * scale)), max(1, round(banner.height * scale)))
+    scaled = banner.resize(size, Image.LANCZOS)
+    if opacity < 1:
+        alpha = scaled.getchannel("A").point(lambda a: round(a * opacity))
+        scaled.putalpha(alpha)
+    x = round(WIDTH / 2 - scaled.width / 2)
+    y = round(HEIGHT / 2 - scaled.height / 2)
+    img.alpha_composite(scaled, (x, y))
+    return img
 
 
 # x-offsets from center for each living monster, keyed by how many are being drawn -- count 1 is
@@ -197,7 +242,7 @@ def _composite_turn_order_strip(img: Image.Image, turn_order: list[dict]) -> Ima
 
 def render_room(
     visited_count: int, monsters: list[dict], background_path: str | None = None,
-    turn_order: list[dict] | None = None, label: str | None = None,
+    turn_order: list[dict] | None = None, label: str | None = None, fight_intro: bool = False,
 ) -> tuple[io.BytesIO, str]:
     """Renders the corridor view for one dungeon room -- with its living monster(s) standing at the
     far end if there are any (combat rooms), or just the empty scene if not (choice rooms, or a
@@ -216,7 +261,15 @@ def render_room(
     EVERY one of its frames, then re-encoded as its own animated GIF instead of a flat PNG, so the
     background keeps playing in Discord instead of freezing on frame one. `ext` ("png" or "gif")
     is the caller's cue for which filename/attachment extension actually matches what's in `buf` --
-    see dungeon_view._room_image_file. Sprites are loaded/scaled once, not once per frame."""
+    see dungeon_view._room_image_file. Sprites are loaded/scaled once, not once per frame.
+
+    `fight_intro` (only ever True for a freshly-entered combat room -- see dungeon_view's
+    is_room_entry threading) prepends a few _FIGHT_INTRO_KEYFRAMES frames of the FIGHT_BANNER_PATH
+    art animating in/out over this render's own already-built frame(s), forcing GIF output even
+    for an otherwise-static background. The GIF is saved with no loop count at all (not loop=0),
+    which every renderer including Discord takes as "play once" -- it settles on and stays frozen
+    at this render's normal frame(s), so there's no visible seam with whatever plain render the
+    next turn sends."""
     frames, durations, loop = _load_background_frames(background_path)
 
     cx, cy = WIDTH / 2, HEIGHT / 2 - 10
@@ -250,12 +303,19 @@ def render_room(
             img = _composite_turn_order_strip(img, turn_order)
         out_frames.append(img)
 
+    if fight_intro and (banner := _load_fight_banner()) is not None:
+        intro_frames = [_banner_frame(out_frames[0], banner, scale, opacity) for scale, opacity, _ in _FIGHT_INTRO_KEYFRAMES]
+        intro_durations = [d for _, _, d in _FIGHT_INTRO_KEYFRAMES]
+        out_frames = intro_frames + out_frames
+        durations = intro_durations + [max(d, 100) for d in durations]
+
     buf = io.BytesIO()
     if len(out_frames) > 1:
         rgb_frames = [f.convert("RGB") for f in out_frames]
+        save_kwargs = {} if fight_intro else {"loop": loop}
         rgb_frames[0].save(
             buf, format="GIF", save_all=True, append_images=rgb_frames[1:],
-            duration=durations, loop=loop, disposal=2,
+            duration=durations, disposal=2, **save_kwargs,
         )
         ext = "gif"
     else:
