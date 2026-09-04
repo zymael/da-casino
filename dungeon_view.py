@@ -1983,7 +1983,7 @@ def _roll_on_hit_procs(
 def _resolve_monster_attack(
     attacker: "MonsterInstance", target_pool: list, default_target, moon_effect: str | None, log_lines: list[str],
     *, monster_group: list | None = None,
-) -> tuple[list[tuple[object, int, bool]], dict | None]:
+) -> tuple[list[tuple[object, int, bool]], dict | None, str | None, bool]:
     """One monster's turn -- either its plain attack or one of its own skills
     (dungeon.pick_monster_action, weighted by the monster's own attack_chance vs. each skill's own
     chance) -- against `default_target` (anything with `.def_`/`.spatk`/`.hp`/`.timed_effects` -- a
@@ -2011,14 +2011,20 @@ def _resolve_monster_attack(
     _defended_dodge_chance) that negates only that target's own share of the action, not the
     others'; damage MITIGATION (once a hit lands) is always DEF regardless of that choice.
 
-    Returns (results, skill-or-None, lifesteal_line) where results is one (target, damage, dodged)
-    tuple per entry actually targeted, in order -- callers apply damage/knockout themselves (solo
-    and party handle the aftermath differently) and use skill/dodged to log their own "unleashes X"
-    / "dodges" / "strikes" line(s). lifesteal_line is a ready-to-append string (or None) rather than
-    being appended to log_lines here directly, on purpose -- it's only known once every target's
-    damage is in, which is BEFORE the caller has appended its own "unleashes X for Y" announcement,
-    so appending it here would read backwards (the drain narrated before the hit that caused it).
-    Callers append it themselves, last, after their own announcement/flavor lines."""
+    Returns (results, skill-or-None, lifesteal_line, is_damage_action) where results is one
+    (target, damage, dodged) tuple per entry actually targeted, in order -- callers apply damage/
+    knockout themselves (solo and party handle the aftermath differently) and use skill/dodged to
+    log their own "unleashes X" / "dodges" / "strikes" line(s). `is_damage_action` (False for a
+    pure buff/debuff/CC skill with no damage_multiplier/extra_attack at all, e.g. feral_goo's
+    Adhere) is what tells a caller whether to append a "for N damage" clause to that announcement
+    at all -- a non-damage skill's `damage` in `results` is always 0, same number a damage skill
+    that whiffed down to nothing would also produce, so the caller can't tell those two apart from
+    `results` alone; this flag is the difference between "hit for 0" (misleading) and "no damage
+    clause at all" (correct) in the log line. lifesteal_line is a ready-to-append string (or None)
+    rather than being appended to log_lines here directly, on purpose -- it's only known once every
+    target's damage is in, which is BEFORE the caller has appended its own "unleashes X for Y"
+    announcement, so appending it here would read backwards (the drain narrated before the hit that
+    caused it). Callers append it themselves, last, after their own announcement/flavor lines."""
     monster_group = monster_group or [attacker]
     skill = dungeon.pick_monster_action(attacker.monster, len(monster_group) - 1)
     special = bool(skill.get("special")) if skill else False
@@ -2070,7 +2076,7 @@ def _resolve_monster_attack(
         attacker.hp += healed
         if healed:
             lifesteal_line = f"**{attacker.monster['name']}** drains **{healed}** HP from the strike."
-    return results, skill, lifesteal_line
+    return results, skill, lifesteal_line, is_damage_action
 
 
 async def _build_combat_view(session: DelveSession) -> "CombatView":
@@ -2161,7 +2167,7 @@ async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSe
             log_lines.append(_crowd_control_skip_line(monster, monster_cc_type))
             continue
 
-        results, monster_skill, lifesteal_line = _resolve_monster_attack(
+        results, monster_skill, lifesteal_line, is_damage_action = _resolve_monster_attack(
             monster, [session], session, moon_effect, log_lines,
             monster_group=session.living_monsters(),
         )
@@ -2171,7 +2177,8 @@ async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSe
             log_lines.append(f"You dodge **{monster.monster['name']}**'s attack!")
         else:
             monster_dmg = _consume_guard_charge(session, monster_dmg, log_lines)
-            log_lines.append(f"**{monster.monster['name']}** {verb} for **{monster_dmg}**.")
+            dmg_clause = f" for **{monster_dmg}**" if is_damage_action else ""
+            log_lines.append(f"**{monster.monster['name']}** {verb}{dmg_clause}.")
             if monster_skill and monster_skill.get("flavor"):
                 log_lines.append(f"> {monster_skill['flavor']}")
             session.hp -= monster_dmg
@@ -2533,7 +2540,7 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
         # `living` is only actually used as the target pool when the picked skill's own damage
         # effect is flagged "aoe" -- see _resolve_monster_attack's own docstring. Every other
         # skill (and a plain attack) still resolves to just the threat-picked `threat_target`.
-        results, monster_skill, lifesteal_line = _resolve_monster_attack(
+        results, monster_skill, lifesteal_line, is_damage_action = _resolve_monster_attack(
             monster, living, threat_target, moon_effect, log_lines,
             monster_group=session.living_monsters(),
         )
@@ -2548,7 +2555,8 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
                     log_lines.append(f"**{target.label}** dodges the blast!")
                     continue
                 monster_dmg = _consume_guard_charge(target, monster_dmg, log_lines)
-                log_lines.append(f"**{target.label}** takes **{monster_dmg}** damage.")
+                if is_damage_action:
+                    log_lines.append(f"**{target.label}** takes **{monster_dmg}** damage.")
                 target.hp -= monster_dmg
                 _break_sap(target, log_lines)
                 if target.hp <= 0:
@@ -2561,7 +2569,8 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
             else:
                 monster_dmg = _consume_guard_charge(target, monster_dmg, log_lines)
                 verb = f"unleashes **{monster_skill['name']}** on" if monster_skill else "strikes"
-                log_lines.append(f"**{monster.monster['name']}** {verb} **{target.label}** for **{monster_dmg}**.")
+                dmg_clause = f" for **{monster_dmg}**" if is_damage_action else ""
+                log_lines.append(f"**{monster.monster['name']}** {verb} **{target.label}**{dmg_clause}.")
                 if flavor:
                     log_lines.append(f"> {flavor}")
                 target.hp -= monster_dmg

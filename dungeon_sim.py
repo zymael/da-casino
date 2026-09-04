@@ -238,7 +238,7 @@ def resolve_monster_turn(session: dungeon_view.DelveSession, monster: dungeon_vi
     if monster.hp <= 0 or cc_type is not None:
         return
 
-    results, monster_skill, lifesteal_line = dungeon_view._resolve_monster_attack(
+    results, monster_skill, lifesteal_line, is_damage_action = dungeon_view._resolve_monster_attack(
         monster, [session], session, None, log_lines, monster_group=session.living_monsters(),
     )
     _, dmg, dodged = results[0]
@@ -247,7 +247,8 @@ def resolve_monster_turn(session: dungeon_view.DelveSession, monster: dungeon_vi
         log_lines.append(f"You dodge **{monster.monster['name']}**'s attack!")
     else:
         dmg = dungeon_view._consume_guard_charge(session, dmg, log_lines)
-        log_lines.append(f"**{monster.monster['name']}** {verb} for **{dmg}**.")
+        dmg_clause = f" for **{dmg}**" if is_damage_action else ""
+        log_lines.append(f"**{monster.monster['name']}** {verb}{dmg_clause}.")
         session.hp -= dmg
         dungeon_view._break_sap(session, log_lines)
         if lifesteal_line:
