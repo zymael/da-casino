@@ -704,6 +704,49 @@
           {
             "label": "Wade onward",
             "on_success": {
+              "next": "The Long Straightaway"
+            }
+          }
+        ]
+      },
+      {
+        "id": "The Long Straightaway",
+        "type": "choice",
+        "prompt": "The tunnel behind you ruptures. A low, wet rumble builds into a roar, and the air fills with a smell like a tiki bar that's been closed for thirty years. Something enormous is barreling down the corridor, and it is very much a pineapple.",
+        "actions": [
+          {
+            "label": "RUN",
+            "check": {
+              "stat": "speed",
+              "dc": 20
+            },
+            "on_success": {
+              "message": "The party clears the straightaway with room to spare.",
+              "next": "The Wheel"
+            },
+            "on_fail": {
+              "message": "It clips the stragglers on the way through.",
+              "hp_delta": -15,
+              "next": "The Wheel"
+            }
+          }
+        ]
+      },
+      {
+        "id": "The Wheel",
+        "type": "roulette",
+        "prompt": "The pineapple crashes through the wall ahead and wedges itself, spinning, into a massive roulette wheel embedded in the temple floor -- gilded, ancient, and somehow still perfectly balanced. It's still rolling. Somebody has to call it.",
+        "hit_hp_delta": -25,
+        "next": "The Big Kahuna"
+      },
+      {
+        "id": "The Big Kahuna",
+        "type": "choice",
+        "prompt": "Past the wheel, the tunnel opens into a wide chamber -- and at its center, wreathed in thirty years of reclaiming vines, stands a carved tiki idol easily three times the height of a person. Its shipping tag still flutters from one wrist. As you approach, its carved grimace creaks... and turns to face you. (placeholder room -- The Big Kahuna mini-boss TBD)",
+        "actions": [
+          {
+            "label": "Fight the Big Kahuna",
+            "on_success": {
               "next": "The Kitchen"
             }
           }
