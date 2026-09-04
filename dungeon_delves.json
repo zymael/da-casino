@@ -660,5 +660,118 @@
     },
     "start_room": "room1",
     "background_path": "assets/dungeon/backgrounds/goblin_disco.jpg"
+  },
+  {
+    "id": "beneath_the_buffet",
+    "name": "Beneath the Buffet",
+    "flavor": "Somewhere under a jungle-swallowed casino, the vault still waits -- and so does the skeleton crew that never clocked out.",
+    "active": false,
+    "raid": true,
+    "max_party_size": 8,
+    "start_room": "The Overgrown Facade",
+    "rooms": [
+      {
+        "id": "The Overgrown Facade",
+        "type": "choice",
+        "prompt": "Vines have swallowed the stone archway, but you can still make out gilded letters beneath the moss: THE KING'S CABANA. A door, propped open with a bar stool, leads down into the dark.",
+        "actions": [
+          {
+            "label": "Descend into the catacombs",
+            "on_success": {
+              "next": "The Root-Choked Cellar"
+            }
+          }
+        ]
+      },
+      {
+        "id": "The Root-Choked Cellar",
+        "type": "choice",
+        "prompt": "Roots as thick as a man's torso have broken through the tiled floor, pulsing faintly with a sickly green light. Something in here is very much alive, and it is not happy you're here. (placeholder room -- plant monsters TBD)",
+        "actions": [
+          {
+            "label": "Push deeper",
+            "on_success": {
+              "next": "The Flooded Storage Tunnels"
+            }
+          }
+        ]
+      },
+      {
+        "id": "The Flooded Storage Tunnels",
+        "type": "choice",
+        "prompt": "Ankle-deep water reflects a ceiling choked in hanging vines. Dozens of rotted crates, once labeled SWIZZLE STICKS -- DO NOT OPEN, have sprouted something with teeth. (placeholder room -- plant monsters TBD)",
+        "actions": [
+          {
+            "label": "Wade onward",
+            "on_success": {
+              "next": "The Kitchen"
+            }
+          }
+        ]
+      },
+      {
+        "id": "The Kitchen",
+        "type": "choice",
+        "prompt": "A commercial kitchen, decades cold. The staff never actually left -- they're just still clocked in, spatulas in hand, eyes milk-white, technically still on shift. (placeholder room -- Zombie Staff TBD)",
+        "actions": [
+          {
+            "label": "Push through the kitchen",
+            "on_success": {
+              "next": "The Offices"
+            }
+          }
+        ]
+      },
+      {
+        "id": "The Offices",
+        "type": "choice",
+        "prompt": "Cubicles stretch into the dark, every desk still occupied. A motivational poster reads TEAMWORK MAKES THE DREAM WORK in a font that is, somehow, also rotting. (placeholder room -- Zombie Staff TBD)",
+        "actions": [
+          {
+            "label": "Push through the offices",
+            "on_success": {
+              "next": "The Security Room"
+            }
+          }
+        ]
+      },
+      {
+        "id": "The Security Room",
+        "type": "choice",
+        "prompt": "A wall of dead monitors flickers with security footage from a shift that ended a very long time ago. The guards are still watching. They never blinked. (placeholder room -- Zombie Staff TBD)",
+        "actions": [
+          {
+            "label": "Push past security",
+            "on_success": {
+              "next": "The Boiler Room"
+            }
+          }
+        ]
+      },
+      {
+        "id": "The Boiler Room",
+        "type": "choice",
+        "prompt": "The heat down here never really left, and neither did whoever used to maintain it. Something big shifts in the dark between the pipes. (placeholder room -- tougher Zombie Staff TBD)",
+        "actions": [
+          {
+            "label": "Push toward the vault",
+            "on_success": {
+              "next": "The Vault"
+            }
+          }
+        ]
+      },
+      {
+        "id": "The Vault",
+        "type": "choice",
+        "prompt": "The vault door -- three feet of rusted steel -- hangs wide open. Sitting cross-legged on a mountain of chips, sequined jumpsuit somehow still gleaming under all this dust, is a figure who can only be described as Hellvis.\n\n\"Well, well. Look what crawled outta the buffet line.\" He snaps his fingers. Something enormous rises from the coins behind him. \"Y'all have fun now.\" He's gone before the last coin stops spinning. (placeholder room -- this becomes the raid boss's summoned monster once designed)",
+        "actions": [
+          {
+            "label": "Fight whatever he left behind",
+            "on_success": null
+          }
+        ]
+      }
+    ]
   }
 ]

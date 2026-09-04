@@ -590,6 +590,14 @@ def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
         if "hidden_until_discovered" in entry and not isinstance(entry["hidden_until_discovered"], bool):
             raise ValueError(f"dungeon_delves.json: delve {entry_id!r} hidden_until_discovered must be true/false")
 
+        if "raid" in entry and not isinstance(entry["raid"], bool):
+            raise ValueError(f"dungeon_delves.json: delve {entry_id!r} raid must be true/false")
+
+        if "max_party_size" in entry:
+            size = entry["max_party_size"]
+            if not isinstance(size, int) or isinstance(size, bool) or size < 2:
+                raise ValueError(f"dungeon_delves.json: delve {entry_id!r} max_party_size must be an integer >= 2")
+
         layout = entry.get("layout")
         if layout is not None:
             if not isinstance(layout, dict):

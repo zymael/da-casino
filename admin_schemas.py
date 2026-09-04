@@ -818,6 +818,20 @@ CONTENT_TYPES = {
                         "it's actually finished.",
             },
             {
+                "name": "max_party_size", "type": "int", "required": False, "default": 4, "min": 2,
+                "group": "Identity",
+                "hint": "how many players a party lobby for this delve can hold. Leave at 4 for a "
+                        "normal party delve -- raise it (e.g. to 8) for a raid. Doesn't affect solo.",
+            },
+            {
+                "name": "raid", "type": "bool", "required": False, "default": False, "group": "Identity",
+                "hint": "every party member pays their own energy when the leader clicks Start Delve "
+                        "(instead of only the leader paying), and kill loot splits evenly across every "
+                        "member (instead of leader 1.0x / everyone else 0.5x). Meant for a "
+                        "max_party_size-raised raid delve, but independent of it -- a small raid stays "
+                        "possible.",
+            },
+            {
                 "name": "hidden_until_discovered", "type": "bool", "required": False, "default": False,
                 "group": "Identity",
                 "hint": "hides this delve from the no-arg !delve picker until a player has actually "

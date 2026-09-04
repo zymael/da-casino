@@ -3621,9 +3621,14 @@ def _render_shop_row(prefix: str, shop_entry: dict) -> str:
     )
 
 
-def _render_room_exit_row(prefix: str, room_id: str | None, label: str | None) -> str:
+def _render_room_exit_row(
+    prefix: str, room_id: str | None, label: str | None, visible_trigger: dict | None = None,
+) -> str:
     """One row of a "room_exits" list. See _parse_field's "room_exits" case for the matching parse
-    side."""
+    side. `visible_trigger` (optional, quests.TRIGGER_SCHEMAS) hides this exit from room_view's
+    build_room_display until satisfied -- same _render_trigger_inputs widget a delve action's own
+    "requires" uses, room_view.py/quests.py already read and validate it, this was just the one
+    place authoring it wasn't wired up yet."""
     room_ids = sorted(rooms.ROOMS.keys())
     options = "".join(
         f'<option value="{r}"{" selected" if r == room_id else ""}>{r}</option>' for r in [""] + room_ids
@@ -3633,6 +3638,9 @@ def _render_room_exit_row(prefix: str, room_id: str | None, label: str | None) -
         f'<label>room_id<select name="{prefix}_room_id" class="room-exit-room-select">{options}</select></label>'
         f'<label>label<input type="text" name="{prefix}_label" class="exit-label-input" '
         f'value="{html.escape(label or "")}"></label>'
+        f'<fieldset><legend>visible_trigger (optional)</legend>'
+        f'{_render_trigger_inputs(f"{prefix}_visible", visible_trigger or {})}'
+        f'</fieldset>'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
     )
 
@@ -3731,7 +3739,10 @@ def _render_field(field: dict, value, entry: dict | None = None, problems: list[
 
     if ftype == "room_exits":
         exits = list(value or [])
-        rows_html = [_render_room_exit_row(f"room_exit_{i}", e.get("room_id"), e.get("label")) for i, e in enumerate(exits)]
+        rows_html = [
+            _render_room_exit_row(f"room_exit_{i}", e.get("room_id"), e.get("label"), e.get("visible_trigger"))
+            for i, e in enumerate(exits)
+        ]
         template_html = _render_room_exit_row("room_exit_ROWIDX", None, None)
         repeatable = _render_repeatable(f"{name}-rows", rows_html, template_html, "+ Add exit")
         return f'<fieldset><legend>{label}</legend>{repeatable}</fieldset>'
@@ -4212,7 +4223,11 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
             room_id = form.get(f"{prefix}_room_id", "").strip()
             exit_label = form.get(f"{prefix}_label", "").strip()
             if room_id and exit_label:
-                exits.append({"room_id": room_id, "label": exit_label})
+                exit_entry = {"room_id": room_id, "label": exit_label}
+                visible_trigger = _parse_trigger(f"{prefix}_visible", form)
+                if visible_trigger is not None:
+                    exit_entry["visible_trigger"] = visible_trigger
+                exits.append(exit_entry)
         return (name, exits)
 
     if ftype == "room_commands":

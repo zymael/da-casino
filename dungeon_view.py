@@ -243,7 +243,7 @@ class DelveSession:
 # monster gets its single counter-attack, rather than solo's "monster hits back after every
 # action." See PARTY_LOBBY_TIMEOUT/PARTY_ACTION_TIMEOUT below and PartyLobby/PartyDelveSession.
 
-PARTY_SIZE_CAP = 4  # keeps the roster/turn-order embed readable; matches party_hp_multiplier's natural 1-4 range
+PARTY_SIZE_CAP = 4  # default lobby cap (see _party_size_cap) -- a delve's own max_party_size overrides this, e.g. for a raid
 PARTY_LOBBY_TIMEOUT = 300  # 5 minutes to gather a party -- longer than DelvePickerView's 120s since it needs multiple humans, not just one player picking a dropdown
 PARTY_ACTION_TIMEOUT = 150  # 2.5 minutes -- solo's 20-minute DELVE_ACTION_TIMEOUT only ever blocks the one player waiting on themselves; a party turn blocks everyone else too, so it has to be much tighter
 
@@ -2560,6 +2560,18 @@ async def _send_party_update(
             pass
 
 
+def _party_share_mults(session: PartyDelveSession, member: PartyMember) -> tuple[float, float]:
+    """A party member's own (loot_mult, chance_mult) *party-share* factor for one kill's rewards --
+    doesn't touch `member.loot_mult` (gear/buff-driven) or the moon event multiplier, both applied
+    by the caller on top of this. Equal shares for everyone in a raid delve (session.delve["raid"],
+    dungeon_delves.json) -- raid loot is meant to be split evenly across a whole organized group,
+    not skewed toward whoever happened to be leader. Leader 1.0x / everyone else 0.5x otherwise,
+    the original small-party convention."""
+    if session.delve.get("raid"):
+        return 1.0, 1.0
+    return (1.0, 1.0) if member.is_leader else (0.5, 0.5)
+
+
 async def _advance_party_turns(
     interaction: discord.Interaction | None, session: PartyDelveSession, log_lines: list[str],
     is_room_entry: bool = False,
@@ -2652,8 +2664,8 @@ async def _advance_party_turns(
             log_lines.append(f"**{monster.monster['name']}** succumbs to its wounds!")
             for m in session.members:
                 member_log: list[str] = []
-                loot_mult = m.loot_mult * (1.0 if m.is_leader else 0.5) * player_moon_mult
-                chance_mult = 1.0 if m.is_leader else 0.5
+                share_mult, chance_mult = _party_share_mults(session, m)
+                loot_mult = m.loot_mult * share_mult * player_moon_mult
                 await _award_kill(
                     session.guild_id, monster.monster, m, session.current_room_id, member_log,
                     loot_mult=loot_mult, chance_mult=chance_mult,
@@ -2769,8 +2781,8 @@ async def _resolve_party_turn(
             log_lines.append(f"**{target.monster['name']} is defeated!**")
             for m in session.members:
                 member_log: list[str] = []
-                loot_mult = m.loot_mult * (1.0 if m.is_leader else 0.5) * player_moon_mult
-                chance_mult = 1.0 if m.is_leader else 0.5
+                share_mult, chance_mult = _party_share_mults(session, m)
+                loot_mult = m.loot_mult * share_mult * player_moon_mult
                 await _award_kill(
                     session.guild_id, target.monster, m, session.current_room_id, member_log,
                     loot_mult=loot_mult, chance_mult=chance_mult,
@@ -3476,22 +3488,32 @@ async def _present_party_room_result(
     await _send_party_update(interaction, session, embed, None, view)
 
 
+def _party_size_cap(delve: dict) -> int:
+    """A delve's own max_party_size (dungeon_delves.json) if it set one, else the ordinary
+    PARTY_SIZE_CAP -- lets a raid delve raise its lobby cap without touching every other party
+    delve's behavior."""
+    return delve.get("max_party_size", PARTY_SIZE_CAP)
+
+
 def _build_lobby_embed(lobby: PartyLobby) -> discord.Embed:
     delve = lobby.delve
     roster_lines = [
         f"👑 {lobby.member_names[uid]}" if uid == lobby.leader_id else f"• {lobby.member_names[uid]}"
         for uid in lobby.member_ids
     ]
-    embed = discord.Embed(
-        title=f"👥 Party Forming — {delve['name']}",
-        description=(
-            f"*{delve['flavor']}*\n\n{len(delve['rooms'])} rooms.\n\n"
+    if delve.get("raid"):
+        energy_note = "Anyone can **Join** for free — everyone pays their own energy once the leader clicks Start Delve."
+    else:
+        energy_note = (
             f"Anyone can **Join** for free (no energy cost) — only {lobby.member_names[lobby.leader_id]} "
             f"spends energy, and only once they click Start Delve."
-        ),
+        )
+    embed = discord.Embed(
+        title=f"👥 Party Forming — {delve['name']}",
+        description=f"*{delve['flavor']}*\n\n{len(delve['rooms'])} rooms.\n\n{energy_note}",
         color=discord.Color.blurple(),
     )
-    embed.add_field(name=f"Party ({len(lobby.member_ids)}/{PARTY_SIZE_CAP})", value="\n".join(roster_lines), inline=False)
+    embed.add_field(name=f"Party ({len(lobby.member_ids)}/{_party_size_cap(delve)})", value="\n".join(roster_lines), inline=False)
     return embed
 
 
@@ -3500,13 +3522,14 @@ async def _spend_delve_energy(guild_id: int, user_id: int, delve: dict) -> bool:
     test mode on (db.get_delve_test_mode, toggled by !setdelvetest), in which case starting a delve
     never costs energy at all, the same way test mode already makes every delve playable regardless
     of its own "active" flag (see dungeon.active_delves) -- a test server shouldn't have to `!rest`
-    between playtests. The one place both DelveModeChoiceView's Solo button and PartyLobbyView's
-    Start Delve button spend the charge, so this rule only needs to live once -- which is also why
-    it's the one place a "hidden_until_discovered" delve gets marked found (db.set_flag_if_zero,
-    same idempotent-claim shape as a dream's dream_claimed flag): discovery means actually
-    committing to the delve, not just reaching this screen and backing out -- so it's only marked
-    once the spend below actually succeeds (or test mode waives it), never on an out-of-energy
-    attempt."""
+    between playtests. The one place both DelveModeChoiceView's Solo button and a non-raid
+    PartyLobbyView's Start Delve button spend the charge, so this rule only needs to live once --
+    which is also why it's the one place a "hidden_until_discovered" delve gets marked found
+    (db.set_flag_if_zero, same idempotent-claim shape as a dream's dream_claimed flag): discovery
+    means actually committing to the delve, not just reaching this screen and backing out -- so
+    it's only marked once the spend below actually succeeds (or test mode waives it), never on an
+    out-of-energy attempt. A raid delve's Start Delve button uses _spend_delve_energy_party instead
+    -- see its own docstring for why a single-user spend doesn't fit there."""
     spent = (
         await asyncio.to_thread(db.get_delve_test_mode, guild_id)
         or await asyncio.to_thread(db.spend_energy, guild_id, user_id, 1)
@@ -3514,6 +3537,24 @@ async def _spend_delve_energy(guild_id: int, user_id: int, delve: dict) -> bool:
     if spent and delve.get("hidden_until_discovered"):
         await asyncio.to_thread(db.set_flag_if_zero, guild_id, user_id, f"delve_discovered:{delve['id']}", 1)
     return spent
+
+
+async def _spend_delve_energy_party(guild_id: int, user_ids: list[int], delve: dict) -> list[int]:
+    """Raid sibling of _spend_delve_energy -- charges every member of the party 1 energy each
+    instead of just the leader (see dungeon_delves.json's "raid" flag), atomically via
+    db.spend_energy_all so a party where one of 8 people is short never leaves the other 7 already
+    charged for a delve that didn't start. Test mode waives it the same way. Returns the list of
+    user_ids who were short (empty means it succeeded and everyone's own hidden_until_discovered
+    flag, if any, just got marked -- same idempotent-claim-on-actual-commit rule as the solo/
+    leader-only version)."""
+    if await asyncio.to_thread(db.get_delve_test_mode, guild_id):
+        short: list[int] = []
+    else:
+        short = await asyncio.to_thread(db.spend_energy_all, guild_id, user_ids, 1)
+    if not short and delve.get("hidden_until_discovered"):
+        for user_id in user_ids:
+            await asyncio.to_thread(db.set_flag_if_zero, guild_id, user_id, f"delve_discovered:{delve['id']}", 1)
+    return short
 
 
 class PartyLobbyView(discord.ui.View):
@@ -3546,7 +3587,7 @@ class PartyLobbyView(discord.ui.View):
         if user_id in lobby.member_ids:
             await interaction.response.send_message("You're already in this party.", ephemeral=True)
             return
-        if len(lobby.member_ids) >= PARTY_SIZE_CAP:
+        if len(lobby.member_ids) >= _party_size_cap(lobby.delve):
             await interaction.response.send_message("This party is full.", ephemeral=True)
             return
         if user_id in active_delves or user_id in busy_players:
@@ -3591,10 +3632,21 @@ class PartyLobbyView(discord.ui.View):
         if interaction.user.id != lobby.leader_id:
             await interaction.response.send_message("Only the party leader can start the delve.", ephemeral=True)
             return
-        has_energy = await _spend_delve_energy(lobby.guild_id, lobby.leader_id, lobby.delve)
-        if not has_energy:
-            await interaction.response.send_message("You're out of energy — run `!rest` to refill it.", ephemeral=True)
-            return
+        if lobby.delve.get("raid"):
+            short = await _spend_delve_energy_party(lobby.guild_id, lobby.member_ids, lobby.delve)
+            if short:
+                names = ", ".join(lobby.member_names[uid] for uid in short)
+                await interaction.response.send_message(
+                    f"Can't start — out of energy: {names}. This is a raid delve, so everyone needs "
+                    f"1 energy of their own, not just the leader.",
+                    ephemeral=True,
+                )
+                return
+        else:
+            has_energy = await _spend_delve_energy(lobby.guild_id, lobby.leader_id, lobby.delve)
+            if not has_energy:
+                await interaction.response.send_message("You're out of energy — run `!rest` to refill it.", ephemeral=True)
+                return
 
         members = []
         for uid in lobby.member_ids:

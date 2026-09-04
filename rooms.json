@@ -24,6 +24,14 @@
       {
         "room_id": "rv_park",
         "label": "\ud83c\udfd5\ufe0f Trailer Park"
+      },
+      {
+        "room_id": "kings_cabana",
+        "label": "\ud83c\udf34 Wait, There's a Path Right Here?",
+        "visible_trigger": {
+          "type": "quest_complete",
+          "quest_id": "goo_zgoolok_bane"
+        }
       }
     ],
     "commands": [
@@ -316,6 +324,29 @@
         "label": "\ud83d\udec1 The Gnomish Bathhouse",
         "const_args": [
           "gnome_bathhouse"
+        ],
+        "closes_hub": true
+      }
+    ]
+  },
+  {
+    "id": "kings_cabana",
+    "name": "\ud83c\udf34 The King's Cabana",
+    "description": "Vines choke a stone archway crowned with a crooked, still-blinking marquee: THE KING'S CABANA. Ancient? Holy? Or just really, really behind on maintenance? A door propped open with a bar stool leads down into the dark.",
+    "background_path": "assets/rooms/dungeon.jpg",
+    "exits": [
+      {
+        "room_id": "town_square",
+        "label": "\ud83c\udfd9\ufe0f Town Square"
+      }
+    ],
+    "commands": [
+      {
+        "key": "delve",
+        "kind": "none",
+        "label": "\ud83c\udf7d\ufe0f Beneath the Buffet",
+        "const_args": [
+          "beneath_the_buffet"
         ],
         "closes_hub": true
       }
