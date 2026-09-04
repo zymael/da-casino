@@ -1825,6 +1825,40 @@ def spend_energy(guild_id: int, user_id: int, amount: int = 1) -> bool:
         conn.close()
 
 
+def spend_energy_all(guild_id: int, user_ids: list[int], amount: int = 1) -> list[int]:
+    """Raid sibling of spend_energy -- charges every id in `user_ids` `amount` energy each, or
+    none of them: one BEGIN IMMEDIATE transaction checks everyone's balance before spending
+    anyone's, so a party where one member is short never leaves the others already charged with
+    nothing to show for it (spend_energy's own atomicity is per-call only, which doesn't extend
+    across the several separate calls a naive loop would make). Returns the list of user_ids who
+    were short (empty means everyone had enough and it was spent)."""
+    conn = _connect()
+    try:
+        for user_id in user_ids:
+            _ensure_user(conn, guild_id, user_id)
+        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        energies = {
+            user_id: conn.execute(
+                "SELECT energy FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+            ).fetchone()[0]
+            for user_id in user_ids
+        }
+        short = [user_id for user_id, energy in energies.items() if energy < amount]
+        if short:
+            conn.rollback()
+            return short
+        for user_id, energy in energies.items():
+            conn.execute(
+                "UPDATE users SET energy = ? WHERE guild_id = ? AND user_id = ?",
+                (energy - amount, guild_id, user_id),
+            )
+        conn.commit()
+        return []
+    finally:
+        conn.close()
+
+
 def set_energy(guild_id: int, user_id: int, value: int) -> None:
     """Admin-panel direct override -- unlike spend_energy (gated, delta-based, for normal
     gameplay), this sets energy to an exact value. Clamped to [0, ENERGY_CAP]."""
