@@ -170,6 +170,68 @@ def _sprite_height_for(count: int) -> int:
     return SPRITE_HEIGHT if count <= 2 else round(SPRITE_HEIGHT * 0.75)
 
 
+# --- Enemy attack animations ---------------------------------------------------------------------
+# A monster's own brief flourish on its attack turn -- composited the same way fight_intro is (a
+# few extra GIF frames prepended, single playthrough via render_room's shared `animate_once` save
+# path), except here it's one specific monster's SPRITE that moves, not an overlay. Keyed by a
+# "kind" string purely so a second animation is just a new ATTACK_ANIMATIONS entry -- render_room
+# doesn't care where the kind string comes from (a per-monster or per-skill field in
+# dungeon_monsters.json/dungeon_skills.json would be natural additions later; every monster uses
+# "tackle" for now, chosen by whichever caller passes render_room's `attack` param).
+
+
+def _tackle_offsets(sprite_height: int) -> list[tuple[int, int, int]]:
+    """(dx, dy, duration_ms) sprite offsets from its resting position -- a Pokemon-style tackle: a
+    slow pull-back rise, then a fast snap down past resting position (the "hit"), then settling
+    back. Offsets scale with the sprite's own height so the motion reads the same regardless of how
+    big this particular monster is drawn (SPRITE_HEIGHT vs. a shrunk group sprite, see
+    _sprite_height_for)."""
+    rise = -round(sprite_height * 0.16)
+    lunge = round(sprite_height * 0.07)
+    return [
+        (0, round(rise * 0.5), 70),
+        (0, rise, 90),
+        (0, round(rise * 0.2), 40),
+        (0, lunge, 60),
+        (0, round(lunge * 0.3), 80),
+        (0, 0, 90),
+    ]
+
+
+ATTACK_ANIMATIONS = {"tackle": _tackle_offsets}
+
+
+def _compose_frame(
+    base: Image.Image, sprites: list[tuple], room_label: str, turn_order: list[dict] | None,
+    offset_index: int | None = None, offset: tuple[int, int] = (0, 0),
+) -> Image.Image:
+    """One fully-composited room frame -- `base` (a background frame) plus every monster
+    sprite/placeholder, the room label, and the optional turn-order strip. The sprite at
+    `offset_index` in `sprites` (if given) is nudged by `offset` pixels first -- an attack
+    animation's own frames use this to move just the attacking monster, leaving the background and
+    every other monster exactly where render_room's normal (no-offset) frames put them. Shared by
+    render_room's per-background-frame loop and its attack-animation frame loop so both stay in
+    lockstep with each other -- there's exactly one place that knows how a "room frame" is built."""
+    img = base.copy()
+    cx, cy = WIDTH / 2, HEIGHT / 2 - 10
+    count = len(sprites)
+    for i, (sprite, monster, x_offset) in enumerate(sprites):
+        dx, dy = offset if i == offset_index else (0, 0)
+        mx, my = cx + x_offset + dx, cy + dy
+        if sprite:
+            pos = (round(mx - sprite.width / 2), round(my + 110 - sprite.height))
+            img.alpha_composite(sprite, pos)
+        else:
+            draw = ImageDraw.Draw(img)
+            radius = 60 if count <= 2 else 45
+            _draw_monster_shape(draw, mx, my, radius, monster["shape"], _parse_color(monster["color"]))
+    draw = ImageDraw.Draw(img)
+    draw.text((16, HEIGHT - 32), room_label, font=_label_font, fill=(200, 200, 210, 255))
+    if turn_order:
+        img = _composite_turn_order_strip(img, turn_order)
+    return img
+
+
 # FFX-style turn-order card strip, composited below the room scene (see dungeon.preview_next_turns
 # for the schedule these cards visualize). Fixed at a size that comfortably fits up to 10 cards --
 # the largest count any call site passes -- within WIDTH, so there's no dynamic per-card resizing
@@ -243,6 +305,7 @@ def _composite_turn_order_strip(img: Image.Image, turn_order: list[dict]) -> Ima
 def render_room(
     visited_count: int, monsters: list[dict], background_path: str | None = None,
     turn_order: list[dict] | None = None, label: str | None = None, fight_intro: bool = False,
+    attack: dict | None = None,
 ) -> tuple[io.BytesIO, str]:
     """Renders the corridor view for one dungeon room -- with its living monster(s) standing at the
     far end if there are any (combat rooms), or just the empty scene if not (choice rooms, or a
@@ -263,16 +326,20 @@ def render_room(
     is the caller's cue for which filename/attachment extension actually matches what's in `buf` --
     see dungeon_view._room_image_file. Sprites are loaded/scaled once, not once per frame.
 
-    `fight_intro` (only ever True for a freshly-entered combat room -- see dungeon_view's
-    is_room_entry threading) prepends a few _FIGHT_INTRO_KEYFRAMES frames of the FIGHT_BANNER_PATH
-    art animating in/out over this render's own already-built frame(s), forcing GIF output even
-    for an otherwise-static background. The GIF is saved with no loop count at all (not loop=0),
-    which every renderer including Discord takes as "play once" -- it settles on and stays frozen
-    at this render's normal frame(s), so there's no visible seam with whatever plain render the
-    next turn sends."""
+    `fight_intro` and `attack` are mutually exclusive one-shot animations, each of which prepends
+    its own extra frames ahead of this render's normal frame(s) and forces the whole thing to save
+    as a GIF with no loop count at all (not loop=0) -- every renderer including Discord takes that
+    as "play once", so it settles on and stays frozen at this render's normal frame(s) with no
+    visible seam versus whatever plain render the next turn sends. `fight_intro` (only ever True
+    for a freshly-entered combat room -- see dungeon_view's is_room_entry threading) animates the
+    FIGHT_BANNER_PATH art in/out over the scene. `attack` (`{"index": int, "kind": str}`, `index`
+    into `monsters`/`sprites` -- dungeon_view resolves a MonsterInstance's combat slot to this
+    positional index since render_room has no notion of slots) instead moves that one monster
+    sprite through ATTACK_ANIMATIONS[kind]'s offsets, everything else held still. The two aren't
+    combined (a caller passing both gets the fight_intro) -- chaining "banner, then the ambushing
+    monster's attack, then settle" is a reasonable future extension, not needed for a first cut."""
     frames, durations, loop = _load_background_frames(background_path)
 
-    cx, cy = WIDTH / 2, HEIGHT / 2 - 10
     count = len(monsters)
     sprite_height = _sprite_height_for(count)
     offsets = _GROUP_X_OFFSETS.get(count, _GROUP_X_OFFSETS[4])
@@ -283,36 +350,34 @@ def render_room(
     ]
     room_label = label or f"Room {visited_count}"
 
-    out_frames = []
-    for base in frames:
-        img = base.copy()
-        for sprite, monster, x_offset in sprites:
-            mx = cx + x_offset
-            if sprite:
-                pos = (round(mx - sprite.width / 2), round(cy + 110 - sprite.height))
-                img.alpha_composite(sprite, pos)
-            else:
-                draw = ImageDraw.Draw(img)
-                radius = 60 if count <= 2 else 45
-                _draw_monster_shape(draw, mx, cy, radius, monster["shape"], _parse_color(monster["color"]))
+    out_frames = [_compose_frame(base, sprites, room_label, turn_order) for base in frames]
 
-        draw = ImageDraw.Draw(img)
-        draw.text((16, HEIGHT - 32), room_label, font=_label_font, fill=(200, 200, 210, 255))
-
-        if turn_order:
-            img = _composite_turn_order_strip(img, turn_order)
-        out_frames.append(img)
-
+    animate_once = False
     if fight_intro and (banner := _load_fight_banner()) is not None:
         intro_frames = [_banner_frame(out_frames[0], banner, scale, opacity) for scale, opacity, _ in _FIGHT_INTRO_KEYFRAMES]
         intro_durations = [d for _, _, d in _FIGHT_INTRO_KEYFRAMES]
         out_frames = intro_frames + out_frames
         durations = intro_durations + [max(d, 100) for d in durations]
+        animate_once = True
+    elif attack:
+        keyframes_fn = ATTACK_ANIMATIONS.get(attack.get("kind", "tackle"))
+        idx = attack.get("index")
+        if keyframes_fn is not None and idx is not None and 0 <= idx < len(sprites):
+            attacker_sprite = sprites[idx][0]
+            attacker_height = attacker_sprite.height if attacker_sprite else sprite_height
+            keyframes = keyframes_fn(attacker_height)
+            attack_frames = [
+                _compose_frame(frames[0], sprites, room_label, turn_order, offset_index=idx, offset=(dx, dy))
+                for dx, dy, _ in keyframes
+            ]
+            out_frames = attack_frames + out_frames
+            durations = [dur for _, _, dur in keyframes] + [max(d, 100) for d in durations]
+            animate_once = True
 
     buf = io.BytesIO()
     if len(out_frames) > 1:
         rgb_frames = [f.convert("RGB") for f in out_frames]
-        save_kwargs = {} if fight_intro else {"loop": loop}
+        save_kwargs = {} if animate_once else {"loop": loop}
         rgb_frames[0].save(
             buf, format="GIF", save_all=True, append_images=rgb_frames[1:],
             duration=durations, disposal=2, **save_kwargs,

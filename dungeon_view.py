@@ -550,7 +550,23 @@ def _room_image_file(render_result: tuple, basename: str = "room") -> tuple[disc
     return discord.File(buf, filename=filename), f"attachment://{filename}"
 
 
-async def _combat_embed(session: DelveSession, log_text: str, fight_intro: bool = False) -> tuple[discord.Embed, discord.File]:
+def _attack_animation(living: list["MonsterInstance"], attack_slot: int | None) -> dict | None:
+    """Resolves a MonsterInstance's own combat `slot` (stable across a monster group even as
+    earlier slots die and drop out of `living`) to the positional index dungeon_render.render_room
+    actually needs -- render_room only ever sees the plain monster dicts it's handed, in whatever
+    order `living` iterates them, with no idea slots exist. Returns None (no animation) if
+    `attack_slot` wasn't given, or if that monster is no longer among the living by render time --
+    the latter shouldn't happen in practice (see _advance_solo_turns' own docstring) but a vanished
+    attacker just silently skipping its animation is a far better failure mode than a crash."""
+    if attack_slot is None:
+        return None
+    idx = next((i for i, m in enumerate(living) if m.slot == attack_slot), None)
+    return {"index": idx, "kind": "tackle"} if idx is not None else None
+
+
+async def _combat_embed(
+    session: DelveSession, log_text: str, fight_intro: bool = False, attack_slot: int | None = None,
+) -> tuple[discord.Embed, discord.File]:
     living = session.living_monsters()
     title = f"🗡️ {living[0].monster['name']}" if len(living) == 1 else "🗡️ Combat"
     embed = discord.Embed(title=title, description=log_text, color=discord.Color.dark_red())
@@ -565,10 +581,11 @@ async def _combat_embed(session: DelveSession, log_text: str, fight_intro: bool 
     for m in living:
         marker = " ⬅️ target" if len(living) > 1 and m.slot == target_slot else ""
         embed.add_field(name=m.monster["name"], value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
+    attack = _attack_animation(living, attack_slot)
     render_result = await asyncio.to_thread(
         dungeon_render.render_room, session.rooms_visited, [m.monster for m in living],
         _room_background_path(session.delve, room), turn_order=_solo_turn_order_cards(session),
-        fight_intro=fight_intro,
+        fight_intro=fight_intro, attack=attack,
     )
     file, image_url = _room_image_file(render_result)
     embed.set_image(url=image_url)
@@ -2129,9 +2146,18 @@ async def _advance_solo_turns(
     first turn here, same as any other. If a CTB ambush kills the player or clears the room before
     they ever get a turn, this loop exits through _solo_death_embed/_present_room_result instead,
     neither of which renders via _combat_embed, so the intro is simply skipped that one time rather
-    than forced onto an unrelated screen."""
+    than forced onto an unrelated screen.
+
+    `last_attacker_slot` tracks whichever monster most recently actually took a swing (set right
+    before _resolve_monster_attack, so a monster whose turn is skipped by CC or who dies before
+    acting never sets it) -- the render this loop ends on plays THAT monster's tackle animation, a
+    deliberate simplification for a fast CTB group landing several hits in a row before the
+    player's turn comes back around: only the last of them gets animated, not a queue of all of
+    them. Suppressed entirely on is_room_entry (fight_intro takes visual priority on that one
+    render -- see render_room's own docstring for why the two aren't combined)."""
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
+    last_attacker_slot: int | None = None
     while True:
         if not session.living_monsters():
             await _present_room_result(interaction, session, log_lines)
@@ -2157,7 +2183,10 @@ async def _advance_solo_turns(
                 log_lines.append(_crowd_control_skip_line(session, cc_type))
                 session.turn_clock += dungeon.turn_interval(max(1, session.speed - session.speed_debuff))
                 continue
-            embed, file = await _combat_embed(session, "\n".join(log_lines), fight_intro=is_room_entry)
+            embed, file = await _combat_embed(
+                session, "\n".join(log_lines), fight_intro=is_room_entry,
+                attack_slot=None if is_room_entry else last_attacker_slot,
+            )
             view = await _build_combat_view(session)
             await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
             return
@@ -2177,6 +2206,7 @@ async def _advance_solo_turns(
             log_lines.append(_crowd_control_skip_line(monster, monster_cc_type))
             continue
 
+        last_attacker_slot = monster.slot
         results, monster_skill, lifesteal_line, is_damage_action = _resolve_monster_attack(
             monster, [session], session, moon_effect, log_lines,
             monster_group=session.living_monsters(),
@@ -2363,6 +2393,7 @@ def _party_turn_order_cards(session: PartyDelveSession) -> list[dict]:
 
 async def _party_combat_embed(
     session: PartyDelveSession, log_text: str, current_actor: PartyMember, fight_intro: bool = False,
+    attack_slot: int | None = None,
 ) -> tuple[discord.Embed, discord.File]:
     living_monsters = session.living_monsters()
     title = f"🗡️ {living_monsters[0].monster['name']}" if len(living_monsters) == 1 else "🗡️ Combat"
@@ -2383,10 +2414,11 @@ async def _party_combat_embed(
         marker = " ⬅️ target" if len(living_monsters) > 1 and m.slot == target_slot else ""
         embed.add_field(name=m.monster["name"], value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
     room = session.rooms_by_id[session.current_room_id]
+    attack = _attack_animation(living_monsters, attack_slot)
     render_result = await asyncio.to_thread(
         dungeon_render.render_room, session.rooms_visited, [m.monster for m in living_monsters],
         _room_background_path(session.delve, room), turn_order=_party_turn_order_cards(session),
-        fight_intro=fight_intro,
+        fight_intro=fight_intro, attack=attack,
     )
     file, image_url = _room_image_file(render_result)
     embed.set_image(url=image_url)
@@ -2467,9 +2499,12 @@ async def _advance_party_turns(
     `is_room_entry` -- see _advance_solo_turns' own docstring, same idea: only True via
     _build_party_room_display, on every fresh combat-room arrival, and only actually plays if this
     loop's first rendered screen turns out to be a living member's own turn rather than a wipe/
-    room-clear."""
+    room-clear. `last_attacker_slot` is the same tracking/tradeoff as _advance_solo_turns' own --
+    whichever monster most recently actually attacked (not skipped by CC, not dead before acting)
+    gets its tackle animation on whichever render this loop ends on, suppressed on is_room_entry."""
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
+    last_attacker_slot: int | None = None
     while True:
         if not session.living_monsters():
             await _present_party_room_result(interaction, session, log_lines)
@@ -2519,7 +2554,10 @@ async def _advance_party_turns(
                 log_lines.append(_crowd_control_skip_line(member, cc_type))
                 member.turn_clock += dungeon.turn_interval(max(1, member.speed - member.speed_debuff))
                 continue
-            embed, file = await _party_combat_embed(session, "\n".join(log_lines), member, fight_intro=is_room_entry)
+            embed, file = await _party_combat_embed(
+                session, "\n".join(log_lines), member, fight_intro=is_room_entry,
+                attack_slot=None if is_room_entry else last_attacker_slot,
+            )
             view = await _build_party_combat_view(session, member)
             await _send_party_update(interaction, session, embed, file, view, ping_user_id=member.user_id)
             return
@@ -2559,6 +2597,7 @@ async def _advance_party_turns(
         # `living` is only actually used as the target pool when the picked skill's own damage
         # effect is flagged "aoe" -- see _resolve_monster_attack's own docstring. Every other
         # skill (and a plain attack) still resolves to just the threat-picked `threat_target`.
+        last_attacker_slot = monster.slot
         results, monster_skill, lifesteal_line, is_damage_action = _resolve_monster_attack(
             monster, living, threat_target, moon_effect, log_lines,
             monster_group=session.living_monsters(),
