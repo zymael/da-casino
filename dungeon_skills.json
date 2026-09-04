@@ -209,6 +209,26 @@
     "special": true
   },
   {
+    "id": "spark",
+    "main_class": "mage",
+    "subclass": "none",
+    "unlock_level": 2,
+    "name": "Loose Change",
+    "flavor": "Small stakes now. Bigger pot later.",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 0.6
+      },
+      {
+        "type": "chip_gain",
+        "value": 8
+      }
+    ],
+    "chip_cost": 0,
+    "special": true
+  },
+  {
     "id": "cold_deck",
     "main_class": "mage",
     "subclass": "diamonds",

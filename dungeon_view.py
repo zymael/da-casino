@@ -1483,6 +1483,12 @@ def _effect_hp_buff(actor, monster_state, effect: dict, log_lines: list[str], mo
     log_lines.append(f"{_possessive_label(actor)} max HP rises by **{effect['value']}** for the rest of the fight.")
 
 
+def _effect_chip_gain(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    gained = max(0, min(effect["value"], actor.max_chips - actor.chips))
+    actor.chips += gained
+    log_lines.append(f"{_possessive_label(actor)} Chips rise by **{gained}**.")
+
+
 def _effect_speed_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     actor.speed += effect["value"]
     log_lines.append(f"{_possessive_label(actor)} Speed rises by **{effect['value']}** for the rest of the fight.")
@@ -1620,6 +1626,7 @@ EFFECT_HANDLERS = {
     "spatk_buff": _effect_spatk_buff,
     "spdef_buff": _effect_spdef_buff,
     "hp_buff": _effect_hp_buff,
+    "chip_gain": _effect_chip_gain,
     "speed_buff": _effect_speed_buff,
     "atk_debuff": _effect_atk_debuff,
     "spatk_debuff": _effect_spatk_debuff,

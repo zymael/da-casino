@@ -882,6 +882,10 @@ EFFECT_PARAM_SCHEMAS = {
     # headroom) -- mirrors the other *_buff entries, no equivalent "hp_debuff" (nothing currently
     # authors a max-HP-lowering effect, unlike ATK/DEF/SpAtk/SpDef which already had def_shred).
     "hp_buff": ({"value"}, set(), set()),
+    # Restores Chips, capped at the target's own max_chips (dungeon_view._effect_chip_gain) -- the
+    # "charge" half of a spend-then-recharge skill pair (e.g. a cheap SpAtk poke that funds the next
+    # real spell), not itself gated by chip_cost's own floor now that that's 0-allowed.
+    "chip_gain": ({"value"}, set(), set()),
     # Raises speed for the rest of the fight -- turn order (preview_next_turns) reads this live at
     # every scheduling point, never cached, so a mid-fight speed_buff changes future turn
     # frequency immediately without needing to reschedule anything already queued.
@@ -1221,8 +1225,8 @@ def _load_skills(path: str = _SKILLS_PATH) -> dict[str, dict]:
         if entry["unlock_level"] < 1:
             raise ValueError(f"dungeon_skills.json: skill {entry_id!r} has invalid unlock_level")
         chip_cost = entry["chip_cost"]
-        if not isinstance(chip_cost, int) or chip_cost < 1:
-            raise ValueError(f"dungeon_skills.json: skill {entry_id!r} chip_cost must be a positive int")
+        if not isinstance(chip_cost, int) or chip_cost < 0:
+            raise ValueError(f"dungeon_skills.json: skill {entry_id!r} chip_cost must be a non-negative int")
         build_chips = compute_stats(entry["main_class"], entry["subclass"])["chips"]
         if chip_cost > build_chips:
             raise ValueError(

@@ -741,7 +741,7 @@ CONTENT_TYPES = {
                         "effects field above -- no effect_groups needed for that.",
             },
             {
-                "name": "chip_cost", "type": "int", "required": True, "min": 1, "group": "Class",
+                "name": "chip_cost", "type": "int", "required": True, "min": 0, "group": "Class",
                 "hint": "Chips spent to cast this skill -- must not exceed the build's max Chips "
                         "(dungeon.CLASSES/SUBCLASSES) or it would be permanently unusable",
             },
