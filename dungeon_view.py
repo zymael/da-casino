@@ -590,14 +590,17 @@ def _stat_value_for_check(actor, stat: str) -> int:
 
 
 def _core_stat_line(stats: dict) -> str:
-    """HP/ATK/DEF/Magic/Speed/Chips as one player-facing line, labels pulled from
-    dungeon.stat_label so a reflavor via the admin panel's Stat Labels page needs no code change --
-    the one place this exact six-stat summary is formatted, reused by every character-sheet/preview
-    embed instead of each hardcoding its own "SpAtk"/"SpDef" strings."""
-    L = dungeon.stat_label
+    """HP/ATK/DEF/Magic/Speed/Chips as one player-facing line, label AND emoji pulled from
+    dungeon.stat_label/stat_emoji so a reflavor via the admin panel's Stat Labels page needs no
+    code change -- the one place this exact six-stat summary is formatted, reused by every
+    character-sheet/preview embed instead of each hardcoding its own "SpAtk"/"SpDef" strings. Only
+    safe at full embed width (inline=False/description, every real call site) -- see
+    bot._character_sheet_stats for why a narrow inline field needs one stat per line instead."""
+    L, E = dungeon.stat_label, dungeon.stat_emoji
     return (
-        f"{L('hp')} {stats['hp']} / {L('atk')} {stats['atk']} / {L('def')} {stats['def']} / "
-        f"{L('spatk')} {stats['spatk']} / 🏃 {L('speed')} {stats['speed']} / 🪙 {L('chips')} {stats['chips']}"
+        f"{E('hp')} {L('hp')} {stats['hp']} / {E('atk')} {L('atk')} {stats['atk']} / "
+        f"{E('def')} {L('def')} {stats['def']} / {E('spatk')} {L('spatk')} {stats['spatk']} / "
+        f"{E('speed')} {L('speed')} {stats['speed']} / {E('chips')} {L('chips')} {stats['chips']}"
     )
 
 
@@ -605,10 +608,10 @@ def _dodge_resist_line(def_stat: int, spatk_stat: int, speed: int) -> str:
     """Dodge%/Resist% as one player-facing line -- Dodge off DEF, Resist off Magic/spatk (see
     dungeon.resolved_avoid_type for why these are no longer tied to a skill's Physical/Special
     split), both through the same dungeon.dodge_chance curve."""
-    L = dungeon.stat_label
+    L, E = dungeon.stat_label, dungeon.stat_emoji
     dodge_pct = round(dungeon.dodge_chance(def_stat, speed) * 100)
     resist_pct = round(dungeon.dodge_chance(spatk_stat, speed) * 100)
-    return f"{L('dodge')} {dodge_pct}% / {L('resist')} {resist_pct}%"
+    return f"{E('dodge')} {L('dodge')} {dodge_pct}% / {E('resist')} {L('resist')} {resist_pct}%"
 
 
 def _cost_item_registry(item_kind: str) -> dict:

@@ -187,23 +187,29 @@ def _gear_breakdown_lines(equipped: dict[str, str]) -> list[str]:
 
 
 def _character_sheet_stats(character: dict, effective: dict, max_chips: int) -> str:
-    """The character-sheet stat block shared by !stats and !class -- one consistent emoji per
-    stat (matching the existing 🪙 Chips convention) instead of some stats having an icon and
-    others being bare text, grouped into three lines by what kind of number each one is: HP and
-    Chips together (both a resource pool that refills -- HP between rests, Chips at the start of
-    every fight -- unlike a flat combat stat), ATK/DEF/Magic together, then the two derived
-    dodge/resist chances last. Labels pulled from dungeon.stat_label so a reflavor via the admin
-    panel's Stat Labels page needs no code change."""
-    L = dungeon.stat_label
+    """The character-sheet stat block shared by !stats and !class -- one stat per line, never
+    grouping more than one onto a shared line, since this renders inside a narrow inline embed
+    field (see stats_cmd) and cramming e.g. three label+emoji+number groups onto one line with
+    em-dash separators wraps mid-line there regardless of how big the numbers are (confirmed with
+    genuinely small values, not just an edge case at high level/gear) -- one per line is the only
+    layout that's robust to arbitrary label word length and number size at once. Both label and
+    emoji are pulled from dungeon.stat_label/stat_emoji so a reflavor via the admin panel's Stat
+    Labels page needs no code change."""
+    L, E = dungeon.stat_label, dungeon.stat_emoji
     current_hp = min(character["current_hp"], effective["hp"])
     dodge_pct = round(dungeon.dodge_chance(effective["def"]) * 100)
     resist_pct = round(dungeon.dodge_chance(effective["spatk"]) * 100)
-    return (
-        f"❤️ {L('hp')} {current_hp}/{effective['hp']} — 🪙 {L('chips')} {max_chips}\n"
-        f"⚔️ {L('atk')} {effective['atk']} — 🛡️ {L('def')} {effective['def']} — ✨ {L('spatk')} {effective['spatk']}\n"
-        f"🏃 {L('speed')} {effective['speed']}\n"
-        f"💨 {L('dodge')} {dodge_pct}% — 🌀 {L('resist')} {resist_pct}%"
-    )
+    lines = [
+        f"{E('hp')} {L('hp')} {current_hp}/{effective['hp']}",
+        f"{E('chips')} {L('chips')} {max_chips}",
+        f"{E('atk')} {L('atk')} {effective['atk']}",
+        f"{E('def')} {L('def')} {effective['def']}",
+        f"{E('spatk')} {L('spatk')} {effective['spatk']}",
+        f"{E('speed')} {L('speed')} {effective['speed']}",
+        f"{E('dodge')} {L('dodge')} {dodge_pct}%",
+        f"{E('resist')} {L('resist')} {resist_pct}%",
+    ]
+    return "\n".join(line.strip() for line in lines)
 
 
 async def _reject_if_at_poker_table(ctx) -> bool:

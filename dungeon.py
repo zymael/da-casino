@@ -869,6 +869,14 @@ def stat_label(key: str) -> str:
     return entry["label"] if entry else key.upper()
 
 
+def stat_emoji(key: str) -> str:
+    """The current player-facing emoji for stat/concept `key`, same admin-editable source as
+    stat_label -- falls back to "" (no emoji prefix) for anything not in STAT_LABELS or with no
+    emoji set, since "emoji" is optional on a dungeon_stat_labels.json row."""
+    entry = STAT_LABELS.get(key)
+    return entry.get("emoji", "") if entry else ""
+
+
 def xp_for_monster(monster: dict) -> int:
     """RECONSTRUCTION NOTE: this file was accidentally truncated and this function's real body
     (which took a room/monster "tier" 1-3 mapped to 10/20/40 XP) was not recovered. monsters no
