@@ -753,14 +753,17 @@ async def _build_choice_room_view(session: DelveSession, room: dict) -> "ChoiceR
 
 
 async def _build_room_display(interaction: discord.Interaction, session: DelveSession, intro_text: str = "") -> None:
-    """Renders (and sends, via interaction.response.edit_message) whatever room a session is
-    CURRENTLY sitting on -- used both for a fresh delve's very first room and, via _goto_room,
-    every later transition, so there's one place that branches on room type rather than
-    duplicating it at each call site. A combat room doesn't just show a static view -- entering
-    one can resolve several automatic monster turns before the player ever gets to act (a fast
-    enough monster group ambushes a slow player), so intro_text and the room's own flavor
-    (_combat_intro_text) are seeded as the STARTING log lines and handed to _advance_solo_turns,
-    which does the actual rendering/sending for combat."""
+    """Renders (and sends, via _edit_response) whatever room a session is CURRENTLY sitting on --
+    used both for a fresh delve's very first room and, via _goto_room, every later transition, so
+    there's one place that branches on room type rather than duplicating it at each call site. A
+    combat room doesn't just show a static view -- entering one can resolve several automatic
+    monster turns before the player ever gets to act (a fast enough monster group ambushes a slow
+    player), so intro_text and the room's own flavor (_combat_intro_text) are seeded as the
+    STARTING log lines and handed to _advance_solo_turns, which does the actual rendering/sending
+    for combat. The bare _defer_if_needed up top covers the non-combat branch too -- _choice_embed
+    renders via the same dungeon_render.render_room as combat, so an animated background alone
+    (no monsters or fight_intro needed) can be slow enough to blow the 3s window."""
+    await _defer_if_needed(interaction)
     room = session.rooms_by_id[session.current_room_id]
     if room["type"] == "combat":
         log_lines = [intro_text] if intro_text else []
@@ -771,7 +774,7 @@ async def _build_room_display(interaction: discord.Interaction, session: DelveSe
         if intro_text:
             embed.description = f"{intro_text}\n\n{embed.description}"
         view = await _build_choice_room_view(session, room)
-        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+        await _edit_response(interaction, embed=embed, attachments=[file], view=view)
 
 
 async def _goto_room(interaction: discord.Interaction, session: DelveSession, room_id: str, intro_text: str = ""):
@@ -1173,10 +1176,11 @@ class TargetSelect(discord.ui.Select):
             return  # already acted on (e.g. a double-click) -- don't rebuild the view twice
         session.current_view = None  # claimed synchronously, before any await -- see RoomResultView.push_button
         session.current_target_slot = int(self.values[0])
+        await _defer_if_needed(interaction)
         log_text = interaction.message.embeds[0].description or ""
         embed, file = await _combat_embed(session, log_text)
         view = await _build_combat_view(session)  # this reclaims current_view via CombatView.__init__
-        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+        await _edit_response(interaction, embed=embed, attachments=[file], view=view)
         self.view.stop()
 
 
@@ -2151,16 +2155,17 @@ async def _build_combat_view(session: DelveSession) -> "CombatView":
     return CombatView(session, usable_items)
 
 
-async def _defer_if_needed(interaction: discord.Interaction) -> None:
+async def _defer_if_needed(interaction: discord.Interaction | None) -> None:
     """Claims the interaction's first response with a bare defer (no-op if some earlier step in
-    this same callback already responded) -- buys the full ~15-minute followup window instead of
-    the 3-second initial-response one, so a room render slow enough to blow that budget (a
-    fight-intro/attack-animation GIF composites and encodes several extra frames -- see
-    dungeon_render.render_room) doesn't turn into a 404 "Unknown interaction" when the eventual
-    edit finally goes out. Called at the top of every solo-combat function that ends by rendering
-    and sending exactly one response (_solo_death_embed, _present_room_result,
-    _advance_solo_turns), since any of them can be the first response in its callback."""
-    if not interaction.response.is_done():
+    this same callback already responded, or if interaction is None -- party/duel turns can also
+    advance from a timeout with nothing to respond to) -- buys the full ~15-minute followup window
+    instead of the 3-second initial-response one, so a room render slow enough to blow that budget
+    (an animated background, or a fight-intro/attack-animation GIF composites and encodes several
+    extra frames -- see dungeon_render.render_room) doesn't turn into a 404 "Unknown interaction"
+    when the eventual edit finally goes out. Called at the top of every solo/party/duel function
+    that ends by rendering and sending exactly one response, since any of them can be the first
+    response in its callback."""
+    if interaction is not None and not interaction.response.is_done():
         await interaction.response.defer()
 
 
@@ -2522,17 +2527,17 @@ async def _send_party_update(
     instead of editing in place, so the freshest turn always lands at the bottom of the channel
     rather than getting buried under other chat. When ping_user_id is given (a living member's own
     turn coming up), also drops a small standalone mention tagging them -- blackjack_view's own
-    "your turn" ping -- deleting the previous turn's tag first."""
+    "your turn" ping -- deleting the previous turn's tag first. The _defer_if_needed here is
+    normally a no-op -- every caller already deferred before building embed/file (the slow part,
+    when it renders via dungeon_render.render_room) -- but stays as a safety net for a caller that
+    doesn't render an image at all (e.g. a party-wipe/room-cleared embed) and so never had reason
+    to defer earlier."""
     channel = session.message.channel if session.message is not None else interaction.channel
     # The very first update for a session (session.message still None) is the party-start click
     # turning the lobby message itself into the first room/combat display -- interaction.message is
     # that lobby message in that one case, standing in for session.message as "what to delete".
     old_message = session.message if session.message is not None else (interaction.message if interaction is not None else None)
-    if interaction is not None:
-        try:
-            await interaction.response.defer()
-        except discord.HTTPException:
-            pass
+    await _defer_if_needed(interaction)
     try:
         session.message = await channel.send(embed=embed, file=file, view=view)
     except discord.HTTPException:
@@ -2578,6 +2583,7 @@ async def _advance_party_turns(
     room-clear. `last_attacker_slot` is the same tracking/tradeoff as _advance_solo_turns' own --
     whichever monster most recently actually attacked (not skipped by CC, not dead before acting)
     gets its tackle animation on whichever render this loop ends on, suppressed on is_room_entry."""
+    await _defer_if_needed(interaction)
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
     last_attacker_slot: int | None = None
@@ -2918,10 +2924,11 @@ class PartyTargetSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         session: PartyDelveSession = self.view.session
         session.member_target_slots[self.view.actor.user_id] = int(self.values[0])
+        await _defer_if_needed(interaction)
         log_text = interaction.message.embeds[0].description or ""
         embed, file = await _party_combat_embed(session, log_text, self.view.actor)
         view = await _build_party_combat_view(session, self.view.actor)
-        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+        await _edit_response(interaction, embed=embed, attachments=[file], view=view)
         self.view.stop()
 
 
@@ -2948,10 +2955,11 @@ class PartyAllyTargetSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         session: PartyDelveSession = self.view.session
         session.member_ally_target_ids[self.view.actor.user_id] = int(self.values[0])
+        await _defer_if_needed(interaction)
         log_text = interaction.message.embeds[0].description or ""
         embed, file = await _party_combat_embed(session, log_text, self.view.actor)
         view = await _build_party_combat_view(session, self.view.actor)
-        await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+        await _edit_response(interaction, embed=embed, attachments=[file], view=view)
         self.view.stop()
 
 
@@ -3047,7 +3055,10 @@ async def _build_party_room_display(
     entering one can resolve several automatic turns (any mix of members and monsters) before any
     human gets to act, so intro_text and the room's own flavor (_combat_intro_text) are seeded as
     the STARTING log lines and handed to _advance_party_turns, which does the actual
-    rendering/sending for combat."""
+    rendering/sending for combat. The bare _defer_if_needed up top covers the non-combat branch
+    too -- see _build_room_display's own docstring for why an animated background alone can be
+    slow enough to need it."""
+    await _defer_if_needed(interaction)
     room = session.rooms_by_id[session.current_room_id]
     if room["type"] == "combat":
         log_lines = [intro_text] if intro_text else []
@@ -3813,10 +3824,13 @@ async def _send_duel_update(
     file: discord.File | None, view: discord.ui.View | None,
 ):
     """Duel sibling of _send_party_update -- a duel can advance from either a live interaction (a
-    duelist's own action) or a timeout (a stalled duelist's turn getting skipped)."""
+    duelist's own action) or a timeout (a stalled duelist's turn getting skipped). Routes through
+    _edit_response rather than a raw edit_message -- _advance_duel_turns already deferred before
+    building embed/file (the slow part, when it renders via dungeon_render.render_room), so this
+    picks whichever of edit_message/edit_original_response is actually still valid."""
     attachments = [file] if file else []
     if interaction is not None:
-        await interaction.response.edit_message(embed=embed, attachments=attachments, view=view)
+        await _edit_response(interaction, embed=embed, attachments=attachments, view=view)
         return
     if session.message is None:
         return
@@ -3937,8 +3951,10 @@ async def _end_duel(
 async def _advance_duel_turns(interaction: discord.Interaction | None, session: DuelSession, log_lines: list[str]) -> None:
     """Duel sibling of _advance_party_turns -- far simpler, since both combatants are real players:
     there's no monster branch to auto-resolve, every turn just shows whoever's turn it is next.
-    Always ends by sending exactly one response via _send_duel_update -- the next duelist's own
-    turn view, or the duel's end screen."""
+    Always ends by sending exactly one response via _send_duel_update (a bare _defer_if_needed up
+    top buys the full followup window in case the render is slow) -- the next duelist's own turn
+    view, or the duel's end screen."""
+    await _defer_if_needed(interaction)
     duelists = [session.challenger, session.opponent]
     combatants = [{"id": d.user_id, "speed": max(0, d.speed - d.speed_debuff), "clock": d.turn_clock} for d in duelists]
     next_id = dungeon.preview_next_turns(combatants, 1)[0]
