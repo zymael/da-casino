@@ -558,13 +558,13 @@ async def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.E
     _apply_room_header(embed, room)
     embed.add_field(
         name=f"{session.display_name} (You)",
-        value=f"❤️ HP {max(session.hp, 0)}/{session.max_hp}\n🪙 Chips {session.chips}/{session.max_chips}",
+        value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(session.hp, 0)}/{session.max_hp}\n🪙 Chips {session.chips}/{session.max_chips}",
         inline=True,
     )
     target_slot = session.current_target().slot if living else None
     for m in living:
         marker = " ⬅️ target" if len(living) > 1 and m.slot == target_slot else ""
-        embed.add_field(name=m.monster["name"], value=f"❤️ HP {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
+        embed.add_field(name=m.monster["name"], value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
     render_result = await asyncio.to_thread(
         dungeon_render.render_room, session.rooms_visited, [m.monster for m in living],
         _room_background_path(session.delve, room), turn_order=_solo_turn_order_cards(session),
@@ -700,14 +700,14 @@ def _action_summary_lines(action: dict, currency_name: str) -> list[str]:
         if "chance" in check:
             lines.append(f"🎲 {check['chance']:.0%} chance")
         else:
-            lines.append(f"🎲 {_CHECK_STAT_LABELS[check['stat']]} check (DC {check['dc']})")
+            lines.append(f"🎲 {dungeon.stat_label(check['stat'])} check (DC {check['dc']})")
     return lines
 
 
 async def _choice_embed(session: DelveSession, room: dict, description: str) -> tuple[discord.Embed, discord.File]:
     currency = db.get_currency_name(session.guild_id)
     embed = discord.Embed(title="🚪 A Choice", description=description, color=discord.Color.blurple())
-    embed.add_field(name=f"{session.display_name} (You)", value=f"❤️ HP {max(session.hp, 0)}/{session.max_hp}", inline=False)
+    embed.add_field(name=f"{session.display_name} (You)", value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(session.hp, 0)}/{session.max_hp}", inline=False)
     for action in room["actions"]:
         lines = _action_summary_lines(action, currency)
         embed.add_field(name=action["label"], value="\n".join(lines) if lines else "—", inline=True)
@@ -814,7 +814,7 @@ async def _handle_choice_action(
         else:
             stat_value = _stat_value_for_check(session, check["stat"])
             success, rolled = dungeon.roll_check(stat_value, check["dc"])
-            stat_label = _CHECK_STAT_LABELS[check["stat"]]
+            stat_label = dungeon.stat_label(check["stat"])
             log_lines.append(
                 f"🎲 {stat_label} check: rolled **{rolled}** vs DC **{check['dc']}** — "
                 f"{'success!' if success else 'failure!'}"
@@ -971,7 +971,7 @@ async def _present_choice_outcome(
     interaction: discord.Interaction, session: DelveSession, next_room_id: str, log_lines: list[str],
 ):
     embed = discord.Embed(title="🚪 Onward", description="\n".join(log_lines), color=discord.Color.blurple())
-    embed.add_field(name=f"{session.display_name} (You)", value=f"❤️ HP {max(session.hp, 0)}/{session.max_hp}", inline=True)
+    embed.add_field(name=f"{session.display_name} (You)", value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(session.hp, 0)}/{session.max_hp}", inline=True)
     view = ChoiceOutcomeView(session, next_room_id)
     await interaction.response.edit_message(embed=embed, attachments=[], view=view)
 
@@ -2301,7 +2301,7 @@ async def _present_room_result(interaction: discord.Interaction, session: DelveS
 
     embed = discord.Embed(title="🏆 Room Cleared!", description="\n".join(log_lines), color=discord.Color.gold())
     embed.add_field(name="Loot this delve", value=f"{session.loot_total} {currency}", inline=True)
-    embed.add_field(name="HP", value=f"{session.hp}/{session.max_hp}", inline=True)
+    embed.add_field(name=dungeon.stat_label("hp"), value=f"{session.hp}/{session.max_hp}", inline=True)
 
     if next_room is None:
         balance = await asyncio.to_thread(db.update_balance, session.guild_id, session.user_id, session.loot_total)
@@ -2355,16 +2355,16 @@ async def _party_combat_embed(
         if m.knocked_out:
             status = "💀 Knocked out"
         elif m.user_id == current_actor.user_id:
-            status = f"❤️ HP {max(m.hp, 0)}/{m.max_hp}\n🪙 Chips {m.chips}/{m.max_chips} ⬅️ acting now"
+            status = f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}\n🪙 Chips {m.chips}/{m.max_chips} ⬅️ acting now"
         else:
-            status = f"❤️ HP {max(m.hp, 0)}/{m.max_hp}\n🪙 Chips {m.chips}/{m.max_chips}"
+            status = f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}\n🪙 Chips {m.chips}/{m.max_chips}"
         embed.add_field(name=m.label, value=status, inline=True)
     # Only the currently-acting member's target is shown -- every other member's independent
     # target choice isn't relevant to the embed until it's their own turn.
     target_slot = session.target_for(current_actor).slot if living_monsters else None
     for m in living_monsters:
         marker = " ⬅️ target" if len(living_monsters) > 1 and m.slot == target_slot else ""
-        embed.add_field(name=m.monster["name"], value=f"❤️ HP {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
+        embed.add_field(name=m.monster["name"], value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
     room = session.rooms_by_id[session.current_room_id]
     render_result = await asyncio.to_thread(
         dungeon_render.render_room, session.rooms_visited, [m.monster for m in living_monsters],
@@ -2870,7 +2870,7 @@ async def _party_choice_embed(session: PartyDelveSession, room: dict, descriptio
     currency = db.get_currency_name(session.guild_id)
     embed = discord.Embed(title="🚪 A Choice", description=description, color=discord.Color.blurple())
     for m in session.members:
-        status = "💀 Knocked out" if m.knocked_out else f"❤️ HP {max(m.hp, 0)}/{m.max_hp}"
+        status = "💀 Knocked out" if m.knocked_out else f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}"
         embed.add_field(name=m.label, value=status, inline=True)
     for action in room["actions"]:
         lines = _action_summary_lines(action, currency)
@@ -2998,7 +2998,7 @@ async def _resolve_party_choice_action(
         else:
             stat_value = _stat_value_for_check(actor, check["stat"])
             success, rolled = dungeon.roll_check(stat_value, check["dc"])
-            stat_label = _CHECK_STAT_LABELS[check["stat"]]
+            stat_label = dungeon.stat_label(check["stat"])
             log_lines.append(
                 f"🎲 {actor.label}'s {stat_label} check: rolled **{rolled}** vs DC **{check['dc']}** — "
                 f"{'success!' if success else 'failure!'}"
@@ -3220,7 +3220,7 @@ async def _present_party_choice_outcome(
     currency = db.get_currency_name(session.guild_id)
     embed = discord.Embed(title="🚪 Onward", description="\n".join(log_lines), color=discord.Color.blurple())
     for m in session.members:
-        status = "💀 Knocked out" if m.knocked_out else f"❤️ HP {max(m.hp, 0)}/{m.max_hp}"
+        status = "💀 Knocked out" if m.knocked_out else f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}"
         embed.add_field(name=m.label, value=f"{status} — {m.loot_total} {currency} so far", inline=True)
     view = PartyChoiceOutcomeView(session, next_room_id)
     await interaction.response.edit_message(embed=embed, attachments=[], view=view)
@@ -3293,7 +3293,7 @@ async def _present_party_room_result(
 
     embed = discord.Embed(title="🏆 Room Cleared!", description="\n".join(log_lines), color=discord.Color.gold())
     for m in session.members:
-        status = "💀 Knocked out" if m.knocked_out else f"❤️ HP {max(m.hp, 0)}/{m.max_hp}"
+        status = "💀 Knocked out" if m.knocked_out else f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}"
         embed.add_field(name=m.label, value=f"{status} — {m.loot_total} {currency} so far", inline=True)
 
     if next_room is None:
@@ -3700,7 +3700,7 @@ async def _duel_combat_embed(
     for d in (session.challenger, session.opponent):
         marker = " ⬅️ acting now" if d.user_id == current_actor.user_id else ""
         embed.add_field(
-            name=d.label, value=f"❤️ HP {max(d.hp, 0)}/{d.max_hp}\n🪙 Chips {d.chips}/{d.max_chips}{marker}", inline=True,
+            name=d.label, value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(d.hp, 0)}/{d.max_hp}\n🪙 Chips {d.chips}/{d.max_chips}{marker}", inline=True,
         )
     render_result = await asyncio.to_thread(
         dungeon_render.render_room, 1, [], DUEL_ARENA_BACKGROUND, label="Duel", turn_order=_duel_turn_order_cards(session)

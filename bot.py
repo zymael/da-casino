@@ -1108,7 +1108,7 @@ async def inn_cmd(ctx):
     await asyncio.to_thread(db.set_current_hp, ctx.guild.id, ctx.author.id, max_hp)
     await ctx.send(
         f"🛏️ {ctx.author.display_name} rests up at the inn, fully healed! "
-        f"❤️ HP {max_hp}/{max_hp}. Paid **{cost}** {currency} (balance **{balance}**)."
+        f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max_hp}/{max_hp}. Paid **{cost}** {currency} (balance **{balance}**)."
     )
 
 
