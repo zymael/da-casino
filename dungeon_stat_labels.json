@@ -2,41 +2,41 @@
   {
     "id": "hp",
     "label": "HP",
-    "emoji": "❤️"
+    "emoji": "\u2764\ufe0f"
   },
   {
     "id": "atk",
     "label": "ATK",
-    "emoji": "⚔️"
+    "emoji": "\u2694\ufe0f"
   },
   {
     "id": "def",
     "label": "DEF",
-    "emoji": "🛡️"
+    "emoji": "\ud83d\udee1\ufe0f"
   },
   {
     "id": "spatk",
-    "label": "Magic",
-    "emoji": "✨"
+    "label": "Moxie",
+    "emoji": "\u2728"
   },
   {
     "id": "speed",
     "label": "Speed",
-    "emoji": "🏃"
+    "emoji": "\ud83c\udfc3"
   },
   {
     "id": "chips",
     "label": "Chips",
-    "emoji": "🪙"
+    "emoji": "\ud83e\ude99"
   },
   {
     "id": "dodge",
     "label": "Dodge",
-    "emoji": "💨"
+    "emoji": "\ud83d\udca8"
   },
   {
     "id": "resist",
     "label": "Resist",
-    "emoji": "🔮"
+    "emoji": "\ud83d\udd2e"
   }
 ]
