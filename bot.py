@@ -1371,15 +1371,19 @@ async def icebreak_cmd(ctx, member: discord.Member = None, wager: int = 0):
 @bot.command(name="inventory")
 async def inventory_cmd(ctx):
     """See your quest items and dungeon gear (equipped + stored): !inventory"""
-    embed, view = await inventory_view.build_inventory_display(ctx.guild.id, ctx.author.id)
-    await ctx.send(embed=embed, view=view)
+    embeds, view = await inventory_view.build_inventory_display(ctx.guild.id, ctx.author.id)
+    await ctx.send(embed=embeds[0], view=view)
+    for extra in embeds[1:]:
+        await ctx.send(embed=extra)
 
 
 @bot.command(name="equipment")
 async def equipment_cmd(ctx):
     """Equip, unequip, or swap in stored dungeon gear per slot: !equipment"""
-    embed, view = await inventory_view.build_equipment_display(ctx.guild.id, ctx.author.id)
-    await ctx.send(embed=embed, view=view)
+    embeds, view = await inventory_view.build_equipment_display(ctx.guild.id, ctx.author.id)
+    await ctx.send(embed=embeds[0], view=view)
+    for extra in embeds[1:]:
+        await ctx.send(embed=extra)
 
 
 @bot.command(name="craft")

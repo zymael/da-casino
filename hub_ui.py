@@ -165,8 +165,10 @@ class InventoryButton(discord.ui.Button):
         super().__init__(label="🎒 Inventory", style=discord.ButtonStyle.secondary, row=row)
 
     async def callback(self, interaction: discord.Interaction):
-        embed, view = await inventory_view.build_inventory_display(interaction.guild.id, interaction.user.id)
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        embeds, view = await inventory_view.build_inventory_display(interaction.guild.id, interaction.user.id)
+        await interaction.response.send_message(embed=embeds[0], view=view, ephemeral=True)
+        for extra in embeds[1:]:
+            await interaction.followup.send(embed=extra, ephemeral=True)
 
 
 class EquipmentButton(discord.ui.Button):
@@ -177,5 +179,7 @@ class EquipmentButton(discord.ui.Button):
         super().__init__(label="⚔️ Equipment", style=discord.ButtonStyle.secondary, row=row)
 
     async def callback(self, interaction: discord.Interaction):
-        embed, view = await inventory_view.build_equipment_display(interaction.guild.id, interaction.user.id)
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        embeds, view = await inventory_view.build_equipment_display(interaction.guild.id, interaction.user.id)
+        await interaction.response.send_message(embed=embeds[0], view=view, ephemeral=True)
+        for extra in embeds[1:]:
+            await interaction.followup.send(embed=extra, ephemeral=True)

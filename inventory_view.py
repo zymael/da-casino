@@ -20,20 +20,21 @@ import quests
 
 MAX_SELECT_OPTIONS = 25  # Discord's hard limit on a single Select's options
 EMBED_FIELD_LIMIT = 1024  # Discord's hard cap on one embed field's value length
+EMBED_TOTAL_LIMIT = 6000  # Discord's hard cap on the summed length of every embed in one message
 
 
-def _add_chunked_field(embed: discord.Embed, name: str, lines: list[str], empty_text: str, *, inline: bool = False) -> None:
-    """Adds one or more embed fields covering all of `lines` (each a pre-built multi-line block,
-    e.g. _material_line's output), joined by blank lines the same way a single add_field call used
-    to join them directly -- except Discord caps one field's value at EMBED_FIELD_LIMIT chars, which
-    a long enough item list blows past (this is exactly what broke !equipment's "Stored" field for
-    a player with enough gear: HTTPException 400, "Must be 1024 or fewer in length"). Packs lines
-    greedily into as few fields as fit, naming every field after the first "<name> (cont.)",
-    "<name> (cont. 2)", etc. `empty_text` is used verbatim (one field, unchunked) when `lines` is
-    empty -- the "None yet." style message every call site already had."""
+def _chunked_field_pairs(name: str, lines: list[str], empty_text: str) -> list[tuple[str, str]]:
+    """Splits `lines` (each a pre-built multi-line block, e.g. _material_line's output) into as
+    many (field_name, value) pairs as needed to keep every value under EMBED_FIELD_LIMIT -- Discord
+    caps one field's value at that, which a long enough item list blows past (this is exactly what
+    broke !equipment's "Stored" field for a player with enough gear: HTTPException 400, "Must be
+    1024 or fewer in length"). Packs lines greedily into as few fields as fit, naming every field
+    after the first "<name> (cont.)", "<name> (cont. 2)", etc. Returns a single (name, empty_text)
+    pair when `lines` is empty -- the "None yet." style message every call site already had.
+    Returned as pairs rather than added straight to an embed so _pack_into_embeds can decide which
+    *message* each field ends up in -- see its docstring for why that split exists."""
     if not lines:
-        embed.add_field(name=name, value=empty_text, inline=inline)
-        return
+        return [(name, empty_text)]
     chunks: list[str] = []
     current = ""
     for line in lines:
@@ -49,9 +50,38 @@ def _add_chunked_field(embed: discord.Embed, name: str, lines: list[str], empty_
             current = candidate
     if current:
         chunks.append(current)
-    for i, chunk in enumerate(chunks):
-        field_name = name if i == 0 else (f"{name} (cont.)" if i == 1 else f"{name} (cont. {i})")
-        embed.add_field(name=field_name, value=chunk, inline=inline)
+    return [
+        (name if i == 0 else (f"{name} (cont.)" if i == 1 else f"{name} (cont. {i})"), chunk)
+        for i, chunk in enumerate(chunks)
+    ]
+
+
+def _pack_into_embeds(
+    title: str, color: discord.Color, footer_text: str | None, field_pairs: list[tuple[str, str]],
+    *, description: str | None = None,
+) -> list[discord.Embed]:
+    """Distributes `field_pairs` (each already under the per-field EMBED_FIELD_LIMIT -- see
+    _chunked_field_pairs) across as many embeds as needed to respect EMBED_TOTAL_LIMIT, Discord's
+    cap on the *summed* length of every embed in one message. That cap is separate from -- and not
+    fixed by -- the per-field chunking above: a player with enough gear/materials/etc. across all
+    of !inventory's sections can have every individual field comfortably under 1024 chars while the
+    sections still add up past 6000 total, which is exactly what started silently breaking
+    !inventory once a content update grew the average loadout (HTTPException 400, "Embed size
+    exceeds maximum size of 6000"). Each embed this returns is meant to be sent as its own message
+    by the caller (a second embed can't just be appended to the same message -- Discord's 6000 cap
+    applies across all embeds *in one message*, not per embed). Only the first carries the
+    title/color/footer; follow-ons are titled "<title> (cont.)" so a multi-message reply still
+    reads as one continuous thing."""
+    embeds = [discord.Embed(title=title, color=color, description=description or None)]
+    if footer_text:
+        embeds[0].set_footer(text=footer_text)
+    for name, value in field_pairs:
+        embeds[-1].add_field(name=name, value=value, inline=False)
+        if len(embeds[-1]) > EMBED_TOTAL_LIMIT:
+            embeds[-1].remove_field(len(embeds[-1].fields) - 1)
+            embeds.append(discord.Embed(title=f"{title} (cont.)", color=color))
+            embeds[-1].add_field(name=name, value=value, inline=False)
+    return embeds
 
 
 def stat_bonus_text(item: dict) -> str:
@@ -212,49 +242,35 @@ def _inventory_sections(
     return quest_item_ids, material_ids, consumable_ids, horse_clothes_ids, housing_item_ids
 
 
-async def build_inventory_display(guild_id: int, user_id: int) -> tuple[discord.Embed, "InventoryView"]:
+async def build_inventory_display(guild_id: int, user_id: int) -> tuple[list[discord.Embed], "InventoryView"]:
+    """Returns (embeds, view) -- embeds is almost always length 1, but see _pack_into_embeds:
+    a large enough inventory needs more than one *message* to stay under Discord's total embed
+    size cap. Every caller must send embeds[0] (with `view` attached) and then, if there's more,
+    send embeds[1:] as follow-up messages of their own -- see inventory_cmd/InventoryButton for
+    the shape."""
     held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
     equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
     stored = _stored_excluding_equipped(equipped, await asyncio.to_thread(db.get_equipment_inventory, guild_id, user_id))
     quest_items, materials, consumables, horse_clothes_held, housing_items_held = _inventory_sections(held)
 
-    embed = discord.Embed(title="🎒 Inventory", color=discord.Color.blurple())
-
-    _add_chunked_field(
-        embed, "Quest Items", [_quest_item_line(item_id, qty) for item_id, qty in quest_items.items()],
-        "None yet.",
-    )
-    _add_chunked_field(
-        embed, "Materials", [_material_line(item_id, qty) for item_id, qty in materials.items()],
-        "None yet.",
-    )
-    _add_chunked_field(
-        embed, "Consumables", [_consumable_line(item_id, qty) for item_id, qty in consumables.items()],
-        "None yet.",
-    )
-    _add_chunked_field(
-        embed, "Horse Clothes", [_horse_clothes_line(item_id, qty) for item_id, qty in horse_clothes_held.items()],
-        "None yet.",
-    )
-    _add_chunked_field(
-        embed, "Housing Items", [_housing_item_line(item_id, qty) for item_id, qty in housing_items_held.items()],
-        "None yet -- see !house.",
-    )
-
-    embed.add_field(name="Equipped", value=_equipped_lines(equipped), inline=False)
-
-    _add_chunked_field(
-        embed, "Stored Equipment", [_equipment_line(item_id, qty) for item_id, qty in stored.items()],
-        "None yet.",
-    )
-
     if any(dungeon.usable_outside_combat(dungeon.CONSUMABLES[item_id]) for item_id in consumables):
-        embed.set_footer(text="Manage your gear with !equipment, craft more with !craft. Use energy/healing items below.")
+        footer_text = "Manage your gear with !equipment, craft more with !craft. Use energy/healing items below."
     else:
-        embed.set_footer(text="Manage your gear with !equipment, craft more with !craft.")
+        footer_text = "Manage your gear with !equipment, craft more with !craft."
+
+    field_pairs = [
+        *_chunked_field_pairs("Quest Items", [_quest_item_line(item_id, qty) for item_id, qty in quest_items.items()], "None yet."),
+        *_chunked_field_pairs("Materials", [_material_line(item_id, qty) for item_id, qty in materials.items()], "None yet."),
+        *_chunked_field_pairs("Consumables", [_consumable_line(item_id, qty) for item_id, qty in consumables.items()], "None yet."),
+        *_chunked_field_pairs("Horse Clothes", [_horse_clothes_line(item_id, qty) for item_id, qty in horse_clothes_held.items()], "None yet."),
+        *_chunked_field_pairs("Housing Items", [_housing_item_line(item_id, qty) for item_id, qty in housing_items_held.items()], "None yet -- see !house."),
+        ("Equipped", _equipped_lines(equipped)),
+        *_chunked_field_pairs("Stored Equipment", [_equipment_line(item_id, qty) for item_id, qty in stored.items()], "None yet."),
+    ]
+    embeds = _pack_into_embeds("🎒 Inventory", discord.Color.blurple(), footer_text, field_pairs)
 
     view = InventoryView(guild_id, user_id, consumables, housing_items_held)
-    return embed, view
+    return embeds, view
 
 
 class InventoryView(discord.ui.View):
@@ -348,8 +364,11 @@ class UseConsumableButton(discord.ui.Button):
             result_text = f"⚡ Drank **{item['name']}** — energy is now **{value}**/{db.ENERGY_CAP}."
         else:
             result_text = f"❤️ Drank **{item['name']}** — HP is now **{value}**."
-        embed, view = await build_inventory_display(guild_id, user_id)
-        await interaction.response.edit_message(embed=embed, view=view)
+        embeds, view = await build_inventory_display(guild_id, user_id)
+        await interaction.response.edit_message(embed=embeds[0], view=view)
+        is_ephemeral = bool(interaction.message and interaction.message.flags.ephemeral)
+        for extra in embeds[1:]:
+            await interaction.followup.send(embed=extra, ephemeral=is_ephemeral)
         await interaction.followup.send(result_text, ephemeral=True)
 
 
@@ -387,23 +406,27 @@ def _equipped_lines(equipped: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
-async def build_equipment_display(guild_id: int, user_id: int) -> tuple[discord.Embed, "EquipmentView"]:
+async def build_equipment_display(guild_id: int, user_id: int) -> tuple[list[discord.Embed], "EquipmentView"]:
+    """Returns (embeds, view) -- see build_inventory_display's docstring, same shape and same
+    reason: a big enough Stored list needs more than one message to stay under Discord's total
+    embed size cap."""
     equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
     stored = _stored_excluding_equipped(equipped, await asyncio.to_thread(db.get_equipment_inventory, guild_id, user_id))
 
-    embed = discord.Embed(
-        title="⚔️ Equipment",
+    field_pairs = [
+        ("Equipped", _equipped_lines(equipped)),
+        *_chunked_field_pairs(
+            "Stored", [_equipment_line(item_id, qty) for item_id, qty in stored.items()],
+            "None yet — extra gear you find gets stored here instead of discarded.",
+        ),
+    ]
+    embeds = _pack_into_embeds(
+        "⚔️ Equipment", discord.Color.blurple(), None, field_pairs,
         description="Pick a replacement (or unequip) per slot below.",
-        color=discord.Color.blurple(),
-    )
-    embed.add_field(name="Equipped", value=_equipped_lines(equipped), inline=False)
-    _add_chunked_field(
-        embed, "Stored", [_equipment_line(item_id, qty) for item_id, qty in stored.items()],
-        "None yet — extra gear you find gets stored here instead of discarded.",
     )
 
     view = EquipmentView(guild_id, user_id, equipped, stored)
-    return embed, view
+    return embeds, view
 
 
 class EquipmentView(discord.ui.View):
@@ -446,5 +469,8 @@ class EquipmentSlotSelect(discord.ui.Select):
             await asyncio.to_thread(db.unequip_item, guild_id, user_id, self.slot)
         else:
             await asyncio.to_thread(db.equip_item_smart, guild_id, user_id, self.slot, value)
-        embed, view = await build_equipment_display(guild_id, user_id)
-        await interaction.response.edit_message(embed=embed, view=view)
+        embeds, view = await build_equipment_display(guild_id, user_id)
+        await interaction.response.edit_message(embed=embeds[0], view=view)
+        is_ephemeral = bool(interaction.message and interaction.message.flags.ephemeral)
+        for extra in embeds[1:]:
+            await interaction.followup.send(embed=extra, ephemeral=is_ephemeral)
