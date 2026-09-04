@@ -56,15 +56,15 @@ def load_target_characters(guild_id: int) -> list[dict]:
     conn = _connect_readonly()
     try:
         rows = conn.execute(
-            "SELECT user_id, main_class, subclass, hp, atk, def, spatk, spdef, speed, level, current_hp "
+            "SELECT user_id, main_class, subclass, hp, atk, def, spatk, speed, level, current_hp "
             "FROM characters WHERE guild_id = ?",
             (guild_id,),
         ).fetchall()
         out = []
-        for user_id, main_class, subclass, hp, atk, def_, spatk, spdef, speed, level, current_hp in rows:
+        for user_id, main_class, subclass, hp, atk, def_, spatk, speed, level, current_hp in rows:
             character = {
                 "main_class": main_class, "subclass": subclass, "level": level,
-                "hp": hp, "atk": atk, "def": def_, "spatk": spatk, "spdef": spdef, "speed": speed,
+                "hp": hp, "atk": atk, "def": def_, "spatk": spatk, "speed": speed,
                 "current_hp": current_hp,
             }
             equip_rows = conn.execute(
@@ -141,13 +141,14 @@ def _expected_hit(atk: float, defense: float, multiplier: float = 1.0) -> float:
     return atk * multiplier * mitigation
 
 
-def _estimate_skill_damage(skill: dict, atk: float, spatk: float, def_: float, spdef: float) -> float:
+def _estimate_skill_damage(skill: dict, atk: float, spatk: float, def_: float) -> float:
     """Expected damage of one cast, averaged over effect_groups (weighted by their own "chance") and
     each effect's own "chance" -- a live point estimate against the target's CURRENT (debuff-
-    adjusted) defense, not a lookahead search across future turns."""
+    adjusted) DEF (mitigation is always DEF now, physical or magic alike), not a lookahead search
+    across future turns."""
     is_special = skill.get("special", False)
     base_atk = spatk if is_special else atk
-    eff_def = spdef if is_special else def_
+    eff_def = def_
     lists = _all_effect_lists(skill)
     weights = (
         [g.get("chance", dungeon.DEFAULT_EFFECT_GROUP_CHANCE) for g in skill["effect_groups"]]
@@ -202,8 +203,7 @@ def rank_action(session: dungeon_view.DelveSession) -> dict | None:
         atk = max(0, session.atk - session.atk_debuff)
         spatk = max(0, session.spatk - session.spatk_debuff)
         def_ = max(0, target.def_ - target.def_debuff)
-        spdef = max(0, target.spdef - target.spdef_debuff)
-        return max(damages, key=lambda s: _estimate_skill_damage(s, atk, spatk, def_, spdef))
+        return max(damages, key=lambda s: _estimate_skill_damage(s, atk, spatk, def_))
 
     return None
 

@@ -1,0 +1,42 @@
+[
+  {
+    "id": "hp",
+    "label": "HP",
+    "emoji": "❤️"
+  },
+  {
+    "id": "atk",
+    "label": "ATK",
+    "emoji": "⚔️"
+  },
+  {
+    "id": "def",
+    "label": "DEF",
+    "emoji": "🛡️"
+  },
+  {
+    "id": "spatk",
+    "label": "Magic",
+    "emoji": "✨"
+  },
+  {
+    "id": "speed",
+    "label": "Speed",
+    "emoji": "🏃"
+  },
+  {
+    "id": "chips",
+    "label": "Chips",
+    "emoji": "🪙"
+  },
+  {
+    "id": "dodge",
+    "label": "Dodge",
+    "emoji": "💨"
+  },
+  {
+    "id": "resist",
+    "label": "Resist",
+    "emoji": "🔮"
+  }
+]

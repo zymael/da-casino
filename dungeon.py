@@ -2,12 +2,17 @@
 between game logic here and Discord UI in dungeon_view.py.
 
 Characters are a permanent one-time choice: a main class (face rank) x a subclass (suit) = 16
-builds. Combat is deliberately lightweight -- HP/ATK/DEF/SpAtk/SpDef/Speed plus a per-delve Chips
+builds. Combat is deliberately lightweight -- HP/ATK/DEF/Magic(spatk)/Speed plus a per-delve Chips
 pool (the casino's on-theme name for what a JRPG would call mana), no persistent status effects.
-SpAtk/SpDef are a second, parallel combat-stat pair (Pokemon-style Physical/Special split) -- a
-skill flagged "special" (dungeon_skills.json's optional `special` field, defaulting to
-Physical/False) rolls its damage against SpAtk/SpDef instead of ATK/DEF; the plain Attack action is
-always Physical. Speed drives turn order (see preview_next_turns below) -- a Final Fantasy X-style
+Magic (the internal field is still called `spatk`, "Magic" is just its current display label, see
+stat_label) is a second offense stat, parallel to ATK -- a skill flagged "special"
+(dungeon_skills.json's optional `special` field, defaulting to Physical/False) rolls its damage
+against Magic instead of ATK; the plain Attack action is always Physical. DEF mitigates every
+incoming hit, physical or magic alike (there's no separate special-defense stat any more -- SpDef
+was retired). A skill/monster-skill/on-use item can also carry an optional `avoid` ("dodge" or
+"resist", see resolved_avoid_type) picking whether it's avoided entirely via DEF (Dodge) or Magic
+(Resist) -- an independent choice from `special`, defaulting to whichever `special` implies when
+unset. Speed drives turn order (see preview_next_turns below) -- a Final Fantasy X-style
 Conditional Turn-Based queue, not a real-time gauge: turn order is a deterministic, precomputable
 "next N turns" list derived purely from each combatant's own speed, resolved turn-by-turn between
 discrete player actions, never live-filling. Skills cost Chips (dungeon_skills.json's chip_cost)
@@ -45,9 +50,8 @@ import horse_clothes
 _CLASSES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_classes.json")
 _REQUIRED_CLASS_FIELDS = {
     "id", "display_name", "rank", "picker_blurb", "flavor",
-    "hp", "atk", "def", "spatk", "spdef", "chips", "speed",
-    "level_hp_gain", "level_atk_gain", "level_def_gain",
-    "level_spatk_gain", "level_spdef_gain",
+    "hp", "atk", "def", "spatk", "chips", "speed",
+    "level_hp_gain", "level_atk_gain", "level_def_gain", "level_spatk_gain",
 }
 _REQUIRED_CLASS_IDS = {"fighter", "healer", "mage", "rogue"}
 
@@ -98,7 +102,7 @@ CLASSES = _load_classes()
 _SUBCLASSES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_subclasses.json")
 _REQUIRED_SUBCLASS_FIELDS = {
     "id", "symbol", "archetype_label", "picker_blurb",
-    "hp", "atk", "def", "spatk", "spdef", "chips", "speed", "loot_mult",
+    "hp", "atk", "def", "spatk", "chips", "speed", "loot_mult",
 }
 _REQUIRED_SUBCLASS_IDS = {"clubs", "spades", "hearts", "diamonds"}
 
@@ -135,7 +139,7 @@ SUBCLASS_UNLOCK_LEVEL = 5
 NO_SUBCLASS = "none"
 _NO_SUBCLASS_ENTRY = {
     "id": NO_SUBCLASS, "symbol": "", "archetype_label": "", "picker_blurb": "",
-    "hp": 0, "atk": 0, "def": 0, "spatk": 0, "spdef": 0, "chips": 0, "speed": 0, "loot_mult": 1.0,
+    "hp": 0, "atk": 0, "def": 0, "spatk": 0, "chips": 0, "speed": 0, "loot_mult": 1.0,
 }
 
 
@@ -204,7 +208,6 @@ def compute_stats(main_class: str, subclass: str) -> dict:
         "atk": base["atk"] + mod["atk"],
         "def": base["def"] + mod["def"],
         "spatk": base["spatk"] + mod["spatk"],
-        "spdef": base["spdef"] + mod["spdef"],
         "chips": base["chips"] + mod["chips"],
         "speed": base["speed"] + mod["speed"],
         "loot_mult": mod["loot_mult"],
@@ -212,7 +215,7 @@ def compute_stats(main_class: str, subclass: str) -> dict:
 
 
 def compute_stats_at_level(main_class: str, subclass: str, level: int) -> dict:
-    """Full permanent stats (hp/atk/def/spatk/spdef/speed) for a character of this class/subclass
+    """Full permanent stats (hp/atk/def/spatk/speed) for a character of this class/subclass
     at an arbitrary level -- compute_stats' level-1 base plus (level-1) levels' worth of the
     class's own level_*_gain growth (CLASSES[main_class], no subclass component -- a subclass
     modifier only ever applies once, at creation, same as compute_stats itself), the same formula
@@ -230,7 +233,6 @@ def compute_stats_at_level(main_class: str, subclass: str, level: int) -> dict:
         "atk": base["atk"] + growth["level_atk_gain"] * levels,
         "def": base["def"] + growth["level_def_gain"] * levels,
         "spatk": base["spatk"] + growth["level_spatk_gain"] * levels,
-        "spdef": base["spdef"] + growth["level_spdef_gain"] * levels,
         "speed": base["speed"],
     }
 
@@ -252,7 +254,7 @@ def compute_stats_at_level(main_class: str, subclass: str, level: int) -> dict:
 
 _MONSTERS_PATH = os.path.join(os.path.dirname(__file__), "dungeon_monsters.json")
 _REQUIRED_MONSTER_FIELDS = {
-    "id", "name", "hp", "atk", "def", "spatk", "spdef", "spd", "shape", "color", "flavor", "loot_min", "loot_max",
+    "id", "name", "hp", "atk", "def", "spatk", "spd", "shape", "color", "flavor", "loot_min", "loot_max",
 }
 DROP_KINDS = ("equipment", "material", "consumable", "housing_item")
 # kind -> its registry, for the three kinds dungeon.py can resolve itself ("housing_item" is the
@@ -300,7 +302,7 @@ def _load_monsters(path: str = _MONSTERS_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_monsters.json: monster {entry_id!r} missing field(s): {sorted(missing)}")
         if entry_id in monsters:
             raise ValueError(f"dungeon_monsters.json: duplicate monster id {entry_id!r}")
-        for field in ("hp", "atk", "def", "spatk", "spdef", "spd", "loot_min", "loot_max"):
+        for field in ("hp", "atk", "def", "spatk", "spd", "loot_min", "loot_max"):
             if entry[field] < 0:
                 raise ValueError(f"dungeon_monsters.json: monster {entry_id!r} has negative {field}")
         if entry["loot_min"] > entry["loot_max"]:
@@ -424,7 +426,7 @@ def roll_drops(monster: dict, chance_mult: float = 1.0) -> list[dict]:
 ROOM_TYPES = ("combat", "choice")
 # which of a character's own stats a skill check can roll against -- every stat compute_effective_stats
 # produces, so a check can be calibrated against any of them, not just the original atk/def/hp trio.
-CHECK_STATS = ("hp", "atk", "def", "spatk", "spdef", "speed")
+CHECK_STATS = ("hp", "atk", "def", "spatk", "speed")
 ACTION_COST_ITEM_KINDS = ("material", "consumable", "quest_item")
 _REQUIRED_ROOM_FIELDS_BY_TYPE = {"combat": {"monster_groups"}, "choice": {"prompt", "actions"}}
 _OPTIONAL_ROOM_FIELDS_BY_TYPE = {"combat": {"background_path", "next", "prompt"}, "choice": {"background_path"}}
@@ -824,6 +826,48 @@ def _load_leveling(path: str = _LEVELING_PATH) -> dict[str, dict]:
 
 LEVELING = _load_leveling()
 
+# Player-facing display name (and emoji) for each stat/combat-concept -- editable through the admin
+# panel's Stat Labels page (dungeon_stat_labels.json) so a reflavor (e.g. spatk -> "Magic") is a
+# content edit, never a code change. Fixed roster, same "editable but not addable/removable" story
+# as CLASSES/SUBCLASSES -- these ids are wired directly to real stat fields/mechanics elsewhere in
+# the code (dodge/resist aren't backed by a stored field, but ARE real player-facing concepts that
+# get the same rename treatment), so an unknown id here would be meaningless and a missing one
+# would silently break every display call site that looks it up.
+_STAT_LABELS_PATH = os.path.join(os.path.dirname(__file__), "dungeon_stat_labels.json")
+_REQUIRED_STAT_LABEL_FIELDS = {"id", "label"}
+_REQUIRED_STAT_LABEL_IDS = {"hp", "atk", "def", "spatk", "speed", "chips", "dodge", "resist"}
+
+
+def _load_stat_labels(path: str = _STAT_LABELS_PATH) -> dict[str, dict]:
+    with open(path, encoding="utf-8") as f:
+        raw = json.load(f)
+    labels: dict[str, dict] = {}
+    for entry in raw:
+        entry_id = entry.get("id", "?")
+        missing = _REQUIRED_STAT_LABEL_FIELDS - entry.keys()
+        if missing:
+            raise ValueError(f"dungeon_stat_labels.json: entry {entry_id!r} missing field(s): {sorted(missing)}")
+        if not entry["label"]:
+            raise ValueError(f"dungeon_stat_labels.json: entry {entry_id!r} label must not be empty")
+        labels[entry_id] = entry
+    if set(labels) != _REQUIRED_STAT_LABEL_IDS:
+        raise ValueError(
+            f"dungeon_stat_labels.json must contain exactly these ids: {sorted(_REQUIRED_STAT_LABEL_IDS)} "
+            f"(got {sorted(labels)}) -- labels can be edited but not added, removed, or renamed"
+        )
+    return labels
+
+
+STAT_LABELS = _load_stat_labels()
+
+
+def stat_label(key: str) -> str:
+    """The current player-facing name for stat/concept `key` (hp/atk/def/spatk/speed/chips/dodge/
+    resist) -- falls back to `key.upper()` for anything not in STAT_LABELS (defensive only; every
+    real caller passes one of the fixed roster ids, which always resolves)."""
+    entry = STAT_LABELS.get(key)
+    return entry["label"] if entry else key.upper()
+
 
 def xp_for_monster(monster: dict) -> int:
     """RECONSTRUCTION NOTE: this file was accidentally truncated and this function's real body
@@ -877,10 +921,9 @@ EFFECT_PARAM_SCHEMAS = {
     "atk_buff": ({"value"}, set(), set()),
     "def_buff": ({"value"}, set(), set()),
     "spatk_buff": ({"value"}, set(), set()),
-    "spdef_buff": ({"value"}, set(), set()),
     # Raises max HP (and current HP by the same amount, a fortify rather than just extra
     # headroom) -- mirrors the other *_buff entries, no equivalent "hp_debuff" (nothing currently
-    # authors a max-HP-lowering effect, unlike ATK/DEF/SpAtk/SpDef which already had def_shred).
+    # authors a max-HP-lowering effect, unlike ATK/DEF/Magic which already had def_shred).
     "hp_buff": ({"value"}, set(), set()),
     # Restores Chips, capped at the target's own max_chips (dungeon_view._effect_chip_gain) -- the
     # "charge" half of a spend-then-recharge skill pair (e.g. a cheap SpAtk poke that funds the next
@@ -894,7 +937,6 @@ EFFECT_PARAM_SCHEMAS = {
     # "def_debuff" type since def_shred already fills that role.
     "atk_debuff": ({"value"}, set(), set()),
     "spatk_debuff": ({"value"}, set(), set()),
-    "spdef_debuff": ({"value"}, set(), set()),
     # Lowers speed for the rest of the fight -- same "read live, never cached" story as speed_buff
     # above, just subtracted (DelveSession/PartyMember/MonsterInstance already carry a
     # speed_debuff field and every turn-order/turn-interval call site already reads
@@ -962,7 +1004,7 @@ EFFECT_PARAM_SCHEMAS = {
 # dodged) -- see dungeon_view._resolve_player_action.
 MODS_ONLY_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "lifesteal_fraction"}
 ENEMY_TARGETED_EFFECT_TYPES = {
-    "atk_debuff", "spatk_debuff", "spdef_debuff", "speed_debuff", "def_shred",
+    "atk_debuff", "spatk_debuff", "speed_debuff", "def_shred",
     "taunt", "lower_threat", "sap", "stun", "execute_multiplier",
 }
 
@@ -1164,13 +1206,19 @@ def resolve_cast_effects(entry: dict) -> list[dict]:
 # A monster's own skill can use almost the exact same effect vocabulary a player skill can -- this
 # used to be a narrower subset (monsters had no mutable combat stats to buff/debuff, and several
 # handlers hardcoded "You"-phrased log text that would misread coming from a monster);
-# MonsterInstance now carries real per-instance atk/def_/spatk/spdef/debuff fields and
+# MonsterInstance now carries real per-instance atk/def_/spatk/debuff fields and
 # timed_effects (dungeon_view.py), and every handler's log line goes through an actor-aware helper,
 # so there's nothing left that only works for a player actor -- except taunt/lower_threat
 # (_MONSTER_SKILL_EXCLUDED_EFFECT_TYPES below), which are meaningless for a monster's own skill: a
 # player already picks their own attack target directly, so there's no "who do I attack" choice for
 # a monster to sway on a player's behalf the way taunt/lower_threat sway a monster's own choice.
 _MONSTER_SKILL_EXCLUDED_EFFECT_TYPES = {"taunt", "lower_threat"}
+
+# Which stat gates avoiding a skill/monster-skill/on-use item entirely -- see resolved_avoid_type
+# (combat section, below) for the full story and the default when a skill doesn't set this
+# explicitly. Defined here, well before SKILLS/EQUIPMENT/MONSTERS actually load, since their own
+# loaders validate this field against it.
+AVOID_TYPES = ("dodge", "resist")
 
 
 def _validate_monster_skill(skill: dict, context: str) -> None:
@@ -1193,6 +1241,8 @@ def _validate_monster_skill(skill: dict, context: str) -> None:
         raise ValueError(f"{context} skill {name!r} chance must be a number >= 0")
     if "special" in skill and not isinstance(skill["special"], bool):
         raise ValueError(f"{context} skill {name!r} special must be a bool")
+    if "avoid" in skill and skill["avoid"] not in AVOID_TYPES:
+        raise ValueError(f"{context} skill {name!r} avoid must be one of {AVOID_TYPES}")
     if "requires_allies" in skill and not isinstance(skill["requires_allies"], bool):
         raise ValueError(f"{context} skill {name!r} requires_allies must be a bool")
     if "flavor" in skill and not isinstance(skill["flavor"], str):
@@ -1235,6 +1285,8 @@ def _load_skills(path: str = _SKILLS_PATH) -> dict[str, dict]:
             )
         if "special" in entry and not isinstance(entry["special"], bool):
             raise ValueError(f"dungeon_skills.json: skill {entry_id!r} special must be a bool")
+        if "avoid" in entry and entry["avoid"] not in AVOID_TYPES:
+            raise ValueError(f"dungeon_skills.json: skill {entry_id!r} avoid must be one of {AVOID_TYPES}")
         _validate_effects_or_groups(entry, f"dungeon_skills.json: skill {entry_id!r}")
         skills[entry_id] = entry
     return skills
@@ -1348,9 +1400,11 @@ def validate_class_chip_costs(classes: dict, subclasses: dict) -> None:
 #     both: lifesteal applies directly against the triggering hit's own already-known damage
 #     number, extra_attack rolls and deals a genuine second hit of its own right there instead of
 #     relying on a `mods` dict nothing would ever read back for a proc.
-# An item's top-level optional `special` (bool, default False) picks SpAtk/SpDef instead of
-# ATK/DEF for an on_use damage roll -- mirrors a skill/consumable's own optional `special` field
-# exactly; only meaningful if the item has a damage-shaped on_use effect.
+# An item's top-level optional `special` (bool, default False) picks Magic instead of ATK for an
+# on_use damage roll's OFFENSE stat -- mirrors a skill/consumable's own optional `special` field
+# exactly; only meaningful if the item has a damage-shaped on_use effect. Its own optional `avoid`
+# (see resolved_avoid_type) separately picks DEF vs. Magic for whether that action is avoided at
+# all.
 
 # A fixed tier ladder -- "rarity" used to be flavor-only free text, unvalidated and never read by
 # game logic (real content had already drifted to both "epic" and "Epic"). Now does two real
@@ -1370,7 +1424,7 @@ _REQUIRED_EQUIPMENT_FIELDS = {"id", "name", "slot", "rarity", "effects", "flavor
 EQUIPMENT_SLOTS = ("weapon", "armor", "trinket")
 EQUIPMENT_EFFECT_TRIGGERS = ("constant", "on_use", "on_hit")
 CONSTANT_EQUIPMENT_EFFECT_TYPES = {
-    "atk_buff", "def_buff", "spatk_buff", "spdef_buff", "hp_buff", "speed_buff", "taunt", "lower_threat",
+    "atk_buff", "def_buff", "spatk_buff", "hp_buff", "speed_buff", "taunt", "lower_threat",
 }
 # speed_buff is allowed here on purpose ("haste on hit") -- it's self-contained (only ever touches
 # `actor`, same as the other *_buff types already allowed on_hit), no reason to special-case it out.
@@ -1380,7 +1434,7 @@ ON_HIT_EQUIPMENT_EFFECT_TYPES = set(EFFECT_PARAM_SCHEMAS) - {"damage_multiplier"
 # type -> which stat constant_stat_bonuses folds it into -- the inverse of generate_item_constant_effects'
 # own mapping below.
 _CONSTANT_EFFECT_STAT = {
-    "atk_buff": "atk", "def_buff": "def", "spatk_buff": "spatk", "spdef_buff": "spdef",
+    "atk_buff": "atk", "def_buff": "def", "spatk_buff": "spatk",
     "hp_buff": "hp", "speed_buff": "speed",
 }
 
@@ -1416,8 +1470,8 @@ def _validate_equipment_effects(effects, context: str) -> None:
 
 
 def constant_stat_bonuses(item: dict) -> dict[str, int]:
-    """An item's `trigger == "constant"` effects collapsed into the old flat {hp, atk, def, spatk,
-    spdef} shape -- the one place this mapping lives, reused by compute_effective_stats. Sums if
+    """An item's `trigger == "constant"` effects collapsed into the old flat {hp, atk, def, spatk}
+    shape -- the one place this mapping lives, reused by compute_effective_stats. Sums if
     the same stat is buffed by more than one constant entry. `item.get("effects", [])` rather than
     `item["effects"]` since this is also called against an in-progress admin-panel entry that may
     not have the key yet."""
@@ -1457,7 +1511,7 @@ def constant_threat_bonus(item: dict) -> float:
 # cast/hit, it's applied once at room-entry directly onto the fresh instance's own fields (see
 # vs_monster_debuffs below), so none of the trigger/chance/target/aoe machinery those effects carry
 # applies here.
-VS_MONSTER_DEBUFF_STATS = ("atk", "def", "spatk", "spdef", "speed")
+VS_MONSTER_DEBUFF_STATS = ("atk", "def", "spatk", "speed")
 
 
 def _validate_vs_monster_debuff(vs: dict, context: str) -> None:
@@ -1500,8 +1554,8 @@ def vs_monster_debuffs(equipped_item_ids, monster_id: str) -> dict[str, int]:
     {"atk": N, "spatk": N, ...} dict -- the monster-conditional analogue of constant_threat_bonus,
     read by dungeon_view at the moment a fresh MonsterInstance matching monster_id is created (both
     _roll_monster_instances for solo and PartyDelveSession._enter_room for a party) and added
-    directly onto that instance's own atk_debuff/def_debuff/spatk_debuff/spdef_debuff/speed_debuff
-    fields, once, for the rest of the fight."""
+    directly onto that instance's own atk_debuff/def_debuff/spatk_debuff/speed_debuff fields, once,
+    for the rest of the fight."""
     totals: dict[str, int] = {}
     for item_id in equipped_item_ids:
         item = EQUIPMENT.get(item_id)
@@ -1531,6 +1585,8 @@ def _load_equipment(path: str = _EQUIPMENT_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has unknown rarity {entry['rarity']!r}")
         if "special" in entry and not isinstance(entry["special"], bool):
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} special must be a bool")
+        if "avoid" in entry and entry["avoid"] not in AVOID_TYPES:
+            raise ValueError(f"dungeon_equipment.json: item {entry_id!r} avoid must be one of {AVOID_TYPES}")
         if entry["base_value"] < 0:
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} base_value must be >= 0")
         _validate_equipment_effects(entry["effects"], f"dungeon_equipment.json: item {entry_id!r}")
@@ -1732,15 +1788,15 @@ def find_recipe_by_materials(materials: dict[str, int]) -> dict | None:
 def compute_effective_stats(
     character: dict, equipped: dict[str, str], housing_stat_bonuses: dict[str, int] | None = None
 ) -> dict:
-    """A character's stored hp/atk/def/spatk/spdef/speed (which already include all permanent
-    level growth) plus whatever's currently equipped in each slot, plus (optionally) a
-    {stat: value} dict of passive bonuses from placed housing items -- see
+    """A character's stored hp/atk/def/spatk/speed (which already include all permanent level
+    growth) plus whatever's currently equipped in each slot, plus (optionally) a {stat: value}
+    dict of passive bonuses from placed housing items -- see
     housing.get_house_bonuses(...).get("stat_bonus", {}), the housing analogue of an equipped
     item's own constant_stat_bonuses. `equipped` is {slot: item_id}, e.g. from
     db.get_equipped_items. `housing_stat_bonuses` defaults to none (today's exact behavior) --
     callers that want housing items to count pass one in."""
     hp, atk, def_ = character["hp"], character["atk"], character["def"]
-    spatk, spdef, speed = character["spatk"], character["spdef"], character["speed"]
+    spatk, speed = character["spatk"], character["speed"]
     for item_id in equipped.values():
         item = EQUIPMENT.get(item_id)
         if item is None:
@@ -1750,16 +1806,14 @@ def compute_effective_stats(
         atk += bonuses.get("atk", 0)
         def_ += bonuses.get("def", 0)
         spatk += bonuses.get("spatk", 0)
-        spdef += bonuses.get("spdef", 0)
         speed += bonuses.get("speed", 0)
     if housing_stat_bonuses:
         hp += housing_stat_bonuses.get("hp", 0)
         atk += housing_stat_bonuses.get("atk", 0)
         def_ += housing_stat_bonuses.get("def", 0)
         spatk += housing_stat_bonuses.get("spatk", 0)
-        spdef += housing_stat_bonuses.get("spdef", 0)
         speed += housing_stat_bonuses.get("speed", 0)
-    return {"hp": hp, "atk": atk, "def": def_, "spatk": spatk, "spdef": spdef, "speed": speed}
+    return {"hp": hp, "atk": atk, "def": def_, "spatk": spatk, "speed": speed}
 
 
 # --- Combat ------------------------------------------------------------------------------------
@@ -1788,26 +1842,30 @@ def roll_damage(atk: int, defense: int, multiplier: float = 1.0) -> int:
     return max(1, round(raw))
 
 
-# Dodge (a Physical attack whiffing entirely) and Resist (the same for Special) aren't their own
-# stats -- both are a diminishing-returns function of a stat that already exists everywhere DEF/
-# SpDef do (every class, every monster, every equipped item), so there's nothing new to add to
-# CLASSES/SUBCLASSES/CONSTANT_EQUIPMENT_EFFECT_TYPES/the DB schema to get this working for players AND monsters
-# at once. DODGE_K=250 is deliberately gentle -- a fresh mage's DEF=2 dodges ~0.8%, a fresh
-# fighter's DEF=6 dodges ~2.3%, and even the toughest current monster (z_goolok, DEF=38) only
-# reaches ~13.2% (raised from 100 -- see the commit that changed this -- specifically to leave
-# room for tougher monsters down the line without the ramp getting steep too early). DODGE_CAP is
-# a hard safety net independent of K -- no amount of DEF/SpDef stacking (leveling, gear, buffs)
-# can ever push a target above a 50% chance to fully avoid an attack.
+# Dodge (an action whiffing entirely against DEF) and Resist (the same against Magic/spatk) aren't
+# their own stats -- both are a diminishing-returns function of a stat that already exists
+# everywhere DEF/spatk do (every class, every monster, every equipped item), so there's nothing new
+# to add to CLASSES/SUBCLASSES/CONSTANT_EQUIPMENT_EFFECT_TYPES/the DB schema to get this working for
+# players AND monsters at once. Which one applies to a given skill is an explicit per-skill choice
+# (a skill/monster-skill/on-use item's own optional "avoid": "dodge"|"resist", see
+# resolved_avoid_type) -- NOT derived from whether the skill's damage is Physical or Special
+# ("special"/Magic still only picks the OFFENSE stat, see roll_damage's own docstring). DODGE_K=250
+# is deliberately gentle -- a fresh mage's DEF=2 dodges ~0.8%, a fresh fighter's DEF=6 dodges
+# ~2.3%, and even the toughest current monster (z_goolok, DEF=38) only reaches ~13.2% (raised from
+# 100 -- see the commit that changed this -- specifically to leave room for tougher monsters down
+# the line without the ramp getting steep too early). DODGE_CAP is a hard safety net independent of
+# K -- no amount of DEF/Magic stacking (leveling, gear, buffs) can ever push a target above a 50%
+# chance to fully avoid an attack.
 DODGE_K = 250
 DODGE_CAP = 0.5
 
-# Speed adds to dodge/resist too, on top of DEF/SpDef -- capped separately (SPEED_DODGE_CAP) from
-# the DEF/SpDef stacking DODGE_CAP already bounds, so a very fast but only moderately tanky build
-# (rogue: base DEF 3/SpDef 4 but Speed 16, clearly the fastest class) is meaningfully dodgier than
-# its raw DEF/SpDef alone would suggest, without an outlier-fast monster (z_goolok, Speed 37) also
-# getting the full, uncapped benefit of a stat this game already gave it a lot of for turn-order
-# reasons -- +20 covers every player class's speed range (and most monsters) in full, while still
-# reining in that one real outlier.
+# Speed adds to dodge/resist too, on top of DEF/Magic -- capped separately (SPEED_DODGE_CAP) from
+# the DEF/Magic stacking DODGE_CAP already bounds, so a very fast but only moderately tanky build
+# (rogue: base DEF 3, Speed 16, clearly the fastest class) is meaningfully dodgier than its raw
+# DEF/Magic alone would suggest, without an outlier-fast monster (z_goolok, Speed 37) also getting
+# the full, uncapped benefit of a stat this game already gave it a lot of for turn-order reasons --
+# +20 covers every player class's speed range (and most monsters) in full, while still reining in
+# that one real outlier.
 SPEED_DODGE_WEIGHT = 1.0
 SPEED_DODGE_CAP = 20
 
@@ -1823,12 +1881,27 @@ HEAL_FRACTION_CAP = 1.0
 
 
 def dodge_chance(defense: int, speed: int = 0) -> float:
-    """Chance to completely avoid an attack, given the defender's own DEF (for a Physical attack)
-    or SpDef (Special) -- same formula either way, just fed a different stat by the caller -- plus
-    a smaller, separately-capped bonus from their Speed (see SPEED_DODGE_WEIGHT/SPEED_DODGE_CAP).
-    `speed` defaults to 0 (no bonus) for a caller that only wants the pure DEF/SpDef number."""
+    """Chance to completely avoid an attack, given the defender's own DEF (Dodge) or Magic/spatk
+    (Resist) -- same formula either way, just fed a different stat by the caller -- plus a smaller,
+    separately-capped bonus from their Speed (see SPEED_DODGE_WEIGHT/SPEED_DODGE_CAP). `speed`
+    defaults to 0 (no bonus) for a caller that only wants the pure DEF/Magic number."""
     effective = defense + min(SPEED_DODGE_CAP, max(0, speed) * SPEED_DODGE_WEIGHT)
     return min(DODGE_CAP, effective / (effective + DODGE_K))
+
+
+def resolved_avoid_type(skill: dict | None) -> str:
+    """Which stat (dungeon_view._defended_dodge_chance: DEF for "dodge", Magic/spatk for "resist")
+    gates avoiding whatever `skill` does -- its own explicit "avoid" if set, else derived from
+    "special" ("resist" if special else "dodge") so any skill/monster-skill/on-use item authored
+    before "avoid" existed keeps its exact old dodge/resist-gating behavior with zero migration,
+    same "default reproduces old behavior" precedent as default_effect_target. `skill` is None for
+    a plain Attack (always Physical/dodge, no skill dict to read)."""
+    if skill is None:
+        return "dodge"
+    avoid = skill.get("avoid")
+    if avoid is not None:
+        return avoid
+    return "resist" if skill.get("special") else "dodge"
 
 
 def roll_loot(monster: dict, loot_mult: float = 1.0) -> int:
@@ -1979,14 +2052,14 @@ def pick_target_by_threat(candidates: list[dict]) -> int:
 # matching generate_* function, so a freshly generated entry round-trips back to the same level.
 
 # `speed` weights are multiplicative (against _monster_speed_budget, itself a plain scalar, not
-# something split across a pair like spatk/spdef are) rather than the 0-1 fractional split the
+# something split off a shared budget like spatk is) rather than the 0-1 fractional split the
 # other stats use -- 1.0 is "the balanced archetype's own baseline," tank sits below it (heavy,
 # slow) and glass_cannon above it (a striker archetype), same "roughly half above/below center"
 # spread the other archetype columns already use.
 MONSTER_ARCHETYPES = {
-    "tank": {"hp": 0.55, "atk": 0.20, "def": 0.25, "spatk": 0.3, "spdef": 0.7, "speed": 0.7},
-    "balanced": {"hp": 0.45, "atk": 0.30, "def": 0.25, "spatk": 0.5, "spdef": 0.5, "speed": 1.0},
-    "glass_cannon": {"hp": 0.30, "atk": 0.55, "def": 0.15, "spatk": 0.7, "spdef": 0.3, "speed": 1.3},
+    "tank": {"hp": 0.55, "atk": 0.20, "def": 0.25, "spatk": 0.3, "speed": 0.7},
+    "balanced": {"hp": 0.45, "atk": 0.30, "def": 0.25, "spatk": 0.5, "speed": 1.0},
+    "glass_cannon": {"hp": 0.30, "atk": 0.55, "def": 0.15, "spatk": 0.7, "speed": 1.3},
 }
 
 
@@ -2001,13 +2074,13 @@ def _monster_power_budget(level: int) -> float:
 
 
 def _monster_special_budget(level: int) -> float:
-    """spatk/spdef's own scalar, deliberately independent of _monster_power_budget rather than
-    folded into it -- every one of the 16 real monsters was backfilled with spatk=atk/spdef=def
-    (see dungeon_monsters.json), so combining the budgets would silently double
+    """spatk's own scalar, deliberately independent of _monster_power_budget rather than folded
+    into it -- every one of the 16 real monsters was backfilled with spatk=atk (see
+    dungeon_monsters.json), so combining the budgets would silently double
     estimate_monster_level's "≈ balanced for level X" hint for every one of them the moment this
     shipped, even though their actual hp/atk/def/intended_level never changed. Kept at a similar
-    scale to _monster_power_budget on purpose (no /2 split needed -- spatk/spdef aren't
-    2x-weighted the way atk/def are here, there's no existing convention this needs to match)."""
+    scale to _monster_power_budget on purpose (no /2 split needed -- spatk isn't 2x-weighted the
+    way atk/def are here, there's no existing convention this needs to match)."""
     return 15 + 4 * level
 
 
@@ -2020,7 +2093,7 @@ def _monster_speed_budget(level: int) -> float:
 
 
 def generate_monster_stats(level: int, archetype: dict | None = None) -> dict:
-    """hp/atk/def/spatk/spdef/speed for a monster meant to feel "right" at `level`, split by
+    """hp/atk/def/spatk/speed for a monster meant to feel "right" at `level`, split by
     `archetype`'s weights (defaults to balanced -- see MONSTER_ARCHETYPES). ATK stays 2 budget
     units per stat point (its marginal effect on roll_damage's output is still a clean linear
     scale-up); DEF costs only 1 (its marginal effect on damage TAKEN is now a diminishing curve
@@ -2037,7 +2110,6 @@ def generate_monster_stats(level: int, archetype: dict | None = None) -> dict:
         "atk": max(1, round(budget * archetype["atk"] / 2)),
         "def": max(1, round(budget * archetype["def"])),
         "spatk": max(1, round(special_budget * archetype["spatk"])),
-        "spdef": max(1, round(special_budget * archetype["spdef"])),
         "spd": max(1, round(speed_budget * archetype["speed"])),
     }
 
@@ -2047,8 +2119,8 @@ def estimate_monster_level(monster: dict) -> float:
     as "the level this would have been generated for", regardless of archetype (the split cancels
     out since power_budget sums all three back into one scalar). DEF's weight matches
     generate_monster_stats' own 1x (vs ATK's 2x) -- see that function's docstring for why that's an
-    approximation rather than an exact inverse. Deliberately excludes spatk/spdef AND speed from
-    this formula, same reason _monster_special_budget's docstring already gives for spatk/spdef --
+    approximation rather than an exact inverse. Deliberately excludes spatk AND speed from this
+    formula, same reason _monster_special_budget's docstring already gives for spatk --
     every real monster has speed backfilled as a function of atk/def (see dungeon_monsters.json),
     so folding it in here would double-count and inflate this estimate for every one of them
     despite hp/atk/def/intended_level never having changed. Used as intended_level's fallback
@@ -2074,23 +2146,25 @@ _EQUIPMENT_SLOT_WEIGHTS = {
     # weapon stays physical-only for spatk (no sword/staff sub-type to hang a magic lean off of),
     # but picks up a small speed share -- a "quick blade" trope -- shaved off atk to keep summing
     # to 1.0.
-    "weapon": {"hp": 0.0, "atk": 0.7, "def": 0.2, "spatk": 0.0, "spdef": 0.0, "speed": 0.1},
-    # armor picks up a modest spdef share (magic-resistant armor is a normal RPG trope) and a
-    # small speed share (light/agile armor), shaved off hp/def evenly to keep summing to 1.0.
-    "armor": {"hp": 0.35, "atk": 0.0, "def": 0.35, "spatk": 0.0, "spdef": 0.2, "speed": 0.1},
-    # trinkets are already omni-stat in real content -- full even split across all six now.
-    "trinket": {"hp": 0.17, "atk": 0.17, "def": 0.17, "spatk": 0.17, "spdef": 0.17, "speed": 0.15},
+    "weapon": {"hp": 0.0, "atk": 0.7, "def": 0.2, "spatk": 0.0, "speed": 0.1},
+    # armor's old spdef share was dropped along with the stat itself (not folded into def) -- this
+    # now sums to 0.8, not 1.0, so armor generates slightly less total power per level than weapon/
+    # trinket until/unless a separate rebalance pass reallocates the freed-up share.
+    "armor": {"hp": 0.35, "atk": 0.0, "def": 0.35, "spatk": 0.0, "speed": 0.1},
+    # trinkets are already omni-stat in real content -- even split across the remaining five stats.
+    # Same "sums to <1.0 now, not rebalanced" story as armor above.
+    "trinket": {"hp": 0.17, "atk": 0.17, "def": 0.17, "spatk": 0.17, "speed": 0.15},
 }
 
 
 def _item_power_budget(level: int) -> float:
-    """The level-scaled power scalar for one piece of gear, split into hp/atk/def/spatk/spdef/
-    speed by generate_item_constant_effects' own divisors (see that function's docstring for the
-    current atk/def/spatk/spdef weighting) -- scaled way down from _monster_power_budget since a
-    piece of gear is one small increment on top of a whole character's own stats, not a whole
-    combatant's total. Unlike the monster case, spatk/spdef/speed fold into this SAME budget rather
-    than getting an independent one -- necessary, not just simpler: no equipment gets backfilled
-    with spatk/spdef/speed (existing gear just omits the keys, worth 0 here), so a stat total
+    """The level-scaled power scalar for one piece of gear, split into hp/atk/def/spatk/speed by
+    generate_item_constant_effects' own divisors (see that function's docstring for the current
+    atk/def/spatk weighting) -- scaled way down from _monster_power_budget since a piece of gear
+    is one small increment on top of a whole character's own stats, not a whole combatant's total.
+    Unlike the monster case, spatk/speed fold into this SAME budget rather than getting an
+    independent one -- necessary, not just simpler: no equipment gets backfilled with spatk/speed
+    (existing gear just omits the keys, worth 0 here), so a stat total
     summed over whatever's in constant_stat_bonuses stays correct for old gear, and a fresh item at
     a given level isn't handed extra "free" power an old item of the same level never had a chance
     to also carry."""
@@ -2100,28 +2174,27 @@ def _item_power_budget(level: int) -> float:
 # type -> stat this budget-weight key feeds into an effect for -- the inverse of dungeon.py's own
 # _CONSTANT_EFFECT_STAT mapping near constant_stat_bonuses.
 _STAT_TO_CONSTANT_EFFECT_TYPE = {
-    "hp": "hp_buff", "atk": "atk_buff", "def": "def_buff", "spatk": "spatk_buff", "spdef": "spdef_buff",
-    "speed": "speed_buff",
+    "hp": "hp_buff", "atk": "atk_buff", "def": "def_buff", "spatk": "spatk_buff", "speed": "speed_buff",
 }
 
 
 def generate_item_constant_effects(level: int, slot: str, rarity: str = "common") -> list[dict]:
     """Constant-trigger effects for a piece of gear meant to feel "right" at `level` in `slot` and
-    `rarity` -- weapon leans almost entirely ATK, armor splits HP/DEF/SpDef, trinket is even across
-    all six (see _EQUIPMENT_SLOT_WEIGHTS), then the whole budget is scaled by
-    RARITY_STAT_MULTIPLIERS so a higher tier is authored to meaningfully outclass a lower one at
-    the same level. ATK/SpAtk stay 2 budget units per point (roll_damage scales linearly with the
-    attacker's own stat); DEF/SpDef cost only 1 -- their marginal effect on damage TAKEN is now a
-    diminishing curve depending on the attacker's ATK/SpAtk (see roll_damage/DEF_MITIGATION_K), so
-    there's no single "correct" ratio anymore, and 1 is a reasonable approximation rather than a
-    precise inverse. A weight of exactly 0 omits that stat entirely rather than writing a 0-value
-    effect, matching how real equipment entries only list the stats they actually touch. Renamed
-    from the pre-effects-system generate_item_stat_bonuses now that the return shape is an effects
-    list, not a flat stat_bonuses dict -- stays scoped to constant-only, on_use/on_hit effects are
-    always hand-authored, never auto-rolled."""
+    `rarity` -- weapon leans almost entirely ATK, armor splits HP/DEF, trinket is even across all
+    five (see _EQUIPMENT_SLOT_WEIGHTS), then the whole budget is scaled by RARITY_STAT_MULTIPLIERS
+    so a higher tier is authored to meaningfully outclass a lower one at the same level. ATK/Magic
+    stay 2 budget units per point (roll_damage scales linearly with the attacker's own stat); DEF
+    costs only 1 -- its marginal effect on damage TAKEN is now a diminishing curve depending on the
+    attacker's ATK/Magic (see roll_damage/DEF_MITIGATION_K), so there's no single "correct" ratio
+    anymore, and 1 is a reasonable approximation rather than a precise inverse. A weight of exactly
+    0 omits that stat entirely rather than writing a 0-value effect, matching how real equipment
+    entries only list the stats they actually touch. Renamed from the pre-effects-system
+    generate_item_stat_bonuses now that the return shape is an effects list, not a flat
+    stat_bonuses dict -- stays scoped to constant-only, on_use/on_hit effects are always
+    hand-authored, never auto-rolled."""
     weights = _EQUIPMENT_SLOT_WEIGHTS.get(slot, _EQUIPMENT_SLOT_WEIGHTS["trinket"])
     budget = _item_power_budget(level) * RARITY_STAT_MULTIPLIERS.get(rarity, 1.0)
-    divisors = {"hp": 1, "atk": 2, "def": 1, "spatk": 2, "spdef": 1, "speed": 2}
+    divisors = {"hp": 1, "atk": 2, "def": 1, "spatk": 2, "speed": 2}
     effects = []
     for stat, weight in weights.items():
         if weight:
@@ -2134,13 +2207,13 @@ def estimate_item_level(item: dict) -> float:
     """Inverse of generate_item_constant_effects/_item_power_budget -- divides back out the same
     rarity multiplier generation scaled up by, so a legendary item's stats read as "balanced for
     level X" against the actual level it was generated for, not an inflated one just because
-    rarity made its raw numbers bigger. DEF/SpDef's 1x weight matches
-    generate_item_constant_effects' own divisors (vs ATK/SpAtk/speed's 2x) -- see that function's
-    docstring for why that's an approximation rather than an exact inverse."""
+    rarity made its raw numbers bigger. DEF's 1x weight matches generate_item_constant_effects'
+    own divisors (vs ATK/Magic/speed's 2x) -- see that function's docstring for why that's an
+    approximation rather than an exact inverse."""
     bonuses = constant_stat_bonuses(item)
     budget = (
         bonuses.get("hp", 0) + 2 * bonuses.get("atk", 0) + bonuses.get("def", 0)
-        + 2 * bonuses.get("spatk", 0) + bonuses.get("spdef", 0) + 2 * bonuses.get("speed", 0)
+        + 2 * bonuses.get("spatk", 0) + 2 * bonuses.get("speed", 0)
     )
     rarity_mult = RARITY_STAT_MULTIPLIERS.get(item.get("rarity"), 1.0)
     return max(1.0, budget / 1.5 / rarity_mult)

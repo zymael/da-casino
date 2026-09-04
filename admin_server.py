@@ -2619,7 +2619,15 @@ def _render_monster_skill_row(prefix: str, skill: dict) -> str:
         f'value="{skill.get("chance", "")}" data-skill-chance></label>'
         f'<span class="skill-odds-pct" data-skill-pct>—</span>'
         f'<label class="checkbox-label"><input type="checkbox" name="{prefix}_special"'
-        f'{" checked" if skill.get("special") else ""}> Special (rolls SpAtk/SpDef instead of ATK/DEF)</label>'
+        f'{" checked" if skill.get("special") else ""}> Special (rolls Magic instead of ATK for damage)</label>'
+        f'<label data-tooltip="Whether this whole skill (damage and any attached debuff alike) is avoided '
+        f'via Dodge (DEF) or Resist (Magic). Leave on Default to derive it from Special above (Resist if '
+        f'Special, Dodge otherwise) -- the same behavior this skill had before this field existed.">avoid'
+        f'<select name="{prefix}_avoid">'
+        f'<option value=""{" selected" if not skill.get("avoid") else ""}>Default (from Special)</option>'
+        f'<option value="dodge"{" selected" if skill.get("avoid") == "dodge" else ""}>Dodge</option>'
+        f'<option value="resist"{" selected" if skill.get("avoid") == "resist" else ""}>Resist</option>'
+        f'</select></label>'
         f'<label>flavor (optional -- shown in the combat log when this skill is used)'
         f'<textarea name="{prefix}_flavor" rows="2">{html.escape(skill.get("flavor", ""))}</textarea></label>'
         f'{effects_groups_toggle}'
@@ -4122,6 +4130,7 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
             effects = _parse_effects_list(f"{prefix}_effects", form)
             groups = _parse_effect_groups(f"{prefix}_effectgroup", form)
             special = f"{prefix}_special" in form
+            avoid = form.get(f"{prefix}_avoid", "").strip()
             flavor = form.get(f"{prefix}_flavor", "").strip()
             if not effects and not groups:
                 continue  # a skill with neither effects nor effect_groups yet isn't meaningful to save
@@ -4133,6 +4142,8 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
                 skill["effects"] = effects
             if groups:
                 skill["effect_groups"] = groups
+            if avoid:
+                skill["avoid"] = avoid
             if flavor:
                 skill["flavor"] = flavor
             skills.append(skill)
@@ -4912,7 +4923,7 @@ async def dashboard(request: web.Request) -> web.Response:
 # summary) rather than a gain ("+") -- everything else defaults to "+". def_shred/dot/lower_threat
 # are debuffs even though their names don't end in "_debuff".
 _DEBUFF_EFFECT_TYPES = {
-    "atk_debuff", "spatk_debuff", "spdef_debuff", "speed_debuff", "def_shred", "lower_threat", "dot",
+    "atk_debuff", "spatk_debuff", "speed_debuff", "def_shred", "lower_threat", "dot",
 }
 # Shown with a "x" prefix instead of a +/- sign -- these scale an existing number rather than
 # adding/subtracting from one.
@@ -5689,7 +5700,7 @@ async def player_debug_view(request: web.Request) -> web.Response:
                         db.set_character_progress, gid, uid,
                         level, int(form["xp"]), current_hp,
                         new_stats["hp"], new_stats["atk"], new_stats["def"],
-                        new_stats["spatk"], new_stats["spdef"], new_stats["speed"],
+                        new_stats["spatk"], new_stats["speed"],
                     )
             raise web.HTTPFound(f"/player-debug?guild_id={gid}&user_id={uid}&saved=1")
 
@@ -5771,8 +5782,9 @@ async def player_debug_view(request: web.Request) -> web.Response:
                 max_hp = dungeon.compute_effective_stats(character, equipped, housing_bonuses.get("stat_bonus", {}))["hp"]
                 current_hp = min(character["current_hp"], max_hp)
                 stats_line = (
-                    f'ATK {character["atk"]} · DEF {character["def"]} · SpATK {character["spatk"]} · '
-                    f'SpDEF {character["spdef"]} · Speed {character["speed"]} (base, before equipment)'
+                    f'ATK {character["atk"]} · DEF {character["def"]} · '
+                    f'{html.escape(dungeon.stat_label("spatk"))} {character["spatk"]} · '
+                    f'Speed {character["speed"]} (base, before equipment)'
                 )
                 character_fields = (
                     f'<label>Level<input type="number" min="1" name="level" value="{character["level"]}">'
@@ -5940,7 +5952,7 @@ def _damage_ramp_html(report: dict) -> str:
         header = "".join(f"<th>T{i + 1}</th>" for i in range(turn_count))
         rows = "".join(
             f'<tr><td>{html.escape(label)} <span class="field-hint">'
-            f'(n={tiers_info[label]["monster_count"]} monster(s), DEF/SpDef {tiers_info[label]["def"]:g})'
+            f'(n={tiers_info[label]["monster_count"]} monster(s), DEF {tiers_info[label]["def"]:g})'
             f"</span></td>" + "".join(f"<td>{v:.1f}</td>" for v in values) + "</tr>"
             for label, values in tiers.items()
         )
@@ -6015,7 +6027,7 @@ async def skill_balance_view(request: web.Request) -> web.Response:
         side by side for any one build.
     </p>
 
-    <h2>Per-skill damage (isolated, vs. the game's real median monster DEF/SpDef)</h2>
+    <h2>Per-skill damage (isolated, vs. the game's real median monster DEF)</h2>
     {skill_table}
 
     <h2>Per-build rotation through a whole delve ({delve_name})</h2>
@@ -6047,9 +6059,9 @@ async def skill_balance_view(request: web.Request) -> web.Response:
 
     <h3>Damage ramp vs. monster tiers</h3>
     <p>Instead of a specific delve's rooms, this pits the selected build against three imagined
-    monster difficulty tiers (Early/Mid/Late -- median DEF/SpDef of the game's own real monsters at
+    monster difficulty tiers (Early/Mid/Late -- median DEF of the game's own real monsters at
     that intended level range) and charts damage turn by turn (T1, T2, ...) across one continuous
-    fight per tier, full Chips at the start. Buffs, DEF/SpDef-lowering debuffs, and DoT ticks all
+    fight per tier, full Chips at the start. Buffs, DEF-lowering debuffs, and DoT ticks all
     carry forward turn to turn, so a rotation that opens with a debuff before its big hits should
     visibly ramp up rather than hit the same every turn -- and a build that can barely dent a Late-
     tier monster's defense shows up as a near-flat, low line the same way it would in real play.</p>

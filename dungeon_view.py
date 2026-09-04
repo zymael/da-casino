@@ -62,7 +62,7 @@ class MonsterInstance:
         self.hp = monster["hp"]
         self.max_hp = monster["hp"]
         # Real per-instance mutable combat stats, snapshotted from `monster` -- unlike hp/max_hp
-        # (always instance-specific), atk/def/spatk/spdef used to be read straight off the shared
+        # (always instance-specific), atk/def/spatk used to be read straight off the shared
         # `monster` content dict everywhere, which can't be mutated (the same dict may be reused
         # across encounters). Giving a monster its own copy is what lets a monster's own skill use
         # atk_buff/def_buff/etc (previously impossible -- there was nothing to mutate), and lets a
@@ -70,9 +70,8 @@ class MonsterInstance:
         self.atk = monster["atk"]
         self.def_ = monster["def"]
         self.spatk = monster["spatk"]
-        self.spdef = monster["spdef"]
         self.speed = monster["spd"]
-        self.atk_debuff = self.def_debuff = self.spatk_debuff = self.spdef_debuff = self.speed_debuff = 0
+        self.atk_debuff = self.def_debuff = self.spatk_debuff = self.speed_debuff = 0
         # Temporary (N-round) effects -- dodge_buff/resist_buff/dot/hot -- each a
         # {"type", "value", "remaining"} dict, ticked by _tick_timed_effects. Unlike the debuffs
         # above (permanent for the fight), these expire and are refreshed-not-stacked (see
@@ -107,7 +106,6 @@ def _apply_vs_monster_debuffs(instance: "MonsterInstance", equipped_item_ids) ->
     instance.atk_debuff += debuffs.get("atk", 0)
     instance.def_debuff += debuffs.get("def", 0)
     instance.spatk_debuff += debuffs.get("spatk", 0)
-    instance.spdef_debuff += debuffs.get("spdef", 0)
     instance.speed_debuff += debuffs.get("speed", 0)
 
 
@@ -157,12 +155,11 @@ class DelveSession:
         self.atk = effective["atk"]
         self.def_ = effective["def"]
         self.spatk = effective["spatk"]
-        self.spdef = effective["spdef"]
         self.speed = effective["speed"]
         # Symmetric to MonsterInstance's own debuff/timed_effects fields -- a player never had a
         # debuff before (only a monster's def_debuff existed), needed now that a monster's own
         # skill can weaken the player, same full parity as the buff side already had.
-        self.atk_debuff = self.def_debuff = self.spatk_debuff = self.spdef_debuff = self.speed_debuff = 0
+        self.atk_debuff = self.def_debuff = self.spatk_debuff = self.speed_debuff = 0
         self.timed_effects: list[dict] = []
         # Turn-order scheduling state -- see MonsterInstance's own fields for what these mean;
         # reset at the same points Chips/used_item_effects already reset.
@@ -281,9 +278,8 @@ class PartyMember:
         self.atk = effective["atk"]
         self.def_ = effective["def"]
         self.spatk = effective["spatk"]
-        self.spdef = effective["spdef"]
         self.speed = effective["speed"]
-        self.atk_debuff = self.def_debuff = self.spatk_debuff = self.spdef_debuff = self.speed_debuff = 0
+        self.atk_debuff = self.def_debuff = self.spatk_debuff = self.speed_debuff = 0
         self.timed_effects: list[dict] = []
         self.turn_clock = 0.0
         self.guard_charge: float | None = None
@@ -584,14 +580,35 @@ async def _combat_embed(session: DelveSession, log_text: str) -> tuple[discord.E
 # -- this is where a delve actually branches, not on combat rooms (which have at most one `next`).
 # See dungeon.py's module docstring for the full action shape.
 
-_CHECK_STAT_LABELS = {"hp": "HP", "atk": "ATK", "def": "DEF", "spatk": "SpATK", "spdef": "SpDEF", "speed": "SPD"}
-_CHECK_STAT_ATTRS = {"hp": "max_hp", "atk": "atk", "def": "def_", "spatk": "spatk", "spdef": "spdef", "speed": "speed"}
+_CHECK_STAT_ATTRS = {"hp": "max_hp", "atk": "atk", "def": "def_", "spatk": "spatk", "speed": "speed"}
 
 
 def _stat_value_for_check(actor, stat: str) -> int:
     """The actor's own value for whichever stat a skill check rolls against -- "hp" reads max_hp,
     not current wounded HP, so a check's odds don't depend on unrelated earlier combat damage."""
     return getattr(actor, _CHECK_STAT_ATTRS[stat])
+
+
+def _core_stat_line(stats: dict) -> str:
+    """HP/ATK/DEF/Magic/Speed/Chips as one player-facing line, labels pulled from
+    dungeon.stat_label so a reflavor via the admin panel's Stat Labels page needs no code change --
+    the one place this exact six-stat summary is formatted, reused by every character-sheet/preview
+    embed instead of each hardcoding its own "SpAtk"/"SpDef" strings."""
+    L = dungeon.stat_label
+    return (
+        f"{L('hp')} {stats['hp']} / {L('atk')} {stats['atk']} / {L('def')} {stats['def']} / "
+        f"{L('spatk')} {stats['spatk']} / 🏃 {L('speed')} {stats['speed']} / 🪙 {L('chips')} {stats['chips']}"
+    )
+
+
+def _dodge_resist_line(def_stat: int, spatk_stat: int, speed: int) -> str:
+    """Dodge%/Resist% as one player-facing line -- Dodge off DEF, Resist off Magic/spatk (see
+    dungeon.resolved_avoid_type for why these are no longer tied to a skill's Physical/Special
+    split), both through the same dungeon.dodge_chance curve."""
+    L = dungeon.stat_label
+    dodge_pct = round(dungeon.dodge_chance(def_stat, speed) * 100)
+    resist_pct = round(dungeon.dodge_chance(spatk_stat, speed) * 100)
+    return f"{L('dodge')} {dodge_pct}% / {L('resist')} {resist_pct}%"
 
 
 def _cost_item_registry(item_kind: str) -> dict:
@@ -1222,7 +1239,7 @@ async def _award_kill(
     level_result = await asyncio.to_thread(
         db.add_xp, guild_id, actor.user_id, xp_gain,
         growth["level_hp_gain"], growth["level_atk_gain"], growth["level_def_gain"],
-        growth["level_spatk_gain"], growth["level_spdef_gain"], 0,  # speed is flat -- never grows with level
+        growth["level_spatk_gain"], 0,  # speed is flat -- never grows with level
         dungeon.LEVELING["global"]["xp_per_level"],
     )
     log_lines.append(f"+{xp_gain} XP")
@@ -1232,13 +1249,11 @@ async def _award_kill(
         atk_delta = growth["level_atk_gain"] * level_result["levels_gained"]
         def_delta = growth["level_def_gain"] * level_result["levels_gained"]
         spatk_delta = growth["level_spatk_gain"] * level_result["levels_gained"]
-        spdef_delta = growth["level_spdef_gain"] * level_result["levels_gained"]
         actor.max_hp += hp_delta
         actor.hp += hp_delta
         actor.atk += atk_delta
         actor.def_ += def_delta
         actor.spatk += spatk_delta
-        actor.spdef += spdef_delta
         actor.unlocked_skills = dungeon.unlocked_skills(actor.main_class, actor.subclass, actor.level)
         plural = "s" if level_result["levels_gained"] > 1 else ""
         log_lines.append(f"🎉 Level up! Now level {actor.level} (+{level_result['levels_gained']} level{plural}).")
@@ -1469,12 +1484,9 @@ def _effect_def_buff(actor, monster_state, effect: dict, log_lines: list[str], m
 
 def _effect_spatk_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     actor.spatk += effect["value"]
-    log_lines.append(f"{_possessive_label(actor)} SpAtk rises by **{effect['value']}** for the rest of the fight.")
-
-
-def _effect_spdef_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
-    actor.spdef += effect["value"]
-    log_lines.append(f"{_possessive_label(actor)} SpDef rises by **{effect['value']}** for the rest of the fight.")
+    log_lines.append(
+        f"{_possessive_label(actor)} {dungeon.stat_label('spatk')} rises by **{effect['value']}** for the rest of the fight."
+    )
 
 
 def _effect_hp_buff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
@@ -1501,12 +1513,9 @@ def _effect_atk_debuff(actor, monster_state, effect: dict, log_lines: list[str],
 
 def _effect_spatk_debuff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     monster_state.spatk_debuff += effect["value"]
-    log_lines.append(f"{_combatant_possessive(monster_state)} SpAtk falls by **{effect['value']}** for the rest of the fight.")
-
-
-def _effect_spdef_debuff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
-    monster_state.spdef_debuff += effect["value"]
-    log_lines.append(f"{_combatant_possessive(monster_state)} SpDef falls by **{effect['value']}** for the rest of the fight.")
+    log_lines.append(
+        f"{_combatant_possessive(monster_state)} {dungeon.stat_label('spatk')} falls by **{effect['value']}** for the rest of the fight."
+    )
 
 
 def _effect_speed_debuff(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
@@ -1624,13 +1633,11 @@ EFFECT_HANDLERS = {
     "atk_buff": _effect_atk_buff,
     "def_buff": _effect_def_buff,
     "spatk_buff": _effect_spatk_buff,
-    "spdef_buff": _effect_spdef_buff,
     "hp_buff": _effect_hp_buff,
     "chip_gain": _effect_chip_gain,
     "speed_buff": _effect_speed_buff,
     "atk_debuff": _effect_atk_debuff,
     "spatk_debuff": _effect_spatk_debuff,
-    "spdef_debuff": _effect_spdef_debuff,
     "speed_debuff": _effect_speed_debuff,
     "taunt": _effect_taunt,
     "lower_threat": _effect_lower_threat,
@@ -1686,7 +1693,7 @@ def _resolve_player_action(
     actor, ally_pool: list, enemy_pool: list, current_target,
     effects: list[dict], special: bool, verb: str, subject_label: str, possessive_label: str, drain_verb: str,
     moon_mult: float, equipped_items: list[dict], threat_gain: bool, log_lines: list[str],
-    ally_target=None, is_plain_attack: bool = False, crit_chance: float = 0.0,
+    ally_target=None, is_plain_attack: bool = False, crit_chance: float = 0.0, avoid: str = "dodge",
 ) -> list:
     """Resolves one player-cast action (skill/consumable/equipment on-use) -- the shared core of
     _resolve_combat_turn (solo), _resolve_party_turn (party), and _resolve_duel_turn (PvP). Those
@@ -1702,7 +1709,12 @@ def _resolve_player_action(
     acting member has currently selected (PartyDelveSession.ally_target_for); solo/duel have no one
     else to pick, so they never need to pass anything different from the default. `is_plain_attack`
     is only ever True for a skill-less Attack -- see the `is_damage_action` line below for why this
-    can't just be inferred from `effects` being empty anymore.
+    can't just be inferred from `effects` being empty anymore. `avoid` (dungeon.resolved_avoid_type
+    of the triggering skill/item, "dodge" for a plain Attack) picks whether this whole action --
+    damage AND any attached debuff/CC alike, one shared roll per touched entity, same as `special`
+    used to decide alone -- is avoided via DEF (Dodge) or Magic/spatk (Resist); `special` itself now
+    ONLY picks ATK vs. Magic for the damage roll's own OUTPUT, unrelated to whether that damage (or
+    anything else this action does) lands at all.
 
     Every effect independently resolves WHO it lands on from its own "target" (self/ally/enemy,
     dungeon.EFFECT_TARGETS -- defaulting per type via dungeon.default_effect_target so untouched
@@ -1782,10 +1794,11 @@ def _resolve_player_action(
     for e, entities, is_enemy in handler_resolved:
         if is_enemy:
             touched.update(entities)
+    use_resist = avoid == "resist"
     dodged = {}
     for entity in touched:
-        eff_def = max(0, (entity.spdef - entity.spdef_debuff) if special else (entity.def_ - entity.def_debuff))
-        dodged[entity] = random.random() < _defended_dodge_chance(entity, eff_def, special)
+        avoid_stat = max(0, (entity.spatk - entity.spatk_debuff) if use_resist else (entity.def_ - entity.def_debuff))
+        dodged[entity] = random.random() < _defended_dodge_chance(entity, avoid_stat, use_resist)
 
     for e, entities, is_enemy in handler_resolved:
         for entity in entities:
@@ -1807,7 +1820,7 @@ def _resolve_player_action(
             if damage_is_enemy and dodged[entity]:
                 log_lines.append(f"{_combatant_name(entity)} dodges {possessive_label} {verb}!")
                 continue
-            eff_def = max(0, (entity.spdef - entity.spdef_debuff) if special else (entity.def_ - entity.def_debuff))
+            eff_def = max(0, entity.def_ - entity.def_debuff)  # damage mitigation is always DEF now
             is_crit = crit_chance > 0 and random.random() < crit_chance
             crit_mult = CRIT_MULTIPLIER if is_crit else 1.0
             dmg = dungeon.roll_damage(attacker_atk, eff_def, mods["multiplier"] * moon_mult * crit_mult)
@@ -1840,14 +1853,17 @@ def _resolve_player_action(
     return hit_entities
 
 
-def _defended_dodge_chance(defender, defense: int, special: bool) -> float:
+def _defended_dodge_chance(defender, defense: int, use_resist: bool) -> float:
     """dungeon.dodge_chance's base roll (against `defense`, already debuff-adjusted by the caller,
     plus the defender's own current Speed -- also debuff-adjusted here, same as every other stat
     this function's caller already adjusts before handing it in) plus any active dodge_buff
-    (Physical) / resist_buff (Special) bonus from the defender's own timed_effects -- still capped
-    at dungeon.DODGE_CAP, the same hard ceiling that already bounds DEF/SpDef/Speed stacking alone
-    (see dungeon.py's comment on DODGE_CAP)."""
-    buff_type = "resist_buff" if special else "dodge_buff"
+    (Dodge) / resist_buff (Resist) bonus from the defender's own timed_effects -- still capped at
+    dungeon.DODGE_CAP, the same hard ceiling that already bounds DEF/Magic/Speed stacking alone
+    (see dungeon.py's comment on DODGE_CAP). `use_resist` is the skill's own resolved "avoid" (see
+    dungeon.resolved_avoid_type), NOT whether the skill's damage is Physical/Special -- `defense` is
+    whichever stat (DEF or Magic/spatk) that same "avoid" choice points to, already resolved by the
+    caller."""
+    buff_type = "resist_buff" if use_resist else "dodge_buff"
     bonus = next((e["value"] for e in defender.timed_effects if e["type"] == buff_type), 0)
     speed = max(0, defender.speed - defender.speed_debuff)
     return min(dungeon.DODGE_CAP, dungeon.dodge_chance(defense, speed) + bonus)
@@ -1947,11 +1963,7 @@ def _roll_on_hit_procs(
                     log_lines.append(f"{item['name']} drains **{healed}** HP from the strike.")
             elif effect["type"] == "extra_attack":
                 attacker_atk = (actor.spatk - actor.spatk_debuff) if special else (actor.atk - actor.atk_debuff)
-                eff_def = max(
-                    0,
-                    (monster_state.spdef - monster_state.spdef_debuff) if special
-                    else (monster_state.def_ - monster_state.def_debuff),
-                )
+                eff_def = max(0, monster_state.def_ - monster_state.def_debuff)  # mitigation is always DEF now
                 extra_dmg = dungeon.roll_damage(attacker_atk, eff_def, effect.get("multiplier", 1.0) * moon_mult)
                 extra_dmg = _consume_guard_charge(monster_state, extra_dmg, log_lines)
                 monster_state.hp -= extra_dmg
@@ -1971,7 +1983,7 @@ def _resolve_monster_attack(
 ) -> tuple[list[tuple[object, int, bool]], dict | None]:
     """One monster's turn -- either its plain attack or one of its own skills
     (dungeon.pick_monster_action, weighted by the monster's own attack_chance vs. each skill's own
-    chance) -- against `default_target` (anything with `.def_`/`.spdef`/`.hp`/`.timed_effects` -- a
+    chance) -- against `default_target` (anything with `.def_`/`.spatk`/`.hp`/`.timed_effects` -- a
     DelveSession or PartyMember) normally, or every entry in `target_pool` instead when the picked
     skill's own damage-shaped effect is flagged "aoe" (dungeon_view's own party call site is the
     only caller that ever passes more than one candidate in `target_pool`; solo always passes a
@@ -1991,9 +2003,10 @@ def _resolve_monster_attack(
     function's own docstring) -- a "buffer" monster's whole reason to exist. This runs exactly once
     regardless of how many entities the enemy-targeted effects go on to reach. Enemy-targeted
     effects (def_shred, the *_debuff family, and the damage roll itself) repeat once per target --
-    each gets its own independent dodge roll (base DEF/SpDef minus its own debuff, plus any active
-    dodge_buff/resist_buff -- see _defended_dodge_chance) that negates only that target's own share
-    of the action, not the others'.
+    each gets its own independent dodge/resist roll (dungeon.resolved_avoid_type's own DEF or
+    Magic/spatk, minus its own debuff, plus any active dodge_buff/resist_buff -- see
+    _defended_dodge_chance) that negates only that target's own share of the action, not the
+    others'; damage MITIGATION (once a hit lands) is always DEF regardless of that choice.
 
     Returns (results, skill-or-None, lifesteal_line) where results is one (target, damage, dodged)
     tuple per entry actually targeted, in order -- callers apply damage/knockout themselves (solo
@@ -2006,6 +2019,7 @@ def _resolve_monster_attack(
     monster_group = monster_group or [attacker]
     skill = dungeon.pick_monster_action(attacker.monster, len(monster_group) - 1)
     special = bool(skill.get("special")) if skill else False
+    use_resist = dungeon.resolved_avoid_type(skill) == "resist"
     effects = dungeon.resolve_cast_effects(skill) if skill else []
 
     enemy_effects = []
@@ -2032,12 +2046,13 @@ def _resolve_monster_attack(
     results: list[tuple[object, int, bool]] = []
     total_dmg = 0
     for target in targets:
-        target_def = max(0, (target.spdef - target.spdef_debuff) if special else (target.def_ - target.def_debuff))
-        if random.random() < _defended_dodge_chance(target, target_def, special):
+        avoid_stat = max(0, (target.spatk - target.spatk_debuff) if use_resist else (target.def_ - target.def_debuff))
+        if random.random() < _defended_dodge_chance(target, avoid_stat, use_resist):
             results.append((target, 0, True))
             continue
         for effect in non_damage_enemy_effects:
             EFFECT_HANDLERS[effect["type"]](attacker, target, effect, log_lines, mods)
+        target_def = max(0, target.def_ - target.def_debuff)  # damage mitigation is always DEF now
         dmg = 0
         if is_damage_action:
             dmg = dungeon.roll_damage(attacker_atk, target_def, mods["multiplier"] * monster_moon_mult)
@@ -2170,7 +2185,7 @@ async def _advance_solo_turns(interaction: discord.Interaction, session: DelveSe
 
 async def _resolve_combat_turn(
     interaction: discord.Interaction, session: DelveSession, effects: list[dict], verb: str, log_lines: list[str],
-    special: bool = False, is_plain_attack: bool = False,
+    special: bool = False, is_plain_attack: bool = False, avoid: str = "dodge",
 ) -> bool:
     """Resolves the player's own chosen action (plain Attack, a skill, or a consumed item) --
     applies `effects` via _resolve_player_action (each effect independently single-target or AOE
@@ -2181,18 +2196,20 @@ async def _resolve_combat_turn(
     speed order, until the player's own turn comes back around). `verb` only matters if a damage
     roll happens (e.g. "attack", "unleash **Fireball**", "use **Healing Draught**") -- callers that
     only heal/buff never reach the line that reads it. `special` (always False for a plain Attack)
-    picks SpAtk/SpDef instead of ATK/DEF for the damage roll -- set by callers from the triggering
-    skill/item's own "special" flag. `is_plain_attack` (only ever True for a skill-less Attack) is
-    forwarded straight to _resolve_player_action -- see its own note on why. Always returns True
-    (this always consumes the turn -- any "can't do this right now" rejection happens before this
-    is called)."""
+    picks ATK vs. Magic for the damage roll's own output -- set by callers from the triggering
+    skill/item's own "special" flag. `avoid` (dungeon.resolved_avoid_type of that same skill/item,
+    "dodge" for a plain Attack) separately picks whether DEF or Magic gates avoiding this action
+    entirely -- see _resolve_player_action's own docstring for why these are no longer the same
+    decision. `is_plain_attack` (only ever True for a skill-less Attack) is forwarded straight to
+    _resolve_player_action -- see its own note on why. Always returns True (this always consumes
+    the turn -- any "can't do this right now" rejection happens before this is called)."""
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
     equipped_items = [dungeon.EQUIPMENT[iid] for iid in session.equipped.values()]
     hit = _resolve_player_action(
         session, [session], session.living_monsters(), session.current_target(), effects, special, verb,
         "You", "your", "drain", player_moon_mult, equipped_items, False, log_lines,
-        is_plain_attack=is_plain_attack,
+        is_plain_attack=is_plain_attack, avoid=avoid,
     )
 
     session.turn_clock += dungeon.turn_interval(max(1, session.speed - session.speed_debuff))
@@ -2233,10 +2250,13 @@ async def _handle_action(interaction: discord.Interaction, session: DelveSession
 
     effects = dungeon.resolve_cast_effects(skill) if skill is not None else []
     special = bool(skill.get("special")) if skill is not None else False
+    avoid = dungeon.resolved_avoid_type(skill)
     if skill is not None:
         session.chips -= skill["chip_cost"]
     verb = f"unleash **{skill['name']}**" if skill is not None else "attack"
-    return await _resolve_combat_turn(interaction, session, effects, verb, [], special, is_plain_attack=skill is None)
+    return await _resolve_combat_turn(
+        interaction, session, effects, verb, [], special, is_plain_attack=skill is None, avoid=avoid,
+    )
 
 
 async def _handle_use_item(interaction: discord.Interaction, session: DelveSession, item: dict) -> bool:
@@ -2250,7 +2270,9 @@ async def _handle_use_item(interaction: discord.Interaction, session: DelveSessi
         return False
     verb = f"use **{item['name']}**"
     effects = dungeon.resolve_cast_effects(item)
-    return await _resolve_combat_turn(interaction, session, effects, verb, [], item.get("special", False))
+    return await _resolve_combat_turn(
+        interaction, session, effects, verb, [], item.get("special", False), avoid=dungeon.resolved_avoid_type(item),
+    )
 
 
 async def _handle_cast_item(interaction: discord.Interaction, session: DelveSession, item: dict) -> bool:
@@ -2264,7 +2286,9 @@ async def _handle_cast_item(interaction: discord.Interaction, session: DelveSess
     session.used_item_effects.add(item["id"])
     effects = [e for e in item["effects"] if e["trigger"] == "on_use"]
     verb = f"unleash **{item['name']}**"
-    return await _resolve_combat_turn(interaction, session, effects, verb, [], item.get("special", False))
+    return await _resolve_combat_turn(
+        interaction, session, effects, verb, [], item.get("special", False), avoid=dungeon.resolved_avoid_type(item),
+    )
 
 
 async def _present_room_result(interaction: discord.Interaction, session: DelveSession, log_lines: list[str]):
@@ -2551,6 +2575,7 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
 async def _resolve_party_turn(
     interaction: discord.Interaction, session: PartyDelveSession, member: PartyMember,
     effects: list[dict], verb: str, log_lines: list[str], special: bool = False, is_plain_attack: bool = False,
+    avoid: str = "dodge",
 ) -> bool:
     """Party sibling of _resolve_combat_turn: applies `effects` via _resolve_player_action (each
     effect independently single-target or AOE per its own "aoe" flag -- ally-aoe expands to
@@ -2560,9 +2585,10 @@ async def _resolve_party_turn(
     each kill runs the party's independent-per-member reward loop (leader at full rate, joiners
     halved -- see _award_kill). Advances `member`'s own turn_clock, then hands off to
     _advance_party_turns for whatever happens next (automatic member/monster turns, in speed order,
-    until some living member's own turn comes back around). `special` picks SpAtk/SpDef instead of
-    ATK/DEF for the damage roll, same as _resolve_combat_turn; `is_plain_attack` forwards the same
-    way too."""
+    until some living member's own turn comes back around). `special` picks ATK vs. Magic for the
+    damage roll's own output, same as _resolve_combat_turn; `avoid` picks DEF vs. Magic for whether
+    this action lands at all, same "no longer the same decision" story as there; `is_plain_attack`
+    forwards the same way too."""
     target = session.target_for(member)
     ally_target = session.ally_target_for(member)
     moon_effect = moon.effect_for("dungeon")
@@ -2571,7 +2597,7 @@ async def _resolve_party_turn(
     hit = _resolve_player_action(
         member, session.living_members(), session.living_monsters(), target, effects, special, verb,
         member.label, f"{member.label}'s", "drains", player_moon_mult, equipped_items, True, log_lines,
-        ally_target=ally_target, is_plain_attack=is_plain_attack,
+        ally_target=ally_target, is_plain_attack=is_plain_attack, avoid=avoid,
     )
 
     member.turn_clock += dungeon.turn_interval(max(1, member.speed - member.speed_debuff))
@@ -2627,10 +2653,13 @@ async def _handle_party_action(
         return False
     effects = dungeon.resolve_cast_effects(skill) if skill is not None else []
     special = bool(skill.get("special")) if skill is not None else False
+    avoid = dungeon.resolved_avoid_type(skill)
     if skill is not None:
         member.chips -= skill["chip_cost"]
     verb = f"unleash **{skill['name']}**" if skill is not None else "attack"
-    return await _resolve_party_turn(interaction, session, member, effects, verb, [], special, is_plain_attack=skill is None)
+    return await _resolve_party_turn(
+        interaction, session, member, effects, verb, [], special, is_plain_attack=skill is None, avoid=avoid,
+    )
 
 
 async def _handle_party_use_item(
@@ -2643,7 +2672,8 @@ async def _handle_party_use_item(
     verb = f"use **{item['name']}**"
     effects = dungeon.resolve_cast_effects(item)
     return await _resolve_party_turn(
-        interaction, session, member, effects, verb, [], item.get("special", False)
+        interaction, session, member, effects, verb, [], item.get("special", False),
+        avoid=dungeon.resolved_avoid_type(item),
     )
 
 
@@ -2658,7 +2688,10 @@ async def _handle_party_cast_item(
     member.used_item_effects.add(item["id"])
     effects = [e for e in item["effects"] if e["trigger"] == "on_use"]
     verb = f"unleash **{item['name']}**"
-    return await _resolve_party_turn(interaction, session, member, effects, verb, [], item.get("special", False))
+    return await _resolve_party_turn(
+        interaction, session, member, effects, verb, [], item.get("special", False),
+        avoid=dungeon.resolved_avoid_type(item),
+    )
 
 
 class PartyAttackButton(discord.ui.Button):
@@ -3429,7 +3462,7 @@ class PartyLobbyView(discord.ui.View):
 # Player-vs-player combat reusing the same combat engine as PvE (_resolve_player_action,
 # EFFECT_HANDLERS, dungeon.preview_next_turns/turn_interval) -- each duelist is literally a
 # PartyMember (guild_id/user_id/player_name/character/equipped/is_leader -- is_leader/loot_mult/
-# loot_total go unused here, harmless), so every combat stat (atk/def_/spatk/spdef/speed + all
+# loot_total go unused here, harmless), so every combat stat (atk/def_/spatk/speed + all
 # debuffs, timed_effects, guard_charge, hp/max_hp, chips/max_chips, unlocked_skills,
 # used_item_effects, .label) already exists with zero new class needed. A duel never touches either
 # player's real persisted current_hp -- both start fresh at their own full HP each duel, and
@@ -3781,7 +3814,7 @@ async def _advance_duel_turns(interaction: discord.Interaction | None, session: 
 
 async def _resolve_duel_turn(
     interaction: discord.Interaction, session: DuelSession, actor: PartyMember, effects: list[dict],
-    verb: str, log_lines: list[str], special: bool = False, is_plain_attack: bool = False,
+    verb: str, log_lines: list[str], special: bool = False, is_plain_attack: bool = False, avoid: str = "dodge",
 ) -> bool:
     """Duel sibling of _resolve_party_turn -- always exactly one possible opponent (the other
     duelist), no threat gain (PvP has no monster threat table), no moon multiplier, but a duel-only
@@ -3795,7 +3828,7 @@ async def _resolve_duel_turn(
     _resolve_player_action(
         actor, [actor], [opponent], opponent, effects, special, verb,
         actor.label, f"{actor.label}'s", "drains", 1.0, equipped_items, False, log_lines,
-        is_plain_attack=is_plain_attack, crit_chance=DUEL_CRIT_CHANCE,
+        is_plain_attack=is_plain_attack, crit_chance=DUEL_CRIT_CHANCE, avoid=avoid,
     )
 
     actor.turn_clock += dungeon.turn_interval(max(1, actor.speed - actor.speed_debuff))
@@ -3836,10 +3869,13 @@ async def _handle_duel_action(
         return False
     effects = dungeon.resolve_cast_effects(skill) if skill is not None else []
     special = bool(skill.get("special")) if skill is not None else False
+    avoid = dungeon.resolved_avoid_type(skill)
     if skill is not None:
         actor.chips -= skill["chip_cost"]
     verb = f"unleash **{skill['name']}**" if skill is not None else "attack"
-    return await _resolve_duel_turn(interaction, session, actor, effects, verb, [], special, is_plain_attack=skill is None)
+    return await _resolve_duel_turn(
+        interaction, session, actor, effects, verb, [], special, is_plain_attack=skill is None, avoid=avoid,
+    )
 
 
 async def _handle_duel_use_item(
@@ -3851,7 +3887,10 @@ async def _handle_duel_use_item(
         return False
     verb = f"use **{item['name']}**"
     effects = dungeon.resolve_cast_effects(item)
-    return await _resolve_duel_turn(interaction, session, actor, effects, verb, [], item.get("special", False))
+    return await _resolve_duel_turn(
+        interaction, session, actor, effects, verb, [], item.get("special", False),
+        avoid=dungeon.resolved_avoid_type(item),
+    )
 
 
 async def _handle_duel_cast_item(
@@ -3863,7 +3902,10 @@ async def _handle_duel_cast_item(
     actor.used_item_effects.add(item["id"])
     effects = [e for e in item["effects"] if e["trigger"] == "on_use"]
     verb = f"unleash **{item['name']}**"
-    return await _resolve_duel_turn(interaction, session, actor, effects, verb, [], item.get("special", False))
+    return await _resolve_duel_turn(
+        interaction, session, actor, effects, verb, [], item.get("special", False),
+        avoid=dungeon.resolved_avoid_type(item),
+    )
 
 
 class DuelAttackButton(discord.ui.Button):
@@ -4263,13 +4305,10 @@ class ClassPickerView(discord.ui.View):
             name = dungeon.display_name(self.main_class, dungeon.NO_SUBCLASS)
             stats = dungeon.compute_stats(self.main_class, dungeon.NO_SUBCLASS)
             skill = dungeon.unlocked_skills(self.main_class, dungeon.NO_SUBCLASS, 1)[0]
-            dodge_pct = round(dungeon.dodge_chance(stats["def"], stats["speed"]) * 100)
-            resist_pct = round(dungeon.dodge_chance(stats["spdef"], stats["speed"]) * 100)
             embed.add_field(
                 name=f"Preview: {name}",
-                value=f"HP {stats['hp']} / ATK {stats['atk']} / DEF {stats['def']} / "
-                      f"SpAtk {stats['spatk']} / SpDef {stats['spdef']} / 🏃 Speed {stats['speed']} / 🪙 Chips {stats['chips']}\n"
-                      f"Dodge {dodge_pct}% / Resist {resist_pct}%\n"
+                value=f"{_core_stat_line(stats)}\n"
+                      f"{_dodge_resist_line(stats['def'], stats['spatk'], stats['speed'])}\n"
                       f"Skill: **{skill['name']}** — {skill['flavor']}",
                 inline=False,
             )
@@ -4290,20 +4329,17 @@ class ClassConfirmButton(discord.ui.Button):
         stats = dungeon.compute_stats(picker.main_class, dungeon.NO_SUBCLASS)
         created = await asyncio.to_thread(
             db.create_character, picker.guild_id, picker.user_id, picker.main_class, dungeon.NO_SUBCLASS,
-            stats["hp"], stats["atk"], stats["def"], stats["spatk"], stats["spdef"], stats["speed"],
+            stats["hp"], stats["atk"], stats["def"], stats["spatk"], stats["speed"],
         )
         if not created:
             await interaction.response.send_message("You already have a character.", ephemeral=True)
             return
 
         name = dungeon.display_name(picker.main_class, dungeon.NO_SUBCLASS)
-        dodge_pct = round(dungeon.dodge_chance(stats["def"], stats["speed"]) * 100)
-        resist_pct = round(dungeon.dodge_chance(stats["spdef"], stats["speed"]) * 100)
         embed = discord.Embed(
             title=f"✅ You are now a {name}!",
-            description=f"HP {stats['hp']} / ATK {stats['atk']} / DEF {stats['def']} / "
-                        f"SpAtk {stats['spatk']} / SpDef {stats['spdef']} / 🏃 Speed {stats['speed']} / 🪙 Chips {stats['chips']}\n"
-                        f"Dodge {dodge_pct}% / Resist {resist_pct}%\n\n"
+            description=f"{_core_stat_line(stats)}\n"
+                        f"{_dodge_resist_line(stats['def'], stats['spatk'], stats['speed'])}\n\n"
                         f"Use `!delve` to enter the dungeon. Subclass picking isn't open yet — "
                         f"stay tuned for an event.",
             color=discord.Color.green(),
@@ -4345,21 +4381,19 @@ class SubclassPickerView(discord.ui.View):
         if self.subclass:
             mod = dungeon.SUBCLASSES[self.subclass]
             name = dungeon.display_name(self.main_class, self.subclass)
-            hp = self.character["hp"] + mod["hp"]
-            atk = self.character["atk"] + mod["atk"]
-            def_ = self.character["def"] + mod["def"]
-            spatk = self.character["spatk"] + mod["spatk"]
-            spdef = self.character["spdef"] + mod["spdef"]
-            speed = self.character["speed"] + mod["speed"]
-            chips = dungeon.compute_stats(self.main_class, self.subclass)["chips"]
+            stats = {
+                "hp": self.character["hp"] + mod["hp"],
+                "atk": self.character["atk"] + mod["atk"],
+                "def": self.character["def"] + mod["def"],
+                "spatk": self.character["spatk"] + mod["spatk"],
+                "speed": self.character["speed"] + mod["speed"],
+                "chips": dungeon.compute_stats(self.main_class, self.subclass)["chips"],
+            }
             skill = dungeon.unlocked_skills(self.main_class, self.subclass, self.level)[0]
-            dodge_pct = round(dungeon.dodge_chance(def_, speed) * 100)
-            resist_pct = round(dungeon.dodge_chance(spdef, speed) * 100)
             embed.add_field(
                 name=f"Preview: {name}",
-                value=f"HP {hp} / ATK {atk} / DEF {def_} / SpAtk {spatk} / SpDef {spdef} / "
-                      f"🏃 Speed {speed} / 🪙 Chips {chips}\n"
-                      f"Dodge {dodge_pct}% / Resist {resist_pct}%\n"
+                value=f"{_core_stat_line(stats)}\n"
+                      f"{_dodge_resist_line(stats['def'], stats['spatk'], stats['speed'])}\n"
                       f"New Skill: **{skill['name']}** — {skill['flavor']}",
                 inline=False,
             )
@@ -4380,7 +4414,7 @@ class SubclassConfirmButton(discord.ui.Button):
         mod = dungeon.SUBCLASSES[picker.subclass]
         chosen = await asyncio.to_thread(
             db.choose_subclass, picker.guild_id, picker.user_id, picker.subclass,
-            mod["hp"], mod["atk"], mod["def"], mod["spatk"], mod["spdef"], mod["speed"],
+            mod["hp"], mod["atk"], mod["def"], mod["spatk"], mod["speed"],
         )
         if not chosen:
             await interaction.response.send_message("You've already picked a subclass.", ephemeral=True)

@@ -109,11 +109,6 @@
         "aoe": true
       },
       {
-        "type": "spdef_debuff",
-        "value": 4,
-        "aoe": true
-      },
-      {
         "type": "lifesteal_fraction",
         "value": 0.3
       }
@@ -135,11 +130,6 @@
       },
       {
         "type": "def_shred",
-        "value": 3,
-        "aoe": true
-      },
-      {
-        "type": "spdef_debuff",
         "value": 3,
         "aoe": true
       }
@@ -289,11 +279,6 @@
             "type": "def_shred",
             "value": 3,
             "aoe": true
-          },
-          {
-            "type": "spdef_debuff",
-            "value": 3,
-            "aoe": true
           }
         ]
       },
@@ -393,10 +378,6 @@
       {
         "type": "def_shred",
         "value": 5
-      },
-      {
-        "type": "spdef_debuff",
-        "value": 5
       }
     ],
     "chip_cost": 10,
@@ -471,10 +452,6 @@
           {
             "type": "damage_multiplier",
             "value": 0.6
-          },
-          {
-            "type": "spdef_debuff",
-            "value": 6
           },
           {
             "type": "def_shred",
@@ -786,12 +763,6 @@
         "chance": 0.5
       },
       {
-        "type": "spdef_debuff",
-        "value": 4,
-        "target": "enemy",
-        "chance": 0.5
-      },
-      {
         "type": "speed_debuff",
         "value": 2,
         "target": "enemy",
@@ -867,11 +838,6 @@
       },
       {
         "type": "def_buff",
-        "value": 5,
-        "target": "self"
-      },
-      {
-        "type": "spdef_buff",
         "value": 5,
         "target": "self"
       }
@@ -1066,11 +1032,6 @@
         "target": "self"
       },
       {
-        "type": "spdef_buff",
-        "value": 5,
-        "target": "self"
-      },
-      {
         "type": "atk_buff",
         "value": 4,
         "aoe": true,
@@ -1141,11 +1102,6 @@
       },
       {
         "type": "def_buff",
-        "value": 5,
-        "target": "self"
-      },
-      {
-        "type": "spdef_buff",
         "value": 5,
         "target": "self"
       },
@@ -1253,7 +1209,7 @@
     "subclass": "hearts",
     "unlock_level": 1,
     "name": "Thank You, Thank You Very Much",
-    "flavor": "They drop their voice an octave, and the whole room just\u2026 stops.",
+    "flavor": "They drop their voice an octave, and the whole room just… stops.",
     "effects": [
       {
         "type": "damage_multiplier",
@@ -1584,11 +1540,6 @@
         "target": "self"
       },
       {
-        "type": "spdef_buff",
-        "value": 5,
-        "target": "self"
-      },
-      {
         "type": "atk_debuff",
         "value": 3,
         "aoe": true,
@@ -1614,11 +1565,6 @@
       },
       {
         "type": "def_buff",
-        "value": 5,
-        "target": "self"
-      },
-      {
-        "type": "spdef_buff",
         "value": 5,
         "target": "self"
       },

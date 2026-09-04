@@ -65,7 +65,7 @@ Field types the generic form-builder knows how to render:
     `chance` (0-1) -- see admin_server.py's _render_effect_row(include_trigger=True) and
     dungeon.py's module comment above _validate_equipment_effects for what each trigger means and
     which effect types each one allows. A `constant` effect is what a flat stat_bonuses dict used
-    to be (dungeon.constant_stat_bonuses folds these back into {hp,atk,def,spatk,spdef} everywhere
+    to be (dungeon.constant_stat_bonuses folds these back into {hp,atk,def,spatk} everywhere
     that used to read stat_bonuses directly); trigger/type-restriction validation happens at save
     time via dungeon._validate_equipment_effects, same "let the type dropdown show everything,
     catch a bad combination loudly at Save" choice this admin panel already makes for free-typed
@@ -280,20 +280,20 @@ CONTENT_TYPES = {
             lambda new_registry: quests.validate_monster_drop_housing_items(new_registry),
             lambda new_registry: dungeon.validate_vs_monster_debuffs(dungeon.EQUIPMENT, new_registry),
         ],
-        "list_columns": ["id", "name", "intended_level", "hp", "atk", "def", "spatk", "spdef", "spd"],
+        "list_columns": ["id", "name", "intended_level", "hp", "atk", "def", "spatk", "spd"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
             {"name": "hp", "type": "int", "required": True, "min": 0, "group": "Stats"},
             {"name": "atk", "type": "int", "required": True, "min": 0, "group": "Stats"},
-            {"name": "def", "type": "int", "required": True, "min": 0, "group": "Stats"},
             {
-                "name": "spatk", "type": "int", "required": True, "min": 0, "group": "Stats",
-                "hint": "Special Attack -- used instead of atk when this monster's own skill is flagged special",
+                "name": "def", "type": "int", "required": True, "min": 0, "group": "Stats",
+                "hint": "Defense -- mitigates every incoming hit, physical or magic alike",
             },
             {
-                "name": "spdef", "type": "int", "required": True, "min": 0, "group": "Stats",
-                "hint": "Special Defense -- used instead of def against an attacker's special skills",
+                "name": "spatk", "type": "int", "required": True, "min": 0, "group": "Stats",
+                "hint": "Magic -- used instead of atk when this monster's own skill is flagged special, "
+                        "also fuels Resist on any of its skills flagged that way (see the skill's own avoid)",
             },
             {"name": "spd", "type": "int", "required": True, "min": 0, "group": "Stats"},
             {
@@ -376,9 +376,16 @@ CONTENT_TYPES = {
             {"name": "effects", "type": "equipment_effects", "required": True},
             {
                 "name": "special", "type": "bool", "required": False, "default": False, "group": "Drop Info",
-                "hint": "Physical (unchecked) rolls an On Use damage effect against ATK/DEF; Special "
-                        "(checked) uses SpAtk/SpDef instead. Only matters if this item has a damage-shaped "
+                "hint": "Physical (unchecked) rolls an On Use damage effect against ATK; Special "
+                        "(checked) uses Magic instead. Only matters if this item has a damage-shaped "
                         "On Use effect.",
+            },
+            {
+                "name": "avoid", "type": "enum", "required": False, "choices": list(dungeon.AVOID_TYPES),
+                "group": "Drop Info",
+                "hint": "Whether this item's On Use action (damage and any attached debuff alike) is "
+                        "avoided via Dodge (DEF) or Resist (Magic). Left blank, it's derived from Special "
+                        "above (Resist if Special, Dodge otherwise).",
             },
             {
                 "name": "intended_level", "type": "int", "required": False, "min": 1, "group": "Drop Info",
@@ -552,7 +559,7 @@ CONTENT_TYPES = {
         "extra_validators": [
             lambda new_registry: dungeon.validate_class_chip_costs(new_registry, dungeon.SUBCLASSES),
         ],
-        "list_columns": ["id", "display_name", "rank", "hp", "atk", "def", "spatk", "spdef", "chips", "speed"],
+        "list_columns": ["id", "display_name", "rank", "hp", "atk", "def", "spatk", "chips", "speed"],
         "fields": [
             {
                 "name": "id", "type": "str", "required": True, "group": "Identity",
@@ -577,7 +584,6 @@ CONTENT_TYPES = {
             {"name": "atk", "type": "int", "required": True, "min": 0, "group": "Base Stats"},
             {"name": "def", "type": "int", "required": True, "min": 0, "group": "Base Stats"},
             {"name": "spatk", "type": "int", "required": True, "min": 0, "group": "Base Stats"},
-            {"name": "spdef", "type": "int", "required": True, "min": 0, "group": "Base Stats"},
             {
                 "name": "chips", "type": "int", "required": True, "min": 0, "group": "Base Stats",
                 "hint": "max Chips pool before subclass modifiers -- lowering this can strand an "
@@ -596,7 +602,6 @@ CONTENT_TYPES = {
             {"name": "level_atk_gain", "type": "int", "required": True, "min": 0, "group": "Leveling"},
             {"name": "level_def_gain", "type": "int", "required": True, "min": 0, "group": "Leveling"},
             {"name": "level_spatk_gain", "type": "int", "required": True, "min": 0, "group": "Leveling"},
-            {"name": "level_spdef_gain", "type": "int", "required": True, "min": 0, "group": "Leveling"},
         ],
     },
     "subclasses": {
@@ -610,7 +615,7 @@ CONTENT_TYPES = {
         "extra_validators": [
             lambda new_registry: dungeon.validate_class_chip_costs(dungeon.CLASSES, new_registry),
         ],
-        "list_columns": ["id", "symbol", "archetype_label", "hp", "atk", "def", "spatk", "spdef", "chips", "speed", "loot_mult"],
+        "list_columns": ["id", "symbol", "archetype_label", "hp", "atk", "def", "spatk", "chips", "speed", "loot_mult"],
         "fields": [
             {
                 "name": "id", "type": "str", "required": True, "group": "Identity",
@@ -633,7 +638,6 @@ CONTENT_TYPES = {
             {"name": "atk", "type": "int", "required": True, "group": "Stat Modifiers"},
             {"name": "def", "type": "int", "required": True, "group": "Stat Modifiers"},
             {"name": "spatk", "type": "int", "required": True, "group": "Stat Modifiers"},
-            {"name": "spdef", "type": "int", "required": True, "group": "Stat Modifiers"},
             {
                 "name": "chips", "type": "int", "required": True, "group": "Stat Modifiers",
                 "hint": "lowering this can strand an existing skill's chip_cost, checked at save time",
@@ -694,6 +698,31 @@ CONTENT_TYPES = {
             },
         ],
     },
+    "stat_labels": {
+        "label": "Stat Labels",
+        "category": DUNGEON_CONTENT,
+        "icon": "🏷️",
+        "json_path": "dungeon_stat_labels.json",
+        "module": dungeon,
+        "registry_attr": "STAT_LABELS",
+        "loader": dungeon._load_stat_labels,
+        "list_columns": ["id", "label", "emoji"],
+        "fields": [
+            {
+                "name": "id", "type": "str", "required": True, "group": "Identity",
+                "hint": "must stay exactly one of: hp, atk, def, spatk, speed, chips, dodge, resist -- "
+                        "the roster is fixed (wired to real stats/mechanics elsewhere), only label/emoji "
+                        "are editable",
+            },
+            {
+                "name": "label", "type": "str", "required": True, "group": "Display",
+                "hint": "player-facing name shown everywhere this stat appears (character sheets, skill "
+                        "lists, combat log) -- e.g. rename spatk's label to reflavor \"Magic\" into "
+                        "something else entirely, no code change needed",
+            },
+            {"name": "emoji", "type": "str", "required": False, "group": "Display"},
+        ],
+    },
     "skills": {
         "label": "Skills",
         "category": DUNGEON_CONTENT,
@@ -747,8 +776,16 @@ CONTENT_TYPES = {
             },
             {
                 "name": "special", "type": "bool", "required": False, "default": False, "group": "Class",
-                "hint": "Physical (unchecked) rolls damage against ATK/DEF; Special (checked) uses "
-                        "SpAtk/SpDef instead. Plain Attack is always Physical.",
+                "hint": "Physical (unchecked) rolls damage against ATK; Special (checked) uses Magic "
+                        "instead. Plain Attack is always Physical.",
+            },
+            {
+                "name": "avoid", "type": "enum", "required": False, "choices": list(dungeon.AVOID_TYPES),
+                "group": "Class",
+                "hint": "Whether this whole skill (damage and any attached debuff alike) is avoided via "
+                        "Dodge (DEF) or Resist (Magic). Left blank, it's derived from Special above "
+                        "(Resist if Special, Dodge otherwise) -- the behavior every existing skill already had "
+                        "before this field existed.",
             },
         ],
     },
@@ -1154,18 +1191,17 @@ EFFECT_TYPE_HINTS = {
     "extra_attack": "multiplier: optional damage multiplier for the bonus attack (blank = 1.0, a full extra hit)",
     "atk_buff": "value: flat ATK bonus for the rest of this fight",
     "def_buff": "value: flat DEF bonus for the rest of this fight",
-    "spatk_buff": "value: flat SpAtk bonus for the rest of this fight",
-    "spdef_buff": "value: flat SpDef bonus for the rest of this fight",
+    "spatk_buff": "value: flat Magic bonus for the rest of this fight",
     "hp_buff": "value: flat max HP bonus (current HP rises by the same amount) for the rest of this fight",
+    "chip_gain": "value: Chips restored, capped at max Chips",
     "speed_buff": "value: flat Speed bonus for the rest of this fight -- faster turn order",
     "atk_debuff": "value: flat amount the target's ATK is lowered by, for the rest of this fight",
-    "spatk_debuff": "value: flat amount the target's SpAtk is lowered by, for the rest of this fight",
-    "spdef_debuff": "value: flat amount the target's SpDef is lowered by, for the rest of this fight",
+    "spatk_debuff": "value: flat amount the target's Magic is lowered by, for the rest of this fight",
     "speed_debuff": "value: flat amount the target's Speed is lowered by, for the rest of this fight -- slower turn order",
     "taunt": "value: flat threat gained against every monster in the fight right now -- higher means monsters are more likely to attack you instead of your allies. Player-only, party delves only.",
     "lower_threat": "value: flat threat lost against every monster in the fight right now -- lower means monsters are less likely to attack you. Player-only, party delves only.",
-    "dodge_buff": "value: bonus chance (0-1) to fully avoid a Physical hit; duration: how many rounds it lasts",
-    "resist_buff": "value: bonus chance (0-1) to fully avoid a Special hit; duration: how many rounds it lasts",
+    "dodge_buff": "value: bonus chance (0-1) to fully avoid a Dodge-gated action; duration: how many rounds it lasts",
+    "resist_buff": "value: bonus chance (0-1) to fully avoid a Resist-gated action; duration: how many rounds it lasts",
     "dot": "value: flat damage taken each round; duration: how many rounds it lasts",
     "hot": "value: fraction of max HP restored each round (0-1); duration: how many rounds it lasts",
     "sap": "duration: how many of the target's own turns it skips -- broken early the instant they take any damage (including from this same hit)",
@@ -1181,9 +1217,9 @@ EFFECT_TYPE_HINTS = {
 EFFECT_SHORT_LABELS = {
     "damage_multiplier": "Dmg", "execute_multiplier": "Execute", "heal_fraction": "Heal", "guard": "Guard",
     "lifesteal_fraction": "Lifesteal", "def_shred": "DEF Shred", "extra_attack": "Extra Atk",
-    "atk_buff": "ATK", "def_buff": "DEF", "spatk_buff": "SpATK", "spdef_buff": "SpDEF",
-    "hp_buff": "HP", "speed_buff": "SPD",
-    "atk_debuff": "ATK", "spatk_debuff": "SpATK", "spdef_debuff": "SpDEF", "speed_debuff": "SPD",
+    "atk_buff": "ATK", "def_buff": "DEF", "spatk_buff": "Magic",
+    "hp_buff": "HP", "chip_gain": "Chips", "speed_buff": "SPD",
+    "atk_debuff": "ATK", "spatk_debuff": "Magic", "speed_debuff": "SPD",
     "taunt": "Taunt", "lower_threat": "Threat", "dodge_buff": "Dodge", "resist_buff": "Resist",
     "dot": "DoT", "hot": "HoT", "sap": "Sap", "stun": "Stun",
     "cleanse_dot": "Cleanse DoT", "cleanse_cc": "Cleanse CC",

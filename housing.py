@@ -42,7 +42,7 @@ HOUSING_EFFECT_TYPES = {
 
 # Matches dungeon.compute_effective_stats' stat keys -- a housing stat_bonus item stacks alongside
 # equipment's own constant stat bonuses via that same aggregation, so the vocabulary has to match.
-HOUSING_STATS = ("hp", "atk", "def", "spatk", "spdef", "speed")
+HOUSING_STATS = ("hp", "atk", "def", "spatk", "speed")
 
 # An item is "usable" (shows a button in !inventory) purely by having both use_label (the button's
 # text, e.g. "Rubbable") and use_message (what gets sent, ephemerally, when it's pressed) set --

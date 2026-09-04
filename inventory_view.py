@@ -60,9 +60,9 @@ def stat_bonus_text(item: dict) -> str:
     Constant-only on purpose: on_use/on_hit effects go through dynamic_effect_lines instead,
     never here -- this text also feeds a Select option's char-capped description (see
     _equipment_summary), which a proc's description could overflow."""
-    order = ("hp", "atk", "def", "spatk", "spdef")
+    order = ("hp", "atk", "def", "spatk")
     bonuses = dungeon.constant_stat_bonuses(item)
-    parts = [f"{stat.upper()} +{bonuses[stat]}" for stat in order if bonuses.get(stat)]
+    parts = [f"{dungeon.stat_label(stat)} +{bonuses[stat]}" for stat in order if bonuses.get(stat)]
     return " / ".join(parts)
 
 
@@ -97,17 +97,15 @@ def _effect_phrase(effect: dict) -> str:
     if t == "def_buff":
         return f"DEF +{v}"
     if t == "spatk_buff":
-        return f"SpAtk +{v}"
-    if t == "spdef_buff":
-        return f"SpDef +{v}"
+        return f"{dungeon.stat_label('spatk')} +{v}"
     if t == "hp_buff":
         return f"Max HP +{v}"
+    if t == "chip_gain":
+        return f"Chips +{v}"
     if t == "atk_debuff":
         return f"enemy ATK −{v}"
     if t == "spatk_debuff":
-        return f"enemy SpAtk −{v}"
-    if t == "spdef_debuff":
-        return f"enemy SpDef −{v}"
+        return f"enemy {dungeon.stat_label('spatk')} −{v}"
     if t == "dodge_buff":
         return f"Dodge +{v * 100:.0f}% for {effect['duration']} round(s)"
     if t == "resist_buff":

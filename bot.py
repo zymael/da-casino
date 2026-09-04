@@ -189,19 +189,20 @@ def _gear_breakdown_lines(equipped: dict[str, str]) -> list[str]:
 def _character_sheet_stats(character: dict, effective: dict, max_chips: int) -> str:
     """The character-sheet stat block shared by !stats and !class -- one consistent emoji per
     stat (matching the existing 🪙 Chips convention) instead of some stats having an icon and
-    others being bare text, grouped into four lines by what kind of number each one is: HP and
+    others being bare text, grouped into three lines by what kind of number each one is: HP and
     Chips together (both a resource pool that refills -- HP between rests, Chips at the start of
-    every fight -- unlike a flat combat stat), Physical (ATK/DEF) and Special (SpAtk/SpDef) each
-    on their own line, then the two derived dodge/resist chances last."""
+    every fight -- unlike a flat combat stat), ATK/DEF/Magic together, then the two derived
+    dodge/resist chances last. Labels pulled from dungeon.stat_label so a reflavor via the admin
+    panel's Stat Labels page needs no code change."""
+    L = dungeon.stat_label
     current_hp = min(character["current_hp"], effective["hp"])
     dodge_pct = round(dungeon.dodge_chance(effective["def"]) * 100)
-    resist_pct = round(dungeon.dodge_chance(effective["spdef"]) * 100)
+    resist_pct = round(dungeon.dodge_chance(effective["spatk"]) * 100)
     return (
-        f"❤️ HP {current_hp}/{effective['hp']} — 🪙 Chips {max_chips}\n"
-        f"⚔️ ATK {effective['atk']} — 🛡️ DEF {effective['def']}\n"
-        f"✨ SpAtk {effective['spatk']} — 🔮 SpDef {effective['spdef']}\n"
-        f"🏃 Speed {effective['speed']}\n"
-        f"💨 Dodge {dodge_pct}% — 🌀 Resist {resist_pct}%"
+        f"❤️ {L('hp')} {current_hp}/{effective['hp']} — 🪙 {L('chips')} {max_chips}\n"
+        f"⚔️ {L('atk')} {effective['atk']} — 🛡️ {L('def')} {effective['def']} — ✨ {L('spatk')} {effective['spatk']}\n"
+        f"🏃 {L('speed')} {effective['speed']}\n"
+        f"💨 {L('dodge')} {dodge_pct}% — 🌀 {L('resist')} {resist_pct}%"
     )
 
 
@@ -972,9 +973,15 @@ def _skill_effect_text(skill: dict) -> str:
 
 
 def _skill_stat_label(skill: dict) -> str:
-    """Which stat this skill's damage/accuracy rolls off of -- SpAtk/SpDef for a skill flagged
-    "special" (dungeon_skills.json's optional `special` field), ATK/DEF otherwise."""
-    return "SpAtk" if skill.get("special") else "ATK"
+    """Which stat this skill's damage rolls off of -- Magic for a skill flagged "special"
+    (dungeon_skills.json's optional `special` field), ATK otherwise."""
+    return dungeon.stat_label("spatk") if skill.get("special") else dungeon.stat_label("atk")
+
+
+def _skill_avoid_label(skill: dict) -> str:
+    """Whether this skill is avoided via Dodge (DEF) or Resist (Magic) -- dungeon.resolved_avoid_type,
+    labeled for display."""
+    return dungeon.stat_label(dungeon.resolved_avoid_type(skill))
 
 
 @bot.command(name="skills")
@@ -990,7 +997,10 @@ async def skills_cmd(ctx):
     embed = discord.Embed(title=f"{name}'s Skills", color=discord.Color.blurple())
     for skill in skills:
         embed.add_field(
-            name=f"{skill['name']} ({_skill_stat_label(skill)}, Lv {skill['unlock_level']}, {skill['chip_cost']} chips)",
+            name=(
+                f"{skill['name']} ({_skill_stat_label(skill)}, {_skill_avoid_label(skill)}, "
+                f"Lv {skill['unlock_level']}, {skill['chip_cost']} chips)"
+            ),
             value=f"{skill['flavor']}\n{_skill_effect_text(skill)}",
             inline=False,
         )
@@ -1005,27 +1015,31 @@ async def combathelp_cmd(ctx):
         title="⚔️ Combat Basics",
         color=discord.Color.blurple(),
     )
+    magic = dungeon.stat_label("spatk")
     embed.add_field(
         name="Stats",
         value=(
             "❤️ **HP** is your health pool. Hit 0 and you're knocked out.\n"
-            "⚔️ **ATK** and 🛡️ **DEF** are for regular attacks: how hard you hit, and how well you shrug off getting hit.\n"
-            "✨ **SpAtk** and 🔰 **SpDef** are the same idea, but for skills that count as \"special\" instead of a plain attack.\n"
+            "⚔️ **ATK** is how hard your regular attacks hit. 🛡️ **DEF** is how well you shrug off getting "
+            f"hit, physical or magic alike.\n"
+            f"✨ **{magic}** is how hard skills flagged \"special\" hit, and separately feeds **Resist** "
+            "(see below).\n"
             "💨 **SPD** decides how often you get a turn, not just who goes first.\n"
             "🪙 **Chips** pay for your skills. You start each delve with a full tank and it doesn't refill until your next delve, even across multiple fights in the same run, so spend it like a budget for the whole trip, not just the fight in front of you."
         ),
         inline=False,
     )
     embed.add_field(
-        name="Damage & Dodge",
+        name="Damage & Dodge/Resist",
         value=(
-            "A hit's damage starts from your ATK (or SpAtk, boosted if the skill has a damage bonus), then "
-            "gets cut down by a percentage based on the target's DEF or SpDef, the higher that stat, the "
-            "bigger the cut. It can never chip your damage down to nothing, just take a bigger and bigger "
-            "bite, plus there's a bit of random luck either way, and it'll never do zero, so a fight can't "
-            "stall out.\n"
-            "Having more DEF or SpDef also gives you a chance to dodge an attack completely, physical attacks "
-            "care about DEF and special attacks care about SpDef. That chance grows the more you stack the stat, "
+            f"A hit's damage starts from your ATK (or {magic}, boosted if the skill has a damage bonus), "
+            "then gets cut down by a percentage based on the target's DEF, the higher that stat, the "
+            "bigger the cut, always, whether the hit was physical or magic. It can never chip your damage "
+            "down to nothing, just take a bigger and bigger bite, plus there's a bit of random luck either "
+            "way, and it'll never do zero, so a fight can't stall out.\n"
+            f"Every skill is also flagged to be avoided entirely via **Dodge** (DEF) or **Resist** ({magic}) "
+            "-- shown alongside its stat in !class -- whichever it's flagged as can whiff the whole action, "
+            "damage and any attached debuff alike. That chance grows the more you stack the relevant stat, "
             "but it's always kept well under a coin flip, so you can't build your way to being unhittable."
         ),
         inline=False,
@@ -1049,7 +1063,8 @@ async def combathelp_cmd(ctx):
 
     skills = dungeon.unlocked_skills(character["main_class"], character["subclass"], character["level"])
     skill_lines = [
-        f"**{skill['name']}** ({_skill_stat_label(skill)}, Lv {skill['unlock_level']}, {skill['chip_cost']} chips): "
+        f"**{skill['name']}** ({_skill_stat_label(skill)}, {_skill_avoid_label(skill)}, "
+        f"Lv {skill['unlock_level']}, {skill['chip_cost']} chips): "
         f"{_skill_effect_text(skill)}"
         for skill in skills
     ]

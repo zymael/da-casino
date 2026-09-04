@@ -679,11 +679,6 @@
     "rarity": "rare",
     "effects": [
       {
-        "type": "spdef_buff",
-        "trigger": "constant",
-        "value": 5
-      },
-      {
         "type": "def_buff",
         "trigger": "constant",
         "value": 5
@@ -704,13 +699,6 @@
         "type": "spatk_buff",
         "trigger": "constant",
         "value": 6
-      },
-      {
-        "type": "spdef_debuff",
-        "trigger": "on_hit",
-        "chance": 0.2,
-        "value": 2,
-        "target": "enemy"
       }
     ],
     "special": false,
@@ -766,11 +754,6 @@
     "effects": [
       {
         "type": "spatk_buff",
-        "trigger": "constant",
-        "value": 4
-      },
-      {
-        "type": "spdef_buff",
         "trigger": "constant",
         "value": 4
       }
@@ -837,11 +820,6 @@
         "type": "spatk_buff",
         "trigger": "constant",
         "value": 9
-      },
-      {
-        "type": "spdef_buff",
-        "trigger": "constant",
-        "value": 6
       }
     ],
     "special": false,
@@ -987,11 +965,6 @@
         "value": 8
       },
       {
-        "type": "spdef_buff",
-        "trigger": "constant",
-        "value": 6
-      },
-      {
         "type": "heal_fraction",
         "trigger": "on_hit",
         "chance": 0.2,
@@ -1039,11 +1012,6 @@
     "effects": [
       {
         "type": "hp_buff",
-        "trigger": "constant",
-        "value": 7
-      },
-      {
-        "type": "spdef_buff",
         "trigger": "constant",
         "value": 7
       },
@@ -1103,11 +1071,6 @@
         "type": "def_buff",
         "trigger": "constant",
         "value": 9
-      },
-      {
-        "type": "spdef_buff",
-        "trigger": "constant",
-        "value": 4
       }
     ],
     "special": false,
@@ -1247,11 +1210,6 @@
         "value": 17
       },
       {
-        "type": "spdef_buff",
-        "trigger": "constant",
-        "value": 17
-      },
-      {
         "type": "speed_buff",
         "trigger": "constant",
         "value": 2
@@ -1293,7 +1251,7 @@
     "rarity": "legendary",
     "intended_level": 30,
     "base_value": 4500,
-    "flavor": "GNAM GNAM GNAM \u2014 but for you, now.",
+    "flavor": "GNAM GNAM GNAM — but for you, now.",
     "effects": [
       {
         "type": "atk_buff",
@@ -1344,11 +1302,6 @@
       },
       {
         "type": "spatk_buff",
-        "trigger": "constant",
-        "value": 6
-      },
-      {
-        "type": "spdef_buff",
         "trigger": "constant",
         "value": 6
       },
@@ -1410,11 +1363,6 @@
         "value": 13
       },
       {
-        "type": "spdef_buff",
-        "trigger": "constant",
-        "value": 9
-      },
-      {
         "type": "taunt",
         "trigger": "constant",
         "value": 3
@@ -1433,11 +1381,6 @@
     "effects": [
       {
         "type": "hp_buff",
-        "trigger": "constant",
-        "value": 8
-      },
-      {
-        "type": "spdef_buff",
         "trigger": "constant",
         "value": 8
       },
