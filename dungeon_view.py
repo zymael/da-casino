@@ -2470,7 +2470,7 @@ async def _advance_party_turns(interaction: discord.Interaction | None, session:
         monster.turn_clock += dungeon.turn_interval(max(1, monster.speed - monster.speed_debuff))
         if monster.hp <= 0:
             log_lines.append(f"**{monster.monster['name']}** succumbs to its wounds!")
-            for m in session.living_members():
+            for m in session.members:
                 member_log: list[str] = []
                 loot_mult = m.loot_mult * (1.0 if m.is_leader else 0.5) * player_moon_mult
                 chance_mult = 1.0 if m.is_leader else 0.5
@@ -2582,7 +2582,7 @@ async def _resolve_party_turn(
     for target in hit_monsters:
         if target.hp <= 0:
             log_lines.append(f"**{target.monster['name']} is defeated!**")
-            for m in session.living_members():
+            for m in session.members:
                 member_log: list[str] = []
                 loot_mult = m.loot_mult * (1.0 if m.is_leader else 0.5) * player_moon_mult
                 chance_mult = 1.0 if m.is_leader else 0.5
