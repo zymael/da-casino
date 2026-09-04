@@ -274,7 +274,9 @@ _TRIGGER_PARAMS_BY_TYPE = {
 # connections are drawn on the flowchart canvas (see _render_room_box), never typed into this
 # panel. Named _DELVE_ROOM_FIELDS_BY_TYPE (not just "room") to stay clearly distinct from rooms.py's
 # unrelated casino-hub room concept _ROOM_COMMAND_KINDS mirrors above.
-_DELVE_ROOM_FIELDS_BY_TYPE = {"combat": ["groups", "prompt"], "choice": ["prompt", "actions"]}
+_DELVE_ROOM_FIELDS_BY_TYPE = {
+    "combat": ["groups", "prompt"], "choice": ["prompt", "actions"], "roulette": ["prompt", "hit_hp_delta"],
+}
 
 # Mirrors rooms.py's own _COMMAND_KINDS -- fixed regardless of content, same footing as
 # EFFECT_TYPES/TRIGGER_TYPES above.
@@ -1003,7 +1005,7 @@ document.addEventListener('click', function (event) {
             var typeSelect = w.querySelector('.room-type-select');
             var type = typeSelect ? typeSelect.value : 'combat';
             var box = w.querySelector('.room-box');
-            if (type === 'combat') {
+            if (type === 'combat' || type === 'roulette') {
                 var nextInput = w.querySelector('.room-next-input');
                 var handle = box.querySelector('.connector-handle');
                 if (handle && nextInput && nextInput.value && byId[nextInput.value]) {
@@ -1012,7 +1014,9 @@ document.addEventListener('click', function (event) {
                 }
                 // Each monster group has its own connector box, same "distinct line per sub-item"
                 // shape as an action's own node below -- a group override is drawn as its own
-                // edge rather than bunched onto the room's own handle above.
+                // edge rather than bunched onto the room's own handle above. Roulette has no
+                // groups concept at all, so this loop is simply a no-op for it (no .group-node
+                // elements ever exist on a roulette room's wrapper -- see syncRoomHandles).
                 w.querySelectorAll('.group-node').forEach(function (node) {
                     drawOwnerLine(box, node);
                     var prefix = node.dataset.groupNode;
@@ -1072,6 +1076,10 @@ document.addEventListener('click', function (event) {
             var groupCount = wrapper.querySelectorAll('[data-room-field="groups"] [data-monster-group]').length;
             summary.textContent = monsterCount + (monsterCount === 1 ? ' monster' : ' monsters') +
                 ' (' + groupCount + (groupCount === 1 ? ' group)' : ' groups)');
+        } else if (type === 'roulette') {
+            var deltaInput = wrapper.querySelector('[name$="_hit_hp_delta"]');
+            var delta = deltaInput && deltaInput.value ? deltaInput.value : 0;
+            summary.textContent = 'Roulette wheel (' + delta + ' HP on a hit)';
         } else {
             var actionRows = wrapper.querySelectorAll('.action-row');
             summary.textContent = actionRows.length + (actionRows.length === 1 ? ' action' : ' actions');
@@ -1349,17 +1357,24 @@ document.addEventListener('click', function (event) {
         var typeSelect = wrapper.querySelector('.room-type-select');
         var box = wrapper.querySelector('.room-box');
         var type = typeSelect.value;
-        box.classList.remove('room-box-combat', 'room-box-choice');
+        box.classList.remove('room-box-combat', 'room-box-choice', 'room-box-roulette');
         box.classList.add('room-box-' + type);
-        box.querySelector('.room-box-icon').textContent = type === 'combat' ? '⚔️' : '💬';
+        box.querySelector('.room-box-icon').textContent = type === 'combat' ? '⚔️' : (type === 'roulette' ? '🎡' : '💬');
 
-        if (type === 'combat') {
+        // combat and roulette both have exactly one room-level "next" (the whole room shares one
+        // exit) with a handle on the room's own box; choice's exits live on its actions instead
+        // (see syncActionNodes), one handle per action, none on the room box itself. Only combat
+        // additionally has monster-group override nodes (syncGroupNodes) -- roulette has no
+        // groups concept at all.
+        if (type === 'combat' || type === 'roulette') {
             wrapper.querySelectorAll('.action-node').forEach(function (n) { n.remove(); });
             if (!box.querySelector('.connector-handle')) {
                 var handle = document.createElement('div');
                 handle.className = 'connector-handle';
                 handle.dataset.connectorRole = 'success';
-                handle.dataset.tooltip = 'Drag onto another room -- where the player goes after winning the fight here (a group\\'s own override, if any, wins over this). Drop on empty canvas to disconnect.';
+                handle.dataset.tooltip = type === 'combat'
+                    ? 'Drag onto another room -- where the player goes after winning the fight here (a group\\'s own override, if any, wins over this). Drop on empty canvas to disconnect.'
+                    : 'Drag onto another room -- where the party goes after the wheel stops. Drop on empty canvas to disconnect.';
                 box.appendChild(handle);
                 wireConnectorHandle(handle);
             }
@@ -1370,7 +1385,12 @@ document.addEventListener('click', function (event) {
                 nextInput.name = wrapper.dataset.roomWrapper + '_next';
                 box.appendChild(nextInput);
             }
-            syncGroupNodes(wrapper);
+            if (type === 'combat') {
+                syncGroupNodes(wrapper);
+            } else {
+                wrapper.querySelectorAll('.group-node').forEach(function (n) { n.remove(); });
+                redrawAllArrows();
+            }
         } else {
             var existingHandle = box.querySelector('.connector-handle');
             if (existingHandle) existingHandle.remove();
@@ -3025,7 +3045,7 @@ def _render_room_box(prefix: str, room: dict, pos: dict, is_start: bool, error_m
     _render_action_node), same "highlight it right where it is" reasoning."""
     room_type = room.get("type") or "combat"
     room_id = room.get("id", "")
-    icon = "⚔️" if room_type == "combat" else "💬"
+    icon = {"combat": "⚔️", "roulette": "🎡"}.get(room_type, "💬")
     if room_type == "combat":
         groups = room.get("monster_groups", [])
         monster_count = sum(len(g.get("monsters", [])) for g in groups)
@@ -3054,13 +3074,21 @@ def _render_room_box(prefix: str, room: dict, pos: dict, is_start: bool, error_m
             f'fight here (a monster group\'s own override, if any, wins over this). Drop on empty '
             f'canvas to disconnect (that makes this room the end of the delve, a win)."></div>'
         )
+    elif room_type == "roulette":
+        summary = f"Roulette wheel ({room.get('hit_hp_delta', 0)} HP on a hit)"
+        handles_html = (
+            f'<div class="connector-handle" data-connector-role="success" '
+            f'data-tooltip="Drag onto another room -- where the party goes after the wheel stops. '
+            f'Drop on empty canvas to disconnect (that makes this room the end of the delve, a '
+            f'win)."></div>'
+        )
     else:
         actions = room.get("actions", [])
         summary = f"{len(actions)} action{'s' if len(actions) != 1 else ''}"
         handles_html = ""
     next_hidden = (
         f'<input type="hidden" name="{prefix}_next" class="room-next-input" value="{html.escape(room.get("next") or "")}">'
-        if room_type == "combat" else ""
+        if room_type in ("combat", "roulette") else ""
     )
     error_attr = (
         f' data-tooltip="{html.escape(" / ".join(error_messages))}"' if error_messages else ""
@@ -3136,7 +3164,13 @@ def _render_room_detail_panel(prefix: str, room: dict) -> str:
         f'<label>type<select name="{prefix}_type" class="room-type-select">{type_options}</select>'
         f'<small class="field-hint">Combat: a monster fight with one exit. Choice: flavor text '
         f'plus player-picked actions, each with its own destination -- this is where branching '
-        f'paths are authored.</small></label>'
+        f'paths are authored. Roulette: a party-only set-piece where every living member bets on '
+        f'a wedge in parallel, one exit regardless of outcome.</small></label>'
+        f'<div data-room-field="hit_hp_delta"><label>hit HP delta<small class="field-hint">Always '
+        f'negative -- how much HP whoever bets the landing wedge loses. A raid set-piece cost, not '
+        f'meant to be a real threat.</small>'
+        f'<input type="number" max="-1" name="{prefix}_hit_hp_delta" '
+        f'value="{room.get("hit_hp_delta", "")}"></label></div>'
         f'<div data-room-field="groups"><label>monster groups<small class="field-hint">One group is '
         f'picked each visit, weighted by each group\'s own chance below (blank = 1, equal footing); '
         f'every monster within a group spawns together as one simultaneous encounter. A group of '
@@ -4640,6 +4674,16 @@ def _parse_delve_flowchart(form: dict, entry_id_for_upload: str, existing_entry:
             prompt = form.get(f"{p}_prompt", "").strip()
             if prompt:
                 room["prompt"] = prompt
+        elif room_type == "roulette":
+            next_room = form.get(f"{p}_next", "").strip()
+            if next_room:
+                room["next"] = next_room
+            prompt = form.get(f"{p}_prompt", "").strip()
+            if prompt:
+                room["prompt"] = prompt
+            raw_delta = form.get(f"{p}_hit_hp_delta", "").strip()
+            if raw_delta:
+                room["hit_hp_delta"] = int(raw_delta)
         else:
             prompt = form.get(f"{p}_prompt", "").strip()
             if prompt:
