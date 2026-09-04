@@ -1046,8 +1046,14 @@ class AttackButton(discord.ui.Button):
         # combat has long since moved on to a new view (or ended), incorrectly overwriting an
         # already-concluded delve with a false "abandoned" message despite the real payout
         # having already landed.
-        if await _handle_action(interaction, self.view.session, skill=None):
+        session = self.view.session
+        if session.current_view is not self.view:
+            return  # already acted on (e.g. a double-click) -- don't resolve the same turn twice
+        session.current_view = None  # claimed synchronously, before any await -- see RoomResultView.push_button
+        if await _handle_action(interaction, session, skill=None):
             self.view.stop()
+        else:
+            session.current_view = self.view  # rejected without consuming the turn -- release the claim
 
 
 class SkillButton(discord.ui.Button):
@@ -1063,8 +1069,14 @@ class SkillButton(discord.ui.Button):
         self.skill = skill
 
     async def callback(self, interaction: discord.Interaction):
-        if await _handle_action(interaction, self.view.session, skill=self.skill):
+        session = self.view.session
+        if session.current_view is not self.view:
+            return  # already acted on (e.g. a double-click) -- don't resolve the same turn twice
+        session.current_view = None  # claimed synchronously, before any await -- see RoomResultView.push_button
+        if await _handle_action(interaction, session, skill=self.skill):
             self.view.stop()
+        else:
+            session.current_view = self.view  # rejected without consuming the turn -- release the claim
 
 
 MAX_SELECT_OPTIONS = 25  # Discord's hard limit on a single Select's options
@@ -1079,8 +1091,14 @@ class UseItemButton(discord.ui.Button):
         self.item = item
 
     async def callback(self, interaction: discord.Interaction):
-        if await _handle_use_item(interaction, self.view.session, self.item):
+        session = self.view.session
+        if session.current_view is not self.view:
+            return  # already acted on (e.g. a double-click) -- don't resolve the same turn twice
+        session.current_view = None  # claimed synchronously, before any await -- see RoomResultView.push_button
+        if await _handle_use_item(interaction, session, self.item):
             self.view.stop()
+        else:
+            session.current_view = self.view  # rejected without consuming the turn -- release the claim
 
 
 class UseItemSelect(discord.ui.Select):
@@ -1092,9 +1110,15 @@ class UseItemSelect(discord.ui.Select):
         super().__init__(placeholder="🧪 Use an item...", options=options, row=1)
 
     async def callback(self, interaction: discord.Interaction):
+        session = self.view.session
+        if session.current_view is not self.view:
+            return  # already acted on (e.g. a double-click) -- don't resolve the same turn twice
         item = dungeon.CONSUMABLES[self.values[0]]
-        if await _handle_use_item(interaction, self.view.session, item):
+        session.current_view = None  # claimed synchronously, before any await -- see RoomResultView.push_button
+        if await _handle_use_item(interaction, session, item):
             self.view.stop()
+        else:
+            session.current_view = self.view  # rejected without consuming the turn -- release the claim
 
 
 def castable_equipment(equipped: dict[str, str]) -> list[dict]:
@@ -1116,8 +1140,14 @@ class CastItemButton(discord.ui.Button):
         self.item = item
 
     async def callback(self, interaction: discord.Interaction):
-        if await _handle_cast_item(interaction, self.view.session, self.item):
+        session = self.view.session
+        if session.current_view is not self.view:
+            return  # already acted on (e.g. a double-click) -- don't resolve the same turn twice
+        session.current_view = None  # claimed synchronously, before any await -- see RoomResultView.push_button
+        if await _handle_cast_item(interaction, session, self.item):
             self.view.stop()
+        else:
+            session.current_view = self.view  # rejected without consuming the turn -- release the claim
 
 
 class TargetSelect(discord.ui.Select):
@@ -1139,10 +1169,13 @@ class TargetSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         session: DelveSession = self.view.session
+        if session.current_view is not self.view:
+            return  # already acted on (e.g. a double-click) -- don't rebuild the view twice
+        session.current_view = None  # claimed synchronously, before any await -- see RoomResultView.push_button
         session.current_target_slot = int(self.values[0])
         log_text = interaction.message.embeds[0].description or ""
         embed, file = await _combat_embed(session, log_text)
-        view = await _build_combat_view(session)
+        view = await _build_combat_view(session)  # this reclaims current_view via CombatView.__init__
         await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
         self.view.stop()
 
