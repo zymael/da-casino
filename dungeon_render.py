@@ -1,6 +1,7 @@
 import io
 import math
 import os
+from functools import lru_cache
 
 from PIL import Image, ImageDraw, ImageFont, ImageSequence
 
@@ -65,6 +66,13 @@ def _draw_monster_shape(draw: ImageDraw.ImageDraw, cx: float, cy: float, radius:
 SPRITE_HEIGHT = 140
 
 
+# Sprite/background art only changes via a code deploy (restart), never the admin panel's JSON
+# hot-reload (see CLAUDE.md) -- safe to cache for the process's whole lifetime. Returned images are
+# only ever read from (alpha_composite'd as a source, or .copy()'d before mutation), never mutated
+# in place, so handing out the same cached object to every caller is safe. This matters far more
+# now that a single combat turn can call render_room several times over for one animation instead
+# of once -- without caching, every one of those re-opens and re-resizes the same files from disk.
+@lru_cache(maxsize=256)
 def _load_monster_sprite(sprite_path: str, target_height: int = SPRITE_HEIGHT) -> Image.Image | None:
     if not sprite_path or not os.path.exists(sprite_path):
         return None
@@ -95,6 +103,7 @@ def _fit_frame(img: Image.Image) -> Image.Image:
     return img
 
 
+@lru_cache(maxsize=64)
 def _load_background_frames(background_path: str | None) -> tuple[list[Image.Image], list[int], int]:
     """The delve-specific background if it's set and the file actually exists, else the default
     -- same forgiving fallback as the old single-image loader, so a delve JSON entry with no
@@ -102,7 +111,9 @@ def _load_background_frames(background_path: str | None) -> tuple[list[Image.Ima
     (frames, frame_durations_ms, loop_count) -- a plain image (or a single-frame GIF) comes back as
     one frame with an unused duration/loop, so render_room doesn't need two separate code paths for
     "static" vs "animated": it always composites onto every frame in this list and only decides
-    PNG vs animated GIF afterward, from how many frames came back."""
+    PNG vs animated GIF afterward, from how many frames came back. Cached (see _load_monster_sprite's
+    own comment on why that's safe) -- a background is opened/resized once per distinct path for
+    the process's whole lifetime instead of on every single render_room call."""
     path = background_path if background_path and os.path.exists(background_path) else ROOM_BG_PATH
     with Image.open(path) as src:
         if not getattr(src, "is_animated", False):
@@ -115,6 +126,7 @@ def _load_background_frames(background_path: str | None) -> tuple[list[Image.Ima
         return frames, durations, loop
 
 
+@lru_cache(maxsize=1)
 def _load_fight_banner() -> Image.Image | None:
     if not os.path.exists(FIGHT_BANNER_PATH):
         return None
@@ -185,16 +197,18 @@ def _tackle_offsets(sprite_height: int) -> list[tuple[int, int, int]]:
     slow pull-back rise, then a fast snap down past resting position (the "hit"), then settling
     back. Offsets scale with the sprite's own height so the motion reads the same regardless of how
     big this particular monster is drawn (SPRITE_HEIGHT vs. a shrunk group sprite, see
-    _sprite_height_for)."""
+    _sprite_height_for). Deliberately just 4 keyframes, not 6 -- every keyframe here costs a full
+    extra render_room frame (composite + GIF-encode), and this animation now plays on nearly every
+    combat turn (see dungeon_view's last_attacker_slot) rather than fight_intro's rare once-per-room
+    cost, so it's worth trimming to the minimum that still reads as a tackle. There's no final
+    "back to (0, 0)" keyframe -- render_room's own resting frame already provides that."""
     rise = -round(sprite_height * 0.16)
     lunge = round(sprite_height * 0.07)
     return [
-        (0, round(rise * 0.5), 70),
+        (0, round(rise * 0.6), 90),
         (0, rise, 90),
-        (0, round(rise * 0.2), 40),
-        (0, lunge, 60),
-        (0, round(lunge * 0.3), 80),
-        (0, 0, 90),
+        (0, lunge, 70),
+        (0, round(lunge * 0.3), 90),
     ]
 
 
@@ -202,11 +216,13 @@ ATTACK_ANIMATIONS = {"tackle": _tackle_offsets}
 
 
 def _compose_frame(
-    base: Image.Image, sprites: list[tuple], room_label: str, turn_order: list[dict] | None,
+    base: Image.Image, sprites: list[tuple], room_label: str, strip: Image.Image | None,
     offset_index: int | None = None, offset: tuple[int, int] = (0, 0),
 ) -> Image.Image:
     """One fully-composited room frame -- `base` (a background frame) plus every monster
-    sprite/placeholder, the room label, and the optional turn-order strip. The sprite at
+    sprite/placeholder, the room label, and a pre-built turn-order `strip` (see
+    _build_turn_order_strip -- built once by render_room and passed in here rather than rebuilt per
+    frame, since its content never varies across one render_room call's frames). The sprite at
     `offset_index` in `sprites` (if given) is nudged by `offset` pixels first -- an attack
     animation's own frames use this to move just the attacking monster, leaving the background and
     every other monster exactly where render_room's normal (no-offset) frames put them. Shared by
@@ -227,8 +243,8 @@ def _compose_frame(
             _draw_monster_shape(draw, mx, my, radius, monster["shape"], _parse_color(monster["color"]))
     draw = ImageDraw.Draw(img)
     draw.text((16, HEIGHT - 32), room_label, font=_label_font, fill=(200, 200, 210, 255))
-    if turn_order:
-        img = _composite_turn_order_strip(img, turn_order)
+    if strip is not None:
+        img = _append_strip(img, strip)
     return img
 
 
@@ -267,15 +283,19 @@ def _draw_monster_card(draw: ImageDraw.ImageDraw, x: float, y: float, shape: str
     _draw_monster_shape(draw, cx, cy, CARD_WIDTH * 0.34, shape, _parse_color(color_hex))
 
 
-def _composite_turn_order_strip(img: Image.Image, turn_order: list[dict]) -> Image.Image:
-    """Grows the room scene downward to fit a horizontal strip of playing-card-style icons for the
-    next several turns (dungeon.preview_next_turns) -- purely cosmetic FFX flavor. Each entry is
-    `{"kind": "player", "rank": ..., "suit": ..., "initial": ...}` or `{"kind": "monster", "shape":
-    ..., "color": ..., "initial": ...}`; the same combatant can (and does) appear on multiple cards
-    when they're fast enough to act again before others get a turn -- intended, matches FFX's own
-    UI. `initial` (first letter of the combatant's own name) is printed under each card so same-rank
-    party members or same-species monsters stay distinguishable at a glance. Returns a new taller
-    image; doesn't mutate `img`."""
+def _build_turn_order_strip(turn_order: list[dict]) -> Image.Image:
+    """Builds the horizontal strip of playing-card-style icons for the next several turns
+    (dungeon.preview_next_turns) -- purely cosmetic FFX flavor. Each entry is `{"kind": "player",
+    "rank": ..., "suit": ..., "initial": ...}` or `{"kind": "monster", "shape": ..., "color": ...,
+    "initial": ...}`; the same combatant can (and does) appear on multiple cards when they're fast
+    enough to act again before others get a turn -- intended, matches FFX's own UI. `initial` (first
+    letter of the combatant's own name) is printed under each card so same-rank party members or
+    same-species monsters stay distinguishable at a glance.
+
+    Deliberately its own function, built ONCE per render_room call and reused across every frame
+    (see _append_strip) rather than redrawn per frame -- the turn_order content is identical for
+    every frame of a single render, so redrawing it per frame (the old shape of this code) was pure
+    wasted work, multiplied by however many frames a fight_intro/attack animation adds."""
     strip = Image.new("RGBA", (WIDTH, CARD_STRIP_HEIGHT), (15, 15, 20, 255))
     draw = ImageDraw.Draw(strip)
     draw.text((8, 3), "Next up:", font=_card_strip_label_font, fill=(190, 190, 200, 255))
@@ -296,6 +316,12 @@ def _composite_turn_order_strip(img: Image.Image, turn_order: list[dict]) -> Ima
             (x + CARD_WIDTH / 2 - iw / 2, y + CARD_HEIGHT + 2), initial,
             font=_card_initial_font, fill=(220, 220, 230, 255),
         )
+    return strip
+
+
+def _append_strip(img: Image.Image, strip: Image.Image) -> Image.Image:
+    """Grows `img` downward to fit a pre-built `strip` (see _build_turn_order_strip) beneath it.
+    Returns a new image; doesn't mutate `img`."""
     combined = Image.new("RGBA", (WIDTH, HEIGHT + CARD_STRIP_HEIGHT), (0, 0, 0, 255))
     combined.alpha_composite(img, (0, 0))
     combined.alpha_composite(strip, (0, HEIGHT))
@@ -317,7 +343,7 @@ def render_room(
     overrides that bottom-left text entirely (e.g. dueling's own "Duel" -- `visited_count` means
     nothing there) -- defaults to the usual "Room N" when not given. `turn_order` (optional, only
     ever passed for combat rooms with someone still alive to schedule) grows the image downward to
-    add the FFX-style turn-order card strip -- see _composite_turn_order_strip for its shape.
+    add the FFX-style turn-order card strip -- see _build_turn_order_strip for its shape.
 
     Returns (buf, ext) rather than a bare BytesIO -- an animated GIF background (see
     _load_background_frames) means every monster/label/turn-order overlay gets composited onto
@@ -349,8 +375,9 @@ def render_room(
         for monster, x_offset in zip(monsters, offsets)
     ]
     room_label = label or f"Room {visited_count}"
+    strip = _build_turn_order_strip(turn_order) if turn_order else None
 
-    out_frames = [_compose_frame(base, sprites, room_label, turn_order) for base in frames]
+    out_frames = [_compose_frame(base, sprites, room_label, strip) for base in frames]
 
     animate_once = False
     if fight_intro and (banner := _load_fight_banner()) is not None:
@@ -367,7 +394,7 @@ def render_room(
             attacker_height = attacker_sprite.height if attacker_sprite else sprite_height
             keyframes = keyframes_fn(attacker_height)
             attack_frames = [
-                _compose_frame(frames[0], sprites, room_label, turn_order, offset_index=idx, offset=(dx, dy))
+                _compose_frame(frames[0], sprites, room_label, strip, offset_index=idx, offset=(dx, dy))
                 for dx, dy, _ in keyframes
             ]
             out_frames = attack_frames + out_frames
@@ -376,10 +403,25 @@ def render_room(
 
     buf = io.BytesIO()
     if len(out_frames) > 1:
+        # A plain per-frame .save() lets Pillow rebuild a fresh 256-color ADAPTIVE (median-cut)
+        # palette from scratch for every single frame -- that per-frame rebuild, not the pixel work
+        # of actually painting each frame, is the expensive part of GIF encoding. Building ONE
+        # palette from every frame's pixels combined (so no frame's unique colors -- e.g. only the
+        # fight-intro banner's reds, or only the tail frame's plain background -- get left out just
+        # because the reference happened to be a different frame) and reusing it via a cheap
+        # per-frame nearest-color mapping pays that median-cut cost once instead of once per frame.
+        # Tried Pillow's fixed WEB palette first for even less computation (no median-cut at all),
+        # but its 216 fixed colors band/dither badly against this game's dark, gradient-heavy
+        # dungeon backgrounds -- a full adaptive 256-color budget is worth keeping.
         rgb_frames = [f.convert("RGB") for f in out_frames]
+        strip = Image.new("RGB", (rgb_frames[0].width * len(rgb_frames), rgb_frames[0].height))
+        for i, f in enumerate(rgb_frames):
+            strip.paste(f, (i * rgb_frames[0].width, 0))
+        shared_palette = strip.quantize(colors=256)
+        gif_frames = [f.quantize(palette=shared_palette, dither=Image.Dither.NONE) for f in rgb_frames]
         save_kwargs = {} if animate_once else {"loop": loop}
-        rgb_frames[0].save(
-            buf, format="GIF", save_all=True, append_images=rgb_frames[1:],
+        gif_frames[0].save(
+            buf, format="GIF", save_all=True, append_images=gif_frames[1:],
             duration=durations, disposal=2, **save_kwargs,
         )
         ext = "gif"
