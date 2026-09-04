@@ -664,11 +664,11 @@
   {
     "id": "beneath_the_buffet",
     "name": "Beneath the Buffet",
-    "flavor": "Somewhere under a jungle-swallowed casino, the vault still waits -- and so does the skeleton crew that never clocked out.",
     "active": false,
-    "raid": true,
     "max_party_size": 8,
-    "start_room": "The Overgrown Facade",
+    "raid": true,
+    "hidden_until_discovered": false,
+    "flavor": "Somewhere under a jungle-swallowed casino, the vault still waits.",
     "rooms": [
       {
         "id": "The Overgrown Facade",
@@ -679,7 +679,9 @@
             "label": "Descend into the catacombs",
             "on_success": {
               "next": "The Root-Choked Cellar"
-            }
+            },
+            "x": 230.0,
+            "y": 40.0
           }
         ]
       },
@@ -692,7 +694,9 @@
             "label": "Push deeper",
             "on_success": {
               "next": "The Flooded Storage Tunnels"
-            }
+            },
+            "x": 450.0,
+            "y": 40.0
           }
         ]
       },
@@ -705,7 +709,9 @@
             "label": "Wade onward",
             "on_success": {
               "next": "The Long Straightaway"
-            }
+            },
+            "x": 670.0,
+            "y": 40.0
           }
         ]
       },
@@ -721,23 +727,25 @@
               "dc": 20
             },
             "on_success": {
-              "message": "The party clears the straightaway with room to spare.",
-              "next": "The Wheel"
+              "next": "The Wheel",
+              "message": "The party clears the straightaway with room to spare."
             },
             "on_fail": {
-              "message": "It clips the stragglers on the way through.",
+              "next": "The Wheel",
               "hp_delta": -15,
-              "next": "The Wheel"
-            }
+              "message": "It clips the stragglers on the way through."
+            },
+            "x": 890.0,
+            "y": 40.0
           }
         ]
       },
       {
         "id": "The Wheel",
         "type": "roulette",
+        "next": "The Big Kahuna",
         "prompt": "The pineapple crashes through the wall ahead and wedges itself, spinning, into a massive roulette wheel embedded in the temple floor -- gilded, ancient, and somehow still perfectly balanced. It's still rolling. Somebody has to call it.",
-        "hit_hp_delta": -25,
-        "next": "The Big Kahuna"
+        "hit_hp_delta": -10
       },
       {
         "id": "The Big Kahuna",
@@ -748,7 +756,9 @@
             "label": "Fight the Big Kahuna",
             "on_success": {
               "next": "The Kitchen"
-            }
+            },
+            "x": 727.0,
+            "y": 301.0
           }
         ]
       },
@@ -761,7 +771,9 @@
             "label": "Push through the kitchen",
             "on_success": {
               "next": "The Offices"
-            }
+            },
+            "x": 330.0,
+            "y": 245.0
           }
         ]
       },
@@ -774,7 +786,9 @@
             "label": "Push through the offices",
             "on_success": {
               "next": "The Security Room"
-            }
+            },
+            "x": 305.0,
+            "y": 478.0
           }
         ]
       },
@@ -787,7 +801,9 @@
             "label": "Push past security",
             "on_success": {
               "next": "The Boiler Room"
-            }
+            },
+            "x": 157.0,
+            "y": 673.0
           }
         ]
       },
@@ -800,21 +816,72 @@
             "label": "Push toward the vault",
             "on_success": {
               "next": "The Vault"
-            }
+            },
+            "x": 661.0,
+            "y": 447.0
           }
         ]
       },
       {
         "id": "The Vault",
         "type": "choice",
-        "prompt": "The vault door -- three feet of rusted steel -- hangs wide open. Sitting cross-legged on a mountain of chips, sequined jumpsuit somehow still gleaming under all this dust, is a figure who can only be described as Hellvis.\n\n\"Well, well. Look what crawled outta the buffet line.\" He snaps his fingers. Something enormous rises from the coins behind him. \"Y'all have fun now.\" He's gone before the last coin stops spinning. (placeholder room -- this becomes the raid boss's summoned monster once designed)",
+        "prompt": "The vault door -- three feet of rusted steel -- hangs wide open. Sitting cross-legged on a mountain of chips, sequined jumpsuit somehow still gleaming under all this dust, is a figure who can only be described as Hellvis.\r\n\r\n\"Well, well. Look what crawled outta the buffet line.\" He snaps his fingers. Something enormous rises from the coins behind him. \"Y'all have fun now.\" He's gone before the last coin stops spinning. (placeholder room -- this becomes the raid boss's summoned monster once designed)",
         "actions": [
           {
             "label": "Fight whatever he left behind",
-            "on_success": null
+            "on_success": {},
+            "x": 876.0,
+            "y": 423.0
           }
         ]
       }
-    ]
+    ],
+    "layout": {
+      "The Overgrown Facade": {
+        "x": 40.0,
+        "y": 40.0
+      },
+      "The Root-Choked Cellar": {
+        "x": 249.0,
+        "y": 91.0
+      },
+      "The Flooded Storage Tunnels": {
+        "x": 501.0,
+        "y": 96.0
+      },
+      "The Long Straightaway": {
+        "x": 806.0,
+        "y": 123.0
+      },
+      "The Wheel": {
+        "x": 968.0,
+        "y": 220.0
+      },
+      "The Big Kahuna": {
+        "x": 914.0,
+        "y": 339.0
+      },
+      "The Kitchen": {
+        "x": 590.0,
+        "y": 357.0
+      },
+      "The Offices": {
+        "x": 49.0,
+        "y": 281.0
+      },
+      "The Security Room": {
+        "x": 109.0,
+        "y": 543.0
+      },
+      "The Boiler Room": {
+        "x": 418.0,
+        "y": 623.0
+      },
+      "The Vault": {
+        "x": 785.0,
+        "y": 699.0
+      }
+    },
+    "start_room": "The Overgrown Facade"
   }
 ]
