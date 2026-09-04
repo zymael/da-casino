@@ -962,11 +962,17 @@ class ChoiceOutcomeView(discord.ui.View):
 
     @discord.ui.button(label="Continue", style=discord.ButtonStyle.primary)
     async def continue_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.session.current_view is not self:
+            return  # already acted on (e.g. a double-click) -- don't re-enter the room twice
+        self.session.current_view = None  # claimed synchronously, before any await -- see RoomResultView.push_button
         await _goto_room(interaction, self.session, self.next_room_id)
         self.stop()
 
     @discord.ui.button(label="Retreat with Loot", style=discord.ButtonStyle.secondary)
     async def retreat_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.session.current_view is not self:
+            return  # already acted on -- avoid double-paying out
+        self.session.current_view = None  # claimed synchronously, before any await -- see RoomResultView.push_button
         embed = await _apply_retreat(self.session)
         await interaction.response.edit_message(embed=embed, attachments=[], view=None)
         self.stop()
@@ -1203,6 +1209,7 @@ class RoomResultView(discord.ui.View):
     async def retreat_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.session.current_view is not self:
             return  # already acted on (e.g. a double-click) -- avoid double-paying out
+        self.session.current_view = None  # claimed synchronously, before any await -- see push_button below
         embed = await _apply_retreat(self.session)
         await interaction.response.edit_message(embed=embed, attachments=[], view=None)
         self.stop()
@@ -1216,6 +1223,12 @@ class RoomResultView(discord.ui.View):
         next_room = session.group_next_override or room.get("next")
         if next_room is None:
             return  # room state doesn't match this stale view -- nothing sane to push into
+        # Claimed here, synchronously (no await since the check above) rather than relying on the
+        # next view's own __init__ to overwrite current_view -- that doesn't happen until AFTER
+        # _goto_room's render/response round-trip, which is exactly the slow part a double-click
+        # can land inside of. Nulling it out now closes that window: a concurrent second click's
+        # own `is not self` check (above) sees this immediately instead of racing to also pass.
+        session.current_view = None
         await _goto_room(interaction, session, next_room, "You press deeper into the dungeon...")
         self.stop()
 
@@ -3286,11 +3299,17 @@ class PartyChoiceOutcomeView(discord.ui.View):
 
     @discord.ui.button(label="Continue", style=discord.ButtonStyle.primary)
     async def continue_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.session.current_view is not self:
+            return  # already acted on (e.g. a double-click) -- don't re-enter the room twice
+        self.session.current_view = None  # claimed synchronously, before any await -- see PartyRoomResultView.push_button
         await _goto_party_room(interaction, self.session, self.next_room_id)
         self.stop()
 
     @discord.ui.button(label="Retreat with Loot", style=discord.ButtonStyle.secondary)
     async def retreat_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.session.current_view is not self:
+            return  # already acted on -- avoid double-paying out
+        self.session.current_view = None  # claimed synchronously, before any await -- see PartyRoomResultView.push_button
         embed = await _apply_party_retreat(self.session)
         await interaction.response.edit_message(embed=embed, attachments=[], view=None)
         self.stop()
@@ -3344,6 +3363,7 @@ class PartyRoomResultView(discord.ui.View):
     async def retreat_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.session.current_view is not self:
             return  # already acted on (e.g. a double-click) -- avoid double-paying out
+        self.session.current_view = None  # claimed synchronously, before any await -- see push_button below
         embed = await _apply_party_retreat(self.session)
         await interaction.response.edit_message(embed=embed, attachments=[], view=None)
         self.stop()
@@ -3357,6 +3377,9 @@ class PartyRoomResultView(discord.ui.View):
         next_room = session.group_next_override or room.get("next")
         if next_room is None:
             return  # room state doesn't match this stale view -- nothing sane to push into
+        # Claimed here, synchronously (no await since the check above) -- see RoomResultView's
+        # own push_button for why this can't wait for the next view's __init__ to do it instead.
+        session.current_view = None
         await _goto_party_room(interaction, session, next_room, "The party presses deeper into the dungeon...")
         self.stop()
 
