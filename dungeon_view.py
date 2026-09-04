@@ -2105,12 +2105,39 @@ async def _build_combat_view(session: DelveSession) -> "CombatView":
     return CombatView(session, usable_items)
 
 
+async def _defer_if_needed(interaction: discord.Interaction) -> None:
+    """Claims the interaction's first response with a bare defer (no-op if some earlier step in
+    this same callback already responded) -- buys the full ~15-minute followup window instead of
+    the 3-second initial-response one, so a room render slow enough to blow that budget (a
+    fight-intro/attack-animation GIF composites and encodes several extra frames -- see
+    dungeon_render.render_room) doesn't turn into a 404 "Unknown interaction" when the eventual
+    edit finally goes out. Called at the top of every solo-combat function that ends by rendering
+    and sending exactly one response (_solo_death_embed, _present_room_result,
+    _advance_solo_turns), since any of them can be the first response in its callback."""
+    if not interaction.response.is_done():
+        await interaction.response.defer()
+
+
+async def _edit_response(interaction: discord.Interaction, **kwargs) -> None:
+    """The send half of _defer_if_needed's pairing -- edit_message if this interaction hasn't
+    been responded to yet, edit_original_response (the followup-window equivalent) if
+    _defer_if_needed already claimed the response earlier in this same callback. Every solo-combat
+    render/response call site should go through this instead of calling
+    interaction.response.edit_message directly, since whether an earlier defer happened isn't
+    always visible at the call site."""
+    if interaction.response.is_done():
+        await interaction.edit_original_response(**kwargs)
+    else:
+        await interaction.response.edit_message(**kwargs)
+
+
 async def _solo_death_embed(interaction: discord.Interaction, session: DelveSession, log_lines: list[str]) -> None:
     """Ends the delve (via _forfeit), sends the "You Have Fallen" embed as the interaction's own
     response, and (as a followup, per achievements.py's "response must go out first" ordering)
     awards killed_by_zgoolok if Z'Goolok is the one who did it -- shared by every place a solo
     player's hp can drop to 0 (their own action's aftermath, a monster's turn, or a DoT ticking as
     their own turn comes up), so there's one death screen, not one per cause."""
+    await _defer_if_needed(interaction)
     currency = db.get_currency_name(session.guild_id)
     killed_by_zgoolok = any(m.monster["id"] == "z_goolok" for m in session.monsters)
     await _forfeit(session)
@@ -2120,7 +2147,7 @@ async def _solo_death_embed(interaction: discord.Interaction, session: DelveSess
         f"delve's **{session.loot_total}** {currency} haul.",
         color=discord.Color.dark_red(),
     )
-    await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+    await _edit_response(interaction, embed=embed, attachments=[], view=None)
     if killed_by_zgoolok:
         await achievements.try_award_many(
             interaction.followup.send, session.guild_id, session.user_id, session.display_name, ["killed_by_zgoolok"]
@@ -2135,9 +2162,10 @@ async def _advance_solo_turns(
     combat room (_build_room_display, log_lines seeded with room/monster flavor -- a fast enough
     monster group can land a hit before the player's very first action, a real CTB ambush) and
     after the player's own action resolves (_resolve_combat_turn's tail, right after their own
-    turn_clock advances). Always ends by sending exactly one response via
-    interaction.response.edit_message -- the player's own turn view, a death screen, or a
-    room-cleared screen. A monster's own DoT-caused death is handled inline here (award the kill,
+    turn_clock advances). Always ends by sending exactly one response via _edit_response (a bare
+    _defer_if_needed up top buys the full followup window in case the render is slow) -- the
+    player's own turn view, a death screen, or a room-cleared screen. A monster's own DoT-caused
+    death is handled inline here (award the kill,
     `continue` the loop) rather than the old batch-collect-casualties pattern -- there's no longer
     a "round" to batch within, just this one monster's turn.
 
@@ -2155,6 +2183,7 @@ async def _advance_solo_turns(
     player's turn comes back around: only the last of them gets animated, not a queue of all of
     them. Suppressed entirely on is_room_entry (fight_intro takes visual priority on that one
     render -- see render_room's own docstring for why the two aren't combined)."""
+    await _defer_if_needed(interaction)
     moon_effect = moon.effect_for("dungeon")
     player_moon_mult = _moon_combat_multiplier(moon_effect, "player")
     last_attacker_slot: int | None = None
@@ -2188,7 +2217,7 @@ async def _advance_solo_turns(
                 attack_slot=None if is_room_entry else last_attacker_slot,
             )
             view = await _build_combat_view(session)
-            await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
+            await _edit_response(interaction, embed=embed, attachments=[file], view=view)
             return
 
         monster = next(m for m in session.living_monsters() if m.slot == next_id)
@@ -2342,6 +2371,7 @@ async def _handle_cast_item(interaction: discord.Interaction, session: DelveSess
 
 
 async def _present_room_result(interaction: discord.Interaction, session: DelveSession, log_lines: list[str]):
+    await _defer_if_needed(interaction)
     currency = db.get_currency_name(session.guild_id)
     room = session.rooms_by_id[session.current_room_id]
     next_room = session.group_next_override or room.get("next")
@@ -2355,12 +2385,12 @@ async def _present_room_result(interaction: discord.Interaction, session: DelveS
         await asyncio.to_thread(db.set_current_hp, session.guild_id, session.user_id, session.hp)
         _cleanup(session)
         embed.description += f"\n\nYou've cleared the dungeon! Balance: **{balance}** {currency}."
-        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
+        await _edit_response(interaction, embed=embed, attachments=[], view=None)
         return
 
     embed.description += "\n\nRetreat with your loot, or push deeper for a tougher fight and better rewards?"
     view = RoomResultView(session)
-    await interaction.response.edit_message(embed=embed, attachments=[], view=view)
+    await _edit_response(interaction, embed=embed, attachments=[], view=view)
 
 
 # --- Party combat ---------------------------------------------------------------------------
