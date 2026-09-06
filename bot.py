@@ -254,8 +254,13 @@ _ILLITERATE_GRANT_USER_ID = 319966284848693250
 
 async def _grant_illiterate_achievement():
     for guild in bot.guilds:
-        member = guild.get_member(_ILLITERATE_GRANT_USER_ID)
-        if member is None:
+        # get_member() only checks the local member cache, which bot.py's Intents.default() never
+        # populates with the full member list (that needs the privileged Members intent) -- this
+        # silently found nobody and skipped every guild the first time. fetch_member() is a direct
+        # per-user API lookup instead, so it works without that intent.
+        try:
+            member = await guild.fetch_member(_ILLITERATE_GRANT_USER_ID)
+        except discord.NotFound:
             continue
         channel_id = await asyncio.to_thread(db.get_casino_channel_id, guild.id)
         channel = guild.get_channel(channel_id) if channel_id else None
