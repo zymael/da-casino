@@ -1323,9 +1323,10 @@ async def _award_kill(
         db.add_xp, guild_id, actor.user_id, xp_gain,
         growth["level_hp_gain"], growth["level_atk_gain"], growth["level_def_gain"],
         growth["level_spatk_gain"], 0,  # speed is flat -- never grows with level
-        dungeon.LEVELING["global"]["xp_per_level"],
+        dungeon.LEVELING["global"]["xp_per_level"], dungeon.max_level(),
     )
-    log_lines.append(f"+{xp_gain} XP")
+    if level_result["xp_awarded"] > 0:
+        log_lines.append(f"+{level_result['xp_awarded']} XP")
     if level_result["levels_gained"] > 0:
         actor.level = level_result["new_level"]
         hp_delta = growth["level_hp_gain"] * level_result["levels_gained"]

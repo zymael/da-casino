@@ -836,11 +836,11 @@ def pick_monster_group(room: dict) -> dict:
 # growth -- no player choice -- applied by mutating the character's stored stats in place
 # (db.add_xp), the same way horse training already grows a horse's stats via db.train_horse. Growth
 # itself is per-class now (CLASSES' own level_hp_gain/level_atk_gain/... fields above, looked up by
-# dungeon_view._award_kill on each level-up) -- xp_per_level below is the one number still shared by
-# every class, editable through the admin panel's Leveling page (dungeon_leveling.json) since it's a
-# pacing knob, not a balance-between-classes one, so it doesn't fit as a per-class field.
+# dungeon_view._award_kill on each level-up) -- xp_per_level and max_level below are the two numbers
+# still shared by every class, editable through the admin panel's Leveling page (dungeon_leveling.json)
+# since they're pacing knobs, not balance-between-classes ones, so they don't fit as per-class fields.
 _LEVELING_PATH = os.path.join(os.path.dirname(__file__), "dungeon_leveling.json")
-_REQUIRED_LEVELING_FIELDS = {"id", "xp_per_level"}
+_REQUIRED_LEVELING_FIELDS = {"id", "xp_per_level", "max_level"}
 
 
 def _load_leveling(path: str = _LEVELING_PATH) -> dict[str, dict]:
@@ -854,6 +854,8 @@ def _load_leveling(path: str = _LEVELING_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_leveling.json: entry {entry_id!r} missing field(s): {sorted(missing)}")
         if entry["xp_per_level"] < 1:
             raise ValueError(f"dungeon_leveling.json: entry {entry_id!r} xp_per_level must be >= 1")
+        if entry["max_level"] < 1:
+            raise ValueError(f"dungeon_leveling.json: entry {entry_id!r} max_level must be >= 1")
         leveling[entry_id] = entry
     if set(leveling) != {"global"}:
         raise ValueError(
@@ -928,6 +930,13 @@ def xp_for_monster(monster: dict) -> int:
 def xp_to_next_level(level: int) -> int:
     """XP required to advance from `level` to `level + 1`."""
     return LEVELING["global"]["xp_per_level"] * level
+
+
+def max_level() -> int:
+    """The current level cap -- editable through the admin panel's Leveling page
+    (dungeon_leveling.json's "global" entry) same as xp_per_level, so raising it later is a content
+    edit, not a code change."""
+    return LEVELING["global"]["max_level"]
 
 
 # --- Skills ----------------------------------------------------------------------------------

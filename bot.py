@@ -244,6 +244,30 @@ async def setup_hook():
         traceback.print_exc()
 
 
+# One-off manual grant for the "illiterate" achievement (see achievements.py -- deliberately not
+# wired to any real trigger, per the request that earned it). Safe to leave in place indefinitely:
+# award_first_achievement is idempotent, so this is a no-op on every on_ready after the first one
+# that finds the member and successfully claims it. Delete this block (and the on_ready call below)
+# once it's confirmed to have fired.
+_ILLITERATE_GRANT_USER_ID = 319966284848693250
+
+
+async def _grant_illiterate_achievement():
+    for guild in bot.guilds:
+        member = guild.get_member(_ILLITERATE_GRANT_USER_ID)
+        if member is None:
+            continue
+        channel_id = await asyncio.to_thread(db.get_casino_channel_id, guild.id)
+        channel = guild.get_channel(channel_id) if channel_id else None
+        if channel is None:
+            channel = guild.system_channel
+        if channel is None:
+            continue
+        await achievements.try_award_many(
+            channel.send, guild.id, member.id, member.display_name, ["illiterate"],
+        )
+
+
 @bot.event
 async def on_ready():
     print(f"{bot.user} has connected to Discord!", flush=True)
@@ -260,6 +284,7 @@ async def on_ready():
             _SYNCED_GUILD_IDS.add(guild.id)
     if not sync_champions_loop.is_running():
         sync_champions_loop.start()
+    await _grant_illiterate_achievement()
 
 
 @bot.event
@@ -951,10 +976,14 @@ async def class_cmd(ctx):
     housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, ctx.guild.id, ctx.author.id)
     effective = dungeon.compute_effective_stats(character, equipped, housing_bonuses.get("stat_bonus", {}))
     max_chips = dungeon.compute_stats(character["main_class"], character["subclass"])["chips"]
-    xp_needed = dungeon.xp_to_next_level(character["level"])
+    if character["level"] >= dungeon.max_level():
+        level_value = f"{character['level']} (MAX)"
+    else:
+        xp_needed = dungeon.xp_to_next_level(character["level"])
+        level_value = f"{character['level']} ({character['xp']}/{xp_needed} XP)"
 
     embed = discord.Embed(title=f"{name} {rank}{suit_symbol}", color=discord.Color.blurple())
-    embed.add_field(name="Level", value=f"{character['level']} ({character['xp']}/{xp_needed} XP)", inline=True)
+    embed.add_field(name="Level", value=level_value, inline=True)
     embed.add_field(name="Stats", value=_character_sheet_stats(character, effective, max_chips), inline=True)
     embed.add_field(name="⚔️ Equipment", value="\n".join(_gear_breakdown_lines(equipped)), inline=False)
     if character["subclass"] == dungeon.NO_SUBCLASS:

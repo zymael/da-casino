@@ -1,6 +1,7 @@
 [
   {
     "id": "global",
-    "xp_per_level": 100
+    "xp_per_level": 100,
+    "max_level": 25
   }
 ]

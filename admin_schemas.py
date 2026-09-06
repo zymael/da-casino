@@ -686,7 +686,7 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "LEVELING",
         "loader": dungeon._load_leveling,
-        "list_columns": ["id", "xp_per_level"],
+        "list_columns": ["id", "xp_per_level", "max_level"],
         "fields": [
             {
                 "name": "id", "type": "str", "required": True, "group": "Identity",
@@ -695,6 +695,10 @@ CONTENT_TYPES = {
             {
                 "name": "xp_per_level", "type": "int", "required": True, "min": 1, "group": "Pacing",
                 "hint": "XP to advance from level N to N+1 is this number times N, shared by every class",
+            },
+            {
+                "name": "max_level", "type": "int", "required": True, "min": 1, "group": "Pacing",
+                "hint": "characters stop gaining XP/levels once they hit this -- raise it any time to lift the cap",
             },
         ],
     },

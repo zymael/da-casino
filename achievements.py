@@ -272,6 +272,14 @@ ACHIEVEMENTS = [
         "description": "You're a filthy thief, and you took what was not yours.  Good job.",
         "reward": 25,
     },
+    {
+        "kind": "illiterate",
+        "scope": "first",
+        "emoji": "📖",
+        "name": "Illiterate",
+        "description": "First to kill Z'Goolok without doing the quest to make him possible.  Who fucking needs quest text?  Not you.",
+        "reward": 250,
+    },
 ]
 
 # Maps each game bucket to its emoji/title and the db.log_bet() `game` string(s) that feed it

@@ -2094,24 +2094,28 @@ def set_character_progress(
 def add_xp(
     guild_id: int, user_id: int, xp_gain: int,
     hp_gain: int, atk_gain: int, def_gain: int, spatk_gain: int, speed_gain: int,
-    xp_per_level: int,
+    xp_per_level: int, max_level: int,
 ) -> dict:
     """Awards xp_gain, then loops applying level-ups (mutating the character's stored hp/atk/def/
     spatk/speed in place, same idea as train_horse growing a horse's stats) for as long as
     the accumulated xp clears the next threshold -- so one big award can cross several levels in
     one call, same inclusive-tiers idea used elsewhere in this codebase (e.g. achievement tiers).
-    `hp_gain`/etc and `xp_per_level` are both caller-supplied (dungeon.CLASSES' per-class growth
-    fields and dungeon.LEVELING's shared pacing number, respectively) rather than looked up here --
-    db.py doesn't import game-content modules (dungeon.py already imports db.py; importing back
-    would be circular), same reasoning as horserace.py owning its own constants that db.py's
+    `hp_gain`/etc, `xp_per_level`, and `max_level` are all caller-supplied (dungeon.CLASSES' per-class
+    growth fields and dungeon.LEVELING's shared pacing numbers, respectively) rather than looked up
+    here -- db.py doesn't import game-content modules (dungeon.py already imports db.py; importing
+    back would be circular), same reasoning as horserace.py owning its own constants that db.py's
     callers pass in. The characters table still has a real `spdef` column (SpDef was retired from
     the game, see dungeon.py) -- deliberately left alone rather than migrated, so this function
     just never selects/updates it any more; existing rows keep whatever value they last had,
     frozen, forever.
 
-    Returns {new_level, levels_gained, new_hp, new_atk, new_def, new_spatk, new_speed, new_xp} so
-    the caller can apply the same deltas to a live delve session immediately rather than waiting
-    for the next one."""
+    A character already at max_level is awarded no xp at all (xp_awarded comes back 0, xp column
+    untouched) rather than banking it unseen -- so raising the cap later starts everyone's climb to
+    the next level from a clean 0, not a pile of xp earned who-knows-when pre-cap.
+
+    Returns {new_level, levels_gained, new_hp, new_atk, new_def, new_spatk, new_speed, new_xp,
+    xp_awarded} so the caller can apply the same deltas to a live delve session immediately rather
+    than waiting for the next one."""
     conn = _connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -2119,9 +2123,10 @@ def add_xp(
             "SELECT level, xp, hp, atk, def, spatk, speed FROM characters WHERE guild_id = ? AND user_id = ?",
             (guild_id, user_id),
         ).fetchone()
-        xp += xp_gain
+        xp_awarded = xp_gain if level < max_level else 0
+        xp += xp_awarded
         levels_gained = 0
-        while xp >= xp_per_level * level:
+        while level < max_level and xp >= xp_per_level * level:
             xp -= xp_per_level * level
             level += 1
             levels_gained += 1
@@ -2139,6 +2144,7 @@ def add_xp(
         return {
             "new_level": level, "levels_gained": levels_gained, "new_xp": xp,
             "new_hp": hp, "new_atk": atk, "new_def": def_, "new_spatk": spatk, "new_speed": speed,
+            "xp_awarded": xp_awarded,
         }
     finally:
         conn.close()
