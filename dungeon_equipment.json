@@ -1281,19 +1281,16 @@
     "name": "Tooth of the End",
     "slot": "weapon",
     "rarity": "legendary",
-    "intended_level": 30,
-    "base_value": 4500,
-    "flavor": "GNAM GNAM GNAM — but for you, now.",
     "effects": [
       {
         "type": "atk_buff",
         "trigger": "constant",
-        "value": 34
+        "value": 27
       },
       {
         "type": "spatk_buff",
         "trigger": "constant",
-        "value": 10
+        "value": 27
       },
       {
         "type": "hp_buff",
@@ -1303,10 +1300,14 @@
       {
         "type": "extra_attack",
         "trigger": "on_hit",
-        "multiplier": 0.6,
-        "chance": 0.15
+        "chance": 0.15,
+        "multiplier": 0.6
       }
-    ]
+    ],
+    "special": false,
+    "intended_level": 30,
+    "base_value": 4500,
+    "flavor": "GNAM GNAM GNAM \u2014 but for you, now."
   },
   {
     "id": "eye_that_watches_from_below",
