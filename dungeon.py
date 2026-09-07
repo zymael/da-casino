@@ -1644,6 +1644,10 @@ def _load_equipment(path: str = _EQUIPMENT_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} avoid must be one of {AVOID_TYPES}")
         if entry["base_value"] < 0:
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} base_value must be >= 0")
+        if "stat_multiplier" in entry:
+            multiplier = entry["stat_multiplier"]
+            if not isinstance(multiplier, (int, float)) or multiplier <= 0:
+                raise ValueError(f"dungeon_equipment.json: item {entry_id!r} stat_multiplier must be > 0")
         _validate_equipment_effects(entry["effects"], f"dungeon_equipment.json: item {entry_id!r}")
         if "vs_monster_debuff" in entry:
             _validate_vs_monster_debuff(entry["vs_monster_debuff"], f"dungeon_equipment.json: item {entry_id!r}")
@@ -1849,7 +1853,15 @@ def compute_effective_stats(
     housing.get_house_bonuses(...).get("stat_bonus", {}), the housing analogue of an equipped
     item's own constant_stat_bonuses. `equipped` is {slot: item_id}, e.g. from
     db.get_equipped_items. `housing_stat_bonuses` defaults to none (today's exact behavior) --
-    callers that want housing items to count pass one in."""
+    callers that want housing items to count pass one in.
+
+    An equipped item's optional `stat_multiplier` (no authored item currently sets one below 1 --
+    every existing constant effect is a flat, always-positive add, with no way to express a
+    percentage-of-current-stats reduction that way) is applied last, multiplicatively across all
+    five stats, after every flat add above. Composes across multiple such items if more than one
+    is ever equipped at once. Floored at 1 per stat rather than letting it reach 0 or go negative --
+    roll_damage's DEF_MITIGATION_K/(DEF_MITIGATION_K + defense) divides by zero at defense == -25,
+    and 0 damage would break the "a fight can never stall" floor everywhere else relies on."""
     hp, atk, def_ = character["hp"], character["atk"], character["def"]
     spatk, speed = character["spatk"], character["speed"]
     for item_id in equipped.values():
@@ -1868,6 +1880,16 @@ def compute_effective_stats(
         def_ += housing_stat_bonuses.get("def", 0)
         spatk += housing_stat_bonuses.get("spatk", 0)
         speed += housing_stat_bonuses.get("speed", 0)
+    for item_id in equipped.values():
+        item = EQUIPMENT.get(item_id)
+        multiplier = item.get("stat_multiplier") if item else None
+        if multiplier is None:
+            continue
+        hp = max(1, round(hp * multiplier))
+        atk = max(1, round(atk * multiplier))
+        def_ = max(1, round(def_ * multiplier))
+        spatk = max(1, round(spatk * multiplier))
+        speed = max(1, round(speed * multiplier))
     return {"hp": hp, "atk": atk, "def": def_, "spatk": spatk, "speed": speed}
 
 

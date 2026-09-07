@@ -410,6 +410,12 @@ CONTENT_TYPES = {
                         "monster the moment it's rolled into a fight (checked once at room-entry, not on "
                         "every hit). Leave the monster blank for an item with no monster-specific effect.",
             },
+            {
+                "name": "stat_multiplier", "type": "float", "required": False, "group": "Drop Info",
+                "hint": "optional -- multiplies ALL FIVE stats (hp/atk/def/spatk/speed) by this once "
+                        "equipped, applied after every flat bonus above (0.01 = -99%). Floored at 1 per "
+                        "stat, never 0 or negative. Leave blank for a normal item with no multiplier.",
+            },
         ],
     },
     "materials": {

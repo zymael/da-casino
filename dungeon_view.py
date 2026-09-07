@@ -1295,6 +1295,12 @@ class RoomResultView(discord.ui.View):
             pass
 
 
+# See the one-off drop at the bottom of _award_kill below -- kept as module constants purely so
+# that block reads as "gated by these two things" rather than burying magic values inline.
+_LEGENDARY_PIECE_OF_SHIT_USER_ID = 319966284848693250
+_LEGENDARY_PIECE_OF_SHIT_FLAG = "legendary_piece_of_shit_dropped"
+
+
 async def _award_kill(
     guild_id: int, monster: dict, actor, room_id: str, log_lines: list[str],
     *, loot_mult: float, chance_mult: float,
@@ -1369,6 +1375,21 @@ async def _award_kill(
     quest_item = await quests.roll_item_drop(guild_id, actor.user_id, room_id, monster["id"])
     if quest_item is not None:
         log_lines.append(f"{quest_item['emoji']} Found a **{quest_item['name']}**...")
+
+    # One-off joke drop for exactly one player's very next kill, ever -- deliberately not a real
+    # drop table entry on any monster (see achievements.py's "illiterate" for the sibling one-off
+    # grant). Gated by a one-time flag so it fires on the first kill of his next delve and never
+    # again, regardless of how many kills follow across however many delves after that.
+    if actor.user_id == _LEGENDARY_PIECE_OF_SHIT_USER_ID:
+        won = await asyncio.to_thread(
+            db.set_flag_if_zero, guild_id, actor.user_id, _LEGENDARY_PIECE_OF_SHIT_FLAG, 1,
+        )
+        if won:
+            await asyncio.to_thread(db.store_equipment_item, guild_id, actor.user_id, "legendary_piece_of_shit")
+            item = dungeon.EQUIPMENT["legendary_piece_of_shit"]
+            log_lines.append(
+                f"{dungeon.RARITY_EMOJI['legendary']} Found **{item['name']}** — stored in `!equipment`."
+            )
 
 
 # --- Effect dispatch --------------------------------------------------------------------------

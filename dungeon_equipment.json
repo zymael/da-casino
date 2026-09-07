@@ -1512,5 +1512,21 @@
     "intended_level": 9,
     "base_value": 200,
     "flavor": "\"You call this slicked back? This is PUSHED back.\"\r\n\r\nThe wind flows freely through your hair in this thing.  Or rather right over it like the wing of an airplane due to how much pomade you used."
+  },
+  {
+    "id": "legendary_piece_of_shit",
+    "name": "Legendary Piece of Shit",
+    "slot": "armor",
+    "rarity": "legendary",
+    "base_value": 1,
+    "stat_multiplier": 0.01,
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 1
+      }
+    ],
+    "flavor": "You finally found it.  The legendary armor you've been seeking."
   }
 ]
