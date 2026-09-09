@@ -354,6 +354,11 @@
         "kind": "equipment",
         "item_id": "complimentary_robe",
         "chance": 0.18
+      },
+      {
+        "kind": "consumable",
+        "item_id": "complimentary_mint",
+        "chance": 0.25
       }
     ],
     "skills": [
