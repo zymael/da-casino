@@ -1005,7 +1005,7 @@
     "rarity": "rare",
     "effects": [
       {
-        "type": "atk_buff",
+        "type": "spatk_buff",
         "trigger": "constant",
         "value": 13
       },
