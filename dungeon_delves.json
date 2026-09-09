@@ -173,6 +173,8 @@
     "id": "gnome_bathhouse",
     "name": "The Gnomish Bathhouse",
     "active": true,
+    "max_party_size": 4,
+    "raid": false,
     "hidden_until_discovered": true,
     "unlock_trigger": {
       "type": "quest_complete",
@@ -373,7 +375,7 @@
               "enchanted_towel",
               "bath_witch"
             ],
-            "chance": 0.25,
+            "chance": 0.33,
             "fork": true,
             "next": "Witch Meltdown",
             "x": 1052.0,
@@ -392,7 +394,7 @@
             "label": "Help her wrangle it",
             "check": {
               "stat": "atk",
-              "dc": 35
+              "dc": 15
             },
             "on_success": {
               "next": "A desperate choice!",
