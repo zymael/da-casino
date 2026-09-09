@@ -693,23 +693,18 @@
     "drops": [
       {
         "kind": "material",
-        "item_id": "shiny_rock",
-        "chance": 0.1
-      },
-      {
-        "kind": "material",
         "item_id": "hair",
         "chance": 0.3
       },
       {
         "kind": "equipment",
         "item_id": "massaging_wand",
-        "chance": 0.12
+        "chance": 0.25
       },
       {
         "kind": "equipment",
         "item_id": "steam_soaked_robe",
-        "chance": 0.12
+        "chance": 0.25
       },
       {
         "kind": "equipment",
