@@ -1140,6 +1140,11 @@
         "kind": "equipment",
         "item_id": "rat_tooth_shiv",
         "chance": 0.18
+      },
+      {
+        "kind": "consumable",
+        "item_id": "succo_di_ratto",
+        "chance": 0.25
       }
     ],
     "skills": [
