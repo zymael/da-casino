@@ -135,7 +135,7 @@
     "name": "Succo Di Ratto",
     "kind": "consumable",
     "base_value": 30,
-    "flavor": "Sounds a lot classier in Italian. It's the same gutter water the whole crew passes around like it's imported.",
+    "flavor": "Juice of the rat.",
     "effects": [
       {
         "type": "heal_fraction",
