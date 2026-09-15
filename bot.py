@@ -683,6 +683,10 @@ RUB_LUCKY_TARGET_ID = 272816170749526027  # fallback only, if no active user is 
 RUB_LUCK_RANGE = (1, 5)  # permanent -- stolen luck stays stolen
 TURRON_TARGET_ID = 319966284848693250  # rubbing luck away from this specific user drops a Delicious Turron
 TURRON_GIF = "https://media1.tenor.com/m/oDMzfUQF1IwAAAAd/ena-joel-g.gif"
+RUB_NAG_THRESHOLD = 3  # cooldown hits in the same window before the message turns hostile
+_rub_nag_counts: dict[tuple[int, int], int] = {}  # (guild_id, user_id) -> cooldown hits since last successful rub
+RUB_ANGRY_PRANK_USER_ID = 468239994063159296  # one-off: their very next !rub gets the angry response, no matter their real cooldown
+_rub_angry_prank_pending: set[int] = {RUB_ANGRY_PRANK_USER_ID}
 
 
 @bot.command(name="rub")
@@ -695,11 +699,23 @@ async def rub_cmd(ctx):
     amount = random.randint(*RUB_LUCK_RANGE)
     status, value = await asyncio.to_thread(db.apply_rub, ctx.guild.id, ctx.author.id, target_id, amount)
     if status == "cooldown":
-        await ctx.send(
-            f"⏳ {ctx.author.display_name}, you've already rubbed your belly recently. "
-            f"You can rub again {_in_seconds(value)}."
-        )
+        nag_key = (ctx.guild.id, ctx.author.id)
+        nag_count = _rub_nag_counts.get(nag_key, 0) + 1
+        _rub_nag_counts[nag_key] = nag_count
+        prank_triggered = ctx.author.id in _rub_angry_prank_pending
+        if prank_triggered:
+            _rub_angry_prank_pending.discard(ctx.author.id)
+        if prank_triggered or nag_count >= RUB_NAG_THRESHOLD:
+            reset_time = f"<t:{int(time.time() + value)}:t>"
+            await ctx.send(f"I FUCKING TOLD YOU YOU CAN'T RUB YET. WAIT UNTIL {reset_time}!")
+        else:
+            await ctx.send(
+                f"⏳ {ctx.author.display_name}, you've already rubbed your belly recently. "
+                f"You can rub again {_in_seconds(value)}."
+            )
         return
+
+    _rub_nag_counts.pop((ctx.guild.id, ctx.author.id), None)
 
     member = await _fetch_member(ctx.guild, target_id)
     mention = member.mention if member else f"<@{target_id}>"
