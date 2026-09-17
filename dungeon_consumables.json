@@ -232,5 +232,22 @@
         "value": 0.6
       }
     ]
+  },
+  {
+    "id": "birthday_slice",
+    "name": "The Last Birthday Slice",
+    "kind": "consumable",
+    "base_value": 120,
+    "flavor": "Somebody's name is still piped on it in grease, and nobody's come to claim it in thirty years. Finders keepers hits different when you're this hungry: you come up swinging harder and standing sturdier both.",
+    "effects": [
+      {
+        "type": "atk_buff",
+        "value": 5
+      },
+      {
+        "type": "def_buff",
+        "value": 4
+      }
+    ]
   }
 ]

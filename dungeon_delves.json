@@ -885,5 +885,423 @@
       }
     },
     "start_room": "The Overgrown Facade"
+  },
+  {
+    "id": "pizza_parlor",
+    "name": "Big Cheese Pizza Palace",
+    "active": false,
+    "flavor": "Closed since the eighties, lit since the eighties, and somebody is still taking orders.",
+    "rooms": [
+      {
+        "id": "The Host Stand",
+        "type": "choice",
+        "prompt": "The door is unlocked, the neon is on, and the smell hits you like a wall: thirty years of oregano and something underneath it that is not oregano.\r\n\r\nA man in a paper hat and a grease-blackened apron looks up from a podium. \"Evening. Do you have a reservation?\"\r\n\r\nThere is a cup of brass tokens on the podium by his elbow. He has not blinked yet.",
+        "actions": [
+          {
+            "label": "Ask about the specials",
+            "on_success": {
+              "next": "The Dining Floor",
+              "message": "He talks for four uninterrupted minutes about a deal that expired in 1987. You help yourself to the token cup while he does it.",
+              "item_kind": "material",
+              "item_id": "pizza_token",
+              "item_qty": 2
+            }
+          },
+          {
+            "label": "Flash a coupon you definitely have",
+            "check": {
+              "chance": 0.45
+            },
+            "on_success": {
+              "next": "The Order Window",
+              "message": "He studies the empty hand for a long moment, then stamps it anyway. \"Right this way.\" He waves you past the dining room entirely, and tips the cup into your palm.",
+              "item_kind": "material",
+              "item_id": "pizza_token",
+              "item_qty": 4
+            },
+            "on_fail": {
+              "next": "The Dining Floor",
+              "hp_delta": -20,
+              "message": "\"That's not a coupon. That's your hand.\" He rings the bell on the podium, and the dining room stands up."
+            }
+          },
+          {
+            "label": "Tip him heavily",
+            "cost": {
+              "currency": 250
+            },
+            "on_success": {
+              "next": "The Order Window",
+              "message": "The bills disappear into the apron. He unhooks the velvet rope and looks at the wall until you are past it."
+            }
+          }
+        ]
+      },
+      {
+        "id": "The Dining Floor",
+        "type": "combat",
+        "prompt": "Every booth is occupied and every head turns at once. Service here has never actually stopped.",
+        "monster_groups": [
+          {
+            "monsters": [
+              "pizza_cultist",
+              "pizza_cultist"
+            ],
+            "party_extra_monster": "pizza_cultist"
+          },
+          {
+            "monsters": [
+              "pizza_cultist",
+              "dough_thrall"
+            ],
+            "party_extra_monster": "pizza_cultist"
+          }
+        ],
+        "next": "The Order Window"
+      },
+      {
+        "id": "The Order Window",
+        "type": "choice",
+        "prompt": "A service window in the back wall, the kitchen dark behind it. A laminated sign, curled at every corner, offers the only two options this establishment has ever recognized.\r\n\r\nThrough the bead curtain to your left, something is playing an attract loop to an empty room.",
+        "actions": [
+          {
+            "label": "Dine in",
+            "on_success": {
+              "next": "The Arcade",
+              "message": "A cup of tokens slides across the sill before you finish asking. The curtain rattles invitingly.",
+              "item_kind": "material",
+              "item_id": "pizza_token",
+              "item_qty": 3
+            }
+          },
+          {
+            "label": "Take out",
+            "on_success": {
+              "next": "The Party Room",
+              "message": "You skip the games and head for the back. Whatever's on the menu, you're picking it up yourself."
+            }
+          }
+        ]
+      },
+      {
+        "id": "The Arcade",
+        "type": "choice",
+        "prompt": "Eleven cabinets, nine of them still lit, all of them still running. The carpet is that specific carpet. Behind the prize counter the good stuff sits exactly where a child could see it and never afford it.\r\n\r\nTokens in, tickets out, tickets across the counter. The house has not changed the rates in thirty years, and the house never needed to.",
+        "actions": [
+          {
+            "label": "Skee-Ball (1 token)",
+            "cost": {
+              "item_kind": "material",
+              "item_id": "pizza_token",
+              "item_qty": 1
+            },
+            "check": {
+              "chance": 0.65
+            },
+            "on_success": {
+              "next": "The Arcade",
+              "message": "The last ball rattles into the 50 ring. The machine coughs up its paper without enthusiasm.",
+              "item_kind": "material",
+              "item_id": "arcade_ticket",
+              "item_qty": 2
+            },
+            "on_fail": {
+              "next": "The Arcade",
+              "message": "Every ball goes straight up the middle for ten points. The machine does not even bother printing."
+            }
+          },
+          {
+            "label": "Whack-a-Rat (1 token)",
+            "cost": {
+              "item_kind": "material",
+              "item_id": "pizza_token",
+              "item_qty": 1
+            },
+            "check": {
+              "stat": "speed",
+              "dc": 16
+            },
+            "on_success": {
+              "next": "The Arcade",
+              "message": "You clear the board before the last one is fully up. The machine plays a little fanfare it clearly means sincerely.",
+              "item_kind": "material",
+              "item_id": "arcade_ticket",
+              "item_qty": 2
+            },
+            "on_fail": {
+              "next": "The Arcade",
+              "message": "One of them comes up under the mallet instead of over it, and it bites.",
+              "hp_delta": -5
+            }
+          },
+          {
+            "label": "High Striker (1 token)",
+            "cost": {
+              "item_kind": "material",
+              "item_id": "pizza_token",
+              "item_qty": 1
+            },
+            "check": {
+              "stat": "atk",
+              "dc": 56
+            },
+            "on_success": {
+              "next": "The Arcade",
+              "message": "The puck goes up, the bell comes off its mount, and the machine pays out in something close to panic.",
+              "item_kind": "material",
+              "item_id": "arcade_ticket",
+              "item_qty": 2
+            },
+            "on_fail": {
+              "next": "The Arcade",
+              "message": "The hammer rebounds harder than it struck. Your shoulder files a complaint.",
+              "hp_delta": -5
+            }
+          },
+          {
+            "label": "Madame Zelda's Fortune (1 token)",
+            "cost": {
+              "item_kind": "material",
+              "item_id": "pizza_token",
+              "item_qty": 1
+            },
+            "check": {
+              "stat": "spatk",
+              "dc": 58
+            },
+            "on_success": {
+              "next": "The Arcade",
+              "message": "The glass head swivels, considers you, and prints a fortune that is upsettingly specific. Tickets follow.",
+              "item_kind": "material",
+              "item_id": "arcade_ticket",
+              "item_qty": 2
+            },
+            "on_fail": {
+              "next": "The Arcade",
+              "message": "The head swivels, considers you, and prints YOU WILL BE DISAPPOINTED SHORTLY. It was right."
+            }
+          },
+          {
+            "label": "The Claw (1 token)",
+            "cost": {
+              "item_kind": "material",
+              "item_id": "pizza_token",
+              "item_qty": 1
+            },
+            "check": {
+              "chance": 0.12
+            },
+            "on_success": {
+              "next": "The Arcade",
+              "message": "The claw closes, actually HOLDS, and drops the prize down the chute. Somewhere a manager who has been dead for thirty years feels it.",
+              "item_kind": "material",
+              "item_id": "arcade_ticket",
+              "item_qty": 20
+            },
+            "on_fail": {
+              "next": "The Arcade",
+              "message": "The claw brushes the pile, tightens on nothing, and rises with the dignity of a machine that has never once paid out."
+            }
+          },
+          {
+            "label": "Prize counter: Succo Di Ratto (4 tickets)",
+            "cost": {
+              "item_kind": "material",
+              "item_id": "arcade_ticket",
+              "item_qty": 4
+            },
+            "on_success": {
+              "next": "The Arcade",
+              "message": "Four tickets buys you the bottom shelf. The bottom shelf is rat juice.",
+              "item_kind": "consumable",
+              "item_id": "succo_di_ratto",
+              "item_qty": 1
+            }
+          },
+          {
+            "label": "Prize counter: Greater Healing Draught (10 tickets)",
+            "cost": {
+              "item_kind": "material",
+              "item_id": "arcade_ticket",
+              "item_qty": 10
+            },
+            "on_success": {
+              "next": "The Arcade",
+              "message": "Ten tickets, and the attendant who is not there slides you something that actually works.",
+              "item_kind": "consumable",
+              "item_id": "greater_healing_draught",
+              "item_qty": 1
+            }
+          },
+          {
+            "label": "Prize counter: The Last Birthday Slice (25 tickets)",
+            "cost": {
+              "item_kind": "material",
+              "item_id": "arcade_ticket",
+              "item_qty": 25
+            },
+            "on_success": {
+              "next": "The Arcade",
+              "message": "Twenty-five tickets. The slice comes off the top shelf still wearing somebody's name.",
+              "item_kind": "consumable",
+              "item_id": "birthday_slice",
+              "item_qty": 1
+            }
+          },
+          {
+            "label": "Leave the arcade",
+            "on_success": {
+              "next": "The Party Room",
+              "message": "You pocket what's left and push through the bead curtain."
+            }
+          }
+        ]
+      },
+      {
+        "id": "The Party Room",
+        "type": "combat",
+        "prompt": "Paper hats on every chair, a cake thirty years past candles, and a banner reading HAPPY BIRTHDAY in letters that have gone brown. The party has been going the whole time and you are late.",
+        "monster_groups": [
+          {
+            "monsters": [
+              "shift_manager",
+              "pizza_cultist"
+            ],
+            "party_extra_monster": "dough_thrall"
+          },
+          {
+            "monsters": [
+              "dough_thrall",
+              "pizza_cultist"
+            ],
+            "party_extra_monster": "shift_manager"
+          }
+        ],
+        "next": "Da Big Cheese"
+      },
+      {
+        "id": "Da Big Cheese",
+        "type": "combat",
+        "prompt": "The stage curtain pulls back on its original motor. Eight feet of mascot suit sits on a steel frame, and the cultists file in behind you to watch, hats on, hands folded.\r\n\r\nThe head comes up. The good eye finds you. Servos spin up somewhere in the chest.\r\n\r\nIt still thinks it has a show to do.",
+        "monster_groups": [
+          {
+            "monsters": [
+              "da_big_cheese"
+            ]
+          }
+        ],
+        "next": "The Back Room"
+      },
+      {
+        "id": "The Back Room",
+        "type": "choice",
+        "prompt": "Past the stage, the walk-in door stands open on a room that is much larger than the building. The cult is already inside, kneeling in a ring, chanting an order into the dark.\r\n\r\nSomething at the center is most of the way finished. It is not finished yet.\r\n\r\nYou can end this now, while it is still only most of a thing. Or you can wait, and see what they have actually been cooking, and take whatever comes off the top.",
+        "actions": [
+          {
+            "label": "Stop them",
+            "on_success": {
+              "next": "The Ritual Interrupted",
+              "message": "You go through the ring before the chant finishes. The cult stops praying and starts working."
+            }
+          },
+          {
+            "label": "Let them cook",
+            "on_success": {
+              "next": "Old God Pizza",
+              "message": "You stand at the edge of the ring and let them finish. The chant peaks. Somewhere, a bell dings."
+            }
+          }
+        ]
+      },
+      {
+        "id": "The Ritual Interrupted",
+        "type": "combat",
+        "prompt": "The ring breaks apart into individual problems. Whatever was forming at the center sags, unfinished, and slides off the altar unformed. That leaves only the staff.",
+        "monster_groups": [
+          {
+            "monsters": [
+              "shift_manager",
+              "dough_thrall"
+            ],
+            "party_extra_monster": "shift_manager"
+          }
+        ]
+      },
+      {
+        "id": "Old God Pizza",
+        "type": "combat",
+        "prompt": "The chant stops all at once. Every cultist lies down flat.\r\n\r\nThe thing on the altar finishes, and keeps finishing, out past the walls of a walk-in freezer that is no longer a walk-in freezer. It is a pizza the width of the room and it is looking at you.\r\n\r\nYour order is ready.",
+        "monster_groups": [
+          {
+            "monsters": [
+              "old_god_pizza"
+            ]
+          }
+        ],
+        "next": "The Walk Out"
+      },
+      {
+        "id": "The Walk Out",
+        "type": "choice",
+        "prompt": "It comes apart the way a building comes apart, all at once and then in pieces, and the neon finally goes out.\r\n\r\nThe cultists are still lying flat. Nobody gets up. Somewhere back through the dark, an attract loop is still running on a cabinet that has not been told either.\r\n\r\nThe bell over the front door rings once behind you. Thirty years late, the Big Cheese Pizza Palace is closed.",
+        "actions": [
+          {
+            "label": "Walk out",
+            "on_success": {
+              "message": "You leave through the front, past the podium, past the empty token cup. Nobody asks if you have a reservation.",
+              "achievement_kind": "old_god_slain"
+            }
+          }
+        ]
+      }
+    ],
+    "layout": {
+      "The Host Stand": {
+        "x": 40.0,
+        "y": 300.0
+      },
+      "The Dining Floor": {
+        "x": 280.0,
+        "y": 180.0
+      },
+      "The Order Window": {
+        "x": 540.0,
+        "y": 300.0
+      },
+      "The Arcade": {
+        "x": 540.0,
+        "y": 60.0
+      },
+      "The Party Room": {
+        "x": 820.0,
+        "y": 180.0
+      },
+      "Da Big Cheese": {
+        "x": 1080.0,
+        "y": 180.0
+      },
+      "The Back Room": {
+        "x": 1330.0,
+        "y": 180.0
+      },
+      "The Ritual Interrupted": {
+        "x": 1600.0,
+        "y": 60.0
+      },
+      "Old God Pizza": {
+        "x": 1600.0,
+        "y": 320.0
+      },
+      "The Walk Out": {
+        "x": 1860.0,
+        "y": 320.0
+      }
+    },
+    "start_room": "The Host Stand",
+    "hidden_until_discovered": true,
+    "unlock_trigger": {
+      "type": "achievement",
+      "kind": "pizza_devotee"
+    }
   }
 ]

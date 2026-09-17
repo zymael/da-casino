@@ -52,6 +52,10 @@
       {
         "room_id": "town_square",
         "label": "\ud83c\udfd8\ufe0f Town Square"
+      },
+      {
+        "room_id": "pizza_palace",
+        "label": "\ud83c\udf55 Big Cheese Pizza Palace"
       }
     ],
     "commands": [
@@ -347,6 +351,29 @@
         "label": "\ud83c\udf7d\ufe0f Beneath the Buffet",
         "const_args": [
           "beneath_the_buffet"
+        ],
+        "closes_hub": true
+      }
+    ]
+  },
+  {
+    "id": "pizza_palace",
+    "name": "\ud83c\udf55 Big Cheese Pizza Palace",
+    "description": "Out the service door, across the loading bay, and there it is: a squat brick box under a marquee that has never once been switched off. BIG CHEESE PIZZA PALACE, and underneath, in letters somebody rearranged a long time ago, NOW SERVING.\r\n\r\nClosed since the eighties. Lit since the eighties. Every pizza you have ever had delivered to the casino came from somewhere, and the delivery kid has never once taken a tip.\r\n\r\nThrough the glass, something is playing an attract loop to an empty room.",
+    "background_path": "assets/rooms/dungeon.jpg",
+    "exits": [
+      {
+        "room_id": "casino",
+        "label": "\ud83c\udfb0 Casino Hub"
+      }
+    ],
+    "commands": [
+      {
+        "key": "delve",
+        "kind": "none",
+        "label": "\ud83c\udf55 Big Cheese Pizza Palace",
+        "const_args": [
+          "pizza_parlor"
         ],
         "closes_hub": true
       }

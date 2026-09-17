@@ -1167,5 +1167,359 @@
       }
     ],
     "sprite_path": "assets/dungeon/monsters/bad_rat.png"
+  },
+  {
+    "id": "pizza_cultist",
+    "name": "Pizza Cultist",
+    "hp": 70,
+    "atk": 42,
+    "def": 34,
+    "spatk": 30,
+    "spd": 20,
+    "intended_level": 28,
+    "shape": "triangle",
+    "color": "#c0392b",
+    "flavor": "Paper hat, grease-blackened apron, eyes like a man who has been on shift since the Carter administration. He asks if you have a reservation. He is not joking, and he is not going to ask twice.",
+    "loot_min": 300,
+    "loot_max": 420,
+    "drops": [
+      {
+        "kind": "material",
+        "item_id": "pizza_token",
+        "chance": 1.0
+      },
+      {
+        "kind": "material",
+        "item_id": "pizza_token",
+        "chance": 0.5
+      }
+    ],
+    "skills": [
+      {
+        "name": "Table for One",
+        "chance": 0.25,
+        "special": false,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 1.4
+          }
+        ],
+        "flavor": "He seats you. Hard. The chair does not survive and neither does your composure."
+      },
+      {
+        "name": "Order Up",
+        "chance": 0.2,
+        "special": false,
+        "effects": [
+          {
+            "type": "extra_attack",
+            "multiplier": 0.6
+          }
+        ],
+        "flavor": "He slaps the bell on the counter and something behind you takes that as a cue."
+      }
+    ]
+  },
+  {
+    "id": "dough_thrall",
+    "name": "Dough Thrall",
+    "hp": 110,
+    "atk": 34,
+    "def": 50,
+    "spatk": 26,
+    "spd": 10,
+    "intended_level": 30,
+    "shape": "circle",
+    "color": "#e8d9b0",
+    "flavor": "It proofed in the dark for thirty years and it has opinions about being punched down. Hitting it is like hitting a mattress that hits back on a delay.",
+    "loot_min": 350,
+    "loot_max": 470,
+    "drops": [
+      {
+        "kind": "material",
+        "item_id": "pizza_token",
+        "chance": 1.0
+      },
+      {
+        "kind": "material",
+        "item_id": "pizza_token",
+        "chance": 0.4
+      }
+    ],
+    "skills": [
+      {
+        "name": "Proof",
+        "chance": 0.3,
+        "special": true,
+        "effects": [
+          {
+            "type": "def_shred",
+            "value": 5
+          }
+        ],
+        "flavor": "It swells. Whatever you were hiding behind is now considerably less behind you."
+      },
+      {
+        "name": "Knead",
+        "chance": 0.25,
+        "special": false,
+        "effects": [
+          {
+            "type": "lifesteal_fraction",
+            "value": 0.4
+          }
+        ],
+        "flavor": "It folds you into itself once, twice, and comes out looking suspiciously fresher."
+      }
+    ]
+  },
+  {
+    "id": "shift_manager",
+    "name": "The Shift Manager",
+    "hp": 90,
+    "atk": 56,
+    "def": 38,
+    "spatk": 48,
+    "spd": 30,
+    "intended_level": 32,
+    "shape": "pentagon",
+    "color": "#2c3e91",
+    "flavor": "Company polo, clipboard, visor, and the dead-eyed calm of someone with the authority to comp your entire existence. He has been counting the till since before you were born and it has never once come out even.",
+    "loot_min": 450,
+    "loot_max": 600,
+    "drops": [
+      {
+        "kind": "material",
+        "item_id": "pizza_token",
+        "chance": 1.0
+      },
+      {
+        "kind": "material",
+        "item_id": "pizza_token",
+        "chance": 1.0
+      },
+      {
+        "kind": "material",
+        "item_id": "pizza_token",
+        "chance": 0.6
+      }
+    ],
+    "skills": [
+      {
+        "name": "Write You Up",
+        "chance": 0.3,
+        "special": true,
+        "effects": [
+          {
+            "type": "atk_debuff",
+            "value": 6
+          }
+        ],
+        "flavor": "He notes something on the clipboard without looking up. You feel institutionally diminished."
+      },
+      {
+        "name": "Corporate Policy",
+        "chance": 0.25,
+        "special": true,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 1.6
+          }
+        ],
+        "flavor": "\"That's not something we do here.\" The building agrees with him. Loudly."
+      },
+      {
+        "name": "Cut Your Hours",
+        "chance": 0.2,
+        "special": true,
+        "effects": [
+          {
+            "type": "speed_debuff",
+            "value": 4
+          }
+        ],
+        "flavor": "He crosses a line through the schedule and suddenly you have so much less time to work with."
+      }
+    ]
+  },
+  {
+    "id": "da_big_cheese",
+    "name": "Da Big Cheese",
+    "hp": 200,
+    "atk": 62,
+    "def": 48,
+    "spatk": 42,
+    "spd": 40,
+    "intended_level": 36,
+    "shape": "rectangle",
+    "color": "#d99a2b",
+    "flavor": "Eight feet of moth-eaten mascot suit on a steel frame, one glass eye tracking you and the other pointed at a wall it has been watching for three decades. Servos whine somewhere in the chest cavity. The cult built it, the cult feeds it, and the cult is currently singing along.\r\n\r\nIt does not know the restaurant closed. Nobody has had the heart, or the nerve, to tell it.",
+    "loot_min": 900,
+    "loot_max": 1200,
+    "drops": [
+      {
+        "kind": "material",
+        "item_id": "pizza_token",
+        "chance": 1.0
+      },
+      {
+        "kind": "material",
+        "item_id": "pizza_token",
+        "chance": 1.0
+      },
+      {
+        "kind": "material",
+        "item_id": "pizza_token",
+        "chance": 1.0
+      },
+      {
+        "kind": "equipment",
+        "item_id": "mascots_glass_eye",
+        "chance": 0.2
+      },
+      {
+        "kind": "consumable",
+        "item_id": "birthday_slice",
+        "chance": 0.25
+      }
+    ],
+    "attack_chance": 1,
+    "skills": [
+      {
+        "name": "The Birthday Song",
+        "chance": 0.3,
+        "special": true,
+        "effects": [
+          {
+            "type": "stun",
+            "duration": 1
+          }
+        ],
+        "flavor": "The jaw drops open and it starts the song. Every cultist in earshot joins in on the correct beat. You lose a moment you very much needed."
+      },
+      {
+        "name": "Animatronic Wind-Up",
+        "chance": 0.25,
+        "special": false,
+        "effects": [
+          {
+            "type": "atk_buff",
+            "value": 8
+          }
+        ],
+        "flavor": "Something deep in the chest cranks itself tighter, tooth by tooth. That is not a sound you want to hear twice."
+      },
+      {
+        "name": "Malfunction",
+        "chance": 0.2,
+        "special": true,
+        "effects": [
+          {
+            "type": "extra_attack",
+            "multiplier": 0.8
+          }
+        ],
+        "flavor": "The routine skips. An arm goes somewhere the routine never called for, at a speed the routine never called for either."
+      }
+    ]
+  },
+  {
+    "id": "old_god_pizza",
+    "name": "Old God Pizza",
+    "hp": 300,
+    "atk": 78,
+    "def": 58,
+    "spatk": 70,
+    "spd": 24,
+    "intended_level": 40,
+    "shape": "circle",
+    "color": "#8b0000",
+    "flavor": "It is a pizza the width of the room and it is looking at you, which is a sentence that should not be available. Thirty years of orders nobody placed went somewhere, and this is where. The toppings move when you are not looking directly at them.\r\n\r\nSomewhere under all of it, a bell dings. Your order is ready.",
+    "loot_min": 2400,
+    "loot_max": 3200,
+    "drops": [
+      {
+        "kind": "material",
+        "item_id": "pizza_token",
+        "chance": 1.0
+      },
+      {
+        "kind": "equipment",
+        "item_id": "the_first_slice",
+        "chance": 0.15
+      },
+      {
+        "kind": "equipment",
+        "item_id": "deep_dish",
+        "chance": 0.15
+      },
+      {
+        "kind": "equipment",
+        "item_id": "crown_of_the_endless_party",
+        "chance": 0.15
+      },
+      {
+        "kind": "consumable",
+        "item_id": "birthday_slice",
+        "chance": 0.4
+      }
+    ],
+    "attack_chance": 1,
+    "skills": [
+      {
+        "name": "Deep Dish",
+        "chance": 1,
+        "special": false,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 1.5
+          }
+        ],
+        "flavor": "The floor goes soft. You are not standing on tile anymore and you have not been for a while."
+      },
+      {
+        "name": "Extra Toppings",
+        "chance": 1,
+        "special": false,
+        "effects": [
+          {
+            "type": "extra_attack",
+            "multiplier": 0.9
+          }
+        ],
+        "flavor": "Something you would charitably call a pepperoni detaches, and it is much faster than it has any right to be."
+      },
+      {
+        "name": "Thirty Years Cold",
+        "chance": 1,
+        "special": true,
+        "effects": [
+          {
+            "type": "def_shred",
+            "value": 7
+          },
+          {
+            "type": "speed_debuff",
+            "value": 3
+          }
+        ],
+        "flavor": "The cheese goes over you like a closing hand. Everything gets heavier and slower and further away."
+      },
+      {
+        "name": "The House Always Eats",
+        "chance": 0.8,
+        "special": true,
+        "effects": [
+          {
+            "type": "lifesteal_fraction",
+            "value": 0.5
+          }
+        ],
+        "flavor": "It takes its cut. It has always taken its cut. Half of whatever it just took off you closes back up somewhere across the room."
+      }
+    ]
   }
 ]

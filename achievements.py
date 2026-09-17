@@ -27,6 +27,11 @@ BIG_WIN_TIER_2 = 10_000
 BIG_LOSS_TIER_1 = -1_000
 BIG_LOSS_TIER_2 = -10_000
 
+# How many pizzas !pizza has to have delivered before "pizza_devotee" unlocks -- which is also what
+# gates discovering the Big Cheese Pizza Palace delve (dungeon_delves.json's unlock_trigger). Kept
+# here rather than inline in the achievement's own description so the gate is one number to retune.
+PIZZA_DEVOTEE_THRESHOLD = 25
+
 ACHIEVEMENTS = [
     {
         "kind": "first_horse",
@@ -278,6 +283,25 @@ ACHIEVEMENTS = [
         "emoji": "📖",
         "name": "Illiterate",
         "description": "First to kill Z'Goolok without doing the quest to make him possible.  Who fucking needs quest text?  Not you.",
+        "reward": 250,
+    },
+    {
+        "kind": "pizza_devotee",
+        "scope": "personal",
+        "emoji": "🍕",
+        "name": "Regular",
+        "description": (
+            f"Order {PIZZA_DEVOTEE_THRESHOLD} pizzas to the casino. Somebody had to be making them this whole "
+            "time, and now you'd like a word."
+        ),
+        "reward": 100,
+    },
+    {
+        "kind": "old_god_slain",
+        "scope": "personal",
+        "emoji": "🍕",
+        "name": "Closing Time",
+        "description": "You let them cook, and then you ate the chef. Old God Pizza is off the menu.",
         "reward": 250,
     },
 ]

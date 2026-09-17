@@ -1528,5 +1528,116 @@
       }
     ],
     "flavor": "You finally found it.  The legendary armor you've been seeking."
+  },
+  {
+    "id": "the_first_slice",
+    "name": "The First Slice",
+    "slot": "weapon",
+    "rarity": "legendary",
+    "intended_level": 36,
+    "base_value": 5200,
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 44
+      },
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 5
+      },
+      {
+        "type": "extra_attack",
+        "trigger": "on_hit",
+        "chance": 0.18,
+        "multiplier": 0.7
+      }
+    ],
+    "flavor": "A cutting wheel the size of a manhole cover, still turning on its own. Whoever cut the first slice set the whole table going, and the house has been collecting ever since."
+  },
+  {
+    "id": "deep_dish",
+    "name": "Deep Dish",
+    "slot": "armor",
+    "rarity": "legendary",
+    "intended_level": 36,
+    "base_value": 5200,
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 45
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 40
+      },
+      {
+        "type": "taunt",
+        "trigger": "constant",
+        "value": 4
+      }
+    ],
+    "flavor": "A bake pan deep enough to bury a man, worn like a breastplate and dented from the inside. Wearing it, you become the obvious thing in the room to hit, which is occasionally the whole point."
+  },
+  {
+    "id": "crown_of_the_endless_party",
+    "name": "Crown of the Endless Party",
+    "slot": "trinket",
+    "rarity": "legendary",
+    "intended_level": 36,
+    "base_value": 5200,
+    "effects": [
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 42
+      },
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 12
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 8
+      },
+      {
+        "type": "spatk_debuff",
+        "trigger": "on_hit",
+        "chance": 0.2,
+        "value": 4
+      }
+    ],
+    "flavor": "Folded paper, thirty years stale, and it has not stopped being someone's birthday the entire time. Put it on and the party is yours. So is the bill."
+  },
+  {
+    "id": "mascots_glass_eye",
+    "name": "Mascot's Glass Eye",
+    "slot": "trinket",
+    "rarity": "epic",
+    "intended_level": 32,
+    "base_value": 3400,
+    "effects": [
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 14
+      },
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 16
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 10
+      }
+    ],
+    "flavor": "Popped clean out of the socket and still tracking the room. It saw every ticket ever counted at that counter, and it learned exactly how fast a hand can move."
   }
 ]
