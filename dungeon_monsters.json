@@ -1179,7 +1179,7 @@
     "intended_level": 28,
     "shape": "triangle",
     "color": "#c0392b",
-    "flavor": "Paper hat, grease-blackened apron, eyes like a man who has been on shift since the Carter administration. He asks if you have a reservation. He is not joking, and he is not going to ask twice.",
+    "flavor": "Paper hat, grease-blackened apron, and eyes like a man who has been on shift since the Carter administration. He asks if you have a reservation. He is not joking, and he is not going to ask twice.",
     "loot_min": 300,
     "loot_max": 420,
     "drops": [
@@ -1205,7 +1205,7 @@
             "value": 1.4
           }
         ],
-        "flavor": "He seats you. Hard. The chair does not survive and neither does your composure."
+        "flavor": "He seats you. Hard. The chair does not survive and neither does your pride as you fall ass first onto stained orange carpet."
       },
       {
         "name": "Order Up",
@@ -1217,7 +1217,7 @@
             "multiplier": 0.6
           }
         ],
-        "flavor": "He slaps the bell on the counter and something behind you takes that as a cue."
+        "flavor": "He slaps the bell on the counter and something behind you takes that as a cue as you're pummeled from both sides."
       }
     ]
   },
@@ -1232,7 +1232,7 @@
     "intended_level": 30,
     "shape": "circle",
     "color": "#e8d9b0",
-    "flavor": "It proofed in the dark for thirty years and it has opinions about being punched down. Hitting it is like hitting a mattress that hits back on a delay.",
+    "flavor": "It proofed in the dark for thirty years and it has strong opinions about jokes that punch down. Fighting it is like hitting a mattress that punches back.",
     "loot_min": 350,
     "loot_max": 470,
     "drops": [
@@ -1258,7 +1258,7 @@
             "value": 5
           }
         ],
-        "flavor": "It swells. Whatever you were hiding behind is now considerably less behind you."
+        "flavor": "It swells and drags you towards it's doughy maw. Whatever you were hiding behind is now considerably less behind you."
       },
       {
         "name": "Knead",
@@ -1270,7 +1270,7 @@
             "value": 0.4
           }
         ],
-        "flavor": "It folds you into itself once, twice, and comes out looking suspiciously fresher."
+        "flavor": "It folds you into itself once, twice, and then comes out looking suspiciously fresher."
       }
     ]
   },
@@ -1316,7 +1316,7 @@
             "value": 6
           }
         ],
-        "flavor": "He notes something on the clipboard without looking up. You feel institutionally diminished."
+        "flavor": "He notes something on the clipboard without looking up. You feel your mojo institutionally diminished."
       },
       {
         "name": "Corporate Policy",
@@ -1328,7 +1328,7 @@
             "value": 1.6
           }
         ],
-        "flavor": "\"That's not something we do here.\" The building agrees with him. Loudly."
+        "flavor": "\"That's not something we do here.\" The ancient building groans in agrees with him as you are beset on all sides by eldrich tendrils of mozzarella cheese."
       },
       {
         "name": "Cut Your Hours",
@@ -1427,7 +1427,7 @@
   },
   {
     "id": "old_god_pizza",
-    "name": "Old God Pizza",
+    "name": "The Number 5 at the Threshold",
     "hp": 300,
     "atk": 78,
     "def": 58,
@@ -1436,7 +1436,7 @@
     "intended_level": 40,
     "shape": "circle",
     "color": "#8b0000",
-    "flavor": "It is a pizza the width of the room and it is looking at you, which is a sentence that should not be available. Thirty years of orders nobody placed went somewhere, and this is where. The toppings move when you are not looking directly at them.\r\n\r\nSomewhere under all of it, a bell dings. Your order is ready.",
+    "flavor": " Thirty years of orders nobody placed went somewhere, and this is where. The toppings move and throb across it's eldrich, horrific cheese flesh.\n\nSomewhere under all of it, a bell dings.",
     "loot_min": 2400,
     "loot_max": 3200,
     "drops": [
@@ -1478,7 +1478,7 @@
             "value": 1.5
           }
         ],
-        "flavor": "The floor goes soft. You are not standing on tile anymore and you have not been for a while."
+        "flavor": "The floor goes soft. It's now terrifyingly obvious you are not standing on tile anymore as hundreds of pepperoni teeth tear into you."
       },
       {
         "name": "Extra Toppings",
@@ -1490,7 +1490,7 @@
             "multiplier": 0.9
           }
         ],
-        "flavor": "Something you would charitably call a pepperoni detaches, and it is much faster than it has any right to be."
+        "flavor": "Something you would charitably call a green pepper detaches and launches towards you with unearthly speed and agility."
       },
       {
         "name": "Thirty Years Cold",
@@ -1518,7 +1518,7 @@
             "value": 0.5
           }
         ],
-        "flavor": "It takes its cut. It has always taken its cut. Half of whatever it just took off you closes back up somewhere across the room."
+        "flavor": "It takes its cut. It has always taken its cut. Half of whatever it just took off you bubbles back up somewhere across the room unpleasantly."
       }
     ]
   }

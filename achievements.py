@@ -301,7 +301,7 @@ ACHIEVEMENTS = [
         "scope": "personal",
         "emoji": "🍕",
         "name": "Closing Time",
-        "description": "You let them cook, and then you ate the chef. Old God Pizza is off the menu.",
+        "description": "You let them cook, and then you ate the chef. Da Big Cheese Pizza Palace is off the menu.",
         "reward": 250,
     },
 ]

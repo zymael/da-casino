@@ -207,8 +207,8 @@
     "name": "Arcade Token",
     "rarity": "common",
     "base_value": 4,
-    "flavor": "Brass, sticky, and stamped NO CASH VALUE on both sides. Worth more in a slot than in your pocket, and the house made sure of that.",
-    "unsmashable_message": "Vic turns it over twice. \"Son, this ain't money. Go spend it where it spends.\""
+    "flavor": "Brass, sticky, and stamped NO CASH VALUE on both sides. ",
+    "unsmashable_message": "Vic turns it over twice. \"This is too important to smash.\""
   },
   {
     "id": "arcade_ticket",
