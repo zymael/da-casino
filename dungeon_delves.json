@@ -888,7 +888,7 @@
   },
   {
     "id": "pizza_parlor",
-    "name": "Da Big Cheese in Yellow Pizza Palace",
+    "name": "Da Big Cheeze in Yellow Pizza Palace",
     "active": true,
     "flavor": "Closed since the eighties, yet someone or something is still taking orders.",
     "rooms": [
@@ -1251,7 +1251,7 @@
       {
         "id": "The Walk Out",
         "type": "choice",
-        "prompt": "The parlor turned occult pepperoni monstrocity whimpers and shrivels into nothing, and the 30 years of neon lights finally go out.\n\nThe cultists are still lying flat. Nobody gets up. Somewhere back through the dark, an attract loop is still running on a cabinet that has not been told either.\n\nThe bell over the front door rings once behind you. Thirty years late, Da Big Cheese Pizza Palace is closed.",
+        "prompt": "The parlor turned occult pepperoni monstrocity whimpers and shrivels into nothing, and the 30 years of neon lights finally go out.\n\nThe cultists are still lying flat. Nobody gets up. Somewhere back through the dark, an attract loop is still running on a cabinet that has not been told either.\n\nThe bell over the front door rings once behind you. Thirty years late, Da Big Cheeze Pizza Palace is closed.",
         "actions": [
           {
             "label": "Walk out",

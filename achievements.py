@@ -28,7 +28,7 @@ BIG_LOSS_TIER_1 = -1_000
 BIG_LOSS_TIER_2 = -10_000
 
 # How many pizzas !pizza has to have delivered before "pizza_devotee" unlocks -- which is also what
-# gates discovering the Big Cheese Pizza Palace delve (dungeon_delves.json's unlock_trigger). Kept
+# gates discovering the Big Cheeze Pizza Palace delve (dungeon_delves.json's unlock_trigger). Kept
 # here rather than inline in the achievement's own description so the gate is one number to retune.
 PIZZA_DEVOTEE_THRESHOLD = 25
 
@@ -301,7 +301,7 @@ ACHIEVEMENTS = [
         "scope": "personal",
         "emoji": "🍕",
         "name": "Closing Time",
-        "description": "You let them cook, and then you ate the chef. Da Big Cheese Pizza Palace is off the menu.",
+        "description": "You let them cook, and then you ate the chef. Da Big Cheeze Pizza Palace is off the menu.",
         "reward": 250,
     },
 ]
