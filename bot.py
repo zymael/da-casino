@@ -1956,15 +1956,13 @@ async def pizza(ctx):
     await ctx.send(embed=embed)
     await _update_pizza_champion(ctx.guild)
 
-    # Ordering enough pizza is what makes you wonder where it's coming from -- pizza_devotee is the
+    # Ordering pizza is what makes you wonder where it's coming from -- pizza_devotee is the
     # unlock_trigger on the Big Cheeze Pizza Palace delve (dungeon_delves.json), so this is the one
-    # place that gate opens. try_award_many is idempotent per user, so re-checking on every pizza
-    # past the threshold costs nothing and needs no "did they just cross it" bookkeeping here.
-    _balance, pizzas_bought = await asyncio.to_thread(db.get_user_economy, ctx.guild.id, ctx.author.id)
-    if pizzas_bought >= achievements.PIZZA_DEVOTEE_THRESHOLD:
-        await achievements.try_award_many(
-            ctx.send, ctx.guild.id, ctx.author.id, ctx.author.display_name, ["pizza_devotee"]
-        )
+    # place that gate opens. Awarded on any successful order rather than at a count: try_award_many
+    # is idempotent per user, so the second pizza onward is a no-op with no bookkeeping needed here.
+    await achievements.try_award_many(
+        ctx.send, ctx.guild.id, ctx.author.id, ctx.author.display_name, ["pizza_devotee"]
+    )
 
 
 # Gates house_cmd -- see quests.json's "leto_first_home" quest (started by greeting Leto at the
