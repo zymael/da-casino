@@ -284,7 +284,7 @@ ACHIEVEMENTS = [
         "kind": "pizza_devotee",
         "scope": "personal",
         "emoji": "🍕",
-        "name": "Regular",
+        "name": "First Slice",
         "description": (
             "Order a pizza to the casino. Somebody had to be making them this whole "
             "time, and now you'd like a word."
