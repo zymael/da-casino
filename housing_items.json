@@ -94,11 +94,11 @@
     "id": "arcade_cabinet",
     "name": "Da Big Cheeze Arcade Cabinet",
     "emoji": "\ud83d\udd79\ufe0f",
-    "description": "Hauled home on its original casters, still plugged into nothing and still lit. The high score is somebody's initials from thirty years ago and you have not beaten it yet. Your hands are getting faster trying.",
+    "description": "Hauled home on its original casters, then plugged into nothing and yet still running. The high score is somebody's initials from thirty years ago and nobody has beaten it yet. Your hands are getting faster the more you try though.",
     "image_path": "assets/housing/items/arcade_cabinet.png",
     "base_value": 500,
     "effect_type": "stat_bonus",
-    "stat": "speed",
-    "value": 2
+    "value": 2,
+    "stat": "speed"
   }
 ]
