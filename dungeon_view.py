@@ -96,6 +96,24 @@ class MonsterInstance:
         self.threat: dict[int, float] = {}
 
 
+def _capped_speed_debuff(combatant, added: int) -> int:
+    """A combatant's new total speed_debuff, never past half their BASE speed.
+
+    Speed is the one stat where a debuff compounds against its own target: turn frequency is
+    linear in speed (dungeon.turn_interval is BASE_TURN_INTERVAL / speed), so every point shaved
+    off buys the attacker proportionally more turns, which buys more chances to shave again. Left
+    uncapped that's a death spiral rather than a debuff -- reducing a speed-9 fighter to 1 hands
+    the attacker 24 turns per player turn. Nothing outscales it either: player speed has no
+    level growth (dungeon.CLASSES has no level_speed_gain) and cleanse_cc only clears sap/stun.
+
+    The one rule for both places speed_debuff is ever written -- a monster skill landing on a
+    player mid-fight (_effect_speed_debuff) and an equipped item's vs_monster_debuff seeded onto a
+    fresh monster (_apply_vs_monster_debuffs) -- so the two can't drift apart. Shared rather than
+    duplicated because no gear carries a speed vs_monster_debuff *yet*, and the first one that does
+    should inherit the cap for free instead of rediscovering the spiral."""
+    return min(combatant.speed_debuff + added, max(1, combatant.speed // 2))
+
+
 def _apply_vs_monster_debuffs(instance: "MonsterInstance", equipped_item_ids) -> None:
     """Applies whichever equipped item(s) carry a vs_monster_debuff matching this fresh instance's
     own monster id (dungeon.vs_monster_debuffs) directly onto its debuff accumulator fields, once,
@@ -106,7 +124,9 @@ def _apply_vs_monster_debuffs(instance: "MonsterInstance", equipped_item_ids) ->
     instance.atk_debuff += debuffs.get("atk", 0)
     instance.def_debuff += debuffs.get("def", 0)
     instance.spatk_debuff += debuffs.get("spatk", 0)
-    instance.speed_debuff += debuffs.get("speed", 0)
+    # Capped like every other speed_debuff write -- see _capped_speed_debuff for why speed is the
+    # one stat that can't take an uncapped stack.
+    instance.speed_debuff = _capped_speed_debuff(instance, debuffs.get("speed", 0))
 
 
 def _roll_monster_instances(room: dict, equipped_item_ids=()) -> tuple[list[MonsterInstance], str | None]:
@@ -1638,9 +1658,19 @@ def _effect_speed_debuff(actor, monster_state, effect: dict, log_lines: list[str
     # speed_debuff is read live at every turn-order scheduling point (dungeon.preview_next_turns/
     # turn_interval, called wherever a combatants list is built) -- never cached, so this lands on
     # the very next scheduling decision, not just "future fights."
-    monster_state.speed_debuff += effect["value"]
+    #
+    # Capped at half the target's base speed -- see _capped_speed_debuff for why speed can't take
+    # an uncapped stack the way the other debuff stats can.
+    before = monster_state.speed_debuff
+    monster_state.speed_debuff = _capped_speed_debuff(monster_state, effect["value"])
+    applied = monster_state.speed_debuff - before
+    if applied <= 0:
+        log_lines.append(
+            f"{_combatant_possessive(monster_state)} Speed is already as low as it can go."
+        )
+        return
     log_lines.append(
-        f"{_combatant_possessive(monster_state)} Speed falls by **{effect['value']}** for the rest of the fight."
+        f"{_combatant_possessive(monster_state)} Speed falls by **{applied}** for the rest of the fight."
     )
 
 
