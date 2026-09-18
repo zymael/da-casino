@@ -3260,14 +3260,36 @@ async def _resolve_party_choice_action(
         log_lines.append(outcome["message"])
 
     hp_delta = outcome.get("hp_delta", 0)
-    targets = session.living_members() if party_wide else [actor]
-    for target in targets:
+    hp_targets = session.living_members() if party_wide else [actor]
+
+    # Who collects the item/currency reward. `party_wide` already means "everyone shares the
+    # consequence", so it spreads both. `reward_all` spreads ONLY the reward: an arcade cabinet
+    # pays the whole group while a failed gamble still only hurts whoever pulled the lever, which
+    # a single shared `targets` list couldn't express (see this function's own docstring).
+    spread_reward = party_wide or bool(outcome.get("reward_all"))
+    reward_targets = session.living_members() if spread_reward else [actor]
+
+    for target in hp_targets:
         if hp_delta:
             target.hp = min(target.max_hp, target.hp + hp_delta)
             verb = "recovers" if hp_delta > 0 else "takes"
             log_lines.append(f"{target.label} {verb} **{abs(hp_delta)}** HP.")
-        await _apply_outcome_rewards(session.guild_id, target.user_id, target, outcome, log_lines, label=target.label)
-        if target.hp <= 0:
+
+    for target in reward_targets:
+        share = outcome
+        # Scale a spread reward by the same party-share convention kills already use -- even
+        # across a raid, leader-full/joiner-half otherwise -- so bringing more people multiplies a
+        # payout without multiplying it by the full head count. Only when reward_all is what's
+        # spreading it: party_wide's existing "everyone gets the identical outcome" is untouched.
+        if outcome.get("reward_all") and not party_wide and outcome.get("item_qty"):
+            loot_mult, _chance_mult = _party_share_mults(session, target)
+            if loot_mult != 1.0:
+                # max(1, ...) so a 1-unit payout never reads as "you won and got nothing".
+                share = {**outcome, "item_qty": max(1, round(outcome["item_qty"] * loot_mult))}
+        await _apply_outcome_rewards(session.guild_id, target.user_id, target, share, log_lines, label=target.label)
+
+    for target in hp_targets:
+        if target.hp <= 0 and not target.knocked_out:
             target.knocked_out = True
             log_lines.append(f"💀 **{target.label}** is knocked out!")
 

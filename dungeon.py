@@ -463,7 +463,7 @@ _REQUIRED_DELVE_FIELDS = {"id", "name", "flavor", "rooms", "start_room"}
 # attempted the action.
 _ACTION_OUTCOME_KEYS = {
     "next", "hp_delta", "message", "currency_delta", "item_kind", "item_id", "item_qty",
-    "achievement_kind",
+    "achievement_kind", "reward_all",
 }
 
 
@@ -563,6 +563,14 @@ def _validate_action(action: dict, context: str) -> None:
             raise ValueError(f"{context}: {key} has item_kind/item_qty but no item_id")
         if "achievement_kind" in outcome and outcome["achievement_kind"] not in achievements.BY_KIND:
             raise ValueError(f"{context}: {key} references unknown achievement {outcome['achievement_kind']!r}")
+        # reward_all (optional bool): in a PARTY delve, hand this outcome's item/currency reward to
+        # every living member rather than only whoever attempted the action -- each share scaled by
+        # dungeon_view._party_share_mults, so a raid splits evenly and a small party gives the
+        # leader full and joiners half. hp_delta is deliberately NOT spread: an arcade cabinet can
+        # pay the whole group while a failed gamble still only hurts the member who took it. No
+        # effect on a solo delve, which has one actor by definition.
+        if "reward_all" in outcome and not isinstance(outcome["reward_all"], bool):
+            raise ValueError(f"{context}: {key}.reward_all must be true/false")
 
 
 def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:

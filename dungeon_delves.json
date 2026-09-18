@@ -1005,7 +1005,8 @@
               "message": "The last ball, unsettlingly shaped like the head of bald man, rattles into the 50 ring. The machine coughs up several aged tickets without enthusiasm.",
               "item_kind": "material",
               "item_id": "arcade_ticket",
-              "item_qty": 2
+              "item_qty": 2,
+              "reward_all": true
             },
             "on_fail": {
               "next": "The Arcade",
@@ -1028,7 +1029,8 @@
               "message": "You pummel every single rat into submission without mercy.  The machine plays a little chintzy fanfare in celebration.",
               "item_kind": "material",
               "item_id": "arcade_ticket",
-              "item_qty": 2
+              "item_qty": 2,
+              "reward_all": true
             },
             "on_fail": {
               "next": "The Arcade",
@@ -1052,7 +1054,8 @@
               "message": "The puck goes up, the bell comes off its mount, and the machine pays out in manner close to panic.",
               "item_kind": "material",
               "item_id": "arcade_ticket",
-              "item_qty": 2
+              "item_qty": 2,
+              "reward_all": true
             },
             "on_fail": {
               "next": "The Arcade",
@@ -1076,7 +1079,8 @@
               "message": "The glass head swivels, considers you, and prints a fortune regarding your mother's erotic life that is disturbingly specific. Tickets follow for some reason.",
               "item_kind": "material",
               "item_id": "arcade_ticket",
-              "item_qty": 2
+              "item_qty": 2,
+              "reward_all": true
             },
             "on_fail": {
               "next": "The Arcade",
@@ -1098,7 +1102,8 @@
               "message": "Da claw closes, and against all odds actually HOLDS the damn prize.  Down the chute it goes. Somewhere a manager who has been dead for over thirty years stirs in his grave.",
               "item_kind": "material",
               "item_id": "arcade_ticket",
-              "item_qty": 20
+              "item_qty": 20,
+              "reward_all": true
             },
             "on_fail": {
               "next": "The Arcade",

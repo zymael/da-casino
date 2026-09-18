@@ -2929,6 +2929,13 @@ def _render_action_row(prefix: str, action: dict) -> str:
             f'<small class="field-hint" data-tooltip="Awards this achievement (idempotently) when this '
             f'outcome fires. In a party delve, every party member gets it, not just whoever attempted '
             f'the action.">?</small></label>'
+            f'<label class="checkbox-label"><input type="checkbox" name="{outcome_prefix}_reward_all" '
+            f'value="1"{" checked" if outcome.get("reward_all") else ""}> reward_all'
+            f'<small class="field-hint" data-tooltip="Party delves only: hands the item/currency reward '
+            f'to every living member instead of just whoever attempted the action, each share scaled by '
+            f'the usual party split (even across a raid, leader full and joiners half otherwise). '
+            f'hp_delta is NOT spread - damage still lands only on the member who attempted it. No effect '
+            f'on a solo delve.">?</small></label>'
         )
 
     return (
@@ -4482,10 +4489,10 @@ def _build_entry_from_form(spec: dict, form: dict, entry_id_for_upload: str, exi
 
 def _parse_outcome(prefix: str, form: dict) -> dict:
     """An action's on_success/on_fail -- next/hp_delta/message/currency_delta/item give-or-take/
-    achievement_kind, each omitted (not written as an empty string / null) if left blank, same
-    "blank means absent" convention every other optional field here follows. item_qty's sign is
-    what decides give vs. take (see dungeon._ACTION_OUTCOME_KEYS), so it's parsed as-is (a plain
-    negative number), not split into separate give/take inputs."""
+    achievement_kind/reward_all, each omitted (not written as an empty string / null) if left
+    blank, same "blank means absent" convention every other optional field here follows. item_qty's
+    sign is what decides give vs. take (see dungeon._ACTION_OUTCOME_KEYS), so it's parsed as-is (a
+    plain negative number), not split into separate give/take inputs."""
     outcome: dict = {}
     next_room = form.get(f"{prefix}_next", "").strip()
     if next_room:
@@ -4509,6 +4516,11 @@ def _parse_outcome(prefix: str, form: dict) -> dict:
     achievement_kind = form.get(f"{prefix}_achievement_kind", "").strip()
     if achievement_kind:
         outcome["achievement_kind"] = achievement_kind
+    # Only written when checked, so an unchecked box leaves the key absent rather than storing
+    # "reward_all": false on every outcome in the file -- same "blank means absent" convention
+    # as everything above.
+    if form.get(f"{prefix}_reward_all"):
+        outcome["reward_all"] = True
     return outcome
 
 
