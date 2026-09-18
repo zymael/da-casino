@@ -1166,6 +1166,36 @@
             }
           },
           {
+            "label": "Prize counter: Da Big Cheeze Plushie (50 tickets)",
+            "cost": {
+              "item_kind": "material",
+              "item_id": "arcade_ticket",
+              "item_qty": 50
+            },
+            "on_success": {
+              "next": "The Arcade",
+              "message": "Fifty tickets. The attendant who is not there unhooks him from the wall and hands him over, and he is much heavier than a plush toy has any business being.",
+              "item_kind": "equipment",
+              "item_id": "da_big_cheeze_plushie",
+              "item_qty": 1
+            }
+          },
+          {
+            "label": "Prize counter: Dangerous BB Gun (75 tickets)",
+            "cost": {
+              "item_kind": "material",
+              "item_id": "arcade_ticket",
+              "item_qty": 75
+            },
+            "on_success": {
+              "next": "The Arcade",
+              "message": "Seventy-five tickets for the thing on the top shelf that no child has ever once walked out with. It comes down off its bracket with a puff of thirty-year-old dust. Nobody asks how old you are.",
+              "item_kind": "equipment",
+              "item_id": "dangerous_bb_gun",
+              "item_qty": 1
+            }
+          },
+          {
             "label": "Leave the arcade",
             "on_success": {
               "next": "The Party Room",

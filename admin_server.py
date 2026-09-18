@@ -368,6 +368,16 @@ def _cascade_options() -> dict:
             "consumable": _choices(dungeon.CONSUMABLES),
             "quest_item": _choices(quests.QUEST_ITEMS),
         },
+        # The same select on an action's OUTCOME, which can additionally hand over equipment (see
+        # dungeon.ACTION_OUTCOME_ITEM_KINDS) -- a prize counter stocking real gear needs this.
+        # quest_only gear is filtered out the same way the shop cascade does it: that gear is the
+        # reward for its own quest and shouldn't be purchasable anywhere else.
+        "action_outcome": {
+            "material": _choices(dungeon.MATERIALS),
+            "consumable": _choices(dungeon.CONSUMABLES),
+            "quest_item": _choices(quests.QUEST_ITEMS),
+            "equipment": _choices({k: v for k, v in dungeon.EQUIPMENT.items() if not v.get("quest_only")}),
+        },
         # A skill's own subclass options depend on its main_class -- keyed by main_class the same
         # way every other cascade here is keyed by a sibling "kind" select, backing the 4 real
         # dungeon.SUBCLASSES rows plus dungeon.NO_SUBCLASS (added explicitly -- NO_SUBCLASS is
@@ -2896,10 +2906,10 @@ def _render_action_row(prefix: str, action: dict) -> str:
         give-or-take toggle plus a magnitude."""
         kind_options = "".join(
             f'<option value="{k}"{" selected" if k == outcome.get("item_kind") else ""}>{k}</option>'
-            for k in [""] + list(dungeon.ACTION_COST_ITEM_KINDS)
+            for k in [""] + list(dungeon.ACTION_OUTCOME_ITEM_KINDS)
         )
         reward_item_select = _render_cascaded_select(
-            f"{outcome_prefix}_item_id", "action_cost", outcome.get("item_kind"), outcome.get("item_id")
+            f"{outcome_prefix}_item_id", "action_outcome", outcome.get("item_kind"), outcome.get("item_id")
         )
         achievement_options = "".join(
             f'<option value="{a["kind"]}"{" selected" if a["kind"] == outcome.get("achievement_kind") else ""}>'
@@ -2910,7 +2920,7 @@ def _render_action_row(prefix: str, action: dict) -> str:
             f'<label>currency_delta (optional, +/-)<input type="number" name="{outcome_prefix}_currency_delta" '
             f'value="{outcome.get("currency_delta", "")}"></label>'
             f'<label>item_kind<select name="{outcome_prefix}_item_kind" class="cascade-select" '
-            f'data-cascade="action_cost">{kind_options}</select></label>'
+            f'data-cascade="action_outcome">{kind_options}</select></label>'
             f'<label>item_id{reward_item_select}</label>'
             f'<label>item_qty (optional, +/-)<input type="number" name="{outcome_prefix}_item_qty" '
             f'value="{outcome.get("item_qty", "")}"></label>'

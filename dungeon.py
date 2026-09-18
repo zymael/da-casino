@@ -437,6 +437,12 @@ ROOM_TYPES = ("combat", "choice", "roulette")
 # produces, so a check can be calibrated against any of them, not just the original atk/def/hp trio.
 CHECK_STATS = ("hp", "atk", "def", "spatk", "speed")
 ACTION_COST_ITEM_KINDS = ("material", "consumable", "quest_item")
+# An outcome can additionally hand over equipment, which a cost can't take: equipment lives in its
+# own table (db.store_equipment_item / equipment_inventory) rather than the generic inventory a
+# cost spends from, so "pay me a sword" has no working counterpart and stays unsupported. This is
+# what lets a prize counter stock real gear instead of only consumables -- see the arcade in
+# dungeon_delves.json.
+ACTION_OUTCOME_ITEM_KINDS = ACTION_COST_ITEM_KINDS + ("equipment",)
 _REQUIRED_ROOM_FIELDS_BY_TYPE = {
     "combat": {"monster_groups"}, "choice": {"prompt", "actions"}, "roulette": {"prompt", "hit_hp_delta"},
 }
@@ -532,15 +538,27 @@ def _validate_action(action: dict, context: str) -> None:
                 raise ValueError(f"{context}: {key}.currency_delta must be a nonzero int")
         if "item_id" in outcome:
             item_kind = outcome.get("item_kind")
-            if item_kind not in ACTION_COST_ITEM_KINDS:
-                raise ValueError(f"{context}: {key} with an item_id needs item_kind in {ACTION_COST_ITEM_KINDS}")
+            if item_kind not in ACTION_OUTCOME_ITEM_KINDS:
+                raise ValueError(f"{context}: {key} with an item_id needs item_kind in {ACTION_OUTCOME_ITEM_KINDS}")
             if item_kind == "material" and outcome["item_id"] not in MATERIALS:
                 raise ValueError(f"{context}: {key} references unknown material {outcome['item_id']!r}")
             if item_kind == "consumable" and outcome["item_id"] not in CONSUMABLES:
                 raise ValueError(f"{context}: {key} references unknown consumable {outcome['item_id']!r}")
+            if item_kind == "equipment":
+                if outcome["item_id"] not in EQUIPMENT:
+                    raise ValueError(f"{context}: {key} references unknown equipment {outcome['item_id']!r}")
+                # Same rule monster drops follow: quest_only gear is handed out by its own quest,
+                # never found or bought, or the quest's reward stops being the reason to do it.
+                if EQUIPMENT[outcome["item_id"]].get("quest_only"):
+                    raise ValueError(f"{context}: {key} references quest_only equipment {outcome['item_id']!r}")
             # quest_item existence is checked by quests.py's cross-validation pass (see module docstring)
             if not isinstance(outcome.get("item_qty"), int) or outcome["item_qty"] == 0:
                 raise ValueError(f"{context}: {key}.item_qty must be a nonzero int")
+            # A negative qty means "take it back", which routes through the generic inventory --
+            # equipment isn't in there, so a take would silently do nothing. Reject it at load
+            # instead of shipping an action that looks like it confiscates a sword and doesn't.
+            if item_kind == "equipment" and outcome["item_qty"] < 0:
+                raise ValueError(f"{context}: {key} cannot take equipment away (item_qty must be positive)")
         elif "item_kind" in outcome or "item_qty" in outcome:
             raise ValueError(f"{context}: {key} has item_kind/item_qty but no item_id")
         if "achievement_kind" in outcome and outcome["achievement_kind"] not in achievements.BY_KIND:

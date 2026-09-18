@@ -1639,5 +1639,59 @@
       }
     ],
     "flavor": "Popped clean out of the socket and still tracking the room. It saw every ticket ever counted at that counter, and it learned exactly how fast a hand can move."
+  },
+  {
+    "id": "dangerous_bb_gun",
+    "name": "Dangerous BB Gun",
+    "slot": "weapon",
+    "rarity": "epic",
+    "intended_level": 30,
+    "base_value": 3000,
+    "effects": [
+      {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 22
+      },
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 6
+      },
+      {
+        "type": "dot",
+        "trigger": "on_hit",
+        "chance": 0.2,
+        "duration": 2,
+        "value": 5
+      }
+    ],
+    "flavor": "Behind the counter the whole time, above the plushies, where every kid could see it. The pump still works. You will absolutely put someone's eye out, which the sign always said and nobody ever believed."
+  },
+  {
+    "id": "da_big_cheeze_plushie",
+    "name": "Da Big Cheeze Plushie",
+    "slot": "armor",
+    "rarity": "epic",
+    "intended_level": 30,
+    "base_value": 3000,
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 30
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 22
+      },
+      {
+        "type": "taunt",
+        "trigger": "constant",
+        "value": 3
+      }
+    ],
+    "flavor": "Thirty years of dust pressed into the fur and a smile stitched on slightly crooked. Strapped across your chest it stops a surprising amount, and everything in the room looks at it first."
   }
 ]

@@ -645,7 +645,12 @@ def _dodge_resist_line(def_stat: int, spatk_stat: int, speed: int) -> str:
 
 
 def _cost_item_registry(item_kind: str) -> dict:
-    return {"material": dungeon.MATERIALS, "consumable": dungeon.CONSUMABLES, "quest_item": quests.QUEST_ITEMS}[item_kind]
+    # "equipment" only ever appears on an outcome, never a cost (see dungeon.ACTION_COST_ITEM_KINDS
+    # vs ACTION_OUTCOME_ITEM_KINDS) -- it's here so a reward's name still resolves for the log line.
+    return {
+        "material": dungeon.MATERIALS, "consumable": dungeon.CONSUMABLES,
+        "quest_item": quests.QUEST_ITEMS, "equipment": dungeon.EQUIPMENT,
+    }[item_kind]
 
 
 async def _apply_outcome_rewards(
@@ -674,7 +679,13 @@ async def _apply_outcome_rewards(
     if item_id:
         item_qty = outcome["item_qty"]
         item_name = _cost_item_registry(outcome["item_kind"]).get(item_id, {}).get("name", item_id)
-        if item_qty > 0:
+        if outcome["item_kind"] == "equipment":
+            # Equipment has its own table rather than the generic inventory, so it can't go through
+            # add_inventory_item -- same store-don't-equip call _award_kill uses for a dropped item,
+            # leaving the actual swap to !equipment. Loader guarantees a positive qty here.
+            await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, item_id, item_qty)
+            log_lines.append(f"⚔️ {subject} {'get' + s} **{item_name}**, stored in `!equipment`.")
+        elif item_qty > 0:
             await asyncio.to_thread(db.add_inventory_item, guild_id, user_id, item_id, item_qty)
             log_lines.append(f"{subject} {'find' + s} **{item_qty}x {item_name}**.")
         else:
