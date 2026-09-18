@@ -1219,7 +1219,9 @@
         ],
         "flavor": "He slaps the bell on the counter and something behind you takes that as a cue as you're pummeled from both sides."
       }
-    ]
+    ],
+    "sprite_path": "assets/dungeon/monsters/pizza_cultist.png",
+    "sprite_scale": 1.5
   },
   {
     "id": "dough_thrall",
@@ -1272,7 +1274,8 @@
         ],
         "flavor": "It folds you into itself once, twice, and then comes out looking suspiciously fresher."
       }
-    ]
+    ],
+    "sprite_path": "assets/dungeon/monsters/dough_thrall.png"
   },
   {
     "id": "shift_manager",
@@ -1342,7 +1345,8 @@
         ],
         "flavor": "He crosses a line through the schedule and suddenly you have so much less time to work with."
       }
-    ]
+    ],
+    "sprite_path": "assets/dungeon/monsters/shift_manager.png"
   },
   {
     "id": "da_big_cheese",
@@ -1423,7 +1427,8 @@
         ],
         "flavor": "The routine skips. An arm goes somewhere the routine never called for, at a speed the routine never called for either."
       }
-    ]
+    ],
+    "sprite_path": "assets/dungeon/monsters/da_big_cheese.png"
   },
   {
     "id": "old_god_pizza",
@@ -1520,6 +1525,7 @@
         ],
         "flavor": "It takes its cut. It has always taken its cut. Half of whatever it just took off you bubbles back up somewhere across the room unpleasantly."
       }
-    ]
+    ],
+    "sprite_path": "assets/dungeon/monsters/old_god_pizza.png"
   }
 ]

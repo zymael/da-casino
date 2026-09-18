@@ -889,7 +889,7 @@
   {
     "id": "pizza_parlor",
     "name": "Da Big Cheese in Yellow Pizza Palace",
-    "active": false,
+    "active": true,
     "flavor": "Closed since the eighties, yet someone or something is still taking orders.",
     "rooms": [
       {
@@ -935,7 +935,8 @@
               "message": "The flakes disappear into the apron. He unhooks the velvet rope and looks at the wall until you are past it."
             }
           }
-        ]
+        ],
+        "background_path": "assets/dungeon/backgrounds/pizza_parlor_room_The Host Stand.jpg"
       },
       {
         "id": "The Dining Floor",
@@ -981,7 +982,8 @@
               "message": "You skip the games and head for the back. Whatever's on the menu, you're picking it up yourself."
             }
           }
-        ]
+        ],
+        "background_path": "assets/dungeon/backgrounds/pizza_parlor_room_The Order Window.jpg"
       },
       {
         "id": "The Arcade",
@@ -1155,7 +1157,8 @@
               "message": "You pocket what's left and push through the swinging doors."
             }
           }
-        ]
+        ],
+        "background_path": "assets/dungeon/backgrounds/pizza_parlor_room_The Arcade.jpg"
       },
       {
         "id": "The Party Room",
@@ -1177,7 +1180,8 @@
             "party_extra_monster": "shift_manager"
           }
         ],
-        "next": "Da Big Cheese"
+        "next": "Da Big Cheese",
+        "background_path": "assets/dungeon/backgrounds/pizza_parlor_room_The Party Room.jpg"
       },
       {
         "id": "Da Big Cheese",
@@ -1190,7 +1194,8 @@
             ]
           }
         ],
-        "next": "The Back Room"
+        "next": "The Back Room",
+        "background_path": "assets/dungeon/backgrounds/pizza_parlor_room_Da Big Cheese.jpg"
       },
       {
         "id": "The Back Room",
@@ -1211,7 +1216,8 @@
               "message": "You stand at the edge of the ring and let them finish. The chant peaks. Somewhere, a bell dings."
             }
           }
-        ]
+        ],
+        "background_path": "assets/dungeon/backgrounds/pizza_parlor_room_The Back Room.jpg"
       },
       {
         "id": "The Ritual Interrupted",
@@ -1225,7 +1231,8 @@
             ],
             "party_extra_monster": "shift_manager"
           }
-        ]
+        ],
+        "background_path": "assets/dungeon/backgrounds/pizza_parlor_room_The Ritual Interrupted.jpg"
       },
       {
         "id": "Old God Pizza",
@@ -1238,7 +1245,8 @@
             ]
           }
         ],
-        "next": "The Walk Out"
+        "next": "The Walk Out",
+        "background_path": "assets/dungeon/backgrounds/pizza_parlor_room_Old God Pizza.jpg"
       },
       {
         "id": "The Walk Out",
@@ -1252,7 +1260,8 @@
               "achievement_kind": "old_god_slain"
             }
           }
-        ]
+        ],
+        "background_path": "assets/dungeon/backgrounds/pizza_parlor_room_The Walk Out.jpg"
       }
     ],
     "layout": {
@@ -1302,6 +1311,7 @@
     "unlock_trigger": {
       "type": "achievement",
       "kind": "pizza_devotee"
-    }
+    },
+    "background_path": "assets/dungeon/backgrounds/pizza_parlor.jpg"
   }
 ]

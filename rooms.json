@@ -360,7 +360,7 @@
     "id": "pizza_palace",
     "name": "\ud83c\udf55 Da Big Cheese Pizza Palace",
     "description": "Out the service door, across the loading bay, and there it is: a squat brick box under a marquee that has never once been switched off. BIG CHEESE PIZZA PALACE, and underneath, in letters somebody rearranged a long time ago, NOW SERVING.\n\nClosed since the eighties. Every pizza you have ever had delivered to the casino came from somewhere, and the delivery kid has never once taken a tip.\n\nThrough the glass, flickering lights are visible and the sounds of 8-bit music faintly play like a funeral dirge.",
-    "background_path": "assets/rooms/dungeon.jpg",
+    "background_path": "assets/rooms/pizza_palace.jpg",
     "exits": [
       {
         "room_id": "casino",
