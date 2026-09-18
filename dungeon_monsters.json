@@ -1387,6 +1387,11 @@
         "kind": "consumable",
         "item_id": "birthday_slice",
         "chance": 0.25
+      },
+      {
+        "kind": "housing_item",
+        "item_id": "arcade_cabinet",
+        "chance": 0.2
       }
     ],
     "attack_chance": 1,
