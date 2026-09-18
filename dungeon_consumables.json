@@ -249,5 +249,31 @@
         "value": 4
       }
     ]
+  },
+  {
+    "id": "stale_candy",
+    "name": "Stale Candy",
+    "kind": "consumable",
+    "base_value": 60,
+    "flavor": "This candy is older than you are.  It's chewy like taffy, even though you are pretty sure it wasn't like that originally.  Still, it leaves you feeling perkier.",
+    "effects": [
+      {
+        "type": "heal_fraction",
+        "value": 0.45
+      }
+    ]
+  },
+  {
+    "id": "now_illegal_energy_drink",
+    "name": "Now Illegal Energy Drink",
+    "kind": "consumable",
+    "base_value": 85,
+    "flavor": "The caffiene content of this drink has been outlawed for decades now.  Mmm... Crystaly.",
+    "effects": [
+      {
+        "type": "speed_buff",
+        "value": 5
+      }
+    ]
   }
 ]

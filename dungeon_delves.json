@@ -1121,7 +1121,7 @@
             }
           },
           {
-            "label": "Prize counter: Greater Healing Draught (10 tickets)",
+            "label": "Prize counter: Stale Candy (10 tickets)",
             "cost": {
               "item_kind": "material",
               "item_id": "arcade_ticket",
@@ -1129,9 +1129,24 @@
             },
             "on_success": {
               "next": "The Arcade",
-              "message": "Ten tickets, and the attendant who is not there slides you something that actually works.",
+              "message": "Ten tickets, and the attendant who is not there slides something across the glass that has been sitting on that shelf since the eighties.",
               "item_kind": "consumable",
-              "item_id": "greater_healing_draught",
+              "item_id": "stale_candy",
+              "item_qty": 1
+            }
+          },
+          {
+            "label": "Prize counter: Now Illegal Energy Drink (18 tickets)",
+            "cost": {
+              "item_kind": "material",
+              "item_id": "arcade_ticket",
+              "item_qty": 18
+            },
+            "on_success": {
+              "next": "The Arcade",
+              "message": "Eighteen tickets for a can they stopped making on purpose. It hisses when you crack it, and the whole room seems to slow down a step.",
+              "item_kind": "consumable",
+              "item_id": "now_illegal_energy_drink",
               "item_qty": 1
             }
           },
