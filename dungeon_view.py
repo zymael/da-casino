@@ -1561,9 +1561,20 @@ def _effect_heal_fraction(target, caster, effect: dict, log_lines: list[str], mo
     mid-fight) scales it up from there, capped at dungeon.HEAL_FRACTION_CAP (see that constant's
     own comment for the curve this produces). `caster` is the same entity as `target` for a
     self-cast heal (_apply_self_effects passes actor in both slots) -- reads identically either
-    way, since this only ever cares about whoever's casting, not whether that's also the target."""
-    caster_spatk = max(0, caster.spatk - caster.spatk_debuff)
-    fraction = min(dungeon.HEAL_FRACTION_CAP, effect["value"] + caster_spatk * dungeon.HEAL_SPATK_WEIGHT)
+    way, since this only ever cares about whoever's casting, not whether that's also the target.
+
+    mods.get("heal_scales_with_caster", True) gates the SpAtk scaling itself -- False for a
+    consumable/equipment on-use cast (_resolve_player_action's `scales_with_caster` param, stashed
+    into mods the same way _effect_lifesteal_fraction stashes its own value there), so an item's
+    authored value heals exactly what it says on the tin, matching db.use_healing_item's
+    out-of-combat flat-fraction behavior instead of quietly inheriting a healer skill's own
+    progression curve. True (the default) preserves the original scaling for every skill/monster
+    cast, which is what this curve was actually tuned around."""
+    if mods.get("heal_scales_with_caster", True):
+        caster_spatk = max(0, caster.spatk - caster.spatk_debuff)
+        fraction = min(dungeon.HEAL_FRACTION_CAP, effect["value"] + caster_spatk * dungeon.HEAL_SPATK_WEIGHT)
+    else:
+        fraction = effect["value"]
     healed = min(target.max_hp, target.hp + round(target.max_hp * fraction)) - target.hp
     target.hp += healed
     log_lines.append(f"{_actor_label(target)} {_verb(target, 'recover')} **{healed}** HP.")
@@ -1840,6 +1851,7 @@ def _resolve_player_action(
     effects: list[dict], special: bool, verb: str, subject_label: str, possessive_label: str, drain_verb: str,
     moon_mult: float, equipped_items: list[dict], threat_gain: bool, log_lines: list[str],
     ally_target=None, is_plain_attack: bool = False, crit_chance: float = 0.0, avoid: str = "dodge",
+    scales_with_caster: bool = True,
 ) -> list:
     """Resolves one player-cast action (skill/consumable/equipment on-use) -- the shared core of
     _resolve_combat_turn (solo), _resolve_party_turn (party), and _resolve_duel_turn (PvP). Those
@@ -1893,6 +1905,10 @@ def _resolve_player_action(
     excluded) -- the caller runs its own kill-check/reward loop against exactly that list, and must
     itself guard for a non-monster entity in it (see _resolve_combat_turn's own comment on why).
 
+    `scales_with_caster` defaults to True (a skill/plain-attack cast, unchanged) -- False for a
+    consumable/equipment on-use cast (see _effect_heal_fraction's own docstring for why), stashed
+    into `mods` right below so the one handler that reads it doesn't need its own extra parameter.
+
     `crit_chance` defaults to 0.0 (solo/party PvE never pass it, so behavior there is unchanged) --
     only the duel call site sets it, rolled independently per damaged entity, multiplying that hit's
     damage by CRIT_MULTIPLIER on success."""
@@ -1920,6 +1936,7 @@ def _resolve_player_action(
     is_damage_action = is_plain_attack or any(e["type"] in DAMAGE_EFFECT_TYPES for e in effects)
 
     mods = _default_mods()
+    mods["heal_scales_with_caster"] = scales_with_caster
     for e in mods_effects:
         EFFECT_HANDLERS[e["type"]](actor, None, e, log_lines, mods)
 
@@ -2390,7 +2407,7 @@ async def _advance_solo_turns(
 
 async def _resolve_combat_turn(
     interaction: discord.Interaction, session: DelveSession, effects: list[dict], verb: str, log_lines: list[str],
-    special: bool = False, is_plain_attack: bool = False, avoid: str = "dodge",
+    special: bool = False, is_plain_attack: bool = False, avoid: str = "dodge", scales_with_caster: bool = True,
 ) -> bool:
     """Resolves the player's own chosen action (plain Attack, a skill, or a consumed item) --
     applies `effects` via _resolve_player_action (each effect independently single-target or AOE
@@ -2414,7 +2431,7 @@ async def _resolve_combat_turn(
     hit = _resolve_player_action(
         session, [session], session.living_monsters(), session.current_target(), effects, special, verb,
         "You", "your", "drain", player_moon_mult, equipped_items, False, log_lines,
-        is_plain_attack=is_plain_attack, avoid=avoid,
+        is_plain_attack=is_plain_attack, avoid=avoid, scales_with_caster=scales_with_caster,
     )
 
     session.turn_clock += dungeon.turn_interval(max(1, session.speed - session.speed_debuff))
@@ -2477,6 +2494,7 @@ async def _handle_use_item(interaction: discord.Interaction, session: DelveSessi
     effects = dungeon.resolve_cast_effects(item)
     return await _resolve_combat_turn(
         interaction, session, effects, verb, [], item.get("special", False), avoid=dungeon.resolved_avoid_type(item),
+        scales_with_caster=False,
     )
 
 
@@ -2493,6 +2511,7 @@ async def _handle_cast_item(interaction: discord.Interaction, session: DelveSess
     verb = f"unleash **{item['name']}**"
     return await _resolve_combat_turn(
         interaction, session, effects, verb, [], item.get("special", False), avoid=dungeon.resolved_avoid_type(item),
+        scales_with_caster=False,
     )
 
 
@@ -2814,7 +2833,7 @@ async def _advance_party_turns(
 async def _resolve_party_turn(
     interaction: discord.Interaction, session: PartyDelveSession, member: PartyMember,
     effects: list[dict], verb: str, log_lines: list[str], special: bool = False, is_plain_attack: bool = False,
-    avoid: str = "dodge",
+    avoid: str = "dodge", scales_with_caster: bool = True,
 ) -> bool:
     """Party sibling of _resolve_combat_turn: applies `effects` via _resolve_player_action (each
     effect independently single-target or AOE per its own "aoe" flag -- ally-aoe expands to
@@ -2836,7 +2855,7 @@ async def _resolve_party_turn(
     hit = _resolve_player_action(
         member, session.living_members(), session.living_monsters(), target, effects, special, verb,
         member.label, f"{member.label}'s", "drains", player_moon_mult, equipped_items, True, log_lines,
-        ally_target=ally_target, is_plain_attack=is_plain_attack, avoid=avoid,
+        ally_target=ally_target, is_plain_attack=is_plain_attack, avoid=avoid, scales_with_caster=scales_with_caster,
     )
 
     member.turn_clock += dungeon.turn_interval(max(1, member.speed - member.speed_debuff))
@@ -2912,7 +2931,7 @@ async def _handle_party_use_item(
     effects = dungeon.resolve_cast_effects(item)
     return await _resolve_party_turn(
         interaction, session, member, effects, verb, [], item.get("special", False),
-        avoid=dungeon.resolved_avoid_type(item),
+        avoid=dungeon.resolved_avoid_type(item), scales_with_caster=False,
     )
 
 
@@ -2929,7 +2948,7 @@ async def _handle_party_cast_item(
     verb = f"unleash **{item['name']}**"
     return await _resolve_party_turn(
         interaction, session, member, effects, verb, [], item.get("special", False),
-        avoid=dungeon.resolved_avoid_type(item),
+        avoid=dungeon.resolved_avoid_type(item), scales_with_caster=False,
     )
 
 
@@ -4307,6 +4326,7 @@ async def _advance_duel_turns(interaction: discord.Interaction | None, session: 
 async def _resolve_duel_turn(
     interaction: discord.Interaction, session: DuelSession, actor: PartyMember, effects: list[dict],
     verb: str, log_lines: list[str], special: bool = False, is_plain_attack: bool = False, avoid: str = "dodge",
+    scales_with_caster: bool = True,
 ) -> bool:
     """Duel sibling of _resolve_party_turn -- always exactly one possible opponent (the other
     duelist), no threat gain (PvP has no monster threat table), no moon multiplier, but a duel-only
@@ -4321,6 +4341,7 @@ async def _resolve_duel_turn(
         actor, [actor], [opponent], opponent, effects, special, verb,
         actor.label, f"{actor.label}'s", "drains", 1.0, equipped_items, False, log_lines,
         is_plain_attack=is_plain_attack, crit_chance=DUEL_CRIT_CHANCE, avoid=avoid,
+        scales_with_caster=scales_with_caster,
     )
 
     actor.turn_clock += dungeon.turn_interval(max(1, actor.speed - actor.speed_debuff))
@@ -4381,7 +4402,7 @@ async def _handle_duel_use_item(
     effects = dungeon.resolve_cast_effects(item)
     return await _resolve_duel_turn(
         interaction, session, actor, effects, verb, [], item.get("special", False),
-        avoid=dungeon.resolved_avoid_type(item),
+        avoid=dungeon.resolved_avoid_type(item), scales_with_caster=False,
     )
 
 
@@ -4396,7 +4417,7 @@ async def _handle_duel_cast_item(
     verb = f"unleash **{item['name']}**"
     return await _resolve_duel_turn(
         interaction, session, actor, effects, verb, [], item.get("special", False),
-        avoid=dungeon.resolved_avoid_type(item),
+        avoid=dungeon.resolved_avoid_type(item), scales_with_caster=False,
     )
 
 
