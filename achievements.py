@@ -297,6 +297,14 @@ ACHIEVEMENTS = [
         "reward": 25,
     },
     {
+        "kind": "carebear",
+        "scope": "personal",
+        "emoji": "🧸",
+        "name": "Carebear",
+        "description": "git gud loser",
+        "reward": 25,
+    },
+    {
         "kind": "raid_success",
         "scope": "personal",
         "emoji": "🥷",

@@ -757,6 +757,7 @@ async def pvp_cmd(ctx, mode: str = None):
         await ctx.send(f"⚔️ PvP **enabled** for {ctx.author.display_name}. You are now flagged for war. Watch your back.")
     elif mode == "off":
         await ctx.send(f"🕊️ PvP **disabled** for {ctx.author.display_name}. You can no longer be attacked. Rest easy.")
+        await achievements.try_award_many(ctx.send, ctx.guild.id, ctx.author.id, ctx.author.display_name, ["carebear"])
     else:
         await ctx.send("Usage: `!pvp on` or `!pvp off`")
 
