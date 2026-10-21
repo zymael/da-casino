@@ -139,7 +139,7 @@ HELP_CATEGORIES = [
     ("💰 Economy", ["balance", "stats", "rest", "mine", "tip", "transfer", "pizza", "leaderboard"]),
     ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
     ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost", "horseequip", "givehorse"]),
-    ("⚔️ War", ["war", "raid"]),
+    ("⚔️ War", ["war", "raid", "pvp"]),
     ("🗡️ Dungeon", ["class", "combathelp", "delve", "inventory", "equipment", "craft", "smash", "journal"]),
     ("🏆 Achievements", ["achievements"]),
     ("⚙️ Utility", ["ping", "setcasino", "setcurrency", "setdelvetest", "rub", "roy", "deletebot"]),
@@ -745,6 +745,20 @@ async def roy_cmd(ctx):
     embed = discord.Embed(color=discord.Color.gold())
     embed.set_image(url=ROY_GIF)
     await ctx.send(embed=embed)
+
+
+# Deliberately does nothing -- there is no PvP flag. !war and !raid can hit anyone either way; the
+# docstring (shown in !help) and replies play it completely straight, same spirit as Luck itself.
+@bot.command(name="pvp")
+async def pvp_cmd(ctx, mode: str = None):
+    """Toggle whether you can be attacked in !war and !raid: !pvp on / !pvp off"""
+    mode = (mode or "").lower()
+    if mode == "on":
+        await ctx.send(f"⚔️ PvP **enabled** for {ctx.author.display_name}. You are now flagged for war. Watch your back.")
+    elif mode == "off":
+        await ctx.send(f"🕊️ PvP **disabled** for {ctx.author.display_name}. You can no longer be attacked. Rest easy.")
+    else:
+        await ctx.send("Usage: `!pvp on` or `!pvp off`")
 
 
 @bot.command(name="deletebot")
