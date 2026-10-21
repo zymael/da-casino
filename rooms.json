@@ -113,6 +113,11 @@
     ],
     "commands": [
       {
+        "key": "stable",
+        "kind": "none",
+        "label": "\ud83d\udc34 Stable"
+      },
+      {
         "key": "train",
         "kind": "none",
         "label": "\ud83c\udfcb\ufe0f Train"
