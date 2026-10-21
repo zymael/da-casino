@@ -83,7 +83,7 @@ def _stable_entry(horse: dict, worn: dict[str, str]) -> str:
 
 
 def build_stable_embed(owner_name: str, horses: list[dict], clothes: dict[int, dict[str, str]], page: int) -> discord.Embed:
-    pages = max(1, -(-len(horses) // STABLE_PAGE_SIZE))
+    pages = hub_ui.page_count(len(horses), STABLE_PAGE_SIZE)
     shown = horses[page * STABLE_PAGE_SIZE:(page + 1) * STABLE_PAGE_SIZE]
     healthy = sum(not horserace.is_injured(h) for h in horses)
     embed = discord.Embed(
@@ -99,44 +99,16 @@ def build_stable_embed(owner_name: str, horses: list[dict], clothes: dict[int, d
     return embed
 
 
-class StableView(discord.ui.View):
-    """◀/▶ paging for a !stable bigger than one page. Read-only, so anyone can flip through it."""
-
-    def __init__(self, owner_name: str, horses: list[dict], clothes: dict[int, dict[str, str]]):
-        super().__init__(timeout=300)
-        self.owner_name, self.horses, self.clothes = owner_name, horses, clothes
-        self.page = 0
-        self.pages = max(1, -(-len(horses) // STABLE_PAGE_SIZE))
-        self._sync_buttons()
-
-    def _sync_buttons(self):
-        self.prev_button.disabled = self.page == 0
-        self.next_button.disabled = self.page >= self.pages - 1
-
-    async def _show(self, interaction: discord.Interaction):
-        self._sync_buttons()
-        await interaction.response.edit_message(
-            embed=build_stable_embed(self.owner_name, self.horses, self.clothes, self.page), view=self,
-        )
-
-    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary)
-    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.page = max(0, self.page - 1)
-        await self._show(interaction)
-
-    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary)
-    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.page = min(self.pages - 1, self.page + 1)
-        await self._show(interaction)
-
-
 async def build_stable_display(guild_id: int, user_id: int, owner_name: str) -> tuple[discord.Embed, discord.ui.View | None]:
     """!stable's embed (first page) plus paging buttons only when there's more than one page."""
     horses = await asyncio.to_thread(db.get_ranch_horses, guild_id, user_id)
     clothes = await asyncio.to_thread(db.get_guild_horse_clothes, guild_id)
-    embed = build_stable_embed(owner_name, horses, clothes, 0)
-    view = StableView(owner_name, horses, clothes) if len(horses) > STABLE_PAGE_SIZE else None
-    return embed, view
+    pages = hub_ui.page_count(len(horses), STABLE_PAGE_SIZE)
+
+    def build_page(page: int) -> discord.Embed:
+        return build_stable_embed(owner_name, horses, clothes, page)
+
+    return build_page(0), (hub_ui.PagedEmbedView(build_page, pages) if pages > 1 else None)
 
 
 class FoalNameModal(discord.ui.Modal, title="Name your foal"):

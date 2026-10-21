@@ -913,6 +913,9 @@ async def horserace_cmd(ctx):
     view.message = message
 
 
+HORSES_PAGE_SIZE = 15
+
+
 @bot.command(name="horses")
 async def horses_cmd(ctx):
     """List every horse in the stable, its price/record, and who owns it: !horses"""
@@ -938,19 +941,31 @@ async def horses_cmd(ctx):
             f"SPD {horse['speed']:.0f} / END {horse['endurance']:.0f} / SPI {horse['spirit']:.0f} — {record}"
         )
         sex_symbol = horserace.SEX_SYMBOLS.get(horse["sex"], "")
-        lines.append(f"**{i + 1}. {horse['name']}** {sex_symbol} {horse['coat']} — {kind} — {status}\n{stats}")
+        injured = " — 🤕 injured" if horserace.is_injured(horse) else ""
+        lines.append(f"**{i + 1}. {horse['name']}** {sex_symbol} {horse['coat']} — {kind} — {status}{injured}\n{stats}")
 
-    embed = discord.Embed(
-        title="🐴 The Stable",
-        description="\n".join(lines),
-        color=discord.Color.dark_gold(),
-    )
-    embed.set_footer(
-        text=f"Owners earn {int(horserace.OWNER_CUT_FRACTION * 100)}% of the pot whenever their horse wins. "
-        f"`!buyfoal <name>` for {horserace.FOAL_PRICE} {currency} to start your own — `!train <number>` once "
-        f"a day to raise its stats and age until it can race at age {horserace.MIN_RACING_AGE}."
-    )
-    await ctx.send(embed=embed)
+    # Paged -- one embed description caps at 4096 chars, which a big server stable blows past
+    # (Discord rejects the whole message, so the command used to just silently not reply).
+    pages = hub_ui.page_count(len(lines), HORSES_PAGE_SIZE)
+
+    def build_page(page: int) -> discord.Embed:
+        embed = discord.Embed(
+            title="🐴 The Stable",
+            description="\n".join(lines[page * HORSES_PAGE_SIZE:(page + 1) * HORSES_PAGE_SIZE]),
+            color=discord.Color.dark_gold(),
+        )
+        page_text = f" (Page {page + 1}/{pages})" if pages > 1 else ""
+        embed.set_footer(
+            text=f"Owners earn {int(horserace.OWNER_CUT_FRACTION * 100)}% of the pot whenever their horse wins. "
+            f"`!buyfoal <name>` for {horserace.FOAL_PRICE} {currency} to start your own — `!train <number>` once "
+            f"a day to raise its stats and age until it can race at age {horserace.MIN_RACING_AGE}.{page_text}"
+        )
+        return embed
+
+    if pages > 1:
+        await ctx.send(embed=build_page(0), view=hub_ui.PagedEmbedView(build_page, pages))
+    else:
+        await ctx.send(embed=build_page(0))
 
 
 @bot.command(name="stable")

@@ -47,6 +47,41 @@ class HubSession:
             pass
 
 
+class PagedEmbedView(discord.ui.View):
+    """◀/▶ paging over a list that's too long for one embed (Discord caps a description at 4096
+    chars). `build_page(page) -> discord.Embed` renders one page; this only tracks which page is
+    showing. Read-only, so anyone can flip through it."""
+
+    def __init__(self, build_page, page_count: int, timeout: float = 300):
+        super().__init__(timeout=timeout)
+        self.build_page = build_page
+        self.page_count = page_count
+        self.page = 0
+        self._sync_buttons()
+
+    def _sync_buttons(self):
+        self.prev_button.disabled = self.page == 0
+        self.next_button.disabled = self.page >= self.page_count - 1
+
+    async def _show(self, interaction: discord.Interaction):
+        self._sync_buttons()
+        await interaction.response.edit_message(embed=self.build_page(self.page), view=self)
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary)
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.page = max(0, self.page - 1)
+        await self._show(interaction)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.page = min(self.page_count - 1, self.page + 1)
+        await self._show(interaction)
+
+
+def page_count(item_count: int, page_size: int) -> int:
+    return max(1, -(-item_count // page_size))
+
+
 class InteractionContext:
     """Just enough of discord.ext.commands.Context for a command callback written for normal
     prefix invocation to run unmodified from a button click or modal submission instead."""
