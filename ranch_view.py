@@ -43,6 +43,39 @@ def build_horse_picker(owned: list[dict], on_pick, placeholder: str = "Choose a 
     return view
 
 
+class FoalNameModal(discord.ui.Modal, title="Name your foal"):
+    """Collects !buyfoal's free-text name -- the one argument a room button can't (rooms only
+    collect zero args or one integer), so the command asks for it itself, same as the pickers here."""
+
+    def __init__(self, on_submit_name):
+        super().__init__()
+        self.on_submit_name = on_submit_name
+        self.name_input = discord.ui.TextInput(
+            label="Name", placeholder="e.g. Lightning", max_length=horserace.MAX_HORSE_NAME_LEN,
+        )
+        self.add_item(self.name_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self.on_submit_name(hub_ui.InteractionContext(interaction), self.name_input.value)
+
+
+class FoalNameView(discord.ui.View):
+    def __init__(self, on_submit_name):
+        super().__init__(timeout=300)
+        self.on_submit_name = on_submit_name
+
+    @discord.ui.button(label="🐣 Name your foal", style=discord.ButtonStyle.primary)
+    async def name_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(FoalNameModal(self.on_submit_name))
+
+
+def build_foal_name_prompt(on_submit_name) -> discord.ui.View:
+    """What a bare !buyfoal sends back. `on_submit_name` is an async (ctx, name) callback; whoever
+    clicks is the buyer, so there's no owner check -- anyone can use it to buy their own foal."""
+    return FoalNameView(on_submit_name)
+
+
 class PlayerPickerSelect(discord.ui.UserSelect):
     """Discord's native user picker for a horse command that needs a recipient (bot.py's
     givehorse_cmd), same reasoning as dungeon_view.DuelTargetSelect -- there's no fixed short list

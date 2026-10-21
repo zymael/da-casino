@@ -1505,13 +1505,24 @@ async def buyhorse_cmd(ctx, number: int = None):
 
 @bot.command(name="buyfoal")
 async def buyfoal_cmd(ctx, *, name: str = None):
-    """Buy a brand-new foal and name it: !buyfoal <name> — cheap, but weaker than a legend until trained up."""
+    """Buy a brand-new foal and name it: !buyfoal <name> — cheap, but weaker than a legend until trained up.
+    Plain !buyfoal asks for the name in a pop-up instead."""
+    if not name or not name.strip():
+        currency = db.get_currency_name(ctx.guild.id)
+        view = ranch_view.build_foal_name_prompt(_buy_foal)
+        await ctx.send(f"A foal costs **{horserace.FOAL_PRICE}** {currency}. What will you name it?", view=view)
+        return
+    await _buy_foal(ctx, name)
+
+
+async def _buy_foal(ctx, name: str):
+    """The one real foal-buying path, whether the name was typed or came from the name pop-up."""
     if await _reject_if_at_poker_table(ctx):
         return
-    if not name or not name.strip():
-        await ctx.send("Usage: `!buyfoal <name>` — e.g. `!buyfoal Lightning`")
-        return
     name = name.strip()
+    if not name:
+        await ctx.send("Your foal needs a name.")
+        return
     if len(name) > horserace.MAX_HORSE_NAME_LEN:
         await ctx.send(f"Names must be {horserace.MAX_HORSE_NAME_LEN} characters or fewer.")
         return
@@ -2361,6 +2372,7 @@ room_commands.COMMANDS.update({
     "horseequip": horseequip_cmd.callback,
     "house": house_cmd.callback,
     "givehorse": givehorse_cmd.callback,
+    "buyfoal": buyfoal_cmd.callback,
     "war": war_cmd.callback,
     "raid": raid_cmd.callback,
 })

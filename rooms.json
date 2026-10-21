@@ -153,6 +153,16 @@
         "key": "horseequip",
         "kind": "none",
         "label": "\ud83d\udc52 Dress Up"
+      },
+      {
+        "key": "givehorse",
+        "kind": "none",
+        "label": "\ud83c\udf81 Give Horse"
+      },
+      {
+        "key": "buyfoal",
+        "kind": "none",
+        "label": "\ud83d\udc23 Buy Foal"
       }
     ]
   },
