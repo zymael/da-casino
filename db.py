@@ -1264,9 +1264,16 @@ def next_horse_index(guild_id: int, legend_count: int) -> int:
         conn.close()
 
 
-def buy_legend_horse(guild_id: int, horse_index: int, user_id: int, price: int) -> tuple[str, int]:
+def _owned_horse_count(conn, guild_id: int, user_id: int) -> int:
+    return conn.execute(
+        "SELECT COUNT(*) FROM horses WHERE guild_id = ? AND owner_id = ?", (guild_id, user_id)
+    ).fetchone()[0]
+
+
+def buy_legend_horse(guild_id: int, horse_index: int, user_id: int, price: int, max_owned: int) -> tuple[str, int]:
     """Attempts to buy an unowned legend (its row must already exist via seed_legend).
-    Returns (status, balance): "ok", "owned", or "broke"."""
+    Returns (status, balance): "ok", "owned", "cap" (buyer already owns max_owned horses), or
+    "broke"."""
     conn = _connect()
     try:
         _ensure_user(conn, guild_id, user_id)
@@ -1284,6 +1291,9 @@ def buy_legend_horse(guild_id: int, horse_index: int, user_id: int, price: int) 
         balance = conn.execute(
             "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
         ).fetchone()[0]
+        if _owned_horse_count(conn, guild_id, user_id) >= max_owned:
+            conn.rollback()
+            return "cap", balance
         if balance < price:
             conn.rollback()
             return "broke", balance
@@ -1498,9 +1508,10 @@ def unequip_horse_clothes(guild_id: int, user_id: int, horse_index: int, slot: s
 
 def buy_foal(
     guild_id: int, horse_index: int, user_id: int, name: str, price: int,
-    speed: float, endurance: float, spirit: float, sex: str, coat: str,
+    speed: float, endurance: float, spirit: float, sex: str, coat: str, max_owned: int,
 ) -> tuple[str, int]:
-    """Creates and buys a brand-new foal in one step. Returns (status, balance): "ok" or "broke"."""
+    """Creates and buys a brand-new foal in one step. Returns (status, balance): "ok", "cap" (buyer
+    already owns max_owned horses), or "broke"."""
     conn = _connect()
     try:
         _ensure_user(conn, guild_id, user_id)
@@ -1509,6 +1520,9 @@ def buy_foal(
         balance = conn.execute(
             "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
         ).fetchone()[0]
+        if _owned_horse_count(conn, guild_id, user_id) >= max_owned:
+            conn.rollback()
+            return "cap", balance
         if balance < price:
             conn.rollback()
             return "broke", balance
@@ -1717,19 +1731,31 @@ def claim_raid(guild_id: int, user_id: int, now: int, cooldown: int) -> tuple[st
         conn.close()
 
 
-def transfer_horse(guild_id: int, horse_index: int, from_user_id: int, to_user_id: int) -> bool:
-    """Moves horse_index from from_user_id to to_user_id, if from_user_id still owns it -- a
-    !givehorse gift or a successful !raid. Equipped clothes go with the horse (horse_clothes_equipped
-    is keyed by horse_index, not owner), so the new owner keeps whatever it was wearing. Returns
-    whether it moved."""
+def transfer_horse(guild_id: int, horse_index: int, from_user_id: int, to_user_id: int, max_owned: int) -> str:
+    """Moves horse_index from from_user_id to to_user_id -- a !givehorse gift or a successful
+    !raid. Equipped clothes go with the horse (horse_clothes_equipped is keyed by horse_index, not
+    owner), so the new owner keeps whatever it was wearing. Returns "ok", "not_owner" (from_user_id
+    doesn't own it anymore), or "cap" (to_user_id already owns max_owned horses)."""
     conn = _connect()
     try:
+        conn.execute("BEGIN IMMEDIATE")
+        if _owned_horse_count(conn, guild_id, to_user_id) >= max_owned:
+            conn.rollback()
+            return "cap"
         cursor = conn.execute(
             "UPDATE horses SET owner_id = ? WHERE guild_id = ? AND horse_index = ? AND owner_id = ?",
             (to_user_id, guild_id, horse_index, from_user_id),
         )
         conn.commit()
-        return cursor.rowcount > 0
+        return "ok" if cursor.rowcount > 0 else "not_owner"
+    finally:
+        conn.close()
+
+
+def count_owned_horses(guild_id: int, user_id: int) -> int:
+    conn = _connect()
+    try:
+        return _owned_horse_count(conn, guild_id, user_id)
     finally:
         conn.close()
 

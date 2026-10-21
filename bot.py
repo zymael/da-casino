@@ -1500,10 +1500,15 @@ async def buyhorse_cmd(ctx, number: int = None):
     horse_index = number - 1
     _roster, _eligible, probabilities = await asyncio.to_thread(horserace.current_probabilities, ctx.guild.id)
     price = horserace.price_of(horse_index, probabilities["win"])
-    status, balance = await asyncio.to_thread(db.buy_legend_horse, ctx.guild.id, horse_index, ctx.author.id, price)
+    status, balance = await asyncio.to_thread(
+        db.buy_legend_horse, ctx.guild.id, horse_index, ctx.author.id, price, horserace.MAX_HORSES_PER_PLAYER,
+    )
 
     if status == "owned":
         await ctx.send("That horse is already owned — check `!horses` for what's still available.")
+        return
+    if status == "cap":
+        await ctx.send(f"Your stable is full: you already own {horserace.MAX_HORSES_PER_PLAYER} horses.")
         return
     horse_name = horserace.HORSES[horse_index]["name"]
     currency = db.get_currency_name(ctx.guild.id)
@@ -1546,8 +1551,11 @@ async def _buy_foal(ctx, name: str):
     sex, coat = horserace.random_sex(), horserace.random_coat()
     status, balance = await asyncio.to_thread(
         db.buy_foal, ctx.guild.id, horse_index, ctx.author.id, name, horserace.FOAL_PRICE,
-        *horserace.FOAL_BASE_STATS.values(), sex, coat,
+        *horserace.FOAL_BASE_STATS.values(), sex, coat, horserace.MAX_HORSES_PER_PLAYER,
     )
+    if status == "cap":
+        await ctx.send(f"Your stable is full: you already own {horserace.MAX_HORSES_PER_PLAYER} horses.")
+        return
     if status == "broke":
         currency = db.get_currency_name(ctx.guild.id)
         await ctx.send(f"A foal costs **{horserace.FOAL_PRICE}** {currency} — you only have **{balance}**.")
@@ -1821,8 +1829,13 @@ async def _give_horse(ctx, member: discord.Member, horse_index: int):
         await ctx.send("You can't give a horse to a bot.")
         return
     horse = (await asyncio.to_thread(db.get_guild_horses, ctx.guild.id)).get(horse_index)
-    moved = await asyncio.to_thread(db.transfer_horse, ctx.guild.id, horse_index, ctx.author.id, member.id)
-    if not moved:
+    status = await asyncio.to_thread(
+        db.transfer_horse, ctx.guild.id, horse_index, ctx.author.id, member.id, horserace.MAX_HORSES_PER_PLAYER,
+    )
+    if status == "cap":
+        await ctx.send(f"{member.display_name}'s stable is full: they already own {horserace.MAX_HORSES_PER_PLAYER} horses.")
+        return
+    if status == "not_owner":
         await ctx.send("You don't own that horse. Check `!horses` to see who does.")
         return
     await ctx.send(f"🐴 {ctx.author.display_name} gave **{horse['name']}** to {member.mention}!")
@@ -1847,8 +1860,8 @@ async def _war_general(guild_id: int, user_id: int) -> dict | None:
 @bot.command(name="war")
 async def war_cmd(ctx, member: discord.Member = None):
     """Declare war on another player for their Luck (once every 12 hours): !war @user, or plain
-    !war to pick a target. You choose which healthy horses ride out; every healthy horse they own
-    defends. No horses? Your class character fights on foot."""
+    !war to pick a target. You choose up to 5 healthy horses to ride out; up to 5 of theirs, picked
+    at random, defend. No horses? Your class character fights on foot."""
     if member is None:
         view = war_view.build_target_picker(ctx.author.id, _war_choose_army, "Choose who to declare war on...")
         await ctx.send("Whose Luck reserves are we marching on?", view=view)
@@ -1905,7 +1918,12 @@ async def _war_resolve(ctx, member: discord.Member, horse_indices: list[int]):
     if any(i not in healthy for i in horse_indices):
         await ctx.send("Some of those horses aren't yours or aren't fit to fight anymore. Try `!war` again.")
         return
+    if len(horse_indices) > war.MAX_ARMY_SIZE:
+        await ctx.send(f"You can only send up to {war.MAX_ARMY_SIZE} horses to one war.")
+        return
     defender_healthy = await _healthy_horses(guild_id, member.id)
+    if len(defender_healthy) > war.MAX_ARMY_SIZE:
+        defender_healthy = random.sample(defender_healthy, war.MAX_ARMY_SIZE)
     clothes = await asyncio.to_thread(db.get_guild_horse_clothes, guild_id)
     fortress_tier = await asyncio.to_thread(db.get_facility_tier, guild_id, member.id)
     attacker_army = war.build_army(
@@ -1991,6 +2009,9 @@ async def _raid_choose_raider(ctx, member: discord.Member):
     if not await asyncio.to_thread(db.get_ranch_horses, guild_id, member.id):
         await ctx.send(f"{member.display_name} doesn't own any horses to steal.")
         return
+    if await asyncio.to_thread(db.count_owned_horses, guild_id, raider_id) >= horserace.MAX_HORSES_PER_PLAYER:
+        await ctx.send(f"Your stable is full: you already own {horserace.MAX_HORSES_PER_PLAYER} horses. No room for stolen goods.")
+        return
     healthy = await _healthy_horses(guild_id, raider_id)
     if not healthy:
         await ctx.send("You need a healthy horse to send on a raid.")
@@ -2018,6 +2039,9 @@ async def _raid_resolve(ctx, member: discord.Member, raider_index: int):
     guards = [(h["horse_index"], h) for h in target_owned if not horserace.is_injured(h)]
     chance = war.raid_chance(raider, clothes.get(raider_index, {}), war.best_guard_endurance(guards, clothes))
 
+    if await asyncio.to_thread(db.count_owned_horses, guild_id, raider_id) >= horserace.MAX_HORSES_PER_PLAYER:
+        await ctx.send(f"Your stable is full: you already own {horserace.MAX_HORSES_PER_PLAYER} horses. No room for stolen goods.")
+        return
     status, remaining = await asyncio.to_thread(
         db.claim_raid, guild_id, raider_id, int(time.time()), war.RAID_COOLDOWN_SECONDS,
     )
@@ -2027,8 +2051,10 @@ async def _raid_resolve(ctx, member: discord.Member, raider_index: int):
 
     if random.random() < chance:
         prize = random.choice(target_owned)
-        stolen = await asyncio.to_thread(db.transfer_horse, guild_id, prize["horse_index"], member.id, raider_id)
-        if not stolen:
+        status = await asyncio.to_thread(
+            db.transfer_horse, guild_id, prize["horse_index"], member.id, raider_id, horserace.MAX_HORSES_PER_PLAYER,
+        )
+        if status != "ok":
             await ctx.send(f"🥷 {raider['name']} got in, but the stall was already empty. Rotten luck.")
             return
         await ctx.send(

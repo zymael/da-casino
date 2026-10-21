@@ -34,6 +34,10 @@ RAID_INJURY_HOURS = 72
 # "serious" way to take luck.
 LUCK_SPOILS_RANGE = (5, 15)
 
+# Horses per side in one war. The attacker picks up to this many; a defender with more healthy
+# horses than this fields a random selection of them, so a big stable isn't an unbreakable wall.
+MAX_ARMY_SIZE = 5
+
 # Battle physics. A unit's HP is BASE_HP + Endurance; each strike deals (Speed x jitter + flat
 # noise) x DAMAGE_SCALE. FLAT_NOISE_MAX is the same lesson horserace.py's own FLAT_NOISE_MAX
 # learned: without a stat-independent term, small stat gaps compound into a sure thing, and a

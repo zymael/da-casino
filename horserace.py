@@ -112,6 +112,9 @@ MAX_PROB_OF_FAIR = 3.0
 BASE_HORSE_PRICE = 150000
 OWNER_CUT_FRACTION = 0.05
 MAX_HORSE_NAME_LEN = 16
+# Per-player ownership cap, checked whenever a horse would be gained (buying, gifts, raids). Anyone
+# already over it keeps what they have -- they just can't add more.
+MAX_HORSES_PER_PLAYER = 50
 
 # Foals: a cheap entry point into ownership — a raw, unraced prospect strictly worse than even
 # Barbaro (the weakest legend: speed 73 / endurance 52 / spirit 45), that only becomes

@@ -68,7 +68,8 @@ class ArmySelect(discord.ui.Select):
             for h in healthy[:MAX_SELECT_OPTIONS]
         ]
         super().__init__(
-            placeholder="Choose which horses ride to war...", min_values=1, max_values=len(options), options=options,
+            placeholder=f"Choose up to {war.MAX_ARMY_SIZE} horses to ride to war...", min_values=1,
+            max_values=min(war.MAX_ARMY_SIZE, len(options)), options=options,
         )
         self.on_pick = on_pick
 
