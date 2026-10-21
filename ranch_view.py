@@ -43,6 +43,39 @@ def build_horse_picker(owned: list[dict], on_pick, placeholder: str = "Choose a 
     return view
 
 
+class PlayerPickerSelect(discord.ui.UserSelect):
+    """Discord's native user picker for a horse command that needs a recipient (bot.py's
+    givehorse_cmd), same reasoning as dungeon_view.DuelTargetSelect -- there's no fixed short list
+    of "other players" to enumerate. `on_pick` is an async (ctx, member) callback."""
+
+    def __init__(self, on_pick, placeholder: str):
+        super().__init__(placeholder=placeholder)
+        self.on_pick = on_pick
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self.on_pick(hub_ui.InteractionContext(interaction), self.values[0])
+
+
+def build_player_picker(owner_id: int, on_pick, placeholder: str) -> discord.ui.View:
+    """Only owner_id can use it -- anyone else picking would run the command as themselves."""
+    view = _OwnerOnlyView(owner_id)
+    view.add_item(PlayerPickerSelect(on_pick, placeholder))
+    return view
+
+
+class _OwnerOnlyView(discord.ui.View):
+    def __init__(self, owner_id: int):
+        super().__init__(timeout=120)
+        self.owner_id = owner_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("This isn't yours to pick.", ephemeral=True)
+            return False
+        return True
+
+
 async def extra_embed_fields(guild_id: int, user_id: int) -> list[tuple[str, str, bool]]:
     """room_view.py's ranch specialization hook -- the facility status + horse roster, both live
     per-player DB reads a generic room embed has no way to know about on its own. Returns

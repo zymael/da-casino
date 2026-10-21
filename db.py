@@ -1717,10 +1717,11 @@ def claim_raid(guild_id: int, user_id: int, now: int, cooldown: int) -> tuple[st
         conn.close()
 
 
-def steal_horse(guild_id: int, horse_index: int, from_user_id: int, to_user_id: int) -> bool:
-    """A successful !raid -- moves horse_index from from_user_id to to_user_id, if from_user_id
-    still owns it. Equipped clothes go with the horse (horse_clothes_equipped is keyed by
-    horse_index, not owner), so the thief keeps whatever it was wearing. Returns whether it moved."""
+def transfer_horse(guild_id: int, horse_index: int, from_user_id: int, to_user_id: int) -> bool:
+    """Moves horse_index from from_user_id to to_user_id, if from_user_id still owns it -- a
+    !givehorse gift or a successful !raid. Equipped clothes go with the horse (horse_clothes_equipped
+    is keyed by horse_index, not owner), so the new owner keeps whatever it was wearing. Returns
+    whether it moved."""
     conn = _connect()
     try:
         cursor = conn.execute(

@@ -138,7 +138,8 @@ bot = commands.Bot(
 HELP_CATEGORIES = [
     ("💰 Economy", ["balance", "stats", "rest", "mine", "tip", "transfer", "pizza", "leaderboard"]),
     ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
-    ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost", "horseequip"]),
+    ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost", "horseequip", "givehorse"]),
+    ("⚔️ War", ["war", "raid"]),
     ("🗡️ Dungeon", ["class", "combathelp", "delve", "inventory", "equipment", "craft", "smash", "journal"]),
     ("🏆 Achievements", ["achievements"]),
     ("⚙️ Utility", ["ping", "setcasino", "setcurrency", "setdelvetest", "rub", "roy", "deletebot"]),
@@ -1755,6 +1756,52 @@ async def horseequip_cmd(ctx, number: int = None):
     await _show_horse_clothes(ctx, number - 1)
 
 
+@bot.command(name="givehorse", aliases=["transferhorse"])
+async def givehorse_cmd(ctx, member: discord.Member = None, number: int = None):
+    """Give a horse you own to another player, along with whatever it's wearing: !givehorse @user
+    <number>, or leave either out to pick from a dropdown instead."""
+    if member is None:
+        view = ranch_view.build_player_picker(ctx.author.id, _givehorse_choose_horse, "Choose who gets the horse...")
+        await ctx.send("Who are you giving a horse to?", view=view)
+        return
+    if number is None:
+        await _givehorse_choose_horse(ctx, member)
+        return
+    if number < 1:
+        await ctx.send("Usage: `!givehorse @user <number>`, see `!horses` for numbers.")
+        return
+    await _give_horse(ctx, member, number - 1)
+
+
+async def _givehorse_choose_horse(ctx, member: discord.Member):
+    owned = await asyncio.to_thread(db.get_ranch_horses, ctx.guild.id, ctx.author.id)
+    if not owned:
+        await ctx.send("You don't own any horses to give.")
+        return
+
+    async def on_pick(pick_ctx, horse_index):
+        await _give_horse(pick_ctx, member, horse_index)
+
+    view = ranch_view.build_horse_picker(owned, on_pick, placeholder=f"Choose a horse for {member.display_name}...")
+    await ctx.send(f"Which horse goes to {member.display_name}?", view=view)
+
+
+async def _give_horse(ctx, member: discord.Member, horse_index: int):
+    """The one real gift path, however member/horse_index got collected (same shape as _train_horse)."""
+    if member.id == ctx.author.id:
+        await ctx.send("You already own that horse.")
+        return
+    if member.bot:
+        await ctx.send("You can't give a horse to a bot.")
+        return
+    horse = (await asyncio.to_thread(db.get_guild_horses, ctx.guild.id)).get(horse_index)
+    moved = await asyncio.to_thread(db.transfer_horse, ctx.guild.id, horse_index, ctx.author.id, member.id)
+    if not moved:
+        await ctx.send("You don't own that horse. Check `!horses` to see who does.")
+        return
+    await ctx.send(f"🐴 {ctx.author.display_name} gave **{horse['name']}** to {member.mention}!")
+
+
 async def _healthy_horses(guild_id: int, user_id: int) -> list[dict]:
     owned = await asyncio.to_thread(db.get_ranch_horses, guild_id, user_id)
     return [h for h in owned if not horserace.is_injured(h)]
@@ -1954,7 +2001,7 @@ async def _raid_resolve(ctx, member: discord.Member, raider_index: int):
 
     if random.random() < chance:
         prize = random.choice(target_owned)
-        stolen = await asyncio.to_thread(db.steal_horse, guild_id, prize["horse_index"], member.id, raider_id)
+        stolen = await asyncio.to_thread(db.transfer_horse, guild_id, prize["horse_index"], member.id, raider_id)
         if not stolen:
             await ctx.send(f"🥷 {raider['name']} got in, but the stall was already empty. Rotten luck.")
             return
@@ -2313,6 +2360,7 @@ room_commands.COMMANDS.update({
     "facility": facility_cmd.callback,
     "horseequip": horseequip_cmd.callback,
     "house": house_cmd.callback,
+    "givehorse": givehorse_cmd.callback,
     "war": war_cmd.callback,
     "raid": raid_cmd.callback,
 })
