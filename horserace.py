@@ -1,5 +1,6 @@
 import colorsys
 import random
+from datetime import datetime
 
 import db
 
@@ -202,9 +203,17 @@ def get_roster(guild_id: int) -> dict[int, dict]:
     return roster
 
 
+def is_injured(horse: dict) -> bool:
+    """Whether a horse is still laid up from a !war/!raid (see war.py) -- an injured horse sits out
+    races, training, and further fighting until its injured_until passes."""
+    injured_until = horse.get("injured_until")
+    return injured_until is not None and datetime.fromisoformat(injured_until) > datetime.now()
+
+
 def eligible_indices(roster: dict[int, dict]) -> list[int]:
-    """Horses old enough to actually race, oldest-index-first for stable button/track ordering."""
-    return sorted(i for i, h in roster.items() if h["age"] >= MIN_RACING_AGE)
+    """Horses old enough to actually race (and not injured), oldest-index-first for stable
+    button/track ordering."""
+    return sorted(i for i, h in roster.items() if h["age"] >= MIN_RACING_AGE and not is_injured(h))
 
 
 RACE_FIELD_SIZE = 8

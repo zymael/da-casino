@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 
 import discord
 
@@ -69,6 +70,9 @@ async def extra_embed_fields(guild_id: int, user_id: int) -> list[tuple[str, str
                 if horse["races"] else "unraced"
             )
             boost_text = f" — 🧪 {horse['pending_boost_stat']} boost queued" if horse["pending_boost_stat"] else ""
+            if horserace.is_injured(horse):
+                healed_at = int(datetime.fromisoformat(horse["injured_until"]).timestamp())
+                boost_text += f" — 🤕 injured, back <t:{healed_at}:R>"
             worn = equipped_clothes.get(horse["horse_index"], {})
             clothes_text = (
                 " — " + ", ".join(horse_clothes.HORSE_CLOTHES[item_id]["name"] for item_id in worn.values())

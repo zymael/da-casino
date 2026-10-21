@@ -1184,6 +1184,19 @@ CONTENT_TYPES = {
                 "hint": "optional -- if set, !smash refuses to destroy this item and shows this message "
                         "instead of removing it",
             },
+            {
+                "name": "war_speed", "type": "int", "required": False, "group": "War (Barding)",
+                "hint": "optional -- added to the wearer's Speed in !war/!raid only (never in races). "
+                        "Negative is allowed for a joke item.",
+            },
+            {
+                "name": "war_endurance", "type": "int", "required": False, "group": "War (Barding)",
+                "hint": "optional -- added to the wearer's Endurance in !war/!raid only",
+            },
+            {
+                "name": "war_spirit", "type": "int", "required": False, "group": "War (Barding)",
+                "hint": "optional -- added to the wearer's Spirit in !war only",
+            },
         ],
     },
 }

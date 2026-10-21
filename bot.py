@@ -68,6 +68,8 @@ import ranch_view
 import room_commands
 import room_view
 import rooms
+import war
+import war_view
 from roulette_view import (
     DAUGHTERS_NEGLECT_FLAG,
     DAUGHTERS_TARGET_ID,
@@ -1579,6 +1581,9 @@ async def _train_horse(ctx, horse_index: int):
     if status == "not_owner":
         await ctx.send("You don't own that horse — check `!horses` to see who does.")
         return
+    if status == "injured":
+        await ctx.send(f"🤕 That horse is still injured. It can train again {_in_seconds(payload)}.")
+        return
     if status == "cooldown":
         await ctx.send(f"That horse was trained recently — you can train it again {_in_seconds(payload)}.")
         return
@@ -1733,8 +1738,9 @@ async def _show_horse_clothes(ctx, horse_index: int):
 
 @bot.command(name="horseequip")
 async def horseequip_cmd(ctx, number: int = None):
-    """Dress a horse you own up in owned cosmetic clothing -- purely visual, no stat effect:
-    !horseequip <number>, or plain !horseequip to pick from a dropdown of your horses instead."""
+    """Dress a horse you own up in owned cosmetic clothing -- no effect on races, though some
+    pieces count as barding in !war: !horseequip <number>, or plain !horseequip to pick from a
+    dropdown of your horses instead."""
     if number is None:
         owned = await asyncio.to_thread(db.get_ranch_horses, ctx.guild.id, ctx.author.id)
         if not owned:
@@ -1747,6 +1753,223 @@ async def horseequip_cmd(ctx, number: int = None):
         await ctx.send("Usage: `!horseequip <number>` — see `!horses` for numbers.")
         return
     await _show_horse_clothes(ctx, number - 1)
+
+
+async def _healthy_horses(guild_id: int, user_id: int) -> list[dict]:
+    owned = await asyncio.to_thread(db.get_ranch_horses, guild_id, user_id)
+    return [h for h in owned if not horserace.is_injured(h)]
+
+
+async def _war_general(guild_id: int, user_id: int) -> dict | None:
+    """A player's dungeon character's effective stats (gear + housing included) -- what war.py
+    reads for the general bonus or an on-foot unit. None if they have no character."""
+    character = await asyncio.to_thread(db.get_character, guild_id, user_id)
+    if character is None:
+        return None
+    equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
+    housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, guild_id, user_id)
+    return dungeon.compute_effective_stats(character, equipped, housing_bonuses.get("stat_bonus", {}))
+
+
+@bot.command(name="war")
+async def war_cmd(ctx, member: discord.Member = None):
+    """Declare war on another player for their Luck (once every 12 hours): !war @user, or plain
+    !war to pick a target. You choose which healthy horses ride out; every healthy horse they own
+    defends. No horses? Your class character fights on foot."""
+    if member is None:
+        view = war_view.build_target_picker(ctx.author.id, _war_choose_army, "Choose who to declare war on...")
+        await ctx.send("Whose Luck reserves are we marching on?", view=view)
+        return
+    await _war_choose_army(ctx, member)
+
+
+async def _war_choose_army(ctx, member: discord.Member):
+    """Validates a resolved target, then asks which horses ride out (or goes straight to battle
+    on foot) -- shared by war_cmd's typed invocation and its target picker, same shape as
+    _duel_challenge."""
+    guild_id, attacker_id = ctx.guild.id, ctx.author.id
+    if member.id == attacker_id:
+        await ctx.send("You can't declare war on yourself.")
+        return
+    if member.bot:
+        await ctx.send("Bots don't have any Luck to take.")
+        return
+    now = int(time.time())
+    last_attack = await asyncio.to_thread(db.get_flag, guild_id, attacker_id, db.WAR_LAST_ATTACK_FLAG)
+    if last_attack and now - last_attack < war.ATTACK_COOLDOWN_SECONDS:
+        await ctx.send(
+            f"⏳ Your army is still regrouping. You can declare war again "
+            f"{_in_seconds(war.ATTACK_COOLDOWN_SECONDS - (now - last_attack))}."
+        )
+        return
+    shield_until = await asyncio.to_thread(db.get_flag, guild_id, member.id, db.WAR_SHIELD_UNTIL_FLAG)
+    if shield_until > now:
+        await ctx.send(f"🏳️ {member.display_name} is under a ceasefire. It lifts {_in_seconds(shield_until - now)}.")
+        return
+    if not await _healthy_horses(guild_id, member.id) and await _war_general(guild_id, member.id) is None:
+        await ctx.send(f"{member.display_name} has no army to fight: no healthy horses and no class character.")
+        return
+
+    healthy = await _healthy_horses(guild_id, attacker_id)
+    if healthy:
+        async def on_pick(pick_ctx, horse_indices):
+            await _war_resolve(pick_ctx, member, horse_indices)
+
+        view = war_view.build_army_picker(attacker_id, healthy, on_pick)
+        await ctx.send(f"Which horses ride against {member.display_name}?", view=view)
+        return
+    if await _war_general(guild_id, attacker_id) is None:
+        await ctx.send("You have no army: no healthy horses and no class character. Try `!buyfoal` or `!class`.")
+        return
+    await _war_resolve(ctx, member, [])
+
+
+async def _war_resolve(ctx, member: discord.Member, horse_indices: list[int]):
+    """Builds both armies, claims the attack window, fights, settles spoils/injuries/ceasefire in
+    one transaction, then replays the battle round by round."""
+    guild_id, attacker_id = ctx.guild.id, ctx.author.id
+    healthy = {h["horse_index"]: h for h in await _healthy_horses(guild_id, attacker_id)}
+    if any(i not in healthy for i in horse_indices):
+        await ctx.send("Some of those horses aren't yours or aren't fit to fight anymore. Try `!war` again.")
+        return
+    defender_healthy = await _healthy_horses(guild_id, member.id)
+    clothes = await asyncio.to_thread(db.get_guild_horse_clothes, guild_id)
+    fortress_tier = await asyncio.to_thread(db.get_facility_tier, guild_id, member.id)
+    attacker_army = war.build_army(
+        [(i, healthy[i]) for i in horse_indices], clothes, ctx.author.display_name,
+        await _war_general(guild_id, attacker_id),
+    )
+    defender_army = war.build_army(
+        [(h["horse_index"], h) for h in defender_healthy], clothes, member.display_name,
+        await _war_general(guild_id, member.id), fortress_tier,
+    )
+    if attacker_army is None:
+        await ctx.send("You have no army: no healthy horses and no class character. Try `!buyfoal` or `!class`.")
+        return
+    if defender_army is None:
+        await ctx.send(f"{member.display_name} has no army to fight: no healthy horses and no class character.")
+        return
+
+    status, remaining = await asyncio.to_thread(
+        db.claim_war_attack, guild_id, attacker_id, member.id, int(time.time()), war.ATTACK_COOLDOWN_SECONDS,
+    )
+    if status == "cooldown":
+        await ctx.send(f"⏳ Your army is still regrouping. You can declare war again {_in_seconds(remaining)}.")
+        return
+    if status == "shielded":
+        await ctx.send(f"🏳️ {member.display_name} is under a ceasefire. It lifts {_in_seconds(remaining)}.")
+        return
+
+    result = war.simulate_battle(attacker_army, defender_army)
+    attacker_won = result.winner == war.ATTACKER
+    winner, loser = (ctx.author, member) if attacker_won else (member, ctx.author)
+    winner_army, loser_army = (result.attacker, result.defender) if attacker_won else (result.defender, result.attacker)
+    spoils = war.roll_spoils()
+    winner_luck, loser_luck = await asyncio.to_thread(
+        db.apply_war_result, guild_id, winner.id, loser.id, spoils, result.knocked_out_horses(),
+        war.injured_until(war.WAR_INJURY_HOURS), member.id if attacker_won else None,
+        int(time.time()) + war.LOSER_SHIELD_SECONDS,
+    )
+    injured_names = [
+        u.name for army in (result.attacker, result.defender) for u in army.units
+        if not u.alive and u.horse_index is not None
+    ]
+    names = {war.ATTACKER: ctx.author.display_name, war.DEFENDER: member.display_name}
+    await war_view.present_battle(
+        ctx.send, names, result, spoils, winner_luck, loser_luck, injured_names,
+        member.display_name if attacker_won else None, content=member.mention,
+    )
+    await _update_luck_champion(ctx.guild)
+
+    winner_kinds = ["war_victory"] + (["war_on_foot_victory"] if winner_army.on_foot else [])
+    await achievements.try_award_many(ctx.send, guild_id, winner.id, winner.display_name, winner_kinds)
+    if not loser_army.on_foot and not loser_army.living:
+        await achievements.try_award_many(ctx.send, guild_id, loser.id, loser.display_name, ["war_total_loss"])
+
+
+@bot.command(name="raid")
+async def raid_cmd(ctx, member: discord.Member = None):
+    """Send one of your horses to steal a horse from another player (once every 7 days): !raid
+    @user, or plain !raid to pick a target. Your raider's Speed vs their toughest guard's
+    Endurance sets the odds. Get caught and your raider comes home injured for 3 days."""
+    if member is None:
+        view = war_view.build_target_picker(ctx.author.id, _raid_choose_raider, "Choose whose stable to raid...")
+        await ctx.send("Whose stable are we hitting tonight?", view=view)
+        return
+    await _raid_choose_raider(ctx, member)
+
+
+async def _raid_choose_raider(ctx, member: discord.Member):
+    guild_id, raider_id = ctx.guild.id, ctx.author.id
+    if member.id == raider_id:
+        await ctx.send("You can't raid your own stable.")
+        return
+    if member.bot:
+        await ctx.send("Bots don't keep horses.")
+        return
+    now = int(time.time())
+    last_raid = await asyncio.to_thread(db.get_flag, guild_id, raider_id, db.RAID_LAST_FLAG)
+    if last_raid and now - last_raid < war.RAID_COOLDOWN_SECONDS:
+        await ctx.send(
+            f"⏳ The heat's still on from your last raid. You can raid again "
+            f"{_in_seconds(war.RAID_COOLDOWN_SECONDS - (now - last_raid))}."
+        )
+        return
+    if not await asyncio.to_thread(db.get_ranch_horses, guild_id, member.id):
+        await ctx.send(f"{member.display_name} doesn't own any horses to steal.")
+        return
+    healthy = await _healthy_horses(guild_id, raider_id)
+    if not healthy:
+        await ctx.send("You need a healthy horse to send on a raid.")
+        return
+
+    async def on_pick(pick_ctx, raider_index):
+        await _raid_resolve(pick_ctx, member, raider_index)
+
+    view = war_view.build_raider_picker(raider_id, healthy, on_pick)
+    await ctx.send(f"Who sneaks into {member.display_name}'s stable?", view=view)
+
+
+async def _raid_resolve(ctx, member: discord.Member, raider_index: int):
+    guild_id, raider_id = ctx.guild.id, ctx.author.id
+    healthy = {h["horse_index"]: h for h in await _healthy_horses(guild_id, raider_id)}
+    raider = healthy.get(raider_index)
+    if raider is None:
+        await ctx.send("That horse isn't yours or isn't fit to ride anymore. Try `!raid` again.")
+        return
+    target_owned = await asyncio.to_thread(db.get_ranch_horses, guild_id, member.id)
+    if not target_owned:
+        await ctx.send(f"{member.display_name} doesn't own any horses to steal.")
+        return
+    clothes = await asyncio.to_thread(db.get_guild_horse_clothes, guild_id)
+    guards = [(h["horse_index"], h) for h in target_owned if not horserace.is_injured(h)]
+    chance = war.raid_chance(raider, clothes.get(raider_index, {}), war.best_guard_endurance(guards, clothes))
+
+    status, remaining = await asyncio.to_thread(
+        db.claim_raid, guild_id, raider_id, int(time.time()), war.RAID_COOLDOWN_SECONDS,
+    )
+    if status == "cooldown":
+        await ctx.send(f"⏳ The heat's still on from your last raid. You can raid again {_in_seconds(remaining)}.")
+        return
+
+    if random.random() < chance:
+        prize = random.choice(target_owned)
+        stolen = await asyncio.to_thread(db.steal_horse, guild_id, prize["horse_index"], member.id, raider_id)
+        if not stolen:
+            await ctx.send(f"🥷 {raider['name']} got in, but the stall was already empty. Rotten luck.")
+            return
+        await ctx.send(
+            f"{member.mention}\n🥷 Under cover of night, {ctx.author.display_name}'s **{raider['name']}** slips into "
+            f"{member.display_name}'s stable and leads **{prize['name']}** away. It's theirs now. "
+            f"(Odds were {chance:.0%}.)"
+        )
+        await achievements.try_award_many(ctx.send, guild_id, raider_id, ctx.author.display_name, ["raid_success"])
+    else:
+        await asyncio.to_thread(db.injure_horse, guild_id, raider_index, war.injured_until(war.RAID_INJURY_HOURS))
+        await ctx.send(
+            f"{member.mention}\n🚨 {member.display_name}'s guards catch {ctx.author.display_name}'s **{raider['name']}** "
+            f"in the act! It limps home injured for {war.RAID_INJURY_HOURS // 24} days. (Odds were {chance:.0%}.)"
+        )
 
 
 @bot.command(name="holdem", aliases=["poker"])
@@ -2090,6 +2313,8 @@ room_commands.COMMANDS.update({
     "facility": facility_cmd.callback,
     "horseequip": horseequip_cmd.callback,
     "house": house_cmd.callback,
+    "war": war_cmd.callback,
+    "raid": raid_cmd.callback,
 })
 # Catches a typo'd rooms.json command key loudly at startup instead of a KeyError the moment some
 # player clicks the broken button -- see rooms.py's own docstring for why this can't run any

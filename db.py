@@ -326,6 +326,10 @@ def init_db():
     # no boost queued, which is also what a freshly-created row gets by default.
     if "pending_boost_stat" not in columns:
         conn.execute("ALTER TABLE horses ADD COLUMN pending_boost_stat TEXT")
+    # !war casualties -- a datetime.now().isoformat() the horse stays out of races/training/war
+    # until (see horserace.is_injured). NULL means healthy, which is every existing row's state.
+    if "injured_until" not in columns:
+        conn.execute("ALTER TABLE horses ADD COLUMN injured_until TEXT")
     # A horse's equipped cosmetics, one row per filled slot (saddle/hat) -- keyed by horse_index
     # rather than owner, since the horse (not the owner) is what's dressed up, and ownership can
     # change hands via buy_legend_horse while a cosmetic stays on. Unlike character_equipment,
@@ -1166,7 +1170,7 @@ def get_guild_horses(guild_id: int) -> dict[int, dict]:
     try:
         rows = conn.execute(
             "SELECT horse_index, is_foal, name, owner_id, speed, endurance, spirit, age, wins, places, shows, "
-            "races, race_starts, last_trained, sex, coat, pending_boost_stat FROM horses WHERE guild_id = ?",
+            "races, race_starts, last_trained, sex, coat, pending_boost_stat, injured_until FROM horses WHERE guild_id = ?",
             (guild_id,),
         ).fetchall()
         return {
@@ -1187,10 +1191,11 @@ def get_guild_horses(guild_id: int) -> dict[int, dict]:
                 "sex": sex,
                 "coat": coat,
                 "pending_boost_stat": pending_boost_stat,
+                "injured_until": injured_until,
             }
             for (
                 horse_index, is_foal, name, owner_id, speed, endurance, spirit, age, wins, places, shows,
-                races, race_starts, last_trained, sex, coat, pending_boost_stat,
+                races, race_starts, last_trained, sex, coat, pending_boost_stat, injured_until,
             ) in rows
         }
     finally:
@@ -1412,7 +1417,8 @@ def get_ranch_horses(guild_id: int, user_id: int) -> list[dict]:
     try:
         rows = conn.execute(
             "SELECT horse_index, is_foal, name, age, speed, endurance, spirit, wins, places, shows, races, "
-            "sex, coat, pending_boost_stat FROM horses WHERE guild_id = ? AND owner_id = ? ORDER BY horse_index",
+            "sex, coat, pending_boost_stat, injured_until FROM horses WHERE guild_id = ? AND owner_id = ? "
+            "ORDER BY horse_index",
             (guild_id, user_id),
         ).fetchall()
         return [
@@ -1421,10 +1427,11 @@ def get_ranch_horses(guild_id: int, user_id: int) -> list[dict]:
                 "speed": speed, "endurance": endurance, "spirit": spirit,
                 "wins": wins, "places": places, "shows": shows, "races": races,
                 "sex": sex, "coat": coat, "pending_boost_stat": pending_boost_stat,
+                "injured_until": injured_until,
             }
             for (
                 horse_index, is_foal, name, age, speed, endurance, spirit, wins, places, shows, races,
-                sex, coat, pending_boost_stat,
+                sex, coat, pending_boost_stat, injured_until,
             ) in rows
         ]
     finally:
@@ -1573,17 +1580,21 @@ def train_horse(
 ) -> tuple[str, tuple | None]:
     """Trains a horse if user_id owns it and REFRESH_HOURS have passed since it was last trained.
     Returns (status, payload): "ok" with (new_speed, new_endurance, new_spirit, new_age),
-    "not_owner", or ("cooldown", seconds_remaining)."""
+    "not_owner", ("injured", seconds_remaining) for a !war casualty, or ("cooldown", seconds_remaining)."""
     conn = _connect()
     try:
         row = conn.execute(
-            "SELECT owner_id, speed, endurance, spirit, age, last_trained FROM horses "
+            "SELECT owner_id, speed, endurance, spirit, age, last_trained, injured_until FROM horses "
             "WHERE guild_id = ? AND horse_index = ?",
             (guild_id, horse_index),
         ).fetchone()
         if row is None or row[0] != user_id:
             return "not_owner", None
-        _owner_id, speed, endurance, spirit, age, last_trained = row
+        _owner_id, speed, endurance, spirit, age, last_trained, injured_until = row
+        if injured_until is not None:
+            injured_remaining = (datetime.fromisoformat(injured_until) - datetime.now()).total_seconds()
+            if injured_remaining > 0:
+                return "injured", injured_remaining
         remaining = _seconds_until_refresh(last_trained)
         if remaining is not None:
             return "cooldown", remaining
@@ -1602,6 +1613,135 @@ def train_horse(
         )
         conn.commit()
         return "ok", (new_speed, new_endurance, new_spirit, new_age)
+    finally:
+        conn.close()
+
+
+# !war/!raid's per-player state lives in the generic flags table (unix-timestamp values), not a
+# bespoke table -- see war.py for what each key means and how long each window lasts.
+WAR_LAST_ATTACK_FLAG = "war:last_attack"
+WAR_SHIELD_UNTIL_FLAG = "war:shield_until"
+RAID_LAST_FLAG = "raid:last"
+
+
+def _flag_value(conn, guild_id: int, user_id: int, key: str) -> int:
+    row = conn.execute(
+        "SELECT value FROM flags WHERE guild_id = ? AND user_id = ? AND key = ?", (guild_id, user_id, key),
+    ).fetchone()
+    return row[0] if row else 0
+
+
+def _write_flag(conn, guild_id: int, user_id: int, key: str, value: int):
+    conn.execute(
+        "INSERT INTO flags (guild_id, user_id, key, value) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(guild_id, user_id, key) DO UPDATE SET value = excluded.value",
+        (guild_id, user_id, key, value),
+    )
+
+
+def claim_war_attack(guild_id: int, attacker_id: int, target_id: int, now: int, cooldown: int) -> tuple[str, int]:
+    """Atomically checks and claims !war's attack window. `now`/`cooldown` are unix seconds.
+    Declaring war also drops the attacker's own loser shield -- a shield is for hiding, not for
+    swinging from behind. Returns (status, seconds_remaining): "ok" (0), "cooldown" (attacker's
+    own window), or "shielded" (the target's)."""
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        last_attack = _flag_value(conn, guild_id, attacker_id, WAR_LAST_ATTACK_FLAG)
+        if last_attack and now - last_attack < cooldown:
+            conn.rollback()
+            return "cooldown", cooldown - (now - last_attack)
+        shield_until = _flag_value(conn, guild_id, target_id, WAR_SHIELD_UNTIL_FLAG)
+        if shield_until > now:
+            conn.rollback()
+            return "shielded", shield_until - now
+        _write_flag(conn, guild_id, attacker_id, WAR_LAST_ATTACK_FLAG, now)
+        _write_flag(conn, guild_id, attacker_id, WAR_SHIELD_UNTIL_FLAG, 0)
+        conn.commit()
+        return "ok", 0
+    finally:
+        conn.close()
+
+
+def apply_war_result(
+    guild_id: int, winner_id: int, loser_id: int, luck_amount: int, injured_indices: list[int],
+    injured_until: str, shield_user_id: int | None, shield_until: int,
+) -> tuple[int, int]:
+    """Settles one !war in a single transaction: `luck_amount` moves from loser to winner
+    (permanently, no floor -- same move as apply_rub), every horse in `injured_indices` is marked
+    injured until `injured_until` (an isoformat string), and `shield_user_id` (if any) gets a
+    shield until `shield_until` (unix seconds). Returns (winner_luck, loser_luck), post-update."""
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, winner_id)
+        _ensure_user(conn, guild_id, loser_id)
+        conn.execute(
+            "UPDATE users SET luck = luck + ? WHERE guild_id = ? AND user_id = ?", (luck_amount, guild_id, winner_id),
+        )
+        conn.execute(
+            "UPDATE users SET luck = luck - ? WHERE guild_id = ? AND user_id = ?", (luck_amount, guild_id, loser_id),
+        )
+        for horse_index in injured_indices:
+            conn.execute(
+                "UPDATE horses SET injured_until = ? WHERE guild_id = ? AND horse_index = ?",
+                (injured_until, guild_id, horse_index),
+            )
+        if shield_user_id is not None:
+            _write_flag(conn, guild_id, shield_user_id, WAR_SHIELD_UNTIL_FLAG, shield_until)
+        conn.commit()
+        winner_luck = conn.execute(
+            "SELECT luck FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, winner_id)
+        ).fetchone()[0]
+        loser_luck = conn.execute(
+            "SELECT luck FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, loser_id)
+        ).fetchone()[0]
+        return winner_luck, loser_luck
+    finally:
+        conn.close()
+
+
+def claim_raid(guild_id: int, user_id: int, now: int, cooldown: int) -> tuple[str, int]:
+    """Atomically checks and claims !raid's window, same shape as claim_war_attack minus the
+    target shield (shields only stop wars). Returns ("ok", 0) or ("cooldown", seconds_remaining)."""
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        last_raid = _flag_value(conn, guild_id, user_id, RAID_LAST_FLAG)
+        if last_raid and now - last_raid < cooldown:
+            conn.rollback()
+            return "cooldown", cooldown - (now - last_raid)
+        _write_flag(conn, guild_id, user_id, RAID_LAST_FLAG, now)
+        conn.commit()
+        return "ok", 0
+    finally:
+        conn.close()
+
+
+def steal_horse(guild_id: int, horse_index: int, from_user_id: int, to_user_id: int) -> bool:
+    """A successful !raid -- moves horse_index from from_user_id to to_user_id, if from_user_id
+    still owns it. Equipped clothes go with the horse (horse_clothes_equipped is keyed by
+    horse_index, not owner), so the thief keeps whatever it was wearing. Returns whether it moved."""
+    conn = _connect()
+    try:
+        cursor = conn.execute(
+            "UPDATE horses SET owner_id = ? WHERE guild_id = ? AND horse_index = ? AND owner_id = ?",
+            (to_user_id, guild_id, horse_index, from_user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def injure_horse(guild_id: int, horse_index: int, injured_until: str):
+    """A failed !raid's casualty -- `injured_until` is an isoformat string."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE horses SET injured_until = ? WHERE guild_id = ? AND horse_index = ?",
+            (injured_until, guild_id, horse_index),
+        )
+        conn.commit()
     finally:
         conn.close()
 
