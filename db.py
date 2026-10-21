@@ -1427,7 +1427,7 @@ def get_ranch_horses(guild_id: int, user_id: int) -> list[dict]:
     try:
         rows = conn.execute(
             "SELECT horse_index, is_foal, name, age, speed, endurance, spirit, wins, places, shows, races, "
-            "sex, coat, pending_boost_stat, injured_until FROM horses WHERE guild_id = ? AND owner_id = ? "
+            "sex, coat, pending_boost_stat, injured_until, last_trained FROM horses WHERE guild_id = ? AND owner_id = ? "
             "ORDER BY horse_index",
             (guild_id, user_id),
         ).fetchall()
@@ -1437,11 +1437,11 @@ def get_ranch_horses(guild_id: int, user_id: int) -> list[dict]:
                 "speed": speed, "endurance": endurance, "spirit": spirit,
                 "wins": wins, "places": places, "shows": shows, "races": races,
                 "sex": sex, "coat": coat, "pending_boost_stat": pending_boost_stat,
-                "injured_until": injured_until,
+                "injured_until": injured_until, "last_trained": last_trained,
             }
             for (
                 horse_index, is_foal, name, age, speed, endurance, spirit, wins, places, shows, races,
-                sex, coat, pending_boost_stat, injured_until,
+                sex, coat, pending_boost_stat, injured_until, last_trained,
             ) in rows
         ]
     finally:

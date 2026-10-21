@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import discord
 
@@ -41,6 +41,102 @@ def build_horse_picker(owned: list[dict], on_pick, placeholder: str = "Choose a 
     view = discord.ui.View(timeout=300)
     view.add_item(HorsePickerSelect(owned, on_pick, placeholder))
     return view
+
+
+STABLE_PAGE_SIZE = 10  # keeps one page well under the 4096-char embed description cap
+
+
+def _stable_entry(horse: dict, worn: dict[str, str]) -> str:
+    """One horse's full card in !stable -- everything a player wants before racing, training, or
+    sending it to war."""
+    sex_symbol = horserace.SEX_SYMBOLS.get(horse["sex"], "")
+    kind = "🐣 Foal" if horse["is_foal"] else "🏆 Legend"
+    record = (
+        f"{horse['wins']}W-{horse['places']}P-{horse['shows']}S ({horse['races']} starts)"
+        if horse["races"] else "unraced"
+    )
+    if horserace.is_injured(horse):
+        healed_at = int(datetime.fromisoformat(horse["injured_until"]).timestamp())
+        health = f"🤕 Injured, back <t:{healed_at}:R>"
+    else:
+        health = "❤️ Healthy"
+    if horse["age"] < horserace.MIN_RACING_AGE:
+        racing = f"🌱 Growing (age {horse['age']}/{horserace.MIN_RACING_AGE})"
+    else:
+        racing = "🏁 Race-ready"
+    if horse["last_trained"]:
+        ready_at = datetime.fromisoformat(horse["last_trained"]) + timedelta(hours=db.REFRESH_HOURS)
+        training = "🏋️ Train ready" if ready_at <= datetime.now() else f"🏋️ Trains again <t:{int(ready_at.timestamp())}:R>"
+    else:
+        training = "🏋️ Train ready"
+    status = [health, racing, training]
+    if horse["pending_boost_stat"]:
+        status.append(f"🧪 {horse['pending_boost_stat']} boost queued")
+    if worn:
+        status.append("👒 " + ", ".join(horse_clothes.HORSE_CLOTHES[item_id]["name"] for item_id in worn.values()
+                                        if item_id in horse_clothes.HORSE_CLOTHES))
+    return (
+        f"**{horse['horse_index'] + 1}. {horse['name']}** {sex_symbol} {horse['coat']} · {kind} · Age {horse['age']}\n"
+        f"SPD {horse['speed']:.0f} / END {horse['endurance']:.0f} / SPI {horse['spirit']:.0f} · {record}\n"
+        + " · ".join(status)
+    )
+
+
+def build_stable_embed(owner_name: str, horses: list[dict], clothes: dict[int, dict[str, str]], page: int) -> discord.Embed:
+    pages = max(1, -(-len(horses) // STABLE_PAGE_SIZE))
+    shown = horses[page * STABLE_PAGE_SIZE:(page + 1) * STABLE_PAGE_SIZE]
+    healthy = sum(not horserace.is_injured(h) for h in horses)
+    embed = discord.Embed(
+        title=f"🐴 {owner_name}'s Stable",
+        description="\n\n".join(_stable_entry(h, clothes.get(h["horse_index"], {})) for h in shown)
+        or "No horses yet. Try `!buyfoal` or `!buyhorse`.",
+        color=discord.Color.dark_gold(),
+    )
+    footer = f"{len(horses)}/{horserace.MAX_HORSES_PER_PLAYER} horses · {healthy} healthy"
+    if pages > 1:
+        footer += f" · Page {page + 1}/{pages}"
+    embed.set_footer(text=footer)
+    return embed
+
+
+class StableView(discord.ui.View):
+    """◀/▶ paging for a !stable bigger than one page. Read-only, so anyone can flip through it."""
+
+    def __init__(self, owner_name: str, horses: list[dict], clothes: dict[int, dict[str, str]]):
+        super().__init__(timeout=300)
+        self.owner_name, self.horses, self.clothes = owner_name, horses, clothes
+        self.page = 0
+        self.pages = max(1, -(-len(horses) // STABLE_PAGE_SIZE))
+        self._sync_buttons()
+
+    def _sync_buttons(self):
+        self.prev_button.disabled = self.page == 0
+        self.next_button.disabled = self.page >= self.pages - 1
+
+    async def _show(self, interaction: discord.Interaction):
+        self._sync_buttons()
+        await interaction.response.edit_message(
+            embed=build_stable_embed(self.owner_name, self.horses, self.clothes, self.page), view=self,
+        )
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary)
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.page = max(0, self.page - 1)
+        await self._show(interaction)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.page = min(self.pages - 1, self.page + 1)
+        await self._show(interaction)
+
+
+async def build_stable_display(guild_id: int, user_id: int, owner_name: str) -> tuple[discord.Embed, discord.ui.View | None]:
+    """!stable's embed (first page) plus paging buttons only when there's more than one page."""
+    horses = await asyncio.to_thread(db.get_ranch_horses, guild_id, user_id)
+    clothes = await asyncio.to_thread(db.get_guild_horse_clothes, guild_id)
+    embed = build_stable_embed(owner_name, horses, clothes, 0)
+    view = StableView(owner_name, horses, clothes) if len(horses) > STABLE_PAGE_SIZE else None
+    return embed, view
 
 
 class FoalNameModal(discord.ui.Modal, title="Name your foal"):

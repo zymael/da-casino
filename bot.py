@@ -138,7 +138,7 @@ bot = commands.Bot(
 HELP_CATEGORIES = [
     ("💰 Economy", ["balance", "stats", "rest", "mine", "tip", "transfer", "pizza", "leaderboard"]),
     ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
-    ("🐎 Horse Racing", ["horserace", "horses", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost", "horseequip", "givehorse"]),
+    ("🐎 Horse Racing", ["horserace", "horses", "stable", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost", "horseequip", "givehorse"]),
     ("⚔️ War", ["war", "raid", "pvp"]),
     ("🗡️ Dungeon", ["class", "combathelp", "delve", "inventory", "equipment", "craft", "smash", "journal"]),
     ("🏆 Achievements", ["achievements"]),
@@ -913,7 +913,7 @@ async def horserace_cmd(ctx):
     view.message = message
 
 
-@bot.command(name="horses", aliases=["stable"])
+@bot.command(name="horses")
 async def horses_cmd(ctx):
     """List every horse in the stable, its price/record, and who owns it: !horses"""
     # Odds deliberately aren't shown here -- current_probabilities() is now a fresh per-race
@@ -951,6 +951,18 @@ async def horses_cmd(ctx):
         f"a day to raise its stats and age until it can race at age {horserace.MIN_RACING_AGE}."
     )
     await ctx.send(embed=embed)
+
+
+@bot.command(name="stable")
+async def stable_cmd(ctx, member: discord.Member = None):
+    """See every horse you own with its stats, health, training, and gear: !stable, or !stable @user
+    to look at someone else's."""
+    owner = member or ctx.author
+    embed, view = await ranch_view.build_stable_display(ctx.guild.id, owner.id, owner.display_name)
+    if view is None:
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send(embed=embed, view=view)
 
 
 @bot.command(name="achievements", aliases=["achievement"])
@@ -2413,6 +2425,7 @@ room_commands.COMMANDS.update({
     "horseequip": horseequip_cmd.callback,
     "house": house_cmd.callback,
     "givehorse": givehorse_cmd.callback,
+    "stable": stable_cmd.callback,
     "buyfoal": buyfoal_cmd.callback,
     "war": war_cmd.callback,
     "raid": raid_cmd.callback,
