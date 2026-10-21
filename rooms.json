@@ -105,6 +105,10 @@
       {
         "room_id": "town_square",
         "label": "\ud83c\udfd8\ufe0f Town Square"
+      },
+      {
+        "room_id": "the_front",
+        "label": "\u2694\ufe0f The Front"
       }
     ],
     "commands": [
@@ -149,6 +153,29 @@
         "key": "horseequip",
         "kind": "none",
         "label": "\ud83d\udc52 Dress Up"
+      }
+    ]
+  },
+  {
+    "id": "the_front",
+    "name": "\u2694\ufe0f The Front",
+    "background_path": "assets/rooms/the_front.png",
+    "exits": [
+      {
+        "room_id": "ranch",
+        "label": "\ud83d\udc34 Ranch"
+      }
+    ],
+    "commands": [
+      {
+        "key": "war",
+        "kind": "none",
+        "label": "\u2694\ufe0f War"
+      },
+      {
+        "key": "raid",
+        "kind": "none",
+        "label": "\ud83e\udd77 Raid"
       }
     ]
   },
