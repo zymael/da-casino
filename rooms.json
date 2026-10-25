@@ -109,6 +109,10 @@
       {
         "room_id": "the_front",
         "label": "\u2694\ufe0f The Front"
+      },
+      {
+        "room_id": "los_alamares",
+        "label": "\u2622\ufe0f Los Alamares"
       }
     ],
     "commands": [
@@ -196,6 +200,37 @@
         "key": "sentry",
         "kind": "none",
         "label": "\ud83d\udee1\ufe0f Sentry"
+      }
+    ]
+  },
+  {
+    "id": "los_alamares",
+    "name": "\u2622\ufe0f Los Alamares",
+    "description": "The Dubious Research Lab. Nobody here has a degree, but everybody has a clipboard. Something behind the blast door is humming.",
+    "background_path": "assets/rooms/the_front.png",
+    "exits": [
+      {
+        "room_id": "ranch",
+        "label": "\ud83d\udc34 Ranch"
+      }
+    ],
+    "commands": [
+      {
+        "key": "donate",
+        "kind": "amount",
+        "label": "\ud83e\uddea Donate",
+        "modal_title": "Fund Dubious Research",
+        "input_label": "How much for Dubious Research?"
+      },
+      {
+        "key": "manhattan",
+        "kind": "none",
+        "label": "\ud83d\udcca Research Status"
+      },
+      {
+        "key": "launch",
+        "kind": "none",
+        "label": "\ud83d\udd34 Press the Big Red Button"
       }
     ]
   },
