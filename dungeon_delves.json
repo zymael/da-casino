@@ -1201,6 +1201,21 @@
             }
           },
           {
+            "label": "Prize counter: Cursed Magic 8-Ball (75 tickets)",
+            "cost": {
+              "item_kind": "material",
+              "item_id": "arcade_ticket",
+              "item_qty": 75
+            },
+            "on_success": {
+              "next": "The Arcade",
+              "message": "Seventy-five tickets. It rolls off the top shelf on its own and lands in your hand. The window already reads OUTLOOK NOT SO GOOD, and it isn't talking about you.",
+              "item_kind": "equipment",
+              "item_id": "cursed_magic_8_ball",
+              "item_qty": 1
+            }
+          },
+          {
             "label": "Leave the arcade",
             "on_success": {
               "next": "The Party Room",

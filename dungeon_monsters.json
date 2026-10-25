@@ -1392,6 +1392,11 @@
         "kind": "housing_item",
         "item_id": "arcade_cabinet",
         "chance": 0.2
+      },
+      {
+        "kind": "equipment",
+        "item_id": "da_big_cheeze_hide",
+        "chance": 0.2
       }
     ],
     "attack_chance": 1,
@@ -1468,6 +1473,16 @@
       {
         "kind": "equipment",
         "item_id": "crown_of_the_endless_party",
+        "chance": 0.15
+      },
+      {
+        "kind": "equipment",
+        "item_id": "the_last_birthday_candle",
+        "chance": 0.15
+      },
+      {
+        "kind": "equipment",
+        "item_id": "birthday_club_card",
         "chance": 0.15
       },
       {

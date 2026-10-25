@@ -1693,5 +1693,118 @@
       }
     ],
     "flavor": "Thirty years of dust pressed into the fur and a smile stitched on slightly crooked. Strapped across your chest it stops a surprising amount, and everything in the room looks at it first."
+  },
+  {
+    "id": "cursed_magic_8_ball",
+    "name": "Cursed Magic 8-Ball",
+    "slot": "weapon",
+    "rarity": "epic",
+    "intended_level": 30,
+    "base_value": 3000,
+    "effects": [
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 22
+      },
+      {
+        "type": "speed_buff",
+        "trigger": "constant",
+        "value": 4
+      },
+      {
+        "type": "dot",
+        "trigger": "on_hit",
+        "chance": 0.2,
+        "duration": 2,
+        "value": 5
+      }
+    ],
+    "flavor": "Ask again later. Your opponent won't get to, but they'll keep feeling the answer."
+  },
+  {
+    "id": "the_last_birthday_candle",
+    "name": "The Last Birthday Candle",
+    "slot": "weapon",
+    "rarity": "legendary",
+    "intended_level": 36,
+    "base_value": 5200,
+    "effects": [
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 44
+      },
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 10
+      },
+      {
+        "type": "extra_attack",
+        "trigger": "on_hit",
+        "chance": 0.18,
+        "multiplier": 0.7
+      }
+    ],
+    "flavor": "Thirty years lit and never blown out. Make a wish. Sometimes it grants two."
+  },
+  {
+    "id": "da_big_cheeze_hide",
+    "name": "Da Big Cheeze Hide",
+    "slot": "armor",
+    "rarity": "epic",
+    "intended_level": 32,
+    "base_value": 3400,
+    "effects": [
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 24
+      },
+      {
+        "type": "def_buff",
+        "trigger": "constant",
+        "value": 18
+      },
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 8
+      },
+      {
+        "type": "lower_threat",
+        "trigger": "constant",
+        "value": 2
+      }
+    ],
+    "flavor": "Mostly plush, partly not, and still warm in a way plush shouldn't be. The cultists see the yellow fur coming and look anywhere else. You don't hit the mascot. Everybody knows that."
+  },
+  {
+    "id": "birthday_club_card",
+    "name": "The Birthday Club Card",
+    "slot": "trinket",
+    "rarity": "legendary",
+    "intended_level": 36,
+    "base_value": 5200,
+    "effects": [
+      {
+        "type": "spatk_buff",
+        "trigger": "constant",
+        "value": 30
+      },
+      {
+        "type": "hp_buff",
+        "trigger": "constant",
+        "value": 15
+      },
+      {
+        "type": "heal_fraction",
+        "trigger": "on_hit",
+        "chance": 0.2,
+        "value": 0.12
+      }
+    ],
+    "flavor": "Members eat free. Every hit stamps the card, and every stamp pays out in Nerve."
   }
 ]
