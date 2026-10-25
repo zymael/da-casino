@@ -112,7 +112,7 @@
       },
       {
         "room_id": "los_alamares",
-        "label": "\u2622\ufe0f Los Alamares"
+        "label": "\u2622\ufe0f Los Alamosey"
       }
     ],
     "commands": [
@@ -205,7 +205,7 @@
   },
   {
     "id": "los_alamares",
-    "name": "\u2622\ufe0f Los Alamares",
+    "name": "\u2622\ufe0f Los Alamosey",
     "description": "The Dubious Research Lab. Nobody here has a degree, but everybody has a clipboard. Something behind the blast door is humming.",
     "background_path": "assets/rooms/los_alamares.png",
     "exits": [

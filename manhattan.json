@@ -6,7 +6,7 @@
     "goal": 10000000,
     "fallout_hours": 72,
     "log_25": "Research Log, Day 1: We put an oat in the centrifuge. It is spinning very fast. Nobody knows why we did this.",
-    "log_50": "Research Log, Day 40: The hay has started humming. We have stopped asking it questions.",
+    "log_50": "Research Log, Day 40: The hay has started humming. We have stopped asking questions.",
     "log_75": "Research Log, Day 91: Dr. Oppenhay-mer has not slept. He keeps muttering about splitting the haystack.",
     "armed_text": "\ud83d\udd34 **Little Colt is ARMED.** It's sitting on a pallet behind the stables, ticking. Anyone with the nerve can `!launch` it.",
     "detonation_text": "A flash brighter than the Casino sign. A mushroom cloud shaped suspiciously like a horse's head. Somewhere, a foal is born glowing."
