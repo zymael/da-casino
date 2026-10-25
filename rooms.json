@@ -191,6 +191,11 @@
         "key": "raid",
         "kind": "none",
         "label": "\ud83e\udd77 Raid"
+      },
+      {
+        "key": "sentry",
+        "kind": "none",
+        "label": "\ud83d\udee1\ufe0f Sentry"
       }
     ]
   },
