@@ -85,19 +85,24 @@ def build_army_picker(owner_id: int, healthy: list[dict], on_pick) -> discord.ui
     return view
 
 
-class RaiderSelect(discord.ui.Select):
-    """Single-select of the one healthy horse sent on a !raid."""
+def _stat_line(horse: dict) -> str:
+    return f"SPD {horse['speed']:.0f} / END {horse['endurance']:.0f} / SPI {horse['spirit']:.0f}"
 
-    def __init__(self, healthy: list[dict], on_pick):
-        options = [
+
+class RaiderSelect(discord.ui.Select):
+    """Single-select of one horse: the operative sent on a !raid op, a stolen horse to rescue, or
+    a sentry to station. `extra_options` go first (e.g. !sentry's "relieve" choice, value -1)."""
+
+    def __init__(self, horses: list[dict], on_pick, placeholder: str, extra_options: list[discord.SelectOption] = ()):
+        options = list(extra_options) + [
             discord.SelectOption(
                 label=f"{h['horse_index'] + 1}. {h['name']}"[:100],
-                description=f"SPD {h['speed']:.0f}",
+                description=h.get("pick_note") or _stat_line(h),
                 value=str(h["horse_index"]),
             )
-            for h in healthy[:MAX_SELECT_OPTIONS]
+            for h in horses[:MAX_SELECT_OPTIONS - len(extra_options)]
         ]
-        super().__init__(placeholder="Choose your raider...", options=options)
+        super().__init__(placeholder=placeholder, options=options)
         self.on_pick = on_pick
 
     async def callback(self, interaction: discord.Interaction):
@@ -106,10 +111,82 @@ class RaiderSelect(discord.ui.Select):
         await self.on_pick(hub_ui.InteractionContext(interaction), int(self.values[0]))
 
 
-def build_raider_picker(owner_id: int, healthy: list[dict], on_pick) -> discord.ui.View:
+def build_raider_picker(owner_id: int, healthy: list[dict], on_pick, placeholder: str = "Choose your operative...") -> discord.ui.View:
     view = _OwnerOnlyView(owner_id, timeout=180)
-    view.add_item(RaiderSelect(healthy, on_pick))
+    view.add_item(RaiderSelect(healthy, on_pick, placeholder))
     return view
+
+
+def build_sentry_picker(owner_id: int, healthy: list[dict], has_sentry: bool, on_pick) -> discord.ui.View:
+    """on_pick gets a horse_index, or -1 for "relieve the current sentry"."""
+    extra = [discord.SelectOption(label="Relieve the sentry", emoji="🛌", value="-1")] if has_sentry else []
+    view = _OwnerOnlyView(owner_id, timeout=180)
+    view.add_item(RaiderSelect(healthy, on_pick, "Choose who stands watch...", extra))
+    return view
+
+
+class OperationSelect(discord.ui.Select):
+    """!raid's first question: which op. `on_pick` is an async (ctx, op_id) callback."""
+
+    def __init__(self, ops: list[war.Operation], on_pick):
+        options = [
+            discord.SelectOption(label=op.name, emoji=op.emoji, description=op.blurb[:100], value=op.id)
+            for op in ops
+        ]
+        super().__init__(placeholder="Choose an operation...", options=options)
+        self.on_pick = on_pick
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        self.view.stop()
+        await self.on_pick(hub_ui.InteractionContext(interaction), self.values[0])
+
+
+def build_operation_picker(owner_id: int, ops: list[war.Operation], on_pick) -> discord.ui.View:
+    view = _OwnerOnlyView(owner_id, timeout=120)
+    view.add_item(OperationSelect(ops, on_pick))
+    return view
+
+
+def build_spy_report(
+    target_name: str, horses: list[dict], injured: set[int], sentry_index: int | None,
+    clothes: dict[int, dict[str, str]], luck: int, balance: int, currency: str, heat: int,
+    facility_tier: int, fortress_off: bool, ceasefire_until: int, war_ready_at: int, character: dict | None,
+) -> discord.Embed:
+    """What a successful spy brings home. Timestamps are unix seconds (0 = not in effect)."""
+    embed = discord.Embed(
+        title=f"🕵️ Dossier: {target_name}",
+        description=f"Intel is good for {war.INTEL_SECONDS // 3600}h: march on them before it goes stale.",
+        color=discord.Color.dark_grey(),
+    )
+    lines = []
+    for h in horses[:MAX_ARMY_LINES]:
+        barding = war.barding_bonuses(clothes.get(h["horse_index"], {}))
+        icon = "🛡️" if h["horse_index"] == sentry_index else ("🤕" if h["horse_index"] in injured else "🐴")
+        line = f"{icon} **{h['name']}** SPD {h['speed']:.0f} / END {h['endurance']:.0f} / SPI {h['spirit']:.0f}"
+        if any(barding.values()):
+            line += f" (barding +{barding['speed']}/+{barding['endurance']}/+{barding['spirit']})"
+        lines.append(line)
+    if len(horses) > MAX_ARMY_LINES:
+        lines.append(f"...and {len(horses) - MAX_ARMY_LINES} more")
+    embed.add_field(
+        name=f"🐎 Stable ({len(horses)} horses, {len(injured)} injured)",
+        value=("\n".join(lines) or "Empty stalls.")[:1024], inline=False,
+    )
+    lines = [f"🍀 Luck: **{luck}**", f"💰 {currency}: **{balance}**"]
+    if character is not None:
+        lines.append(f"🎖️ General: level {character['level']} {character['main_class']}")
+    else:
+        lines.append("🎖️ General: none")
+    if facility_tier:
+        lines.append(f"🏰 Fortress: tier {facility_tier}" + (" (burned out)" if fortress_off else ""))
+    lines.append("🛡️ Sentry: on duty" if sentry_index is not None else "🛡️ Sentry: nobody on watch")
+    lines.append(f"🌡️ Heat: {heat}")
+    if ceasefire_until:
+        lines.append(f"🏳️ Ceasefire until <t:{ceasefire_until}:R>")
+    lines.append(f"⚔️ Can declare war <t:{war_ready_at}:R>" if war_ready_at else "⚔️ Ready to declare war")
+    embed.add_field(name="📋 Assessment", value="\n".join(lines), inline=False)
+    return embed
 
 
 # --- Battle report ------------------------------------------------------------------------------
@@ -135,6 +212,10 @@ def _army_lines(army: war.Army) -> str:
         )
     if army.fortress_bonus:
         perks.append(f"🏰 Fortress: +{army.fortress_bonus:.0%} HP")
+    if army.fortune_low > war.FORTUNE_LOW:
+        perks.append("🕵️ Marching on intel: the dice of war can't roll as low")
+    if army.spirit_penalty:
+        perks.append(f"🪧 Shaken by propaganda: -{army.spirit_penalty:.0f} Spirit")
     if army.on_foot:
         perks.append("No horses to ride, so they fight on foot!")
     return "\n".join(perks + lines)[:1024]

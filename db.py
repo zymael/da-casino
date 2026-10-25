@@ -1635,7 +1635,21 @@ def train_horse(
 # bespoke table -- see war.py for what each key means and how long each window lasts.
 WAR_LAST_ATTACK_FLAG = "war:last_attack"
 WAR_SHIELD_UNTIL_FLAG = "war:shield_until"
-RAID_LAST_FLAG = "raid:last"
+# !raid ops: each op's own cooldown/immunity keys live on war.Operation (last_flag/immune_flag).
+RAID_LOCKOUT_FLAG = "raid:lockout_until"  # a caught hitman: no !war and no ops until then
+WAR_SENTRY_FLAG = "war:sentry"  # horse_index + 1 of the stationed sentry, 0 = none
+WAR_FORTRESS_OFF_FLAG = "war:fortress_off_until"  # an arsonist's work
+WAR_PROPAGANDA_FLAG = "war:propaganda_until"  # consumed by this player's next war
+
+
+def spy_intel_flag(target_id: int) -> str:
+    """On the spy's own row: intel on target_id good until this unix time, consumed by a !war."""
+    return f"spy:intel:{target_id}"
+
+
+def stolen_flag(horse_index: int) -> str:
+    """On the victim's row: when horse_index was stolen from them, for !raid rescue."""
+    return f"raid:stolen:{horse_index}"
 
 
 def _flag_value(conn, guild_id: int, user_id: int, key: str) -> int:
@@ -1657,10 +1671,15 @@ def claim_war_attack(guild_id: int, attacker_id: int, target_id: int, now: int, 
     """Atomically checks and claims !war's attack window. `now`/`cooldown` are unix seconds.
     Declaring war also drops the attacker's own loser shield -- a shield is for hiding, not for
     swinging from behind. Returns (status, seconds_remaining): "ok" (0), "cooldown" (attacker's
-    own window), or "shielded" (the target's)."""
+    own window), "lockout" (attacker is lying low after a caught hitman), or "shielded" (the
+    target's)."""
     conn = _connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
+        lockout_until = _flag_value(conn, guild_id, attacker_id, RAID_LOCKOUT_FLAG)
+        if lockout_until > now:
+            conn.rollback()
+            return "lockout", lockout_until - now
         last_attack = _flag_value(conn, guild_id, attacker_id, WAR_LAST_ATTACK_FLAG)
         if last_attack and now - last_attack < cooldown:
             conn.rollback()
@@ -1714,19 +1733,94 @@ def apply_war_result(
         conn.close()
 
 
-def claim_raid(guild_id: int, user_id: int, now: int, cooldown: int) -> tuple[str, int]:
-    """Atomically checks and claims !raid's window, same shape as claim_war_attack minus the
-    target shield (shields only stop wars). Returns ("ok", 0) or ("cooldown", seconds_remaining)."""
+def claim_op(
+    guild_id: int, user_id: int, target_id: int, last_flag: str, cooldown: int, immune_flag: str | None, now: int,
+) -> tuple[str, int]:
+    """Atomically checks and claims one !raid op's window (a war.Operation's last_flag/immune_flag),
+    same shape as claim_war_attack minus the shield (shields only stop wars). Returns (status,
+    seconds_remaining): "ok" (0), "lockout" (user is lying low), "cooldown" (this op's own
+    window), or "immune" (the target was just hit by this op)."""
     conn = _connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
-        last_raid = _flag_value(conn, guild_id, user_id, RAID_LAST_FLAG)
-        if last_raid and now - last_raid < cooldown:
+        lockout_until = _flag_value(conn, guild_id, user_id, RAID_LOCKOUT_FLAG)
+        if lockout_until > now:
             conn.rollback()
-            return "cooldown", cooldown - (now - last_raid)
-        _write_flag(conn, guild_id, user_id, RAID_LAST_FLAG, now)
+            return "lockout", lockout_until - now
+        last = _flag_value(conn, guild_id, user_id, last_flag)
+        if last and now - last < cooldown:
+            conn.rollback()
+            return "cooldown", cooldown - (now - last)
+        if immune_flag is not None:
+            immune_until = _flag_value(conn, guild_id, target_id, immune_flag)
+            if immune_until > now:
+                conn.rollback()
+                return "immune", immune_until - now
+        _write_flag(conn, guild_id, user_id, last_flag, now)
         conn.commit()
         return "ok", 0
+    finally:
+        conn.close()
+
+
+def get_flags(guild_id: int, user_id: int, keys: list[str]) -> dict[str, int]:
+    """get_flag for several keys in one connection -- absent keys read as 0."""
+    conn = _connect()
+    try:
+        return {key: _flag_value(conn, guild_id, user_id, key) for key in keys}
+    finally:
+        conn.close()
+
+
+def get_stolen_horses(guild_id: int, user_id: int, since: int) -> list[dict]:
+    """Horses stolen from user_id at or after `since` (unix seconds) that someone else still owns
+    -- !raid rescue's candidates. Each is get_ranch_horses' dict plus "owner_id" and "stolen_at"."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT key, value FROM flags WHERE guild_id = ? AND user_id = ? AND key LIKE 'raid:stolen:%' AND value >= ?",
+            (guild_id, user_id, since),
+        ).fetchall()
+        stolen = []
+        for key, stolen_at in rows:
+            horse_index = int(key.rsplit(":", 1)[1])
+            row = conn.execute(
+                "SELECT owner_id, name, speed, endurance, spirit, injured_until FROM horses "
+                "WHERE guild_id = ? AND horse_index = ?",
+                (guild_id, horse_index),
+            ).fetchone()
+            if row is None or row[0] in (None, user_id):
+                continue
+            owner_id, name, speed, endurance, spirit, injured_until = row
+            stolen.append({
+                "horse_index": horse_index, "owner_id": owner_id, "name": name, "speed": speed,
+                "endurance": endurance, "spirit": spirit, "injured_until": injured_until, "stolen_at": stolen_at,
+            })
+        return sorted(stolen, key=lambda h: -h["stolen_at"])
+    finally:
+        conn.close()
+
+
+def smuggle_flakes(guild_id: int, from_user_id: int, to_user_id: int, fraction: float, cap: int) -> int:
+    """A successful !raid smuggler: moves `fraction` of from_user_id's current balance (at most
+    `cap`, never below 0) to to_user_id in one transaction. Returns the amount actually moved."""
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        _ensure_user(conn, guild_id, from_user_id)
+        _ensure_user(conn, guild_id, to_user_id)
+        balance = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, from_user_id)
+        ).fetchone()[0]
+        amount = max(0, min(cap, int(balance * fraction)))
+        conn.execute(
+            "UPDATE users SET balance = balance - ? WHERE guild_id = ? AND user_id = ?", (amount, guild_id, from_user_id),
+        )
+        conn.execute(
+            "UPDATE users SET balance = balance + ? WHERE guild_id = ? AND user_id = ?", (amount, guild_id, to_user_id),
+        )
+        conn.commit()
+        return amount
     finally:
         conn.close()
 
@@ -1761,7 +1855,8 @@ def count_owned_horses(guild_id: int, user_id: int) -> int:
 
 
 def injure_horse(guild_id: int, horse_index: int, injured_until: str):
-    """A failed !raid's casualty -- `injured_until` is an isoformat string."""
+    """A !raid casualty (a caught operative, or a hitman's mark) -- `injured_until` is an
+    isoformat string."""
     conn = _connect()
     try:
         conn.execute(

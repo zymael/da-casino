@@ -13,6 +13,11 @@ Reuses what players already own instead of inventing a new resource:
   - Horse clothes with optional war_speed/war_endurance/war_spirit fields are barding.
 
 Knocked-out horses are injured (horserace.is_injured), never stolen -- stealing is !raid's job.
+
+!raid is a menu of covert operations (OPERATIONS below), each its own stat matchup, cooldown and
+payoff. Every op's odds share one shape (op_chance): a base shifted by the operative's stat vs the
+target's guard stat, minus the operative's Heat (ops run recently) and the target's sentry. A
+sentry is one horse a player stations on watch: it guards against ops but sits out wars.
 """
 
 import copy
@@ -23,12 +28,11 @@ from datetime import datetime, timedelta
 import horse_clothes
 
 # Limits -- all stored as unix timestamps in the generic flags table (see db.claim_war_attack /
-# db.apply_war_result / db.claim_raid for the keys).
+# db.apply_war_result / db.claim_op for the keys). Each raid op's own cooldown is on OPERATIONS.
 ATTACK_COOLDOWN_SECONDS = 12 * 3600
 LOSER_SHIELD_SECONDS = 24 * 3600
-RAID_COOLDOWN_SECONDS = 7 * 24 * 3600
 WAR_INJURY_HOURS = 24
-RAID_INJURY_HOURS = 72
+RAID_INJURY_HOURS = 72  # a caught horse thief or rescuer
 
 # Spoils -- deliberately a bigger haul than !rub's RUB_LUCK_RANGE (1-5), since war is the
 # "serious" way to take luck.
@@ -62,10 +66,71 @@ GENERAL_BONUS_PER_POINT = 0.005
 GENERAL_BONUS_CAP = 0.15
 ON_FOOT_SPIRIT = 50
 
-# Raid: base chance shifted by the raider's Speed vs the target's best guard Endurance.
-RAID_BASE_CHANCE = 0.30
-RAID_STAT_SWING = 0.005
-RAID_CHANCE_MIN, RAID_CHANCE_MAX = 0.10, 0.50
+# Raid operations. Every op's chance moves OP_STAT_SWING per point of (operative stat - guard
+# stat), then loses HEAT_PENALTY per distinct op the player ran in the last HEAT_WINDOW_SECONDS
+# and SENTRY_PENALTY if the target has a sentry on duty, clamped to the op's own [min, max].
+OP_STAT_SWING = 0.005
+HEAT_WINDOW_SECONDS = 72 * 3600
+HEAT_PENALTY = 0.05
+SENTRY_PENALTY = 0.10
+# A target hit by an op with `immunity` can't be hit by that same op again, by anyone, for this long.
+OP_IMMUNITY_SECONDS = 48 * 3600
+
+HITMAN_INJURY_HOURS = 48
+HITMAN_LOCKOUT_SECONDS = 24 * 3600  # a caught hitman lies low: no !war and no ops
+SMUGGLER_INJURY_HOURS = 24
+SMUGGLE_FRACTION, SMUGGLE_CAP = 0.05, 500
+ARSON_SECONDS = 48 * 3600
+ARSON_GUARD_PER_TIER = 10  # each facility tier adds this much to the arsonist's Endurance check
+BAIL_FRACTION, BAIL_CAP = 0.05, 300
+PROPAGANDA_SECONDS = 48 * 3600
+PROPAGANDA_SPIRIT_PENALTY = 20
+INTEL_SECONDS = 24 * 3600
+INTEL_FORTUNE_LOW = 0.8  # replaces FORTUNE_LOW for an army marching on a spy's intel
+RESCUE_WINDOW_SECONDS = 7 * 24 * 3600
+
+
+@dataclass(frozen=True)
+class Operation:
+    id: str
+    name: str
+    emoji: str
+    blurb: str  # the op picker's one-line summary
+    operative: str  # "horse" or "character"
+    op_stat: str  # horse: speed/endurance/spirit; character: atk/spatk, or "power" (the better of the two)
+    guard_stat: str  # the target's guard horse stat it's checked against
+    base: float
+    min_chance: float
+    max_chance: float
+    cooldown_seconds: int
+    immunity: bool = False
+
+    @property
+    def last_flag(self) -> str:
+        # The thief keeps the original !raid's key so cooldowns running at deploy time carry over.
+        return "raid:last" if self.id == "thief" else f"raid:{self.id}:last"
+
+    @property
+    def immune_flag(self) -> str:
+        return f"ops:{self.id}:immune_until"
+
+
+OPERATIONS: dict[str, Operation] = {op.id: op for op in (
+    Operation("spy", "Spy", "🕵️", "Case their stable. Speed vs Spirit.",
+              "horse", "speed", "spirit", 0.60, 0.30, 0.85, 12 * 3600),
+    Operation("thief", "Horse Thief", "🥷", "Steal a horse. Speed vs Endurance.",
+              "horse", "speed", "endurance", 0.30, 0.10, 0.50, 7 * 24 * 3600, immunity=True),
+    Operation("hitman", "Hitman", "🔪", "Your character injures one of their horses. ATK/Magic vs Endurance.",
+              "character", "power", "endurance", 0.35, 0.15, 0.60, 3 * 24 * 3600, immunity=True),
+    Operation("smuggler", "Smuggler", "💰", "Lift some of their flakes. Speed vs Spirit.",
+              "horse", "speed", "spirit", 0.40, 0.15, 0.65, 2 * 24 * 3600, immunity=True),
+    Operation("arsonist", "Arsonist", "🔥", "Your character torches their fortress. ATK vs Endurance + facility.",
+              "character", "atk", "endurance", 0.30, 0.10, 0.55, 5 * 24 * 3600, immunity=True),
+    Operation("propaganda", "Propaganda", "🪧", "Your character sours their army's Spirit. Magic vs Spirit.",
+              "character", "spatk", "spirit", 0.40, 0.15, 0.65, 2 * 24 * 3600),
+    Operation("rescue", "Rescue", "🛟", "Take back a horse stolen from you this week. Speed vs Endurance.",
+              "horse", "speed", "endurance", 0.50, 0.25, 0.80, 0),
+)}
 
 ATTACKER, DEFENDER = "attacker", "defender"
 WAR_STATS = ("speed", "endurance", "spirit")
@@ -96,6 +161,8 @@ class Army:
     general_hp_bonus: float = 0.0
     fortress_bonus: float = 0.0
     fortune: float = 1.0  # rolled once per battle by simulate_battle
+    fortune_low: float = FORTUNE_LOW  # raised to INTEL_FORTUNE_LOW by a spy's intel
+    spirit_penalty: float = 0.0  # PROPAGANDA_SPIRIT_PENALTY while a propaganda op is live
 
     @property
     def living(self) -> list[Unit]:
@@ -179,11 +246,11 @@ def general_bonuses(effective: dict | None) -> tuple[float, float]:
 
 def build_army(
     horses: list[tuple[int, dict]], clothes: dict[int, dict[str, str]], character_name: str | None,
-    effective: dict | None, fortress_tier: int = 0,
+    effective: dict | None, fortress_tier: int = 0, intel: bool = False, propaganda: bool = False,
 ) -> Army | None:
     """horses: (horse_index, horse dict) for every healthy horse fighting. With none, the character
     fights on foot; with no character either, there's no army (None). fortress_tier is only ever
-    non-zero for the defender."""
+    non-zero for the defender. intel/propaganda are the two !raid ops that carry into a war."""
     fortress = fortress_tier * FORTRESS_HP_BONUS_PER_TIER
     if horses:
         charge_bonus, hp_bonus = general_bonuses(effective)
@@ -195,11 +262,16 @@ def build_army(
         on_foot = True
     else:
         return None
+    spirit_penalty = PROPAGANDA_SPIRIT_PENALTY if propaganda else 0.0
     for unit in units:
         unit.charge *= 1 + charge_bonus
         unit.max_hp *= 1 + hp_bonus + fortress
         unit.hp = unit.max_hp
-    return Army(units, on_foot, charge_bonus, hp_bonus, fortress)
+        unit.spirit = max(0.0, unit.spirit - spirit_penalty)
+    return Army(
+        units, on_foot, charge_bonus, hp_bonus, fortress,
+        fortune_low=INTEL_FORTUNE_LOW if intel else FORTUNE_LOW, spirit_penalty=spirit_penalty,
+    )
 
 
 def _average_charge(army: Army) -> float:
@@ -235,7 +307,7 @@ def simulate_battle(attacker: Army, defender: Army) -> BattleResult:
     its own HP wins, ties to the defender (holding the field is a win)."""
     armies = {ATTACKER: attacker, DEFENDER: defender}
     for army in armies.values():
-        army.fortune = random.uniform(FORTUNE_LOW, FORTUNE_HIGH)
+        army.fortune = random.uniform(army.fortune_low, FORTUNE_HIGH)
         for unit in army.units:
             unit.charge *= army.fortune
     rounds = []
@@ -269,15 +341,49 @@ def injured_until(hours: int) -> str:
     return (datetime.now() + timedelta(hours=hours)).isoformat()
 
 
-def best_guard_endurance(horses: list[tuple[int, dict]], clothes: dict[int, dict[str, str]]) -> float:
-    """The target's single toughest healthy horse (barding included) -- 0 with nobody on guard."""
-    return max(
-        (h["endurance"] + barding_bonuses(clothes.get(i, {}))["endurance"] for i, h in horses),
-        default=0.0,
-    )
+def horse_stat(horse: dict, worn: dict[str, str], stat: str) -> float:
+    """A horse's speed/endurance/spirit with its barding added."""
+    return horse[stat] + barding_bonuses(worn)[stat]
 
 
-def raid_chance(raider: dict, raider_worn: dict[str, str], guard_endurance: float) -> float:
-    speed = raider["speed"] + barding_bonuses(raider_worn)["speed"]
-    chance = RAID_BASE_CHANCE + (speed - guard_endurance) * RAID_STAT_SWING
-    return max(RAID_CHANCE_MIN, min(RAID_CHANCE_MAX, chance))
+def character_stat(effective: dict, stat: str) -> float:
+    """An op's character stat off dungeon.compute_effective_stats' output. "power" is the better
+    of ATK and Magic, same as general_bonuses' charge."""
+    return max(effective["atk"], effective["spatk"]) if stat == "power" else effective[stat]
+
+
+def guard_stat(
+    op: Operation, sentry: tuple[int, dict] | None, guards: list[tuple[int, dict]],
+    clothes: dict[int, dict[str, str]], facility_tier: int = 0,
+) -> float:
+    """What `op` is checked against: the sentry's stat if one is on duty, otherwise the target's
+    single best healthy horse at that stat (0 with nobody home). An arsonist also has to get past
+    the facility itself."""
+    if sentry is not None:
+        best = horse_stat(sentry[1], clothes.get(sentry[0], {}), op.guard_stat)
+    else:
+        best = max((horse_stat(h, clothes.get(i, {}), op.guard_stat) for i, h in guards), default=0.0)
+    if op.id == "arsonist":
+        best += facility_tier * ARSON_GUARD_PER_TIER
+    return best
+
+
+def heat(last_used: dict[str, int], now: int) -> int:
+    """How many distinct ops this player ran in the last HEAT_WINDOW_SECONDS. last_used maps each
+    op (by id or by last_flag, either works) to its last-run unix time (0 = never)."""
+    return sum(1 for t in last_used.values() if t and now - t < HEAT_WINDOW_SECONDS)
+
+
+def op_chance(op: Operation, operative_stat: float, guard: float, heat_level: int, sentry_on_duty: bool) -> float:
+    chance = op.base + (operative_stat - guard) * OP_STAT_SWING - heat_level * HEAT_PENALTY
+    if sentry_on_duty:
+        chance -= SENTRY_PENALTY
+    return max(op.min_chance, min(op.max_chance, chance))
+
+
+def smuggle_amount(balance: int) -> int:
+    return max(0, min(SMUGGLE_CAP, int(balance * SMUGGLE_FRACTION)))
+
+
+def bail_amount(balance: int) -> int:
+    return max(0, min(BAIL_CAP, int(balance * BAIL_FRACTION)))

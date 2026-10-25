@@ -139,7 +139,7 @@ HELP_CATEGORIES = [
     ("💰 Economy", ["balance", "stats", "rest", "mine", "tip", "transfer", "pizza", "leaderboard"]),
     ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
     ("🐎 Horse Racing", ["horserace", "horses", "stable", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost", "horseequip", "givehorse"]),
-    ("⚔️ War", ["war", "raid", "pvp"]),
+    ("⚔️ War", ["war", "raid", "sentry", "pvp"]),
     ("🗡️ Dungeon", ["class", "combathelp", "delve", "inventory", "equipment", "craft", "smash", "journal"]),
     ("🏆 Achievements", ["achievements"]),
     ("⚙️ Utility", ["ping", "setcasino", "setcurrency", "setdelvetest", "rub", "roy", "deletebot"]),
@@ -1868,9 +1868,19 @@ async def _give_horse(ctx, member: discord.Member, horse_index: int):
     await ctx.send(f"🐴 {ctx.author.display_name} gave **{horse['name']}** to {member.mention}!")
 
 
-async def _healthy_horses(guild_id: int, user_id: int) -> list[dict]:
+async def _stable_state(guild_id: int, user_id: int) -> tuple[list[dict], list[dict], dict | None]:
+    """(owned, available, sentry) for !war/!raid: every horse this player owns, the healthy ones
+    free to fight or run a job, and the sentry on duty (healthy, still theirs) or None. A sentry
+    is never in `available` -- it holds its post instead."""
     owned = await asyncio.to_thread(db.get_ranch_horses, guild_id, user_id)
-    return [h for h in owned if not horserace.is_injured(h)]
+    sentry_flag = await asyncio.to_thread(db.get_flag, guild_id, user_id, db.WAR_SENTRY_FLAG)
+    healthy = [h for h in owned if not horserace.is_injured(h)]
+    sentry = next((h for h in healthy if h["horse_index"] == sentry_flag - 1), None)
+    return owned, [h for h in healthy if h is not sentry], sentry
+
+
+async def _available_horses(guild_id: int, user_id: int) -> list[dict]:
+    return (await _stable_state(guild_id, user_id))[1]
 
 
 async def _war_general(guild_id: int, user_id: int) -> dict | None:
@@ -1908,6 +1918,10 @@ async def _war_choose_army(ctx, member: discord.Member):
         await ctx.send("Bots don't have any Luck to take.")
         return
     now = int(time.time())
+    lockout_until = await asyncio.to_thread(db.get_flag, guild_id, attacker_id, db.RAID_LOCKOUT_FLAG)
+    if lockout_until > now:
+        await ctx.send(_LYING_LOW.format(when=_in_seconds(lockout_until - now)))
+        return
     last_attack = await asyncio.to_thread(db.get_flag, guild_id, attacker_id, db.WAR_LAST_ATTACK_FLAG)
     if last_attack and now - last_attack < war.ATTACK_COOLDOWN_SECONDS:
         await ctx.send(
@@ -1919,11 +1933,11 @@ async def _war_choose_army(ctx, member: discord.Member):
     if shield_until > now:
         await ctx.send(f"🏳️ {member.display_name} is under a ceasefire. It lifts {_in_seconds(shield_until - now)}.")
         return
-    if not await _healthy_horses(guild_id, member.id) and await _war_general(guild_id, member.id) is None:
+    if not await _available_horses(guild_id, member.id) and await _war_general(guild_id, member.id) is None:
         await ctx.send(f"{member.display_name} has no army to fight: no healthy horses and no class character.")
         return
 
-    healthy = await _healthy_horses(guild_id, attacker_id)
+    healthy = await _available_horses(guild_id, attacker_id)
     if healthy:
         async def on_pick(pick_ctx, horse_indices):
             await _war_resolve(pick_ctx, member, horse_indices)
@@ -1941,25 +1955,36 @@ async def _war_resolve(ctx, member: discord.Member, horse_indices: list[int]):
     """Builds both armies, claims the attack window, fights, settles spoils/injuries/ceasefire in
     one transaction, then replays the battle round by round."""
     guild_id, attacker_id = ctx.guild.id, ctx.author.id
-    healthy = {h["horse_index"]: h for h in await _healthy_horses(guild_id, attacker_id)}
+    healthy = {h["horse_index"]: h for h in await _available_horses(guild_id, attacker_id)}
     if any(i not in healthy for i in horse_indices):
         await ctx.send("Some of those horses aren't yours or aren't fit to fight anymore. Try `!war` again.")
         return
     if len(horse_indices) > war.MAX_ARMY_SIZE:
         await ctx.send(f"You can only send up to {war.MAX_ARMY_SIZE} horses to one war.")
         return
-    defender_healthy = await _healthy_horses(guild_id, member.id)
+    defender_healthy = await _available_horses(guild_id, member.id)
     if len(defender_healthy) > war.MAX_ARMY_SIZE:
         defender_healthy = random.sample(defender_healthy, war.MAX_ARMY_SIZE)
     clothes = await asyncio.to_thread(db.get_guild_horse_clothes, guild_id)
-    fortress_tier = await asyncio.to_thread(db.get_facility_tier, guild_id, member.id)
+    now = int(time.time())
+    intel_key = db.spy_intel_flag(member.id)
+    attacker_flags = await asyncio.to_thread(db.get_flags, guild_id, attacker_id, [intel_key, db.WAR_PROPAGANDA_FLAG])
+    defender_flags = await asyncio.to_thread(
+        db.get_flags, guild_id, member.id, [db.WAR_FORTRESS_OFF_FLAG, db.WAR_PROPAGANDA_FLAG],
+    )
+    intel = attacker_flags[intel_key] > now
+    attacker_propaganda = attacker_flags[db.WAR_PROPAGANDA_FLAG] > now
+    defender_propaganda = defender_flags[db.WAR_PROPAGANDA_FLAG] > now
+    fortress_tier = 0 if defender_flags[db.WAR_FORTRESS_OFF_FLAG] > now else (
+        await asyncio.to_thread(db.get_facility_tier, guild_id, member.id)
+    )
     attacker_army = war.build_army(
         [(i, healthy[i]) for i in horse_indices], clothes, ctx.author.display_name,
-        await _war_general(guild_id, attacker_id),
+        await _war_general(guild_id, attacker_id), intel=intel, propaganda=attacker_propaganda,
     )
     defender_army = war.build_army(
         [(h["horse_index"], h) for h in defender_healthy], clothes, member.display_name,
-        await _war_general(guild_id, member.id), fortress_tier,
+        await _war_general(guild_id, member.id), fortress_tier, propaganda=defender_propaganda,
     )
     if attacker_army is None:
         await ctx.send("You have no army: no healthy horses and no class character. Try `!buyfoal` or `!class`.")
@@ -1977,6 +2002,16 @@ async def _war_resolve(ctx, member: discord.Member, horse_indices: list[int]):
     if status == "shielded":
         await ctx.send(f"🏳️ {member.display_name} is under a ceasefire. It lifts {_in_seconds(remaining)}.")
         return
+    if status == "lockout":
+        await ctx.send(_LYING_LOW.format(when=_in_seconds(remaining)))
+        return
+    # Intel and propaganda are spent by the war they show up in (an arson just runs out on its own).
+    if intel:
+        await asyncio.to_thread(db.set_flag, guild_id, attacker_id, intel_key, 0)
+    if attacker_propaganda:
+        await asyncio.to_thread(db.set_flag, guild_id, attacker_id, db.WAR_PROPAGANDA_FLAG, 0)
+    if defender_propaganda:
+        await asyncio.to_thread(db.set_flag, guild_id, member.id, db.WAR_PROPAGANDA_FLAG, 0)
 
     result = war.simulate_battle(attacker_army, defender_army)
     attacker_won = result.winner == war.ATTACKER
@@ -2005,97 +2040,442 @@ async def _war_resolve(ctx, member: discord.Member, horse_indices: list[int]):
         await achievements.try_award_many(ctx.send, guild_id, loser.id, loser.display_name, ["war_total_loss"])
 
 
+_LYING_LOW = "🔪 You're lying low after that botched job. You can show your face again {when}."
+
+
 @bot.command(name="raid")
 async def raid_cmd(ctx, member: discord.Member = None):
-    """Send one of your horses to steal a horse from another player (once every 7 days): !raid
-    @user, or plain !raid to pick a target. Your raider's Speed vs their toughest guard's
-    Endurance sets the odds. Get caught and your raider comes home injured for 3 days."""
-    if member is None:
-        view = war_view.build_target_picker(ctx.author.id, _raid_choose_raider, "Choose whose stable to raid...")
-        await ctx.send("Whose stable are we hitting tonight?", view=view)
-        return
-    await _raid_choose_raider(ctx, member)
+    """Run a covert job on another player's stable: !raid, or !raid @user. Spy, steal a horse,
+    hire a hitman, smuggle flakes, torch a fortress, spread propaganda, or rescue a stolen horse.
+    Each job has its own cooldown and odds, and running several in a few days turns up the heat."""
+    await _raid_choose_op(ctx, member)
 
 
-async def _raid_choose_raider(ctx, member: discord.Member):
-    guild_id, raider_id = ctx.guild.id, ctx.author.id
-    if member.id == raider_id:
-        await ctx.send("You can't raid your own stable.")
-        return
+def _raid_target_problem(ctx, member: discord.Member) -> str | None:
+    if member.id == ctx.author.id:
+        return "You can't run a job on your own stable."
     if member.bot:
-        await ctx.send("Bots don't keep horses.")
+        return "Bots don't keep stables."
+    return None
+
+
+async def _heat(guild_id: int, user_id: int, now: int) -> int:
+    last_used = await asyncio.to_thread(
+        db.get_flags, guild_id, user_id, [op.last_flag for op in war.OPERATIONS.values()],
+    )
+    return war.heat(last_used, now)
+
+
+async def _raid_choose_op(ctx, member: discord.Member | None):
+    """!raid's first step: which job. Only ops off cooldown are offered (Rescue only while someone
+    holds a horse stolen from you); the rest are listed with when they're back."""
+    guild_id, user_id = ctx.guild.id, ctx.author.id
+    if member is not None and (problem := _raid_target_problem(ctx, member)):
+        await ctx.send(problem)
         return
     now = int(time.time())
-    last_raid = await asyncio.to_thread(db.get_flag, guild_id, raider_id, db.RAID_LAST_FLAG)
-    if last_raid and now - last_raid < war.RAID_COOLDOWN_SECONDS:
-        await ctx.send(
-            f"⏳ The heat's still on from your last raid. You can raid again "
-            f"{_in_seconds(war.RAID_COOLDOWN_SECONDS - (now - last_raid))}."
-        )
+    flags = await asyncio.to_thread(
+        db.get_flags, guild_id, user_id, [db.RAID_LOCKOUT_FLAG] + [op.last_flag for op in war.OPERATIONS.values()],
+    )
+    if flags[db.RAID_LOCKOUT_FLAG] > now:
+        await ctx.send(_LYING_LOW.format(when=_in_seconds(flags[db.RAID_LOCKOUT_FLAG] - now)))
         return
-    if not await asyncio.to_thread(db.get_ranch_horses, guild_id, member.id):
-        await ctx.send(f"{member.display_name} doesn't own any horses to steal.")
-        return
-    if await asyncio.to_thread(db.count_owned_horses, guild_id, raider_id) >= horserace.MAX_HORSES_PER_PLAYER:
-        await ctx.send(f"Your stable is full: you already own {horserace.MAX_HORSES_PER_PLAYER} horses. No room for stolen goods.")
-        return
-    healthy = await _healthy_horses(guild_id, raider_id)
-    if not healthy:
-        await ctx.send("You need a healthy horse to send on a raid.")
+    stolen = await asyncio.to_thread(db.get_stolen_horses, guild_id, user_id, now - war.RESCUE_WINDOW_SECONDS)
+    ready, waiting = [], []
+    for op in war.OPERATIONS.values():
+        if op.id == "rescue":
+            if any(member is None or h["owner_id"] == member.id for h in stolen):
+                ready.append(op)
+            continue
+        last = flags[op.last_flag]
+        if last and now - last < op.cooldown_seconds:
+            waiting.append(f"{op.emoji} {op.name}: back {_in_seconds(op.cooldown_seconds - (now - last))}")
+        else:
+            ready.append(op)
+    if not ready:
+        await ctx.send("⏳ Every crew you know is laying low right now.\n" + "\n".join(waiting))
         return
 
-    async def on_pick(pick_ctx, raider_index):
-        await _raid_resolve(pick_ctx, member, raider_index)
+    async def on_pick(pick_ctx, op_id):
+        await _raid_choose_target(pick_ctx, war.OPERATIONS[op_id], member)
 
-    view = war_view.build_raider_picker(raider_id, healthy, on_pick)
-    await ctx.send(f"Who sneaks into {member.display_name}'s stable?", view=view)
+    heat_level = war.heat({op.id: flags[op.last_flag] for op in war.OPERATIONS.values()}, now)
+    lines = ["What's the job?"]
+    if heat_level:
+        lines.append(f"🌡️ Heat: {heat_level}. The law's watching you: every job is {heat_level * war.HEAT_PENALTY:.0%} harder.")
+    lines += waiting
+    await ctx.send("\n".join(lines), view=war_view.build_operation_picker(user_id, ready, on_pick))
 
 
-async def _raid_resolve(ctx, member: discord.Member, raider_index: int):
-    guild_id, raider_id = ctx.guild.id, ctx.author.id
-    healthy = {h["horse_index"]: h for h in await _healthy_horses(guild_id, raider_id)}
-    raider = healthy.get(raider_index)
-    if raider is None:
-        await ctx.send("That horse isn't yours or isn't fit to ride anymore. Try `!raid` again.")
+async def _raid_choose_target(ctx, op: war.Operation, member: discord.Member | None):
+    if op.id == "rescue":
+        await _rescue_choose_horse(ctx, member)
         return
-    target_owned = await asyncio.to_thread(db.get_ranch_horses, guild_id, member.id)
-    if not target_owned:
-        await ctx.send(f"{member.display_name} doesn't own any horses to steal.")
+    if member is not None:
+        await _raid_check_target(ctx, op, member)
+        return
+
+    async def on_pick(pick_ctx, picked):
+        await _raid_check_target(pick_ctx, op, picked)
+
+    view = war_view.build_target_picker(ctx.author.id, on_pick, "Choose your mark...")
+    await ctx.send(f"{op.emoji} **{op.name}**: whose stable are we hitting tonight?", view=view)
+
+
+async def _rescue_choose_horse(ctx, member: discord.Member | None):
+    guild_id, user_id = ctx.guild.id, ctx.author.id
+    stolen = await asyncio.to_thread(
+        db.get_stolen_horses, guild_id, user_id, int(time.time()) - war.RESCUE_WINDOW_SECONDS,
+    )
+    if member is not None:
+        stolen = [h for h in stolen if h["owner_id"] == member.id]
+    holders = {h["owner_id"]: ctx.guild.get_member(h["owner_id"]) for h in stolen}
+    stolen = [h for h in stolen if holders[h["owner_id"]] is not None]
+    if not stolen:
+        await ctx.send("Nobody around here is holding a horse stolen from you this week.")
+        return
+
+    async def on_pick(pick_ctx, horse_index):
+        horse = next((h for h in stolen if h["horse_index"] == horse_index), None)
+        if horse is None:
+            await pick_ctx.send("That horse isn't one of yours to rescue. Try `!raid` again.")
+            return
+        await _raid_check_target(pick_ctx, war.OPERATIONS["rescue"], holders[horse["owner_id"]], horse_index)
+
+    if len(stolen) == 1:
+        await on_pick(ctx, stolen[0]["horse_index"])
+        return
+    for h in stolen:
+        h["pick_note"] = f"Held by {holders[h['owner_id']].display_name}"
+    view = war_view.build_raider_picker(user_id, stolen, on_pick, "Choose who to bring home...")
+    await ctx.send("🛟 Which horse are we bringing home?", view=view)
+
+
+async def _op_blocker(
+    guild_id: int, user_id: int, op: war.Operation, member: discord.Member, rescue_index: int | None,
+) -> str | None:
+    """Why `op` can't run against `member` right now, or None. Checked before the operative picker
+    and again right before anything is spent, since the target's stable can change in between."""
+    if op.operative == "character" and await _war_general(guild_id, user_id) is None:
+        return "This job needs your class character. Pick one with `!class`."
+    owned, available, sentry = await _stable_state(guild_id, member.id)
+    name = member.display_name
+    if op.id in ("thief", "rescue") and (
+        await asyncio.to_thread(db.count_owned_horses, guild_id, user_id) >= horserace.MAX_HORSES_PER_PLAYER
+    ):
+        return f"Your stable is full: you already own {horserace.MAX_HORSES_PER_PLAYER} horses. No room for stolen goods."
+    if op.id == "thief" and not [h for h in owned if h is not sentry]:
+        return f"{name} doesn't have a horse you can get at." if owned else f"{name} doesn't own any horses to steal."
+    if op.id == "hitman" and not available and sentry is None:
+        return f"{name} has no healthy horses to hit."
+    if op.id == "smuggler" and war.smuggle_amount(await asyncio.to_thread(db.get_balance, guild_id, member.id)) <= 0:
+        return f"{name}'s cashbox is empty. Nothing worth lifting."
+    if op.id == "arsonist":
+        if await asyncio.to_thread(db.get_facility_tier, guild_id, member.id) == 0:
+            return f"{name} doesn't have a fortress to burn. Nothing but an open field."
+        if await asyncio.to_thread(db.get_flag, guild_id, member.id, db.WAR_FORTRESS_OFF_FLAG) > int(time.time()):
+            return f"{name}'s fortress is still smoldering from the last fire."
+    if op.id == "rescue":
+        stolen_at = await asyncio.to_thread(db.get_flag, guild_id, user_id, db.stolen_flag(rescue_index))
+        if stolen_at < int(time.time()) - war.RESCUE_WINDOW_SECONDS:
+            return "That trail's gone cold. You only get one shot at a rescue, and only within the week."
+        if not any(h["horse_index"] == rescue_index for h in owned):
+            return f"{name} doesn't have that horse anymore."
+    return None
+
+
+async def _raid_check_target(ctx, op: war.Operation, member: discord.Member, rescue_index: int | None = None):
+    """Validates a resolved target, then asks which horse takes the job (character jobs go straight
+    to resolving)."""
+    guild_id, user_id = ctx.guild.id, ctx.author.id
+    if problem := _raid_target_problem(ctx, member):
+        await ctx.send(problem)
+        return
+    if op.immunity:
+        immune_until = await asyncio.to_thread(db.get_flag, guild_id, member.id, op.immune_flag)
+        if immune_until > int(time.time()):
+            await ctx.send(
+                f"{member.display_name} just got hit with a {op.name.lower()} job and is on high alert. "
+                f"Try again {_in_seconds(immune_until - int(time.time()))}."
+            )
+            return
+    if problem := await _op_blocker(guild_id, user_id, op, member, rescue_index):
+        await ctx.send(problem)
+        return
+    if op.operative == "character":
+        await _raid_resolve(ctx, op, member, None, rescue_index)
+        return
+    available = await _available_horses(guild_id, user_id)
+    if not available:
+        await ctx.send("You need a healthy horse off sentry duty to send on this job.")
+        return
+
+    async def on_pick(pick_ctx, horse_index):
+        await _raid_resolve(pick_ctx, op, member, horse_index, rescue_index)
+
+    view = war_view.build_raider_picker(user_id, available, on_pick)
+    await ctx.send(f"{op.emoji} Who takes the job at {member.display_name}'s stable?", view=view)
+
+
+async def _raid_resolve(
+    ctx, op: war.Operation, member: discord.Member, operative_index: int | None, rescue_index: int | None,
+):
+    """Re-checks everything, works out the odds, claims the op's window, rolls, then hands off to
+    that op's outcome in _OP_OUTCOMES."""
+    guild_id, user_id = ctx.guild.id, ctx.author.id
+    if problem := await _op_blocker(guild_id, user_id, op, member, rescue_index):
+        await ctx.send(problem)
         return
     clothes = await asyncio.to_thread(db.get_guild_horse_clothes, guild_id)
-    guards = [(h["horse_index"], h) for h in target_owned if not horserace.is_injured(h)]
-    chance = war.raid_chance(raider, clothes.get(raider_index, {}), war.best_guard_endurance(guards, clothes))
-
-    if await asyncio.to_thread(db.count_owned_horses, guild_id, raider_id) >= horserace.MAX_HORSES_PER_PLAYER:
-        await ctx.send(f"Your stable is full: you already own {horserace.MAX_HORSES_PER_PLAYER} horses. No room for stolen goods.")
-        return
-    status, remaining = await asyncio.to_thread(
-        db.claim_raid, guild_id, raider_id, int(time.time()), war.RAID_COOLDOWN_SECONDS,
-    )
-    if status == "cooldown":
-        await ctx.send(f"⏳ The heat's still on from your last raid. You can raid again {_in_seconds(remaining)}.")
-        return
-
-    if random.random() < chance:
-        prize = random.choice(target_owned)
-        status = await asyncio.to_thread(
-            db.transfer_horse, guild_id, prize["horse_index"], member.id, raider_id, horserace.MAX_HORSES_PER_PLAYER,
-        )
-        if status != "ok":
-            await ctx.send(f"🥷 {raider['name']} got in, but the stall was already empty. Rotten luck.")
+    operative = None
+    if op.operative == "horse":
+        operative = next((h for h in await _available_horses(guild_id, user_id) if h["horse_index"] == operative_index), None)
+        if operative is None:
+            await ctx.send("That horse isn't yours or isn't fit to ride anymore. Try `!raid` again.")
             return
-        await ctx.send(
-            f"{member.mention}\n🥷 Under cover of night, {ctx.author.display_name}'s **{raider['name']}** slips into "
-            f"{member.display_name}'s stable and leads **{prize['name']}** away. It's theirs now. "
-            f"(Odds were {chance:.0%}.)"
-        )
-        await achievements.try_award_many(ctx.send, guild_id, raider_id, ctx.author.display_name, ["raid_success"])
+        operative_stat = war.horse_stat(operative, clothes.get(operative_index, {}), op.op_stat)
     else:
-        await asyncio.to_thread(db.injure_horse, guild_id, raider_index, war.injured_until(war.RAID_INJURY_HOURS))
+        operative_stat = war.character_stat(await _war_general(guild_id, user_id), op.op_stat)
+    _owned, guards, sentry = await _stable_state(guild_id, member.id)
+    facility_tier = await asyncio.to_thread(db.get_facility_tier, guild_id, member.id) if op.id == "arsonist" else 0
+    guard = war.guard_stat(
+        op, (sentry["horse_index"], sentry) if sentry else None,
+        [(h["horse_index"], h) for h in guards], clothes, facility_tier,
+    )
+    now = int(time.time())
+    chance = war.op_chance(op, operative_stat, guard, await _heat(guild_id, user_id, now), sentry is not None)
+
+    status, remaining = await asyncio.to_thread(
+        db.claim_op, guild_id, user_id, member.id, op.last_flag, op.cooldown_seconds,
+        op.immune_flag if op.immunity else None, now,
+    )
+    if status == "lockout":
+        await ctx.send(_LYING_LOW.format(when=_in_seconds(remaining)))
+        return
+    if status == "cooldown":
+        await ctx.send(f"⏳ Your {op.name.lower()} crew is still laying low. Back {_in_seconds(remaining)}.")
+        return
+    if status == "immune":
+        await ctx.send(f"{member.display_name} is on high alert. Try again {_in_seconds(remaining)}.")
+        return
+    if op.id == "rescue":
+        # One shot per theft, win or lose.
+        await asyncio.to_thread(db.set_flag, guild_id, user_id, db.stolen_flag(rescue_index), 0)
+
+    success = random.random() < chance
+    if success and op.immunity:
+        await asyncio.to_thread(db.set_flag, guild_id, member.id, op.immune_flag, now + war.OP_IMMUNITY_SECONDS)
+    await _OP_OUTCOMES[op.id](ctx, member, success, f"(Odds were {chance:.0%}.)", operative, rescue_index)
+
+
+async def _spy_outcome(ctx, member, success, odds, spy, _rescue_index):
+    guild_id, user_id, name = ctx.guild.id, ctx.author.id, ctx.author.display_name
+    if not success:
+        await ctx.send(
+            f"{member.mention}\n👀 {member.display_name} spots {name}'s **{spy['name']}** lurking by the stalls "
+            f"with a notepad. The spy bolts empty-handed. {odds}"
+        )
+        return
+    now = int(time.time())
+    owned, _available, sentry = await _stable_state(guild_id, member.id)
+    flags = await asyncio.to_thread(
+        db.get_flags, guild_id, member.id,
+        [db.WAR_SHIELD_UNTIL_FLAG, db.WAR_LAST_ATTACK_FLAG, db.WAR_FORTRESS_OFF_FLAG],
+    )
+    war_ready_at = flags[db.WAR_LAST_ATTACK_FLAG] + war.ATTACK_COOLDOWN_SECONDS
+    embed = war_view.build_spy_report(
+        member.display_name, owned, {h["horse_index"] for h in owned if horserace.is_injured(h)},
+        sentry["horse_index"] if sentry else None, await asyncio.to_thread(db.get_guild_horse_clothes, guild_id),
+        await asyncio.to_thread(db.get_luck, guild_id, member.id),
+        await asyncio.to_thread(db.get_balance, guild_id, member.id), db.get_currency_name(guild_id),
+        await _heat(guild_id, member.id, now), await asyncio.to_thread(db.get_facility_tier, guild_id, member.id),
+        flags[db.WAR_FORTRESS_OFF_FLAG] > now,
+        flags[db.WAR_SHIELD_UNTIL_FLAG] if flags[db.WAR_SHIELD_UNTIL_FLAG] > now else 0,
+        war_ready_at if war_ready_at > now else 0, await asyncio.to_thread(db.get_character, guild_id, member.id),
+    )
+    await asyncio.to_thread(db.set_flag, guild_id, user_id, db.spy_intel_flag(member.id), now + war.INTEL_SECONDS)
+    try:
+        await ctx.author.send(embed=embed)
+        await ctx.send(f"🕵️ {name}'s **{spy['name']}** comes home with a fat folder. Check your DMs. {odds}")
+    except discord.HTTPException:
+        await ctx.send(f"🕵️ {name}'s **{spy['name']}** comes home with a fat folder. Your DMs are closed, so here it is. {odds}", embed=embed)
+
+
+async def _thief_outcome(ctx, member, success, odds, raider, _rescue_index):
+    guild_id, raider_id = ctx.guild.id, ctx.author.id
+    if not success:
+        await asyncio.to_thread(db.injure_horse, guild_id, raider["horse_index"], war.injured_until(war.RAID_INJURY_HOURS))
         await ctx.send(
             f"{member.mention}\n🚨 {member.display_name}'s guards catch {ctx.author.display_name}'s **{raider['name']}** "
-            f"in the act! It limps home injured for {war.RAID_INJURY_HOURS // 24} days. (Odds were {chance:.0%}.)"
+            f"in the act! It limps home injured for {war.RAID_INJURY_HOURS // 24} days. {odds}"
         )
+        return
+    owned, _available, sentry = await _stable_state(guild_id, member.id)
+    prize = random.choice([h for h in owned if h is not sentry])
+    status = await asyncio.to_thread(
+        db.transfer_horse, guild_id, prize["horse_index"], member.id, raider_id, horserace.MAX_HORSES_PER_PLAYER,
+    )
+    if status != "ok":
+        await ctx.send(f"🥷 {raider['name']} got in, but the stall was already empty. Rotten luck.")
+        return
+    await asyncio.to_thread(db.set_flag, guild_id, member.id, db.stolen_flag(prize["horse_index"]), int(time.time()))
+    await ctx.send(
+        f"{member.mention}\n🥷 Under cover of night, {ctx.author.display_name}'s **{raider['name']}** slips into "
+        f"{member.display_name}'s stable and leads **{prize['name']}** away. It's theirs now. {odds}\n"
+        f"🛟 {member.display_name} has {war.RESCUE_WINDOW_SECONDS // 86400} days to try a rescue."
+    )
+    await achievements.try_award_many(ctx.send, guild_id, raider_id, ctx.author.display_name, ["raid_success"])
+
+
+async def _hitman_outcome(ctx, member, success, odds, _operative, _rescue_index):
+    guild_id, name = ctx.guild.id, ctx.author.display_name
+    if not success:
+        await asyncio.to_thread(
+            db.set_flag, guild_id, ctx.author.id, db.RAID_LOCKOUT_FLAG, int(time.time()) + war.HITMAN_LOCKOUT_SECONDS,
+        )
+        await ctx.send(
+            f"{member.mention}\n🚨 {member.display_name}'s stable hands catch {name} creeping in with a knife. "
+            f"{name} has to lie low: no wars and no jobs for {war.HITMAN_LOCKOUT_SECONDS // 3600}h. {odds}"
+        )
+        return
+    _owned, available, sentry = await _stable_state(guild_id, member.id)
+    mark = random.choice(available + ([sentry] if sentry else []))
+    await asyncio.to_thread(db.injure_horse, guild_id, mark["horse_index"], war.injured_until(war.HITMAN_INJURY_HOURS))
+    line = (
+        f"{member.mention}\n🔪 {name}'s blade finds {member.display_name}'s **{mark['name']}** in the dark. "
+        f"It's laid up for {war.HITMAN_INJURY_HOURS}h. {odds}"
+    )
+    if mark is sentry:
+        await asyncio.to_thread(db.set_flag, guild_id, member.id, db.WAR_SENTRY_FLAG, 0)
+        line += f"\n🛡️ That was the sentry. Nobody's watching {member.display_name}'s stable now."
+    await ctx.send(line)
+
+
+async def _smuggler_outcome(ctx, member, success, odds, smuggler, _rescue_index):
+    guild_id, name = ctx.guild.id, ctx.author.display_name
+    currency = db.get_currency_name(guild_id)
+    if not success:
+        await asyncio.to_thread(db.injure_horse, guild_id, smuggler["horse_index"], war.injured_until(war.SMUGGLER_INJURY_HOURS))
+        await ctx.send(
+            f"{member.mention}\n🚨 {member.display_name} catches {name}'s **{smuggler['name']}** with its nose in the "
+            f"cashbox. It takes a kick and limps home, injured for {war.SMUGGLER_INJURY_HOURS}h. {odds}"
+        )
+        return
+    amount = await asyncio.to_thread(
+        db.smuggle_flakes, guild_id, member.id, ctx.author.id, war.SMUGGLE_FRACTION, war.SMUGGLE_CAP,
+    )
+    await ctx.send(
+        f"{member.mention}\n💰 {name}'s **{smuggler['name']}** trots out of {member.display_name}'s place with "
+        f"saddlebags full: **{amount} {currency}** lifted. {odds}"
+    )
+
+
+async def _arsonist_outcome(ctx, member, success, odds, _operative, _rescue_index):
+    guild_id, name = ctx.guild.id, ctx.author.display_name
+    if not success:
+        bail = war.bail_amount(await asyncio.to_thread(db.get_balance, guild_id, ctx.author.id))
+        if bail:
+            await asyncio.to_thread(db.update_balance, guild_id, ctx.author.id, -bail)
+            consequence = f"Bail costs **{bail} {db.get_currency_name(guild_id)}**."
+        else:
+            consequence = "They're broke, so the judge lets them off with a warning."
+        await ctx.send(
+            f"{member.mention}\n🚨 {name} gets caught with a gas can outside {member.display_name}'s fortress. "
+            f"{consequence} {odds}"
+        )
+        return
+    await asyncio.to_thread(
+        db.set_flag, guild_id, member.id, db.WAR_FORTRESS_OFF_FLAG, int(time.time()) + war.ARSON_SECONDS,
+    )
+    await ctx.send(
+        f"{member.mention}\n🔥 {name} puts a torch to {member.display_name}'s fortress. It won't hold a line "
+        f"for {war.ARSON_SECONDS // 3600}h. {odds}"
+    )
+
+
+async def _propaganda_outcome(ctx, member, success, odds, _operative, _rescue_index):
+    guild_id, name = ctx.guild.id, ctx.author.display_name
+    if not success:
+        await ctx.send(
+            f"{member.mention}\n👀 {member.display_name} catches {name} hanging posters and tears every one down. "
+            f"No harm done, but now they know who it was. {odds}"
+        )
+        return
+    await asyncio.to_thread(
+        db.set_flag, guild_id, member.id, db.WAR_PROPAGANDA_FLAG, int(time.time()) + war.PROPAGANDA_SECONDS,
+    )
+    await ctx.send(
+        f"{member.mention}\n🪧 {name} papers {member.display_name}'s stable with posters. Morale tanks: in their "
+        f"next war within {war.PROPAGANDA_SECONDS // 3600}h, every unit fights with "
+        f"-{war.PROPAGANDA_SPIRIT_PENALTY} Spirit. {odds}"
+    )
+
+
+async def _rescue_outcome(ctx, member, success, odds, rescuer, rescue_index):
+    guild_id, name = ctx.guild.id, ctx.author.display_name
+    owned = await asyncio.to_thread(db.get_ranch_horses, guild_id, member.id)
+    target = next((h for h in owned if h["horse_index"] == rescue_index), None)
+    target_name = target["name"] if target else "the horse"
+    if not success:
+        await asyncio.to_thread(db.injure_horse, guild_id, rescuer["horse_index"], war.injured_until(war.RAID_INJURY_HOURS))
+        await ctx.send(
+            f"{member.mention}\n🚨 {member.display_name}'s guards were waiting. {name}'s **{rescuer['name']}** is "
+            f"caught and limps home injured for {war.RAID_INJURY_HOURS // 24} days. **{target_name}** stays put. {odds}"
+        )
+        return
+    status = await asyncio.to_thread(
+        db.transfer_horse, guild_id, rescue_index, member.id, ctx.author.id, horserace.MAX_HORSES_PER_PLAYER,
+    )
+    if status != "ok":
+        await ctx.send(f"🛟 {rescuer['name']} got in, but **{target_name}** wasn't there anymore.")
+        return
+    await ctx.send(
+        f"{member.mention}\n🛟 {name}'s **{rescuer['name']}** breaks **{target_name}** out of "
+        f"{member.display_name}'s stable and brings it home. {odds}"
+    )
+
+
+_OP_OUTCOMES = {
+    "spy": _spy_outcome,
+    "thief": _thief_outcome,
+    "hitman": _hitman_outcome,
+    "smuggler": _smuggler_outcome,
+    "arsonist": _arsonist_outcome,
+    "propaganda": _propaganda_outcome,
+    "rescue": _rescue_outcome,
+}
+
+
+@bot.command(name="sentry")
+async def sentry_cmd(ctx):
+    """Station one of your horses on watch: !sentry. Every !raid job against you gets harder and is
+    checked against your sentry's stats, but a sentry sits out wars and raids while on post."""
+    guild_id, user_id = ctx.guild.id, ctx.author.id
+    _owned, available, sentry = await _stable_state(guild_id, user_id)
+    if not available and sentry is None:
+        await ctx.send("You need a healthy horse to stand watch.")
+        return
+    status = (
+        f"🛡️ **{sentry['name']}** is standing watch over your stable." if sentry
+        else "🛡️ Nobody's standing watch over your stable."
+    )
+
+    async def on_pick(pick_ctx, horse_index):
+        if horse_index == -1:
+            await asyncio.to_thread(db.set_flag, guild_id, user_id, db.WAR_SENTRY_FLAG, 0)
+            await pick_ctx.send(f"🛌 **{sentry['name']}** comes off watch.")
+            return
+        horse = next((h for h in await _available_horses(guild_id, user_id) if h["horse_index"] == horse_index), None)
+        if horse is None:
+            await pick_ctx.send("That horse isn't yours or isn't fit to stand watch. Try `!sentry` again.")
+            return
+        await asyncio.to_thread(db.set_flag, guild_id, user_id, db.WAR_SENTRY_FLAG, horse_index + 1)
+        await pick_ctx.send(
+            f"🛡️ **{horse['name']}** takes up the watch. Jobs on your stable just got "
+            f"{war.SENTRY_PENALTY:.0%} harder, but {horse['name']} won't ride to war while on post."
+        )
+
+    await ctx.send(status, view=war_view.build_sentry_picker(user_id, available, sentry is not None, on_pick))
 
 
 @bot.command(name="holdem", aliases=["poker"])
@@ -2444,6 +2824,7 @@ room_commands.COMMANDS.update({
     "buyfoal": buyfoal_cmd.callback,
     "war": war_cmd.callback,
     "raid": raid_cmd.callback,
+    "sentry": sentry_cmd.callback,
 })
 # Catches a typo'd rooms.json command key loudly at startup instead of a KeyError the moment some
 # player clicks the broken button -- see rooms.py's own docstring for why this can't run any
