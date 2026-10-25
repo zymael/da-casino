@@ -214,6 +214,7 @@ import dreams
 import dungeon
 import horse_clothes
 import housing
+import manhattan
 import npcs
 import quests
 import room_commands
@@ -1196,6 +1197,47 @@ CONTENT_TYPES = {
             {
                 "name": "war_spirit", "type": "int", "required": False, "group": "War (Barding)",
                 "hint": "optional -- added to the wearer's Spirit in !war only",
+            },
+        ],
+    },
+    "manhattan": {
+        "label": "Mane-hay-tan Bombs",
+        "category": RANCH_CONTENT,
+        "icon": "☢️",
+        "json_path": "manhattan.json",
+        "module": manhattan,
+        "registry_attr": "BOMBS",
+        "loader": manhattan._load_bombs,
+        "list_columns": ["id", "order", "name", "goal", "fallout_hours"],
+        "fields": [
+            {"name": "id", "type": "str", "required": True, "group": "Identity"},
+            {
+                "name": "order", "type": "int", "required": True, "min": 1, "group": "Identity",
+                "hint": "position on the bomb ladder (1 = the first bomb ever built). Past the last bomb, "
+                        "it repeats with its goal growing x1.5 each cycle",
+            },
+            {"name": "name", "type": "str", "required": True, "group": "Identity"},
+            {
+                "name": "goal", "type": "int", "required": True, "min": 1, "group": "Tuning",
+                "hint": "total gold the whole server must !donate to arm this bomb",
+            },
+            {
+                "name": "fallout_hours", "type": "int", "required": True, "min": 1, "group": "Tuning",
+                "hint": "how long Fallout lasts after this bomb is launched (stacks onto any Fallout already running)",
+            },
+            {
+                "name": "log_25", "type": "text", "required": True, "group": "Research Log",
+                "hint": "posted when a donation pushes the pot past 25% of the goal (flavor only)",
+            },
+            {"name": "log_50", "type": "text", "required": True, "group": "Research Log", "hint": "posted at 50%"},
+            {"name": "log_75", "type": "text", "required": True, "group": "Research Log", "hint": "posted at 75%"},
+            {
+                "name": "armed_text", "type": "text", "required": True, "group": "Research Log",
+                "hint": "posted when the donation that reaches the goal arms the bomb",
+            },
+            {
+                "name": "detonation_text", "type": "text", "required": True, "group": "Research Log",
+                "hint": "the !launch announcement",
             },
         ],
     },

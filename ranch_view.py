@@ -7,6 +7,7 @@ import db
 import horse_clothes
 import horserace
 import hub_ui
+import manhattan
 
 MAX_RANCH_HORSES = 10  # Discord embed field values cap at 1024 chars -- same cap style as !stats
 MAX_SELECT_OPTIONS = 25  # Discord's hard limit on a single Select's options
@@ -46,7 +47,7 @@ def build_horse_picker(owned: list[dict], on_pick, placeholder: str = "Choose a 
 STABLE_PAGE_SIZE = 10  # keeps one page well under the 4096-char embed description cap
 
 
-def _stable_entry(horse: dict, worn: dict[str, str]) -> str:
+def _stable_entry(horse: dict, worn: dict[str, str], irradiated: bool) -> str:
     """One horse's full card in !stable -- everything a player wants before racing, training, or
     sending it to war."""
     sex_symbol = horserace.SEX_SYMBOLS.get(horse["sex"], "")
@@ -70,6 +71,8 @@ def _stable_entry(horse: dict, worn: dict[str, str]) -> str:
     else:
         training = "🏋️ Train ready"
     status = [health, racing, training]
+    if irradiated:
+        status.append(f"☢️ Irradiated (stats cap {manhattan.FALLOUT_STAT_CAP})")
     if horse["pending_boost_stat"]:
         status.append(f"🧪 {horse['pending_boost_stat']} boost queued")
     if worn:
@@ -82,13 +85,17 @@ def _stable_entry(horse: dict, worn: dict[str, str]) -> str:
     )
 
 
-def build_stable_embed(owner_name: str, horses: list[dict], clothes: dict[int, dict[str, str]], page: int) -> discord.Embed:
+def build_stable_embed(
+    owner_name: str, horses: list[dict], clothes: dict[int, dict[str, str]], page: int, irradiated: set[int],
+) -> discord.Embed:
     pages = hub_ui.page_count(len(horses), STABLE_PAGE_SIZE)
     shown = horses[page * STABLE_PAGE_SIZE:(page + 1) * STABLE_PAGE_SIZE]
     healthy = sum(not horserace.is_injured(h) for h in horses)
     embed = discord.Embed(
         title=f"🐴 {owner_name}'s Stable",
-        description="\n\n".join(_stable_entry(h, clothes.get(h["horse_index"], {})) for h in shown)
+        description="\n\n".join(
+            _stable_entry(h, clothes.get(h["horse_index"], {}), h["horse_index"] in irradiated) for h in shown
+        )
         or "No horses yet. Try `!buyfoal` or `!buyhorse`.",
         color=discord.Color.dark_gold(),
     )
@@ -103,10 +110,14 @@ async def build_stable_display(guild_id: int, user_id: int, owner_name: str) -> 
     """!stable's embed (first page) plus paging buttons only when there's more than one page."""
     horses = await asyncio.to_thread(db.get_ranch_horses, guild_id, user_id)
     clothes = await asyncio.to_thread(db.get_guild_horse_clothes, guild_id)
+    irradiated_flags = await asyncio.to_thread(
+        db.get_flags, guild_id, db.GUILD_FLAG_USER, [db.irradiated_flag(h["horse_index"]) for h in horses],
+    )
+    irradiated = {h["horse_index"] for h in horses if irradiated_flags[db.irradiated_flag(h["horse_index"])]}
     pages = hub_ui.page_count(len(horses), STABLE_PAGE_SIZE)
 
     def build_page(page: int) -> discord.Embed:
-        return build_stable_embed(owner_name, horses, clothes, page)
+        return build_stable_embed(owner_name, horses, clothes, page, irradiated)
 
     return build_page(0), (hub_ui.PagedEmbedView(build_page, pages) if pages > 1 else None)
 

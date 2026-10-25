@@ -403,6 +403,14 @@ ACHIEVEMENTS = [
         "description": "You let them cook, and then you ate the chef. Da Big Cheeze Pizza Palace is off the menu.",
         "reward": 250,
     },
+    {
+        "kind": "oppenhaymer",
+        "scope": "personal",
+        "emoji": "☢️",
+        "name": "Oppenhay-mer",
+        "description": "Press the big red button on a Mane-hay-tan bomb. Now you are become Death, destroyer of stables.",
+        "reward": 250,
+    },
 ]
 
 # Maps each game bucket to its emoji/title and the db.log_bet() `game` string(s) that feed it

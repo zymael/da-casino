@@ -1509,9 +1509,11 @@ def unequip_horse_clothes(guild_id: int, user_id: int, horse_index: int, slot: s
 def buy_foal(
     guild_id: int, horse_index: int, user_id: int, name: str, price: int,
     speed: float, endurance: float, spirit: float, sex: str, coat: str, max_owned: int,
+    irradiated: bool = False,
 ) -> tuple[str, int]:
     """Creates and buys a brand-new foal in one step. Returns (status, balance): "ok", "cap" (buyer
-    already owns max_owned horses), or "broke"."""
+    already owns max_owned horses), or "broke". `irradiated` (a Fallout foal, see manhattan.py)
+    marks it with irradiated_flag in the same transaction."""
     conn = _connect()
     try:
         _ensure_user(conn, guild_id, user_id)
@@ -1535,6 +1537,8 @@ def buy_foal(
             "VALUES (?, ?, 1, ?, ?, ?, ?, ?, 0, ?, ?)",
             (guild_id, horse_index, name, user_id, speed, endurance, spirit, sex, coat),
         )
+        if irradiated:
+            _write_flag(conn, guild_id, GUILD_FLAG_USER, irradiated_flag(horse_index), 1)
         conn.commit()
         new_balance = conn.execute(
             "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
@@ -1768,6 +1772,105 @@ def get_flags(guild_id: int, user_id: int, keys: list[str]) -> dict[str, int]:
     conn = _connect()
     try:
         return {key: _flag_value(conn, guild_id, user_id, key) for key in keys}
+    finally:
+        conn.close()
+
+
+# The Mane-hay-tan Project's guild-wide state (see manhattan.py): flags under a sentinel user_id,
+# same one jackpot.py uses -- no real Discord user ever has id 0.
+GUILD_FLAG_USER = 0
+MANHATTAN_CYCLE_FLAG = "manhattan:cycle"  # which bomb is being built, 0-based
+MANHATTAN_POT_FLAG = "manhattan:pot"  # gold donated toward the current bomb
+MANHATTAN_ARMED_FLAG = "manhattan:armed"  # 1 once the pot reaches the goal, until someone !launches
+MANHATTAN_DETONATIONS_FLAG = "manhattan:detonations"  # lifetime count, for gating future content
+FALLOUT_UNTIL_FLAG = "fallout:until"  # unix seconds
+
+
+def manhattan_donated_flag(cycle: int) -> str:
+    """On the donor's own row: how much they've given toward bomb `cycle`."""
+    return f"manhattan:donated:{cycle}"
+
+
+def irradiated_flag(horse_index: int) -> str:
+    """At GUILD_FLAG_USER, keyed by horse rather than owner so it survives !givehorse and raids."""
+    return f"fallout:irradiated:{horse_index}"
+
+
+def donate_to_project(guild_id: int, user_id: int, amount: int, goal: int) -> tuple[str, int, int, int, int]:
+    """Donates up to `amount` toward the current bomb, charging only what's left before `goal`.
+    Returns (status, charged, old_pot, new_pot, balance): "ok", "armed" (the goal is reached --
+    nothing charged, someone needs to !launch), or "broke" (can't cover the charge). Reaching the
+    goal arms the bomb in the same transaction."""
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        balance = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
+        pot = _flag_value(conn, guild_id, GUILD_FLAG_USER, MANHATTAN_POT_FLAG)
+        if _flag_value(conn, guild_id, GUILD_FLAG_USER, MANHATTAN_ARMED_FLAG):
+            conn.rollback()
+            return "armed", 0, pot, pot, balance
+        charged = min(amount, goal - pot)
+        if charged <= 0:
+            # The goal was lowered through the admin panel below what's already in the pot.
+            _write_flag(conn, guild_id, GUILD_FLAG_USER, MANHATTAN_ARMED_FLAG, 1)
+            conn.commit()
+            return "armed", 0, pot, pot, balance
+        if balance < charged:
+            conn.rollback()
+            return "broke", 0, pot, pot, balance
+        cycle = _flag_value(conn, guild_id, GUILD_FLAG_USER, MANHATTAN_CYCLE_FLAG)
+        donated_key = manhattan_donated_flag(cycle)
+        conn.execute(
+            "UPDATE users SET balance = balance - ? WHERE guild_id = ? AND user_id = ?", (charged, guild_id, user_id),
+        )
+        new_pot = pot + charged
+        _write_flag(conn, guild_id, GUILD_FLAG_USER, MANHATTAN_POT_FLAG, new_pot)
+        _write_flag(conn, guild_id, user_id, donated_key, _flag_value(conn, guild_id, user_id, donated_key) + charged)
+        if new_pot >= goal:
+            _write_flag(conn, guild_id, GUILD_FLAG_USER, MANHATTAN_ARMED_FLAG, 1)
+        conn.commit()
+        return "ok", charged, pot, new_pot, balance - charged
+    finally:
+        conn.close()
+
+
+def launch_project(guild_id: int, now: int, fallout_seconds: int) -> tuple[str, int, int]:
+    """Detonates the armed bomb: disarms it, empties the pot, moves on to the next cycle, and
+    starts (or extends) Fallout. Returns (status, launched_cycle, fallout_until): "ok", or
+    "not_armed" -- including the loser of two simultaneous launches."""
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if not _flag_value(conn, guild_id, GUILD_FLAG_USER, MANHATTAN_ARMED_FLAG):
+            conn.rollback()
+            return "not_armed", 0, 0
+        cycle = _flag_value(conn, guild_id, GUILD_FLAG_USER, MANHATTAN_CYCLE_FLAG)
+        detonations = _flag_value(conn, guild_id, GUILD_FLAG_USER, MANHATTAN_DETONATIONS_FLAG)
+        fallout_until = max(now, _flag_value(conn, guild_id, GUILD_FLAG_USER, FALLOUT_UNTIL_FLAG)) + fallout_seconds
+        _write_flag(conn, guild_id, GUILD_FLAG_USER, MANHATTAN_ARMED_FLAG, 0)
+        _write_flag(conn, guild_id, GUILD_FLAG_USER, MANHATTAN_POT_FLAG, 0)
+        _write_flag(conn, guild_id, GUILD_FLAG_USER, MANHATTAN_CYCLE_FLAG, cycle + 1)
+        _write_flag(conn, guild_id, GUILD_FLAG_USER, MANHATTAN_DETONATIONS_FLAG, detonations + 1)
+        _write_flag(conn, guild_id, GUILD_FLAG_USER, FALLOUT_UNTIL_FLAG, fallout_until)
+        conn.commit()
+        return "ok", cycle, fallout_until
+    finally:
+        conn.close()
+
+
+def top_flag_holders(guild_id: int, key: str, limit: int) -> list[tuple[int, int]]:
+    """(user_id, value) for the real players with the highest positive `key` flag, highest first."""
+    conn = _connect()
+    try:
+        return conn.execute(
+            "SELECT user_id, value FROM flags WHERE guild_id = ? AND key = ? AND user_id != ? AND value > 0 "
+            "ORDER BY value DESC LIMIT ?",
+            (guild_id, key, GUILD_FLAG_USER, limit),
+        ).fetchall()
     finally:
         conn.close()
 

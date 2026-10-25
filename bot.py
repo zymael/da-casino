@@ -44,6 +44,8 @@ import hub_ui
 import inventory_view
 import jackpot
 import journal_view
+import manhattan
+import manhattan_view
 from connect4_view import (
     Connect4ChallengeView,
     build_connect4_challenge_embed,
@@ -1576,9 +1578,10 @@ async def _buy_foal(ctx, name: str):
 
     horse_index = await asyncio.to_thread(db.next_horse_index, ctx.guild.id, horserace.LEGEND_COUNT)
     sex, coat = horserace.random_sex(), horserace.random_coat()
+    irradiated = await asyncio.to_thread(manhattan.fallout_active, ctx.guild.id)
     status, balance = await asyncio.to_thread(
         db.buy_foal, ctx.guild.id, horse_index, ctx.author.id, name, horserace.FOAL_PRICE,
-        *horserace.FOAL_BASE_STATS.values(), sex, coat, horserace.MAX_HORSES_PER_PLAYER,
+        *horserace.FOAL_BASE_STATS.values(), sex, coat, horserace.MAX_HORSES_PER_PLAYER, irradiated,
     )
     if status == "cap":
         await ctx.send(f"Your stable is full: you already own {horserace.MAX_HORSES_PER_PLAYER} horses.")
@@ -1594,6 +1597,11 @@ async def _buy_foal(ctx, name: str):
         f"{currency}! Balance: **{balance}**. Train it with `!train {horse_index + 1}` every 12 hours — it needs to "
         f"reach age {horserace.MIN_RACING_AGE} before it can race."
     )
+    if irradiated:
+        await ctx.send(
+            f"☢️ **{name}** was born in the Fallout and is glowing faintly. Its stats can train all the way to "
+            f"**{manhattan.FALLOUT_STAT_CAP}** instead of {horserace.STAT_CAP}."
+        )
     await achievements.try_award_many(ctx.send, ctx.guild.id, ctx.author.id, ctx.author.display_name, ["first_horse"])
 
 
@@ -1635,10 +1643,16 @@ async def _train_horse(ctx, horse_index: int):
     housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, ctx.guild.id, ctx.author.id)
     facility_bonus = horserace.facility_bonus_for_tier(tier) + housing_bonuses.get("ranch_training_bonus", 0) / 100
     speed_gain, endurance_gain, spirit_gain = horserace.compute_training_gains(facility_bonus, pending_stat)
+    in_fallout = await asyncio.to_thread(manhattan.fallout_active, ctx.guild.id)
+    if in_fallout:
+        speed_gain, endurance_gain, spirit_gain = (
+            gain * manhattan.FALLOUT_TRAINING_MULT for gain in (speed_gain, endurance_gain, spirit_gain)
+        )
+    stat_cap = await asyncio.to_thread(manhattan.stat_cap_for, ctx.guild.id, horse_index, horserace.STAT_CAP)
 
     status, payload = await asyncio.to_thread(
         db.train_horse, ctx.guild.id, horse_index, ctx.author.id,
-        speed_gain, endurance_gain, spirit_gain, horserace.STAT_CAP,
+        speed_gain, endurance_gain, spirit_gain, stat_cap,
     )
     if status == "not_owner":
         await ctx.send("You don't own that horse — check `!horses` to see who does.")
@@ -1658,6 +1672,8 @@ async def _train_horse(ctx, horse_index: int):
         extras.append(f"+{int(facility_bonus * 100)}% from your ranch facility")
     if pending_stat:
         extras.append(f"🧪 used your queued {pending_stat} boost")
+    if in_fallout:
+        extras.append(f"☢️ +{int((manhattan.FALLOUT_TRAINING_MULT - 1) * 100)}% from the Fallout")
     if extras:
         lines.append(" — ".join(extras))
     if new_age < horserace.MIN_RACING_AGE:
@@ -1894,11 +1910,24 @@ async def _war_general(guild_id: int, user_id: int) -> dict | None:
     return dungeon.compute_effective_stats(character, equipped, housing_bonuses.get("stat_bonus", {}))
 
 
+async def _reject_if_front_closed(ctx) -> bool:
+    """!war and !raid are off during a Mane-hay-tan Fallout (see manhattan.py). Checked at each
+    command's entry and again right before it resolves, so a picker opened just before a
+    detonation can't sneak one through."""
+    until = await asyncio.to_thread(manhattan.fallout_until, ctx.guild.id)
+    if until <= time.time():
+        return False
+    await ctx.send(f"☢️ The Front is a glowing crater. Nobody's fighting on it until the Fallout clears <t:{until}:R>.")
+    return True
+
+
 @bot.command(name="war")
 async def war_cmd(ctx, member: discord.Member = None):
     """Declare war on another player for their Luck (once every 12 hours): !war @user, or plain
     !war to pick a target. You choose up to 5 healthy horses to ride out; up to 5 of theirs, picked
     at random, defend. No horses? Your class character fights on foot."""
+    if await _reject_if_front_closed(ctx):
+        return
     if member is None:
         view = war_view.build_target_picker(ctx.author.id, _war_choose_army, "Choose who to declare war on...")
         await ctx.send("Whose Luck reserves are we marching on?", view=view)
@@ -1954,6 +1983,8 @@ async def _war_choose_army(ctx, member: discord.Member):
 async def _war_resolve(ctx, member: discord.Member, horse_indices: list[int]):
     """Builds both armies, claims the attack window, fights, settles spoils/injuries/ceasefire in
     one transaction, then replays the battle round by round."""
+    if await _reject_if_front_closed(ctx):
+        return
     guild_id, attacker_id = ctx.guild.id, ctx.author.id
     healthy = {h["horse_index"]: h for h in await _available_horses(guild_id, attacker_id)}
     if any(i not in healthy for i in horse_indices):
@@ -2069,6 +2100,8 @@ async def _heat(guild_id: int, user_id: int, now: int) -> int:
 async def _raid_choose_op(ctx, member: discord.Member | None):
     """!raid's first step: which job. Only ops off cooldown are offered (Rescue only while someone
     holds a horse stolen from you); the rest are listed with when they're back."""
+    if await _reject_if_front_closed(ctx):
+        return
     guild_id, user_id = ctx.guild.id, ctx.author.id
     if member is not None and (problem := _raid_target_problem(ctx, member)):
         await ctx.send(problem)
@@ -2222,6 +2255,8 @@ async def _raid_resolve(
 ):
     """Re-checks everything, works out the odds, claims the op's window, rolls, then hands off to
     that op's outcome in _OP_OUTCOMES."""
+    if await _reject_if_front_closed(ctx):
+        return
     guild_id, user_id = ctx.guild.id, ctx.author.id
     if problem := await _op_blocker(guild_id, user_id, op, member, rescue_index):
         await ctx.send(problem)
@@ -2501,6 +2536,66 @@ async def sentry_cmd(ctx):
         )
 
     await ctx.send(status, view=war_view.build_sentry_picker(user_id, available, sentry is not None, on_pick))
+
+
+@bot.command(name="donate")
+async def donate_cmd(ctx, amount: int = None):
+    """Fund the Mane-hay-tan Project's Dubious Research: !donate <amount>. The whole server shares
+    one pot; once it reaches the goal the bomb is armed and anyone can !launch it."""
+    if amount is None or amount < 1:
+        await ctx.send("Usage: `!donate <amount>`. See `!manhattan` for how close the bomb is.")
+        return
+    if await _reject_if_at_poker_table(ctx):
+        return
+    guild_id = ctx.guild.id
+    currency = db.get_currency_name(guild_id)
+    bomb = await asyncio.to_thread(manhattan.current_bomb, guild_id)
+    status, charged, old_pot, new_pot, balance = await asyncio.to_thread(
+        db.donate_to_project, guild_id, ctx.author.id, amount, bomb["goal"],
+    )
+    if status == "armed":
+        await ctx.send(f"🔴 **{bomb['name']}** is already built. Research is done; somebody just has to `!launch` it.")
+        return
+    if status == "broke":
+        await ctx.send(f"That donation is **{min(amount, bomb['goal'] - old_pot):,}** {currency}. You only have **{balance:,}**.")
+        return
+
+    refunded = f" (only **{charged:,}** was needed to finish it)" if charged < amount else ""
+    await ctx.send(
+        f"🧪 {ctx.author.display_name} donated **{charged:,}** {currency} to Dubious Research{refunded}. "
+        f"**{bomb['name']}**: {new_pot:,} / {bomb['goal']:,}. Balance: **{balance:,}**."
+    )
+    for line in manhattan.crossed_log_lines(bomb, old_pot, new_pot):
+        await ctx.send(f"📜 *{line}*")
+    if new_pot >= bomb["goal"]:
+        await ctx.send(bomb["armed_text"])
+
+
+@bot.command(name="manhattan", aliases=["research", "manehaytan"])
+async def manhattan_cmd(ctx):
+    """See the Mane-hay-tan Project: the bomb in progress, the pot, top donors, and any Fallout."""
+    status = await asyncio.to_thread(manhattan.status, ctx.guild.id)
+
+    def name_for(user_id: int) -> str:
+        member = ctx.guild.get_member(user_id)
+        return member.display_name if member else f"<@{user_id}>"
+
+    await ctx.send(embed=manhattan_view.build_status_embed(status, db.get_currency_name(ctx.guild.id), name_for))
+
+
+@bot.command(name="launch")
+async def launch_cmd(ctx):
+    """Press the big red button: !launch. Anyone can, once the Mane-hay-tan bomb is armed."""
+    guild_id = ctx.guild.id
+    bomb = await asyncio.to_thread(manhattan.current_bomb, guild_id)
+    status, _cycle, fallout_until = await asyncio.to_thread(
+        db.launch_project, guild_id, int(time.time()), bomb["fallout_hours"] * 3600,
+    )
+    if status == "not_armed":
+        await ctx.send("You press the button. Nothing happens. The bomb isn't finished yet; see `!manhattan`.")
+        return
+    await ctx.send(embed=manhattan_view.build_detonation_embed(bomb, ctx.author.display_name, fallout_until))
+    await achievements.try_award_many(ctx.send, guild_id, ctx.author.id, ctx.author.display_name, ["oppenhaymer"])
 
 
 @bot.command(name="holdem", aliases=["poker"])
@@ -2850,6 +2945,9 @@ room_commands.COMMANDS.update({
     "war": war_cmd.callback,
     "raid": raid_cmd.callback,
     "sentry": sentry_cmd.callback,
+    "donate": donate_cmd.callback,
+    "manhattan": manhattan_cmd.callback,
+    "launch": launch_cmd.callback,
 })
 # Catches a typo'd rooms.json command key loudly at startup instead of a KeyError the moment some
 # player clicks the broken button -- see rooms.py's own docstring for why this can't run any

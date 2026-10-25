@@ -1,0 +1,50 @@
+[
+  {
+    "id": "little_colt",
+    "order": 1,
+    "name": "Little Colt",
+    "goal": 10000000,
+    "fallout_hours": 72,
+    "log_25": "Research Log, Day 1: We put an oat in the centrifuge. It is spinning very fast. Nobody knows why we did this.",
+    "log_50": "Research Log, Day 40: The hay has started humming. We have stopped asking it questions.",
+    "log_75": "Research Log, Day 91: Dr. Oppenhay-mer has not slept. He keeps muttering about splitting the haystack.",
+    "armed_text": "\ud83d\udd34 **Little Colt is ARMED.** It's sitting on a pallet behind the stables, ticking. Anyone with the nerve can `!launch` it.",
+    "detonation_text": "A flash brighter than the Casino sign. A mushroom cloud shaped suspiciously like a horse's head. Somewhere, a foal is born glowing."
+  },
+  {
+    "id": "fat_mare",
+    "order": 2,
+    "name": "Fat Mare",
+    "goal": 15000000,
+    "fallout_hours": 72,
+    "log_25": "Research Log: Little Colt was a proof of concept. Fat Mare is a statement. We have doubled the oats.",
+    "log_50": "Research Log: The geiger counter is now just making horse noises.",
+    "log_75": "Research Log: Fat Mare no longer fits through the barn door. We have removed the barn.",
+    "armed_text": "\ud83d\udd34 **Fat Mare is ARMED.** She's enormous, she's angry, and she's one `!launch` away from going off.",
+    "detonation_text": "The ground shakes for a full minute. Every horse in town whinnies at once. The Front is a glass parking lot now."
+  },
+  {
+    "id": "hay_drogen_bomb",
+    "order": 3,
+    "name": "The Hay-drogen Bomb",
+    "goal": 22500000,
+    "fallout_hours": 72,
+    "log_25": "Research Log: Fission was for amateurs. We are fusing two bales of hay together. The bales did not consent.",
+    "log_50": "Research Log: Containment has been described by legal as 'a fence'.",
+    "log_75": "Research Log: The reaction is self-sustaining. So is the smell.",
+    "armed_text": "\ud83d\udd34 **The Hay-drogen Bomb is ARMED.** This one's thermonuclear. Somebody `!launch` it before it gets ideas.",
+    "detonation_text": "A second sun rises over the Ranch and sets again, embarrassed. The fallout smells like a barn that caught fire on purpose."
+  },
+  {
+    "id": "czar_bom_bray",
+    "order": 4,
+    "name": "Czar Bom-bray",
+    "goal": 33750000,
+    "fallout_hours": 72,
+    "log_25": "Research Log: Our foreign counterparts are building something bigger. We will build something bigger than that.",
+    "log_50": "Research Log: It brays when you walk past it. We think that's normal.",
+    "log_75": "Research Log: Experts recommend we stop. The experts have been fed to the bomb.",
+    "armed_text": "\ud83d\udd34 **Czar Bom-bray is ARMED.** The biggest horse bomb ever built. Each one costs more than the last. `!launch` it.",
+    "detonation_text": "The bray is heard three servers over. When the dust settles, the research team is already asking for a bigger budget."
+  }
+]
