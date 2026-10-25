@@ -41,15 +41,36 @@ def _class_options() -> list[tuple[str, str, str]]:
     return [(cid, entry["display_name"], entry["picker_blurb"]) for cid, entry in dungeon.CLASSES.items()]
 
 
-def _subclass_options() -> list[tuple[str, str, str]]:
-    """(id, label, description) for every real subclass, read live from dungeon.SUBCLASSES on every
+def _subclass_options(main_class: str) -> list[tuple[str, str, str]]:
+    """(id, label, description) for every real subclass of `main_class`, labeled with the build's
+    own name and role line (dungeon.CLASS_BUILDS) rather than the bare suit, read live on every
     call -- same hot-reload-safety reasoning as _class_options above. Never includes
     dungeon.NO_SUBCLASS -- this backs the actual subclass-picking Select, where "none" isn't a
     choice."""
     return [
-        (sid, f"{entry['symbol']} {entry['archetype_label']}", entry["picker_blurb"])
+        (
+            sid,
+            f"{entry['symbol']} {dungeon.display_name(main_class, sid)}",
+            dungeon.CLASS_BUILDS[f"{main_class}_{sid}"]["picker_blurb"],
+        )
         for sid, entry in dungeon.SUBCLASSES.items()
     ]
+
+
+def _subclass_skill_summary(main_class: str, subclass: str) -> str:
+    """Every skill change a subclass brings over its build's whole level range, grouped by unlock
+    level -- "Upgrades at 30: Marked Card → **Stacked Deck**" / "New at 35: **Reshuffle**"."""
+    cap = dungeon.max_level(subclass)
+    upgrades: dict[int, list[str]] = {}
+    for base, upgrade in dungeon.skill_upgrades(main_class, subclass, cap):
+        upgrades.setdefault(upgrade["unlock_level"], []).append(f"{base['name']} → **{upgrade['name']}**")
+    added: dict[int, list[str]] = {}
+    for skill in dungeon.unlocked_skills(main_class, subclass, cap):
+        if skill["subclass"] != dungeon.NO_SUBCLASS and not skill.get("replaces"):
+            added.setdefault(skill["unlock_level"], []).append(f"**{skill['name']}**")
+    lines = [f"Upgrades at {lvl}: {', '.join(names)}" for lvl, names in sorted(upgrades.items())]
+    lines += [f"New at {lvl}: {', '.join(names)}" for lvl, names in sorted(added.items())]
+    return "\n".join(lines)
 
 
 class MonsterInstance:
@@ -4989,7 +5010,7 @@ class SubclassSelect(discord.ui.Select):
     def __init__(self, picker: "SubclassPickerView"):
         options = [
             discord.SelectOption(label=label, value=value, description=desc)
-            for value, label, desc in _subclass_options()
+            for value, label, desc in _subclass_options(picker.main_class)
         ]
         super().__init__(placeholder="Choose your subclass...", options=options, row=1)
         self.picker = picker
@@ -5087,10 +5108,10 @@ class ClassConfirmButton(discord.ui.Button):
 class SubclassPickerView(discord.ui.View):
     """Picks a character's subclass for the first time -- bot.py's class_cmd only offers it once
     they've reached dungeon.subclass_unlock_level() and completed dungeon.subclass_unlock_quest().
-    Picking one also lifts their level cap (dungeon.max_level(subclass)). dungeon.unlocked_skills resolves purely off the character's
-    currently-stored subclass, so confirming here fully replaces their base-class skill line with
-    the chosen subclass's own -- nothing needs to merge the two. Permanent once picked, same
-    one-shot guard shape as ClassPickerView/db.create_character (see db.choose_subclass)."""
+    Picking one also lifts their level cap (dungeon.max_level(subclass)). Base-class skills stay:
+    dungeon.unlocked_skills layers the subclass's skills on top, upgrading the ones a subclass
+    skill "replaces" -- nothing to persist beyond the stored subclass itself. Permanent once picked,
+    same one-shot guard shape as ClassPickerView/db.create_character (see db.choose_subclass)."""
 
     def __init__(self, guild_id: int, user_id: int, character: dict):
         super().__init__(timeout=120)
@@ -5112,10 +5133,18 @@ class SubclassPickerView(discord.ui.View):
     def build_embed(self) -> discord.Embed:
         embed = discord.Embed(title="🎴 Choose Your Subclass", color=discord.Color.blurple())
         embed.description = (
-            f"Level {self.level}. This choice is **permanent**: your subclass's skills replace your "
-            f"base class's, and your level cap rises to {dungeon.LEVELING['global']['subclass_max_level']}. "
-            "Pick a subclass, then confirm."
+            f"Level {self.level}. This choice is **permanent**. You keep your skills: a subclass "
+            "upgrades some of them and adds new ones as you level, and your level cap rises to "
+            f"{dungeon.LEVELING['global']['subclass_max_level']}. Pick a subclass, then confirm."
         )
+        for sid, entry in dungeon.SUBCLASSES.items():
+            build = dungeon.CLASS_BUILDS[f"{self.main_class}_{sid}"]
+            embed.add_field(
+                name=f"{entry['symbol']} {build['display_name']}",
+                value=f"**{build['picker_blurb']}**\n*{build['flavor']}*\n"
+                      f"{_subclass_skill_summary(self.main_class, sid)}",
+                inline=False,
+            )
         if self.subclass:
             mod = dungeon.SUBCLASSES[self.subclass]
             name = dungeon.display_name(self.main_class, self.subclass)
@@ -5127,8 +5156,10 @@ class SubclassPickerView(discord.ui.View):
                 "speed": self.character["speed"] + mod["speed"],
                 "chips": dungeon.compute_stats(self.main_class, self.subclass)["chips"],
             }
-            skills = dungeon.unlocked_skills(self.main_class, self.subclass, self.level)
-            skill_lines = "\n".join(f"New Skill: **{s['name']}**: {s['flavor']}" for s in skills)
+            skill_lines = "\n".join(
+                f"Upgrade: {base['name']} → **{upgrade['name']}**: {upgrade['flavor']}"
+                for base, upgrade in dungeon.skill_upgrades(self.main_class, self.subclass, self.level)
+            )
             embed.add_field(
                 name=f"Preview: {name}",
                 value=f"{_core_stat_line(stats)}\n"
@@ -5160,13 +5191,15 @@ class SubclassConfirmButton(discord.ui.Button):
             return
 
         name = dungeon.display_name(picker.main_class, picker.subclass)
-        skills = dungeon.unlocked_skills(picker.main_class, picker.subclass, picker.level)
-        skill_names = ", ".join(f"**{s['name']}**" for s in skills)
+        upgrade_lines = "\n".join(
+            f"{base['name']} → **{upgrade['name']}**"
+            for base, upgrade in dungeon.skill_upgrades(picker.main_class, picker.subclass, picker.level)
+        )
         embed = discord.Embed(
             title=f"✅ You are now a {name}!",
-            description=f"Your subclass is locked in. Your skills are now {skill_names}, replacing "
-                        f"your base class's, and you can level up to {dungeon.max_level(picker.subclass)}.\n\n"
-                        f"Use `!class` to see your updated character sheet.",
+            description=f"Your subclass is locked in. Skills upgraded:\n{upgrade_lines}\n\n"
+                        f"More skills unlock as you level, and you can now reach level "
+                        f"{dungeon.max_level(picker.subclass)}. Use `!skills` to see them all.",
             color=discord.Color.green(),
         )
         await interaction.response.edit_message(embed=embed, view=None)

@@ -22,6 +22,7 @@
       }
     ],
     "chip_cost": 10,
+    "replaces": "commanding_voice",
     "special": true
   },
   {
@@ -43,6 +44,7 @@
       }
     ],
     "chip_cost": 7,
+    "replaces": "healing_wine",
     "special": true
   },
   {
@@ -66,6 +68,7 @@
       }
     ],
     "chip_cost": 7,
+    "replaces": "healing_wine",
     "special": true
   },
   {
@@ -89,6 +92,7 @@
       }
     ],
     "chip_cost": 7,
+    "replaces": "healing_wine",
     "special": true
   },
   {
@@ -233,6 +237,7 @@
       }
     ],
     "chip_cost": 10,
+    "replaces": "fireball",
     "special": true
   },
   {
@@ -257,6 +262,7 @@
       }
     ],
     "chip_cost": 10,
+    "replaces": "fireball",
     "special": true
   },
   {
@@ -299,6 +305,7 @@
       }
     ],
     "chip_cost": 10,
+    "replaces": "fireball",
     "special": true
   },
   {
@@ -526,6 +533,7 @@
       }
     ],
     "chip_cost": 7,
+    "replaces": "marked_card",
     "special": false
   },
   {
@@ -562,6 +570,7 @@
       }
     ],
     "chip_cost": 10,
+    "replaces": "marked_card",
     "special": false
   },
   {
@@ -616,6 +625,7 @@
       }
     ],
     "chip_cost": 10,
+    "replaces": "marked_card",
     "special": false
   },
   {
@@ -649,6 +659,7 @@
       }
     ],
     "chip_cost": 10,
+    "replaces": "all_in",
     "special": false
   },
   {
@@ -932,6 +943,7 @@
       }
     ],
     "chip_cost": 9,
+    "replaces": "get_bonked",
     "special": false
   },
   {
@@ -1052,6 +1064,7 @@
       }
     ],
     "chip_cost": 10,
+    "replaces": "get_behind_me",
     "special": false
   },
   {
@@ -1118,6 +1131,7 @@
       }
     ],
     "chip_cost": 10,
+    "replaces": "get_behind_me",
     "special": false
   },
   {
@@ -1176,6 +1190,7 @@
       }
     ],
     "chip_cost": 7,
+    "replaces": "healing_wine",
     "special": true
   },
   {
@@ -1201,6 +1216,7 @@
       }
     ],
     "chip_cost": 8,
+    "replaces": "commanding_voice",
     "special": true
   },
   {
@@ -1226,6 +1242,7 @@
       }
     ],
     "chip_cost": 8,
+    "replaces": "commanding_voice",
     "special": true
   },
   {
@@ -1251,6 +1268,7 @@
       }
     ],
     "chip_cost": 8,
+    "replaces": "commanding_voice",
     "special": true
   },
   {
@@ -1274,6 +1292,7 @@
       }
     ],
     "chip_cost": 10,
+    "replaces": "fireball",
     "special": true
   },
   {
@@ -1308,6 +1327,7 @@
       }
     ],
     "chip_cost": 5,
+    "replaces": "supercharge",
     "special": true
   },
   {
@@ -1347,6 +1367,7 @@
       }
     ],
     "chip_cost": 6,
+    "replaces": "supercharge",
     "special": true
   },
   {
@@ -1394,6 +1415,7 @@
       }
     ],
     "chip_cost": 5,
+    "replaces": "supercharge",
     "special": true
   },
   {
@@ -1430,6 +1452,7 @@
       }
     ],
     "chip_cost": 6,
+    "replaces": "supercharge",
     "special": true
   },
   {
@@ -1455,6 +1478,7 @@
       }
     ],
     "chip_cost": 7,
+    "replaces": "marked_card",
     "special": false
   },
   {
@@ -1472,6 +1496,7 @@
       }
     ],
     "chip_cost": 10,
+    "replaces": "all_in",
     "special": false
   },
   {
@@ -1495,6 +1520,7 @@
       }
     ],
     "chip_cost": 10,
+    "replaces": "all_in",
     "special": false
   },
   {
@@ -1518,6 +1544,7 @@
       }
     ],
     "chip_cost": 10,
+    "replaces": "all_in",
     "special": false
   },
   {
@@ -1547,6 +1574,7 @@
       }
     ],
     "chip_cost": 10,
+    "replaces": "get_behind_me",
     "special": false
   },
   {
@@ -1576,6 +1604,7 @@
       }
     ],
     "chip_cost": 10,
+    "replaces": "get_behind_me",
     "special": false
   },
   {
@@ -1608,6 +1637,7 @@
       }
     ],
     "chip_cost": 9,
+    "replaces": "get_bonked",
     "special": false
   },
   {
@@ -1640,6 +1670,7 @@
       }
     ],
     "chip_cost": 9,
+    "replaces": "get_bonked",
     "special": false
   },
   {
@@ -1673,6 +1704,7 @@
       }
     ],
     "chip_cost": 9,
+    "replaces": "get_bonked",
     "special": false
   }
 ]

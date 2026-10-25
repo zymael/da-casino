@@ -666,7 +666,7 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "CLASS_BUILDS",
         "loader": dungeon._load_class_builds,
-        "list_columns": ["id", "main_class", "subclass", "display_name"],
+        "list_columns": ["id", "main_class", "subclass", "display_name", "picker_blurb"],
         "fields": [
             {
                 "name": "id", "type": "str", "required": True, "group": "Identity",
@@ -685,6 +685,12 @@ CONTENT_TYPES = {
                 "name": "display_name", "type": "str", "required": True, "group": "Identity",
                 "hint": "the build's own name, e.g. \"The Muscle\" for fighter+clubs",
             },
+            {
+                "name": "picker_blurb", "type": "str", "required": True, "group": "Flavor Text",
+                "hint": "short role line shown in the subclass picker and as its dropdown description "
+                        "(max 100 characters), e.g. \"Bruiser tank: takes the hits, swings back harder\"",
+            },
+            {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
         ],
     },
     "leveling": {
@@ -697,7 +703,6 @@ CONTENT_TYPES = {
         "loader": dungeon._load_leveling,
         "extra_validators": [
             lambda new_registry: quests.validate_subclass_unlock_quest(leveling=new_registry),
-            lambda new_registry: dungeon.validate_subclass_entry_skills(new_registry),
         ],
         "list_columns": ["id", "xp_per_level", "max_level", "subclass_unlock_level", "subclass_max_level"],
         "fields": [
@@ -715,8 +720,8 @@ CONTENT_TYPES = {
             },
             {
                 "name": "subclass_unlock_level", "type": "int", "required": True, "min": 1, "group": "Subclasses",
-                "hint": "level a character must reach before !class offers the subclass picker -- also the "
-                        "level each subclass's entry skill unlocks at, so moving it means re-leveling skills too",
+                "hint": "level a character must reach before !class offers the subclass picker -- subclass "
+                        "skills below this level could never be used, so keep their unlock_level at or above it",
             },
             {
                 "name": "subclass_max_level", "type": "int", "required": True, "min": 1, "group": "Subclasses",
@@ -808,6 +813,11 @@ CONTENT_TYPES = {
                 "name": "chip_cost", "type": "int", "required": True, "min": 0, "group": "Class",
                 "hint": "Chips spent to cast this skill -- must not exceed the build's max Chips "
                         "(dungeon.CLASSES/SUBCLASSES) or it would be permanently unusable",
+            },
+            {
+                "name": "replaces", "type": "str", "required": False, "group": "Class",
+                "hint": "subclass skills only, optional -- the id of a base-class skill (same class) this one "
+                        "upgrades once unlocked, e.g. \"marked_card\". Blank = added on top of the base skills",
             },
             {
                 "name": "special", "type": "bool", "required": False, "default": False, "group": "Class",

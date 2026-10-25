@@ -152,7 +152,7 @@ def subclass_entry(subclass_id: str) -> dict:
 # (dungeon_class_builds.json). Fixed roster: exactly one row per real (main_class, subclass) combo,
 # id "{main_class}_{subclass}" -- see _load_class_builds.
 _CLASS_BUILDS_PATH = os.path.join(os.path.dirname(__file__), "dungeon_class_builds.json")
-_REQUIRED_BUILD_FIELDS = {"id", "main_class", "subclass", "display_name"}
+_REQUIRED_BUILD_FIELDS = {"id", "main_class", "subclass", "display_name", "picker_blurb", "flavor"}
 
 
 def _load_class_builds(path: str = _CLASS_BUILDS_PATH) -> dict[str, dict]:
@@ -177,6 +177,9 @@ def _load_class_builds(path: str = _CLASS_BUILDS_PATH) -> dict[str, dict]:
         expected_id = f"{entry['main_class']}_{entry['subclass']}"
         if entry_id != expected_id:
             raise ValueError(f"dungeon_class_builds.json: build id {entry_id!r} must be {expected_id!r}")
+        # Doubles as the subclass picker's dropdown option description, which Discord caps at 100.
+        if not 0 < len(entry["picker_blurb"]) <= 100:
+            raise ValueError(f"dungeon_class_builds.json: build {entry_id!r} picker_blurb must be 1-100 characters")
         builds[entry_id] = entry
     required_ids = {f"{mc}_{sc}" for mc in CLASSES for sc in SUBCLASSES}
     if set(builds) != required_ids:
@@ -990,9 +993,10 @@ def subclass_unlock_quest() -> str | None:
 
 
 # --- Skills ----------------------------------------------------------------------------------
-# Each of the 16 (main_class, subclass) builds has its own skill line, loaded from
-# dungeon_skills.json so new skills are a JSON edit, not a code change -- same registry pattern
-# as MONSTERS/EQUIPMENT above. A skill unlocks automatically once the character's level (already
+# Each main class has a base skill line (subclass NO_SUBCLASS), and each of the 16 (main_class,
+# subclass) builds layers its own skills on top of it (upgrading base skills via "replaces", see
+# unlocked_skills), all loaded from dungeon_skills.json so new skills are a JSON edit, not a code
+# change -- same registry pattern as MONSTERS/EQUIPMENT above. A skill unlocks automatically once the character's level (already
 # tracked in the characters table) reaches its unlock_level; there's no player choice and nothing
 # extra to persist -- unlocked_skills below derives the answer live from level.
 #
@@ -1394,6 +1398,28 @@ def _load_skills(path: str = _SKILLS_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_skills.json: skill {entry_id!r} avoid must be one of {AVOID_TYPES}")
         _validate_effects_or_groups(entry, f"dungeon_skills.json: skill {entry_id!r}")
         skills[entry_id] = entry
+    # Optional "replaces": a subclass skill that upgrades one of its class's base skills (see
+    # unlocked_skills) -- checked once every skill is loaded, since the target can appear anywhere
+    # in the file.
+    replaced_by_build: dict[tuple[str, str], set[str]] = {}
+    for entry_id, entry in skills.items():
+        target_id = entry.get("replaces")
+        if not target_id:
+            continue
+        if entry["subclass"] == NO_SUBCLASS:
+            raise ValueError(f"dungeon_skills.json: skill {entry_id!r} is a base-class skill and can't replace anything")
+        target = skills.get(target_id)
+        if target is None or target["subclass"] != NO_SUBCLASS or target["main_class"] != entry["main_class"]:
+            raise ValueError(
+                f"dungeon_skills.json: skill {entry_id!r} replaces {target_id!r}, which isn't a "
+                f"{entry['main_class']} base-class skill"
+            )
+        already = replaced_by_build.setdefault((entry["main_class"], entry["subclass"]), set())
+        if target_id in already:
+            raise ValueError(
+                f"dungeon_skills.json: {entry['main_class']}/{entry['subclass']} replaces {target_id!r} more than once"
+            )
+        already.add(target_id)
     return skills
 
 
@@ -1404,38 +1430,35 @@ def _build_skills_by_combo(skills: dict[str, dict]) -> dict[tuple[str, str], lis
         by_combo.setdefault(combo, []).append(skill)
     for combo, combo_skills in by_combo.items():
         combo_skills.sort(key=lambda s: s["unlock_level"])
-    # Every build must have a skill at its entry level -- 1 for a base class, or
-    # subclass_unlock_level() for a subclass (the level you pick it at, since picking one replaces
-    # the base-class line wholesale) -- otherwise a character could get an empty Ability button,
-    # which is a strictly worse UX regression than anything a content typo elsewhere in this file
-    # would cause, so it's checked here rather than left to be noticed live. Zero is a hard
-    # failure (no reasonable skill to synthesize). A subclass may grant several at once (picking
-    # one at level 30 hands over its whole first tier), but a base class gets exactly one: MORE
-    # than one there (e.g. leftover template scaffolding from a Duplicate that never got
-    # re-leveled/re-subclassed before saving) degrades gracefully instead of taking the entire bot
-    # down over one bad combo in one build: keep the lowest-id skill deterministically, drop the
-    # rest from SKILLS_BY_COMBO (they're still in SKILLS/the admin panel's own list for whoever
-    # owns content to find and fix), and log it loudly so the mistake doesn't go unnoticed just
-    # because it stopped being fatal.
+    # Every base class must have exactly one level-1 skill -- otherwise a fresh character could get
+    # an empty Ability button, which is a strictly worse UX regression than anything a content typo
+    # elsewhere in this file would cause, so it's checked here rather than left to be noticed live.
+    # (Subclass builds need no such check: their skills sit on top of the base line, see
+    # unlocked_skills.) Zero is still a hard failure (no reasonable skill to synthesize, and it's a
+    # much rarer mistake to make than the other direction) -- but MORE than one (e.g. leftover
+    # template scaffolding from a Duplicate that never got re-leveled/re-subclassed before saving)
+    # degrades gracefully instead of taking the entire bot down over one bad combo in one build:
+    # keep the lowest-id skill deterministically, drop the rest from SKILLS_BY_COMBO (they're still
+    # in SKILLS/the admin panel's own list for whoever owns content to find and fix), and log it
+    # loudly so the mistake doesn't go unnoticed just because it stopped being fatal.
+    for main_class in CLASSES:
+        combo = (main_class, NO_SUBCLASS)
+        level_ones = [s for s in by_combo.get(combo, []) if s["unlock_level"] == 1]
+        if not level_ones:
+            raise ValueError(f"dungeon_skills.json: {main_class}/{NO_SUBCLASS} has no unlock_level=1 skill")
+        if len(level_ones) > 1:
+            keep = min(level_ones, key=lambda s: s["id"])
+            drop_ids = {s["id"] for s in level_ones if s is not keep}
+            print(
+                f"[dungeon] {main_class}/{NO_SUBCLASS} has {len(level_ones)} unlock_level=1 skills "
+                f"({', '.join(sorted(s['id'] for s in level_ones))}) -- keeping {keep['id']!r}, "
+                f"dropping the rest so startup doesn't fail entirely. Fix this in the admin panel.",
+                flush=True,
+            )
+            by_combo[combo] = [s for s in by_combo[combo] if s["id"] not in drop_ids]
     for main_class in CLASSES:
         for subclass in list(SUBCLASSES) + [NO_SUBCLASS]:
             combo = (main_class, subclass)
-            entry_level = _entry_skill_level(subclass)
-            entries = [s for s in by_combo.get(combo, []) if s["unlock_level"] == entry_level]
-            if not entries:
-                raise ValueError(
-                    f"dungeon_skills.json: {main_class}/{subclass} has no unlock_level={entry_level} skill"
-                )
-            if len(entries) > 1 and subclass == NO_SUBCLASS:
-                keep = min(entries, key=lambda s: s["id"])
-                drop_ids = {s["id"] for s in entries if s is not keep}
-                print(
-                    f"[dungeon] {main_class}/{subclass} has {len(entries)} unlock_level={entry_level} skills "
-                    f"({', '.join(sorted(s['id'] for s in entries))}) -- keeping {keep['id']!r}, "
-                    f"dropping the rest so startup doesn't fail entirely. Fix this in the admin panel.",
-                    flush=True,
-                )
-                by_combo[combo] = [s for s in by_combo[combo] if s["id"] not in drop_ids]
             unreachable = [s["id"] for s in by_combo.get(combo, []) if s["unlock_level"] > max_level(subclass)]
             if unreachable:
                 print(
@@ -1446,46 +1469,33 @@ def _build_skills_by_combo(skills: dict[str, dict]) -> dict[tuple[str, str], lis
     return by_combo
 
 
-def _entry_skill_level(subclass: str, leveling: dict[str, dict] | None = None) -> int:
-    """The level a build's first skill unlocks at -- see _build_skills_by_combo's comment."""
-    if subclass == NO_SUBCLASS:
-        return 1
-    return (LEVELING if leveling is None else leveling)["global"]["subclass_unlock_level"]
-
-
-def validate_subclass_entry_skills(leveling: dict[str, dict]) -> None:
-    """Save-time check for the admin panel's Leveling page: moving subclass_unlock_level away from
-    where every subclass build's entry skill actually sits would make _build_skills_by_combo refuse
-    to boot at the next restart, so it's rejected right at Save instead (same reasoning as
-    validate_class_chip_costs)."""
-    for main_class in CLASSES:
-        for subclass in SUBCLASSES:
-            entry_level = _entry_skill_level(subclass, leveling)
-            if not any(
-                s["unlock_level"] == entry_level for s in SKILLS.values()
-                if s["main_class"] == main_class and s["subclass"] == subclass
-            ):
-                raise ValueError(
-                    f"{main_class}/{subclass} has no skill at unlock_level {entry_level} -- re-level "
-                    f"its skills in dungeon_skills.json before moving subclass_unlock_level"
-                )
-
-
 SKILLS = _load_skills()
 SKILLS_BY_COMBO = _build_skills_by_combo(SKILLS)
 
 
 def unlocked_skills(main_class: str, subclass: str, level: int) -> list[dict]:
-    """All skills this build has unlocked by `level`, sorted by unlock_level ascending (so
-    index 0 is always the build's entry skill). A subclassed character below
-    subclass_unlock_level (only possible for characters from before the level gate, or one edited
-    through the admin panel's Player Debug page) falls back to the base-class line rather than
-    getting no skills at all."""
-    skills = [s for s in SKILLS_BY_COMBO[(main_class, subclass)] if s["unlock_level"] <= level]
-    if not skills and subclass != NO_SUBCLASS:
-        return unlocked_skills(main_class, NO_SUBCLASS, level)
-    return skills
+    """All skills this build has unlocked by `level`. A base class's line is sorted by unlock_level
+    ascending (index 0 is its level-1 skill). A subclass keeps that base line and builds on it:
+    an unlocked subclass skill with "replaces" takes the replaced base skill's slot (an upgrade),
+    and every other unlocked subclass skill is appended after, by unlock_level. So a subclassed
+    character below every subclass skill's unlock_level just has the base line."""
+    base = [s for s in SKILLS_BY_COMBO[(main_class, NO_SUBCLASS)] if s["unlock_level"] <= level]
+    if subclass == NO_SUBCLASS:
+        return base
+    extra = [s for s in SKILLS_BY_COMBO.get((main_class, subclass), []) if s["unlock_level"] <= level]
+    upgrades = {s["replaces"]: s for s in extra if s.get("replaces")}
+    return [upgrades.get(s["id"], s) for s in base] + [s for s in extra if not s.get("replaces")]
 
+
+def skill_upgrades(main_class: str, subclass: str, level: int) -> list[tuple[dict, dict]]:
+    """(base skill, subclass skill replacing it) pairs unlocked by `level` -- for showing a player
+    what a subclass upgrades, see dungeon_view.SubclassPickerView."""
+    upgrades = {
+        s["replaces"]: s for s in SKILLS_BY_COMBO.get((main_class, subclass), [])
+        if s.get("replaces") and s["unlock_level"] <= level
+    }
+    # In base-line order, so upgrades list the way the player's own skills already do.
+    return [(b, upgrades[b["id"]]) for b in SKILLS_BY_COMBO[(main_class, NO_SUBCLASS)] if b["id"] in upgrades]
 
 def validate_class_chip_costs(classes: dict, subclasses: dict) -> None:
     """Re-checks every already-saved skill's chip_cost against its build's max Chips, using the

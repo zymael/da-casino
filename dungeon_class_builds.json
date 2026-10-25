@@ -1,18 +1,130 @@
 [
-  {"id": "fighter_clubs", "main_class": "fighter", "subclass": "clubs", "display_name": "The Muscle"},
-  {"id": "fighter_spades", "main_class": "fighter", "subclass": "spades", "display_name": "The Shark"},
-  {"id": "fighter_hearts", "main_class": "fighter", "subclass": "hearts", "display_name": "The Minder"},
-  {"id": "fighter_diamonds", "main_class": "fighter", "subclass": "diamonds", "display_name": "The Collector"},
-  {"id": "healer_clubs", "main_class": "healer", "subclass": "clubs", "display_name": "The Cutman"},
-  {"id": "healer_spades", "main_class": "healer", "subclass": "spades", "display_name": "The Fixer"},
-  {"id": "healer_hearts", "main_class": "healer", "subclass": "hearts", "display_name": "The Chaplain"},
-  {"id": "healer_diamonds", "main_class": "healer", "subclass": "diamonds", "display_name": "The Pusher"},
-  {"id": "mage_clubs", "main_class": "mage", "subclass": "clubs", "display_name": "The Wildcard"},
-  {"id": "mage_spades", "main_class": "mage", "subclass": "spades", "display_name": "The Jinx"},
-  {"id": "mage_hearts", "main_class": "mage", "subclass": "hearts", "display_name": "The Enchanter"},
-  {"id": "mage_diamonds", "main_class": "mage", "subclass": "diamonds", "display_name": "The Mechanic"},
-  {"id": "rogue_clubs", "main_class": "rogue", "subclass": "clubs", "display_name": "The Bar Fighter"},
-  {"id": "rogue_spades", "main_class": "rogue", "subclass": "spades", "display_name": "The Hitman"},
-  {"id": "rogue_hearts", "main_class": "rogue", "subclass": "hearts", "display_name": "The Heartbreaker"},
-  {"id": "rogue_diamonds", "main_class": "rogue", "subclass": "diamonds", "display_name": "The Mastermind"}
+  {
+    "id": "fighter_clubs",
+    "main_class": "fighter",
+    "subclass": "clubs",
+    "display_name": "The Muscle",
+    "picker_blurb": "Bruiser tank: takes the hits, swings back harder",
+    "flavor": "Hired for the size, kept for the temper. The Muscle takes the first punch so they can throw the last one."
+  },
+  {
+    "id": "fighter_spades",
+    "main_class": "fighter",
+    "subclass": "spades",
+    "display_name": "The Shark",
+    "picker_blurb": "Aggressive tank: extra attacks, slows the table down",
+    "flavor": "Circles the table, waits for blood in the water, then takes three bites before you've even called."
+  },
+  {
+    "id": "fighter_hearts",
+    "main_class": "fighter",
+    "subclass": "hearts",
+    "display_name": "The Minder",
+    "picker_blurb": "Bodyguard: buffs the whole party and draws every hit",
+    "flavor": "Somebody's gotta look after the high rollers. The Minder pumps up the whole table and makes sure every punch lands on them first."
+  },
+  {
+    "id": "fighter_diamonds",
+    "main_class": "fighter",
+    "subclass": "diamonds",
+    "display_name": "The Collector",
+    "picker_blurb": "Debt-collector tank: weakens every enemy's attack, hits twice, +25% loot",
+    "flavor": "Everybody owes somebody. The Collector takes the swing out of the whole other side, then comes back for a second payment."
+  },
+  {
+    "id": "healer_clubs",
+    "main_class": "healer",
+    "subclass": "clubs",
+    "display_name": "The Cutman",
+    "picker_blurb": "Corner-man: stuns, heals, and hits back with a big ATK boost",
+    "flavor": "Patches you up between rounds, stays on their feet, and when the bell rings they throw a punch like they've been saving it."
+  },
+  {
+    "id": "healer_spades",
+    "main_class": "healer",
+    "subclass": "spades",
+    "display_name": "The Fixer",
+    "picker_blurb": "Fixer: cleanses, big party attack boosts, shreds armor",
+    "flavor": "Nothing happens on this floor without a phone call. The Fixer wipes the bad luck off your crew and juices everyone's swing."
+  },
+  {
+    "id": "healer_hearts",
+    "main_class": "healer",
+    "subclass": "hearts",
+    "display_name": "The Chaplain",
+    "picker_blurb": "Devoted healer: heals over time, shields the party, burns enemies slowly",
+    "flavor": "Blesses the whole room and keeps the healing coming long after the sermon's over. Hecklers get a slow burn."
+  },
+  {
+    "id": "healer_diamonds",
+    "main_class": "healer",
+    "subclass": "diamonds",
+    "display_name": "The Pusher",
+    "picker_blurb": "Dealer: party dodge, armor shred, lifesteal, +25% loot",
+    "flavor": "First taste is free. The Pusher keeps the crew slippery and leaves the other side paying for a bad batch."
+  },
+  {
+    "id": "mage_clubs",
+    "main_class": "mage",
+    "subclass": "clubs",
+    "display_name": "The Wildcard",
+    "picker_blurb": "Chaos caster: random, huge swings",
+    "flavor": "Every spell's a coin flip on a hot table. When it hits, it hits everything. When it doesn't... nobody saw that coming."
+  },
+  {
+    "id": "mage_spades",
+    "main_class": "mage",
+    "subclass": "spades",
+    "display_name": "The Jinx",
+    "picker_blurb": "Curse caster: area damage over time, armor shred",
+    "flavor": "They sit down and the whole table's luck goes sour. The curses stack up turn after turn until somebody's holding the dead man's hand."
+  },
+  {
+    "id": "mage_hearts",
+    "main_class": "mage",
+    "subclass": "hearts",
+    "display_name": "The Enchanter",
+    "picker_blurb": "Showman: area damage, party dodge and ATK boosts",
+    "flavor": "The whole room's watching, and they love it. Every spell plays to the crowd, and the Enchanter's friends get a little lighter on their feet."
+  },
+  {
+    "id": "mage_diamonds",
+    "main_class": "mage",
+    "subclass": "diamonds",
+    "display_name": "The Mechanic",
+    "picker_blurb": "Rigged caster: area damage, massive charge-ups, triple hits, +25% loot",
+    "flavor": "A card mechanic with a soldering iron. Charges up way past what's safe, then deals themselves three extra cards in a row."
+  },
+  {
+    "id": "rogue_clubs",
+    "main_class": "rogue",
+    "subclass": "clubs",
+    "display_name": "The Bar Fighter",
+    "picker_blurb": "Brawler: heavy single hits and stuns",
+    "flavor": "Doesn't need a con when there's a bar stool handy. Hits like a closing-time brawl and the next round's always on them."
+  },
+  {
+    "id": "rogue_spades",
+    "main_class": "rogue",
+    "subclass": "spades",
+    "display_name": "The Hitman",
+    "picker_blurb": "Assassin: extra-hit burst, stuns, party dodge and resist",
+    "flavor": "A professional. The exit's planned for the whole crew before the job starts, and the mark never sees the second shot."
+  },
+  {
+    "id": "rogue_hearts",
+    "main_class": "rogue",
+    "subclass": "hearts",
+    "display_name": "The Heartbreaker",
+    "picker_blurb": "Charmer: guarded strikes, party healing and buffs, stuns and armor shred",
+    "flavor": "Makes every mark feel like the only one in the room. While they're blushing, the crew gets dealt back in and the mark's guard comes down."
+  },
+  {
+    "id": "rogue_diamonds",
+    "main_class": "rogue",
+    "subclass": "diamonds",
+    "display_name": "The Mastermind",
+    "picker_blurb": "Gambler: executes weakened enemies, coin-flip hits, +25% loot",
+    "flavor": "Plays the long game for the biggest pot. Finishes off anyone running low and never tells you which plan was the real one."
+  }
 ]
