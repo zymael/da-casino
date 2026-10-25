@@ -48,9 +48,14 @@ def build_horse_picker(owned: list[dict], on_pick, placeholder: str = "Choose a 
 STABLE_PAGE_SIZE = 10  # keeps one page well under the 4096-char embed description cap
 
 
-def _stable_entry(horse: dict, worn: dict[str, str], irradiated: bool) -> str:
+HIDDEN_STATS = "SPD ?? / END ?? / SPI ??"
+HIDDEN_STATS_NOTE = "Stats are kept close. Send a spy for a look."
+
+
+def _stable_entry(horse: dict, worn: dict[str, str], irradiated: bool, show_stats: bool = True) -> str:
     """One horse's full card in !stable -- everything a player wants before racing, training, or
-    sending it to war."""
+    sending it to war. show_stats=False is someone else's stable without a spy's intel: the stat
+    line reads HIDDEN_STATS."""
     sex_symbol = horserace.SEX_SYMBOLS.get(horse["sex"], "")
     kind = "🐣 Foal" if horse["is_foal"] else "🏆 Legend"
     record = (
@@ -81,13 +86,15 @@ def _stable_entry(horse: dict, worn: dict[str, str], irradiated: bool) -> str:
                                         if item_id in horse_clothes.HORSE_CLOTHES))
     return (
         f"**{horse['horse_index'] + 1}. {horse['name']}** {sex_symbol} {horse['coat']} · {kind} · Age {horse['age']}\n"
-        f"SPD {horse['speed']:.0f} / END {horse['endurance']:.0f} / SPI {horse['spirit']:.0f} · {record}\n"
+        + (f"SPD {horse['speed']:.0f} / END {horse['endurance']:.0f} / SPI {horse['spirit']:.0f}" if show_stats else HIDDEN_STATS)
+        + f" · {record}\n"
         + " · ".join(status)
     )
 
 
 def build_stable_embed(
     owner_name: str, horses: list[dict], clothes: dict[int, dict[str, str]], page: int, irradiated: set[int],
+    show_stats: bool = True,
 ) -> discord.Embed:
     pages = hub_ui.page_count(len(horses), STABLE_PAGE_SIZE)
     shown = horses[page * STABLE_PAGE_SIZE:(page + 1) * STABLE_PAGE_SIZE]
@@ -95,7 +102,8 @@ def build_stable_embed(
     embed = discord.Embed(
         title=f"🐴 {owner_name}'s Stable",
         description="\n\n".join(
-            _stable_entry(h, clothes.get(h["horse_index"], {}), h["horse_index"] in irradiated) for h in shown
+            _stable_entry(h, clothes.get(h["horse_index"], {}), h["horse_index"] in irradiated, show_stats)
+            for h in shown
         )
         or "No horses yet. Try `!buyfoal` or `!buyhorse`.",
         color=discord.Color.dark_gold(),
@@ -103,11 +111,15 @@ def build_stable_embed(
     footer = f"{len(horses)}/{horserace.MAX_HORSES_PER_PLAYER} horses · {healthy} healthy"
     if pages > 1:
         footer += f" · Page {page + 1}/{pages}"
+    if not show_stats and horses:
+        footer += f" · {HIDDEN_STATS_NOTE}"
     embed.set_footer(text=footer)
     return embed
 
 
-async def build_stable_display(guild_id: int, user_id: int, owner_name: str) -> tuple[discord.Embed, discord.ui.View | None]:
+async def build_stable_display(
+    guild_id: int, user_id: int, owner_name: str, show_stats: bool = True,
+) -> tuple[discord.Embed, discord.ui.View | None]:
     """!stable's embed (first page) plus paging buttons only when there's more than one page."""
     horses = await asyncio.to_thread(db.get_ranch_horses, guild_id, user_id)
     clothes = await asyncio.to_thread(db.get_guild_horse_clothes, guild_id)
@@ -118,7 +130,7 @@ async def build_stable_display(guild_id: int, user_id: int, owner_name: str) -> 
     pages = hub_ui.page_count(len(horses), STABLE_PAGE_SIZE)
 
     def build_page(page: int) -> discord.Embed:
-        return build_stable_embed(owner_name, horses, clothes, page, irradiated)
+        return build_stable_embed(owner_name, horses, clothes, page, irradiated, show_stats)
 
     return build_page(0), (hub_ui.PagedEmbedView(build_page, pages) if pages > 1 else None)
 

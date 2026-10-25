@@ -87,7 +87,13 @@ PROPAGANDA_SECONDS = 48 * 3600
 PROPAGANDA_SPIRIT_PENALTY = 20
 INTEL_SECONDS = 24 * 3600
 INTEL_FORTUNE_LOW = 0.8  # replaces FORTUNE_LOW for an army marching on a spy's intel
+JOB_INTEL_BONUS = 0.15  # a spy's intel on the next (non-spy) job against that target
 RESCUE_WINDOW_SECONDS = 7 * 24 * 3600
+# Pile-on guard: a target hit by PILE_ON_HITS successful jobs (from anyone) within the window is on
+# high alert against every job until the oldest of those hits ages out. Spy and Rescue are exempt
+# both ways -- spying is covert, and a rescue is a victim taking back their own horse.
+PILE_ON_WINDOW_SECONDS = 24 * 3600
+PILE_ON_EXEMPT = frozenset({"spy", "rescue"})
 
 
 @dataclass(frozen=True)
@@ -113,6 +119,11 @@ class Operation:
     @property
     def immune_flag(self) -> str:
         return f"ops:{self.id}:immune_until"
+
+    @property
+    def caught_flag(self) -> str:
+        """When this player last got caught running this op -- what Heat counts."""
+        return f"raid:{self.id}:caught"
 
 
 OPERATIONS: dict[str, Operation] = {op.id: op for op in (
@@ -368,17 +379,34 @@ def guard_stat(
     return best
 
 
-def heat(last_used: dict[str, int], now: int) -> int:
-    """How many distinct ops this player ran in the last HEAT_WINDOW_SECONDS. last_used maps each
-    op (by id or by last_flag, either works) to its last-run unix time (0 = never)."""
-    return sum(1 for t in last_used.values() if t and now - t < HEAT_WINDOW_SECONDS)
+def heat(last_caught: dict[str, int], now: int) -> int:
+    """How many distinct ops this player got caught running in the last HEAT_WINDOW_SECONDS.
+    last_caught maps each op's caught_flag to its unix time (0 = never). A job that lands adds no
+    heat; only getting caught does."""
+    return sum(1 for t in last_caught.values() if t and now - t < HEAT_WINDOW_SECONDS)
 
 
-def op_chance(op: Operation, operative_stat: float, guard: float, heat_level: int, sentry_on_duty: bool) -> float:
-    chance = op.base + (operative_stat - guard) * OP_STAT_SWING - heat_level * HEAT_PENALTY
+def op_chance(
+    op: Operation, operative_stat: float, guard: float, heat_level: int, sentry_on_duty: bool, bonus: float = 0.0,
+) -> float:
+    """bonus is JOB_INTEL_BONUS when the operative holds a spy's intel; it still can't push past
+    the op's own max_chance."""
+    chance = op.base + bonus + (operative_stat - guard) * OP_STAT_SWING - heat_level * HEAT_PENALTY
     if sentry_on_duty:
         chance -= SENTRY_PENALTY
     return max(op.min_chance, min(op.max_chance, chance))
+
+
+def defender_lineup(available: list[tuple[int, dict]], scouted: list[int]) -> list[tuple[int, dict]]:
+    """The defender's war army: random MAX_ARMY_SIZE of `available` (horse_index, horse), unless a
+    spy scouted the lineup -- then those horses still available fight, topped up at random if
+    some got injured, sold, or posted as sentry since."""
+    if len(available) <= MAX_ARMY_SIZE:
+        return available
+    by_index = dict(available)
+    lineup = [(i, by_index[i]) for i in scouted if i in by_index][:MAX_ARMY_SIZE]
+    rest = [pair for pair in available if pair[0] not in {i for i, _ in lineup}]
+    return lineup + random.sample(rest, MAX_ARMY_SIZE - len(lineup))
 
 
 def smuggle_amount(balance: int) -> int:

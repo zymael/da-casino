@@ -929,6 +929,11 @@ async def horses_cmd(ctx):
     # unowned horse off the same simulation, scoped to the whole eligible stable by default.
     roster, _eligible, probabilities = await asyncio.to_thread(horserace.current_probabilities, ctx.guild.id)
     currency = db.get_currency_name(ctx.guild.id)
+    # Other players' horses keep their stats close unless you hold a spy's intel on the owner;
+    # your own and unowned (for sale) horses always show.
+    other_owners = {h["owner_id"] for h in roster.values() if h["owner_id"] not in (None, ctx.author.id)}
+    scouted = await _intel_on(ctx.guild.id, ctx.author.id, list(other_owners))
+    any_hidden = False
     lines = []
     for i in sorted(roster):
         horse = roster[i]
@@ -940,9 +945,13 @@ async def horses_cmd(ctx):
         else:
             status = f"💰 {horserace.price_of(i, probabilities['win'])} {currency} — `!buyhorse {i + 1}`"
         record = f"{horse['wins']}W-{horse['places']}P-{horse['shows']}S ({horse['races']} starts)" if horse["races"] else "unraced"
-        stats = (
-            f"SPD {horse['speed']:.0f} / END {horse['endurance']:.0f} / SPI {horse['spirit']:.0f} — {record}"
-        )
+        if horse["owner_id"] in other_owners and horse["owner_id"] not in scouted:
+            stats = f"{ranch_view.HIDDEN_STATS} — {record}"
+            any_hidden = True
+        else:
+            stats = (
+                f"SPD {horse['speed']:.0f} / END {horse['endurance']:.0f} / SPI {horse['spirit']:.0f} — {record}"
+            )
         sex_symbol = horserace.SEX_SYMBOLS.get(horse["sex"], "")
         injured = " — 🤕 injured" if horserace.is_injured(horse) else ""
         lines.append(f"**{i + 1}. {horse['name']}** {sex_symbol} {horse['coat']} — {kind} — {status}{injured}\n{stats}")
@@ -962,6 +971,7 @@ async def horses_cmd(ctx):
             text=f"Owners earn {int(horserace.OWNER_CUT_FRACTION * 100)}% of the pot whenever their horse wins. "
             f"`!buyfoal <name>` for {horserace.FOAL_PRICE} {currency} to start your own — `!train <number>` once "
             f"a day to raise its stats and age until it can race at age {horserace.MIN_RACING_AGE}.{page_text}"
+            + (f" {ranch_view.HIDDEN_STATS_NOTE}" if any_hidden else "")
         )
         return embed
 
@@ -976,7 +986,8 @@ async def stable_cmd(ctx, member: discord.Member = None):
     """See every horse you own with its stats, health, training, and gear: !stable, or !stable @user
     to look at someone else's."""
     owner = member or ctx.author
-    embed, view = await ranch_view.build_stable_display(ctx.guild.id, owner.id, owner.display_name)
+    show_stats = owner.id == ctx.author.id or owner.id in await _intel_on(ctx.guild.id, ctx.author.id, [owner.id])
+    embed, view = await ranch_view.build_stable_display(ctx.guild.id, owner.id, owner.display_name, show_stats)
     if view is None:
         await ctx.send(embed=embed)
     else:
@@ -1916,6 +1927,13 @@ async def _available_horses(guild_id: int, user_id: int) -> list[dict]:
     return (await _stable_state(guild_id, user_id))[1]
 
 
+async def _intel_on(guild_id: int, viewer_id: int, owner_ids: list[int]) -> set[int]:
+    """Which of owner_ids the viewer holds a live spy's intel on -- what unhides their horses' stats."""
+    flags = await asyncio.to_thread(db.get_flags, guild_id, viewer_id, [db.spy_intel_flag(o) for o in owner_ids])
+    now = int(time.time())
+    return {o for o in owner_ids if flags[db.spy_intel_flag(o)] > now}
+
+
 async def _war_general(guild_id: int, user_id: int) -> dict | None:
     """A player's dungeon character's effective stats (gear + housing included) -- what war.py
     reads for the general bonus or an on-foot unit. None if they have no character."""
@@ -2010,17 +2028,21 @@ async def _war_resolve(ctx, member: discord.Member, horse_indices: list[int]):
     if len(horse_indices) > war.MAX_ARMY_SIZE:
         await ctx.send(f"You can only send up to {war.MAX_ARMY_SIZE} horses to one war.")
         return
-    defender_healthy = await _available_horses(guild_id, member.id)
-    if len(defender_healthy) > war.MAX_ARMY_SIZE:
-        defender_healthy = random.sample(defender_healthy, war.MAX_ARMY_SIZE)
+    defender_available = await _available_horses(guild_id, member.id)
     clothes = await asyncio.to_thread(db.get_guild_horse_clothes, guild_id)
     now = int(time.time())
     intel_key = db.spy_intel_flag(member.id)
-    attacker_flags = await asyncio.to_thread(db.get_flags, guild_id, attacker_id, [intel_key, db.WAR_PROPAGANDA_FLAG])
+    lineup_keys = [db.lineup_flag(member.id, slot) for slot in range(war.MAX_ARMY_SIZE)]
+    attacker_flags = await asyncio.to_thread(
+        db.get_flags, guild_id, attacker_id, [intel_key, db.WAR_PROPAGANDA_FLAG] + lineup_keys,
+    )
     defender_flags = await asyncio.to_thread(
         db.get_flags, guild_id, member.id, [db.WAR_FORTRESS_OFF_FLAG, db.WAR_PROPAGANDA_FLAG],
     )
     intel = attacker_flags[intel_key] > now
+    # A spy's scouted lineup only holds while its intel does.
+    scouted = [attacker_flags[key] - 1 for key in lineup_keys if attacker_flags[key]] if intel else []
+    defender_healthy = war.defender_lineup([(h["horse_index"], h) for h in defender_available], scouted)
     attacker_propaganda = attacker_flags[db.WAR_PROPAGANDA_FLAG] > now
     defender_propaganda = defender_flags[db.WAR_PROPAGANDA_FLAG] > now
     fortress_tier = 0 if defender_flags[db.WAR_FORTRESS_OFF_FLAG] > now else (
@@ -2031,7 +2053,7 @@ async def _war_resolve(ctx, member: discord.Member, horse_indices: list[int]):
         await _war_general(guild_id, attacker_id), intel=intel, propaganda=attacker_propaganda,
     )
     defender_army = war.build_army(
-        [(h["horse_index"], h) for h in defender_healthy], clothes, member.display_name,
+        defender_healthy, clothes, member.display_name,
         await _war_general(guild_id, member.id), fortress_tier, propaganda=defender_propaganda,
     )
     if attacker_army is None:
@@ -2055,7 +2077,8 @@ async def _war_resolve(ctx, member: discord.Member, horse_indices: list[int]):
         return
     # Intel and propaganda are spent by the war they show up in (an arson just runs out on its own).
     if intel:
-        await asyncio.to_thread(db.set_flag, guild_id, attacker_id, intel_key, 0)
+        for key in [intel_key] + lineup_keys:
+            await asyncio.to_thread(db.set_flag, guild_id, attacker_id, key, 0)
     if attacker_propaganda:
         await asyncio.to_thread(db.set_flag, guild_id, attacker_id, db.WAR_PROPAGANDA_FLAG, 0)
     if defender_propaganda:
@@ -2089,13 +2112,14 @@ async def _war_resolve(ctx, member: discord.Member, horse_indices: list[int]):
 
 
 _LYING_LOW = "🔪 You're lying low after that botched job. You can show your face again {when}."
+_PILE_ON_ALERT = "{target} has been hit twice today and is on high alert against every job. Try again {when}."
 
 
 @bot.command(name="raid")
 async def raid_cmd(ctx, member: discord.Member = None):
     """Run a covert job on another player's stable: !raid, or !raid @user. Spy, steal a horse,
     hire a hitman, smuggle flakes, torch a fortress, spread propaganda, or rescue a stolen horse.
-    Each job has its own cooldown and odds, and running several in a few days turns up the heat."""
+    Each job has its own cooldown and odds, and getting caught turns up the heat."""
     await _raid_choose_op(ctx, member)
 
 
@@ -2108,10 +2132,10 @@ def _raid_target_problem(ctx, member: discord.Member) -> str | None:
 
 
 async def _heat(guild_id: int, user_id: int, now: int) -> int:
-    last_used = await asyncio.to_thread(
-        db.get_flags, guild_id, user_id, [op.last_flag for op in war.OPERATIONS.values()],
+    last_caught = await asyncio.to_thread(
+        db.get_flags, guild_id, user_id, [op.caught_flag for op in war.OPERATIONS.values()],
     )
-    return war.heat(last_used, now)
+    return war.heat(last_caught, now)
 
 
 async def _raid_choose_op(ctx, member: discord.Member | None):
@@ -2149,10 +2173,12 @@ async def _raid_choose_op(ctx, member: discord.Member | None):
     async def on_pick(pick_ctx, op_id):
         await _raid_choose_target(pick_ctx, war.OPERATIONS[op_id], member)
 
-    heat_level = war.heat({op.id: flags[op.last_flag] for op in war.OPERATIONS.values()}, now)
+    heat_level = await _heat(guild_id, user_id, now)
     lines = ["What's the job?"]
     if heat_level:
-        lines.append(f"🌡️ Heat: {heat_level}. The law's watching you: every job is {heat_level * war.HEAT_PENALTY:.0%} harder.")
+        lines.append(
+            f"🌡️ Heat: {heat_level}. You've been caught recently: every job is {heat_level * war.HEAT_PENALTY:.0%} harder."
+        )
     lines += waiting
     await ctx.send("\n".join(lines), view=war_view.build_operation_picker(user_id, ready, on_pick))
 
@@ -2249,6 +2275,11 @@ async def _raid_check_target(ctx, op: war.Operation, member: discord.Member, res
                 f"Try again {_in_seconds(immune_until - int(time.time()))}."
             )
             return
+    if op.id not in war.PILE_ON_EXEMPT:
+        alert_until = await asyncio.to_thread(db.get_flag, guild_id, member.id, db.PILE_ON_PREV_FLAG) + war.PILE_ON_WINDOW_SECONDS
+        if alert_until > int(time.time()):
+            await ctx.send(_PILE_ON_ALERT.format(target=member.display_name, when=_in_seconds(alert_until - int(time.time()))))
+            return
     if problem := await _op_blocker(guild_id, user_id, op, member, rescue_index):
         await ctx.send(problem)
         return
@@ -2295,11 +2326,17 @@ async def _raid_resolve(
         [(h["horse_index"], h) for h in guards], clothes, facility_tier,
     )
     now = int(time.time())
-    chance = war.op_chance(op, operative_stat, guard, await _heat(guild_id, user_id, now), sentry is not None)
+    job_intel_key = db.job_intel_flag(member.id)
+    job_intel = op.id != "spy" and await asyncio.to_thread(db.get_flag, guild_id, user_id, job_intel_key) > now
+    chance = war.op_chance(
+        op, operative_stat, guard, await _heat(guild_id, user_id, now), sentry is not None,
+        war.JOB_INTEL_BONUS if job_intel else 0.0,
+    )
 
     status, remaining = await asyncio.to_thread(
         db.claim_op, guild_id, user_id, member.id, op.last_flag, op.cooldown_seconds,
         op.immune_flag if op.immunity else None, now,
+        None if op.id in war.PILE_ON_EXEMPT else war.PILE_ON_WINDOW_SECONDS,
     )
     if status == "lockout":
         await ctx.send(_LYING_LOW.format(when=_in_seconds(remaining)))
@@ -2310,15 +2347,26 @@ async def _raid_resolve(
     if status == "immune":
         await ctx.send(f"{member.display_name} is on high alert. Try again {_in_seconds(remaining)}.")
         return
+    if status == "alert":
+        await ctx.send(_PILE_ON_ALERT.format(target=member.display_name, when=_in_seconds(remaining)))
+        return
     if op.id == "rescue":
         # One shot per theft, win or lose.
         await asyncio.to_thread(db.set_flag, guild_id, user_id, db.stolen_flag(rescue_index), 0)
+    if job_intel:
+        # Spent on the attempt, landed or not.
+        await asyncio.to_thread(db.set_flag, guild_id, user_id, job_intel_key, 0)
 
     success = random.random() < chance
     if success and op.immunity:
         await asyncio.to_thread(db.set_flag, guild_id, member.id, op.immune_flag, now + war.OP_IMMUNITY_SECONDS)
-    landed = await _OP_OUTCOMES[op.id](ctx, member, success, f"(Odds were {chance:.0%}.)", operative, rescue_index)
+    if not success:
+        await asyncio.to_thread(db.set_flag, guild_id, user_id, op.caught_flag, now)
+    odds = f"(Odds were {chance:.0%}, intel included.)" if job_intel else f"(Odds were {chance:.0%}.)"
+    landed = await _OP_OUTCOMES[op.id](ctx, member, success, odds, operative, rescue_index)
     if landed:
+        if op.id not in war.PILE_ON_EXEMPT:
+            await asyncio.to_thread(db.record_hit, guild_id, member.id, now)
         await achievements.try_award_many(ctx.send, guild_id, user_id, ctx.author.display_name, [_OP_ACHIEVEMENTS[op.id]])
     elif not success:
         if sentry is not None:
@@ -2329,30 +2377,61 @@ async def _raid_resolve(
 
 async def _spy_outcome(ctx, member, success, odds, spy, _rescue_index):
     guild_id, user_id, name = ctx.guild.id, ctx.author.id, ctx.author.display_name
+    now = int(time.time())
+    intel_until = now + war.INTEL_SECONDS
     if not success:
+        # Turned: the target now holds intel on the spy's owner instead.
+        for key in (db.spy_intel_flag(user_id), db.job_intel_flag(user_id)):
+            await asyncio.to_thread(db.set_flag, guild_id, member.id, key, intel_until)
         await ctx.send(
-            f"{member.mention}\n👀 {member.display_name} spots {name}'s **{spy['name']}** lurking by the stalls "
-            f"with a notepad. The spy bolts empty-handed. {odds}"
+            f"{member.mention}\n👀 {member.display_name} spots {name}'s **{spy['name']}** lurking by the stalls and "
+            f"turns it. The spy talks: {member.display_name} has intel on {name} for {war.INTEL_SECONDS // 3600}h. {odds}"
         )
         return
-    now = int(time.time())
-    owned, _available, sentry = await _stable_state(guild_id, member.id)
+    owned, available, sentry = await _stable_state(guild_id, member.id)
+    # Scout the war lineup now, so the dossier and the next war agree on who defends.
+    lineup = random.sample(available, war.MAX_ARMY_SIZE) if len(available) > war.MAX_ARMY_SIZE else available
+    for slot in range(war.MAX_ARMY_SIZE):
+        value = lineup[slot]["horse_index"] + 1 if len(available) > war.MAX_ARMY_SIZE else 0
+        await asyncio.to_thread(db.set_flag, guild_id, user_id, db.lineup_flag(member.id, slot), value)
+    for key in (db.spy_intel_flag(member.id), db.job_intel_flag(member.id)):
+        await asyncio.to_thread(db.set_flag, guild_id, user_id, key, intel_until)
+
+    ops = list(war.OPERATIONS.values())
     flags = await asyncio.to_thread(
         db.get_flags, guild_id, member.id,
-        [db.WAR_SHIELD_UNTIL_FLAG, db.WAR_LAST_ATTACK_FLAG, db.WAR_FORTRESS_OFF_FLAG],
+        [db.WAR_SHIELD_UNTIL_FLAG, db.WAR_LAST_ATTACK_FLAG, db.WAR_FORTRESS_OFF_FLAG, db.WAR_PROPAGANDA_FLAG,
+         db.RAID_LOCKOUT_FLAG, db.PILE_ON_PREV_FLAG]
+        + [op.last_flag for op in ops] + [op.immune_flag for op in ops],
     )
     war_ready_at = flags[db.WAR_LAST_ATTACK_FLAG] + war.ATTACK_COOLDOWN_SECONDS
+    lockout = flags[db.RAID_LOCKOUT_FLAG]
+    job_ready = [
+        (op, max(flags[op.last_flag] + op.cooldown_seconds if flags[op.last_flag] else 0, lockout))
+        for op in ops if op.id != "rescue"
+    ]
+    pile_on_until = flags[db.PILE_ON_PREV_FLAG] + war.PILE_ON_WINDOW_SECONDS
+    alert_ops = [
+        op for op in ops
+        if (op.immunity and flags[op.immune_flag] > now) or (op.id not in war.PILE_ON_EXEMPT and pile_on_until > now)
+    ]
+    held = await asyncio.to_thread(db.get_held_stolen_horses, guild_id, member.id, now - war.RESCUE_WINDOW_SECONDS)
+    held_stolen = [
+        (h["name"], victim.display_name if (victim := ctx.guild.get_member(h["victim_id"])) else "someone")
+        for h in held
+    ]
     embed = war_view.build_spy_report(
         member.display_name, owned, {h["horse_index"] for h in owned if horserace.is_injured(h)},
         sentry["horse_index"] if sentry else None, await asyncio.to_thread(db.get_guild_horse_clothes, guild_id),
         await asyncio.to_thread(db.get_luck, guild_id, member.id),
         await asyncio.to_thread(db.get_balance, guild_id, member.id), db.get_currency_name(guild_id),
         await _heat(guild_id, member.id, now), await asyncio.to_thread(db.get_facility_tier, guild_id, member.id),
-        flags[db.WAR_FORTRESS_OFF_FLAG] > now,
+        flags[db.WAR_FORTRESS_OFF_FLAG] if flags[db.WAR_FORTRESS_OFF_FLAG] > now else 0,
         flags[db.WAR_SHIELD_UNTIL_FLAG] if flags[db.WAR_SHIELD_UNTIL_FLAG] > now else 0,
         war_ready_at if war_ready_at > now else 0, await asyncio.to_thread(db.get_character, guild_id, member.id),
+        [h["name"] for h in lineup], [(op, at if at > now else 0) for op, at in job_ready],
+        flags[db.WAR_PROPAGANDA_FLAG] if flags[db.WAR_PROPAGANDA_FLAG] > now else 0, alert_ops, held_stolen,
     )
-    await asyncio.to_thread(db.set_flag, guild_id, user_id, db.spy_intel_flag(member.id), now + war.INTEL_SECONDS)
     try:
         await ctx.author.send(embed=embed)
         await ctx.send(f"🕵️ {name}'s **{spy['name']}** comes home with a fat folder. Check your DMs. {odds}")

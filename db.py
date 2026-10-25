@@ -1644,11 +1644,26 @@ RAID_LOCKOUT_FLAG = "raid:lockout_until"  # a caught hitman: no !war and no ops 
 WAR_SENTRY_FLAG = "war:sentry"  # horse_index + 1 of the stationed sentry, 0 = none
 WAR_FORTRESS_OFF_FLAG = "war:fortress_off_until"  # an arsonist's work
 WAR_PROPAGANDA_FLAG = "war:propaganda_until"  # consumed by this player's next war
+# On a target's row: the unix times of the last two jobs that landed on them, for the pile-on guard
+# (see war.PILE_ON_WINDOW_SECONDS).
+PILE_ON_LAST_FLAG = "ops:hit_last"
+PILE_ON_PREV_FLAG = "ops:hit_prev"
 
 
 def spy_intel_flag(target_id: int) -> str:
     """On the spy's own row: intel on target_id good until this unix time, consumed by a !war."""
     return f"spy:intel:{target_id}"
+
+
+def job_intel_flag(target_id: int) -> str:
+    """Like spy_intel_flag, but consumed by the next !raid job on target_id instead of a war."""
+    return f"spy:jobintel:{target_id}"
+
+
+def lineup_flag(target_id: int, slot: int) -> str:
+    """On the spy's own row: slot 0..MAX_ARMY_SIZE-1 of target_id's scouted war lineup, as
+    horse_index + 1 (0 = empty). Read alongside spy_intel_flag and cleared with it."""
+    return f"spy:lineup:{target_id}:{slot}"
 
 
 def stolen_flag(horse_index: int) -> str:
@@ -1739,11 +1754,13 @@ def apply_war_result(
 
 def claim_op(
     guild_id: int, user_id: int, target_id: int, last_flag: str, cooldown: int, immune_flag: str | None, now: int,
+    pile_on_window: int | None = None,
 ) -> tuple[str, int]:
     """Atomically checks and claims one !raid op's window (a war.Operation's last_flag/immune_flag),
     same shape as claim_war_attack minus the shield (shields only stop wars). Returns (status,
     seconds_remaining): "ok" (0), "lockout" (user is lying low), "cooldown" (this op's own
-    window), or "immune" (the target was just hit by this op)."""
+    window), "immune" (the target was just hit by this op), or "alert" (the target was hit by
+    two jobs within pile_on_window; None skips that check, for the exempt ops)."""
     conn = _connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -1760,9 +1777,47 @@ def claim_op(
             if immune_until > now:
                 conn.rollback()
                 return "immune", immune_until - now
+        if pile_on_window is not None:
+            alert_until = _flag_value(conn, guild_id, target_id, PILE_ON_PREV_FLAG) + pile_on_window
+            if alert_until > now:
+                conn.rollback()
+                return "alert", alert_until - now
         _write_flag(conn, guild_id, user_id, last_flag, now)
         conn.commit()
         return "ok", 0
+    finally:
+        conn.close()
+
+
+def record_hit(guild_id: int, target_id: int, now: int):
+    """A job just landed on target_id: shifts the pile-on guard's last hit into prev and records now."""
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        last = _flag_value(conn, guild_id, target_id, PILE_ON_LAST_FLAG)
+        _write_flag(conn, guild_id, target_id, PILE_ON_PREV_FLAG, last)
+        _write_flag(conn, guild_id, target_id, PILE_ON_LAST_FLAG, now)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_held_stolen_horses(guild_id: int, holder_id: int, since: int) -> list[dict]:
+    """Horses holder_id owns that were stolen from someone at or after `since` (unix seconds) --
+    the spy dossier's rescue targets. Each is {"horse_index", "name", "victim_id", "stolen_at"}."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT f.user_id, f.key, f.value, h.name FROM flags f JOIN horses h "
+            "ON h.guild_id = f.guild_id AND h.horse_index = CAST(SUBSTR(f.key, 13) AS INTEGER) "
+            "WHERE f.guild_id = ? AND f.key LIKE 'raid:stolen:%' AND f.value >= ? AND h.owner_id = ? "
+            "AND f.user_id != ? ORDER BY f.value DESC",
+            (guild_id, since, holder_id, holder_id),
+        ).fetchall()
+        return [
+            {"horse_index": int(key.rsplit(":", 1)[1]), "name": name, "victim_id": victim_id, "stolen_at": stolen_at}
+            for victim_id, key, stolen_at, name in rows
+        ]
     finally:
         conn.close()
 

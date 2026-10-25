@@ -151,9 +151,13 @@ def build_operation_picker(owner_id: int, ops: list[war.Operation], on_pick) -> 
 def build_spy_report(
     target_name: str, horses: list[dict], injured: set[int], sentry_index: int | None,
     clothes: dict[int, dict[str, str]], luck: int, balance: int, currency: str, heat: int,
-    facility_tier: int, fortress_off: bool, ceasefire_until: int, war_ready_at: int, character: dict | None,
+    facility_tier: int, fortress_off_until: int, ceasefire_until: int, war_ready_at: int, character: dict | None,
+    lineup: list[str], job_ready: list[tuple[war.Operation, int]], propaganda_until: int,
+    alert_ops: list[war.Operation], held_stolen: list[tuple[str, str]],
 ) -> discord.Embed:
-    """What a successful spy brings home. Timestamps are unix seconds (0 = not in effect)."""
+    """What a successful spy brings home. Timestamps are unix seconds (0 = not in effect).
+    lineup: the horse names that will defend their next war against you. job_ready: when each of
+    their jobs is ready. held_stolen: (horse name, who it was stolen from)."""
     embed = discord.Embed(
         title=f"🕵️ Dossier: {target_name}",
         description=f"Intel is good for {war.INTEL_SECONDS // 3600}h: march on them before it goes stale.",
@@ -179,13 +183,28 @@ def build_spy_report(
     else:
         lines.append("🎖️ General: none")
     if facility_tier:
-        lines.append(f"🏰 Fortress: tier {facility_tier}" + (" (burned out)" if fortress_off else ""))
+        lines.append(f"🏰 Fortress: tier {facility_tier}")
     lines.append("🛡️ Sentry: on duty" if sentry_index is not None else "🛡️ Sentry: nobody on watch")
     lines.append(f"🌡️ Heat: {heat}")
     if ceasefire_until:
         lines.append(f"🏳️ Ceasefire until <t:{ceasefire_until}:R>")
     lines.append(f"⚔️ Can declare war <t:{war_ready_at}:R>" if war_ready_at else "⚔️ Ready to declare war")
-    embed.add_field(name="📋 Assessment", value="\n".join(lines), inline=False)
+    if lineup:
+        lines.append("⚔️ War lineup: " + ", ".join(lineup))
+    embed.add_field(name="📋 Assessment", value="\n".join(lines)[:1024], inline=False)
+
+    lines = [
+        f"{op.emoji} {op.name}: " + (f"back <t:{ready_at}:R>" if ready_at else "ready")
+        for op, ready_at in job_ready
+    ]
+    if fortress_off_until:
+        lines.append(f"🔥 Fortress burning until <t:{fortress_off_until}:R>")
+    if propaganda_until:
+        lines.append(f"🪧 Propaganda live until <t:{propaganda_until}:R>")
+    if alert_ops:
+        lines.append("🚨 On high alert vs: " + ", ".join(op.name for op in alert_ops))
+    lines += [f"🥷 Holding **{horse}**, stolen from {victim}" for horse, victim in held_stolen[:MAX_ARMY_LINES]]
+    embed.add_field(name="🗂️ Movements", value="\n".join(lines)[:1024], inline=False)
     return embed
 
 
