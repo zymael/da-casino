@@ -29,6 +29,7 @@ import asyncio
 import discord
 
 import achievements
+import manhattan
 import npc_render
 import npcs
 import quests
@@ -43,7 +44,8 @@ async def _edit_dialogue(
     """Redraws the dialogue image and swaps in `view`, reusing the message's own existing embed
     (title/description never change on a conversation-screen transition -- only the image and the
     buttons do) rather than re-fetching the whole room the way a full room rebuild would."""
-    buf = await asyncio.to_thread(npc_render.render_npc_dialogue, banner_path, text, sprite_path)
+    irradiated = await asyncio.to_thread(manhattan.fallout_active, interaction.guild_id)
+    buf = await asyncio.to_thread(npc_render.render_npc_dialogue, banner_path, text, sprite_path, irradiated)
     file = discord.File(buf, filename=filename)
     embed = interaction.message.embeds[0]
     embed.set_image(url=f"attachment://{filename}")

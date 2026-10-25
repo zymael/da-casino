@@ -28,6 +28,7 @@ import discord
 import casino_view
 import dungeon_view
 import hub_ui
+import manhattan
 import npc_render
 import npc_view
 import npcs
@@ -64,7 +65,8 @@ async def build_room_display(
     sprite_paths = [
         npcs.NPCS[npc_id]["sprite_path"] for npc_id in present_npcs if npcs.NPCS[npc_id].get("sprite_path")
     ]
-    buf = await asyncio.to_thread(npc_render.render_room_banner, room["background_path"], sprite_paths)
+    irradiated = await asyncio.to_thread(manhattan.fallout_active, guild_id)
+    buf = await asyncio.to_thread(npc_render.render_room_banner, room["background_path"], sprite_paths, irradiated)
     file = discord.File(buf, filename=filename)
 
     embed = discord.Embed(title=room["name"], color=discord.Color.blurple())

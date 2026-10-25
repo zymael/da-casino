@@ -9,9 +9,10 @@ logic were otherwise identical.
 """
 
 import io
+import random
 import textwrap
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps, ImageFont
 
 _FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 _BUBBLE_FONT = ImageFont.truetype(_FONT_PATH, 13)
@@ -21,17 +22,45 @@ _BUBBLE_OUTLINE = (30, 20, 15, 255)
 _BUBBLE_TEXT_COLOR = (20, 15, 10, 255)
 
 
-def render_npc_dialogue(banner_path: str, text: str, sprite_path: str | None = None) -> io.BytesIO:
+def _irradiate(base: Image.Image) -> Image.Image:
+    """The Mane-hay-tan Fallout look (see manhattan.py): every color pushed toward radioactive
+    green with a soft glow, then TV static on top -- grain, scan lines, and bright specks. The
+    static is re-rolled on every render, so it shimmers between room visits."""
+    img = base.convert("RGB")
+    w, h = img.size
+    tinted = ImageOps.colorize(ImageOps.grayscale(img), black=(5, 25, 5), mid=(60, 160, 40), white=(210, 255, 140))
+    img = Image.blend(img, tinted, 0.65)
+    glow = img.filter(ImageFilter.GaussianBlur(6))
+    img = ImageChops.screen(img, Image.blend(glow, Image.new("RGB", (w, h)), 0.45))
+    grain = Image.effect_noise((w, h), 64).convert("RGB")
+    img = Image.blend(img, ImageChops.overlay(img, grain), 0.55)
+    lines = Image.new("RGB", (w, h), (255, 255, 255))
+    draw = ImageDraw.Draw(lines)
+    for y in range(0, h, 3):
+        draw.line([(0, y), (w, y)], fill=(170, 190, 170))
+    img = ImageChops.multiply(img, lines)
+    draw = ImageDraw.Draw(img)
+    for _ in range(w * h // 400):
+        draw.point((random.randrange(w), random.randrange(h)), fill=(200, 255, 170))
+    return img.convert("RGBA")
+
+
+def render_npc_dialogue(
+    banner_path: str, text: str, sprite_path: str | None = None, irradiated: bool = False,
+) -> io.BytesIO:
     """Composites a comic-style speech bubble with arbitrary NPC dialogue over `banner_path`,
     positioned clear of the NPC's face (they stand in the left half/third of the image) with a
     tail pointing back to them. Bubble size is measured from the actual wrapped text rather than
     guessed, so it stays legible regardless of the line's length. sprite_path, if given, is
     composited onto the banner first (e.g. a quest-complete reveal sprite) so the bubble still
-    draws on top and stays legible over it."""
+    draws on top and stays legible over it. `irradiated` applies the Fallout filter to the scene
+    but not the bubble, which stays readable."""
     base = Image.open(banner_path).convert("RGBA")
     if sprite_path:
         sprite = Image.open(sprite_path).convert("RGBA")
         base.alpha_composite(sprite)
+    if irradiated:
+        base = _irradiate(base)
     draw = ImageDraw.Draw(base)
 
     wrapped = textwrap.fill(text, width=_WRAP_WIDTH)
@@ -69,7 +98,7 @@ def render_npc_dialogue(banner_path: str, text: str, sprite_path: str | None = N
     return buf
 
 
-def render_room_banner(banner_path: str, sprite_paths: list[str] = ()) -> io.BytesIO:
+def render_room_banner(banner_path: str, sprite_paths: list[str] = (), irradiated: bool = False) -> io.BytesIO:
     """The plain banner, with every currently-present NPC's portrait sprite (if any) composited on
     in order -- no dialogue bubble, unlike render_npc_dialogue. Used for a room's resting/default
     state so e.g. a completed quest's reveal NPC (the Greasy Princess) stays visible every time the
@@ -81,6 +110,8 @@ def render_room_banner(banner_path: str, sprite_paths: list[str] = ()) -> io.Byt
     for sprite_path in sprite_paths:
         sprite = Image.open(sprite_path).convert("RGBA")
         base.alpha_composite(sprite)
+    if irradiated:
+        base = _irradiate(base)
     buf = io.BytesIO()
     base.convert("RGB").save(buf, format="PNG")
     buf.seek(0)
