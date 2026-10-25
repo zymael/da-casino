@@ -110,6 +110,10 @@ TRIGGER_SCHEMAS = {
     # a whole second condition-combinator concept for one use.
     "moon_phase": ({"phase"}, set()),
     "not_moon_phase": ({"phase"}, set()),
+    # The character's dungeon level -- unlike "class", self-contained: uses `character` if the
+    # caller already has one, otherwise fetches it, so it works as an NPC visible_trigger or a
+    # quest start_trigger too (added to gate the subclass unlock quest at level 30).
+    "level_at_least": ({"level"}, set()),
 }
 
 # event_type -> does this trigger match the event's data. Only the *counted* trigger types
@@ -325,6 +329,8 @@ def _validate_trigger(trigger: dict, context: str):
         raise ValueError(f"{context} trigger references unknown subclass {trigger['subclass']!r}")
     if "phase" in params and trigger["phase"] not in {p[0] for p in moon.PHASES}:
         raise ValueError(f"{context} trigger references unknown moon phase {trigger['phase']!r}")
+    if "level" in params and trigger["level"] < 1:
+        raise ValueError(f"{context} trigger {trigger_type!r} level must be >= 1")
 
 
 def _load_quests(path: str = _QUESTS_PATH) -> dict[str, dict]:
@@ -764,6 +770,21 @@ for _room in rooms.ROOMS.values():
             _validate_trigger(_exit_trigger, f"rooms.json: room {_room['id']!r} exit {_i} visible_trigger")
 
 
+def validate_subclass_unlock_quest(leveling: dict[str, dict] | None = None, quests_by_id: dict[str, dict] | None = None):
+    """dungeon_leveling.json's optional subclass_unlock_quest must name a real quest -- dungeon.py
+    can't check that itself (circular, same story as everything above). Run once at import time and
+    as a save-time extra_validator on both "leveling" and "quests" (admin_schemas.py), each passing
+    its own candidate registry, so neither side can be edited into a dangling reference."""
+    leveling = dungeon.LEVELING if leveling is None else leveling
+    quests_by_id = QUESTS_BY_ID if quests_by_id is None else quests_by_id
+    quest_id = leveling["global"].get("subclass_unlock_quest")
+    if quest_id and quest_id not in quests_by_id:
+        raise ValueError(f"dungeon_leveling.json: subclass_unlock_quest {quest_id!r} is not a known quest")
+
+
+validate_subclass_unlock_quest()
+
+
 def validate_recipe_quest_items(recipes: dict[str, dict]):
     """dungeon._load_recipes can't check a "quest_item"-output recipe's output_id against
     QUEST_ITEMS itself (dungeon.py can't import this module -- circular), so it's deferred here,
@@ -937,6 +958,10 @@ async def trigger_satisfied(
             and character["main_class"] == trigger["main_class"]
             and (trigger.get("subclass") is None or character["subclass"] == trigger["subclass"])
         )
+    if trigger_type == "level_at_least":
+        if character is None:
+            character = await asyncio.to_thread(db.get_character, guild_id, user_id)
+        return character is not None and character["level"] >= trigger["level"]
     if trigger_type == "moon_phase":
         return moon.current_phase()[0] == trigger["phase"]
     if trigger_type == "not_moon_phase":

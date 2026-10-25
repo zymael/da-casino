@@ -14,7 +14,7 @@ Most of the game's *content* — monsters, equipment, materials, recipes, skills
 - **Video Poker** (`!videopoker` / `!vp`) — 5-card draw, Jacks or Better paytable. Hold cards, then draw.
 - **Deuces Wild** (`!deuceswild` / `!dw`) — 5-card draw with wild deuces and its own paytable.
 - **Horse Racing & Ranch** (`!horserace` / `!horses`, `!train`, `!boost`, `!facility`) — bet on races between a fixed roster of legend horses, or buy in as an owner (legends or cheap unraced foals you train up yourself), upgrade a permanent training facility, and queue stat-boost items to earn a cut whenever your horse wins.
-- **Dungeon RPG** (`!class`, `!delve`, `!craft`) — pick a permanent character (a class from face cards, a subclass from suits — 16 builds total) and delve a small daily dungeon for a class-biased, push-your-luck payout: bank your loot after any room, or push deeper for a bigger — riskier — haul. Craft gear/consumables from materials you find, and manage your inventory/equipment.
+- **Dungeon RPG** (`!class`, `!delve`, `!craft`) — pick a permanent character (a class from face cards, then at level 30 a subclass from suits, unlocked by a quest, 16 builds total) and delve a small daily dungeon for a class-biased, push-your-luck payout: bank your loot after any room, or push deeper for a bigger — riskier — haul. Craft gear/consumables from materials you find, and manage your inventory/equipment.
 - **Rooms, NPCs & Quests** (`/play`, `!quests`) — a private, navigable hub (Town Square ↔ Casino/Ranch/Dungeon) with NPCs to talk to and Morrowind-style multi-stage quests to complete by turning in items, hitting kill/craft counts, or other conditions — entirely data-driven (see below).
 - **Achievements** (`!achievements`) — one-off "first on the server" achievements plus tiered win/loss-count achievements per game, each with a small credit reward.
 - **Stats** (`!stats`) — a personal rundown: balance, class, per-game win/loss record, lifetime winnings, and horses owned.
@@ -61,7 +61,7 @@ A built-in web UI (password-gated, served on the same process as the bot) lets y
 | `!train [number]` | | Train a horse you own once a day — blank picks from a dropdown of your horses |
 | `!boost <number> <stat>` | | Buy a training-boost item for a horse, queued for its next training (`speed`/`endurance`/`spirit`) |
 | `!facility [buy]` | | Check or upgrade your ranch's permanent training facility |
-| `!class` | | Pick your permanent dungeon class/subclass, or check your current one |
+| `!class` | | Pick your permanent dungeon class (and, at level 30 after the unlock quest, your subclass), or check your current one |
 | `!delve` | `!dungeon` | Delve today's dungeon level for a class-biased, push-your-luck payout (costs 1 ⚡ energy) |
 | `!craft` | | Craft gear or consumables from materials you've found |
 | `!inventory` | | See your quest items and dungeon gear (equipped + stored) |

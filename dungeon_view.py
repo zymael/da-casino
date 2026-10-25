@@ -1566,7 +1566,7 @@ async def _award_kill(
         db.add_xp, guild_id, actor.user_id, xp_gain,
         growth["level_hp_gain"], growth["level_atk_gain"], growth["level_def_gain"],
         growth["level_spatk_gain"], 0,  # speed is flat -- never grows with level
-        dungeon.LEVELING["global"]["xp_per_level"], dungeon.max_level(),
+        dungeon.LEVELING["global"]["xp_per_level"], dungeon.max_level(actor.subclass),
     )
     if level_result["xp_awarded"] > 0:
         log_lines.append(f"+{level_result['xp_awarded']} XP")
@@ -5003,7 +5003,8 @@ class SubclassSelect(discord.ui.Select):
 
 class ClassPickerView(discord.ui.View):
     """One-time base-class creation -- picks only the main class (face rank); the subclass (suit)
-    comes later via SubclassPickerView once the character reaches dungeon.SUBCLASS_UNLOCK_LEVEL.
+    comes later via SubclassPickerView, which !class offers once the character reaches
+    dungeon.subclass_unlock_level() and has completed dungeon.subclass_unlock_quest().
     Permanent once created -- see dungeon.NO_SUBCLASS for how a subclass-less character's stats/
     skills resolve in the meantime."""
 
@@ -5024,8 +5025,8 @@ class ClassPickerView(discord.ui.View):
     def build_embed(self) -> discord.Embed:
         embed = discord.Embed(title="🗡️ Choose Your Class", color=discord.Color.blurple())
         embed.description = (
-            "This choice is **permanent** — pick a class, then confirm. Subclass picking isn't "
-            "open yet — stay tuned for an event."
+            "This choice is **permanent** — pick a class, then confirm. Reach level "
+            f"{dungeon.subclass_unlock_level()} and a subclass is waiting for you."
         )
         for cid, entry in dungeon.CLASSES.items():
             skill = dungeon.unlocked_skills(cid, dungeon.NO_SUBCLASS, 1)[0]
@@ -5075,8 +5076,8 @@ class ClassConfirmButton(discord.ui.Button):
             title=f"✅ You are now a {name}!",
             description=f"{_core_stat_line(stats)}\n"
                         f"{_dodge_resist_line(stats['def'], stats['spatk'], stats['speed'])}\n\n"
-                        f"Use `!delve` to enter the dungeon. Subclass picking isn't open yet — "
-                        f"stay tuned for an event.",
+                        f"Use `!delve` to enter the dungeon. Reach level "
+                        f"{dungeon.subclass_unlock_level()} and a subclass is waiting for you.",
             color=discord.Color.green(),
         )
         await interaction.response.edit_message(embed=embed, view=None)
@@ -5084,8 +5085,9 @@ class ClassConfirmButton(discord.ui.Button):
 
 
 class SubclassPickerView(discord.ui.View):
-    """Picks a character's subclass for the first time, once they've reached
-    dungeon.SUBCLASS_UNLOCK_LEVEL. dungeon.unlocked_skills resolves purely off the character's
+    """Picks a character's subclass for the first time -- bot.py's class_cmd only offers it once
+    they've reached dungeon.subclass_unlock_level() and completed dungeon.subclass_unlock_quest().
+    Picking one also lifts their level cap (dungeon.max_level(subclass)). dungeon.unlocked_skills resolves purely off the character's
     currently-stored subclass, so confirming here fully replaces their base-class skill line with
     the chosen subclass's own -- nothing needs to merge the two. Permanent once picked, same
     one-shot guard shape as ClassPickerView/db.create_character (see db.choose_subclass)."""
@@ -5110,8 +5112,9 @@ class SubclassPickerView(discord.ui.View):
     def build_embed(self) -> discord.Embed:
         embed = discord.Embed(title="🎴 Choose Your Subclass", color=discord.Color.blurple())
         embed.description = (
-            f"Level {self.level} — this choice is **permanent** and replaces your base class's "
-            "skill with your subclass's own skill line. Pick a subclass, then confirm."
+            f"Level {self.level}. This choice is **permanent**: your subclass's skills replace your "
+            f"base class's, and your level cap rises to {dungeon.LEVELING['global']['subclass_max_level']}. "
+            "Pick a subclass, then confirm."
         )
         if self.subclass:
             mod = dungeon.SUBCLASSES[self.subclass]
@@ -5124,12 +5127,13 @@ class SubclassPickerView(discord.ui.View):
                 "speed": self.character["speed"] + mod["speed"],
                 "chips": dungeon.compute_stats(self.main_class, self.subclass)["chips"],
             }
-            skill = dungeon.unlocked_skills(self.main_class, self.subclass, self.level)[0]
+            skills = dungeon.unlocked_skills(self.main_class, self.subclass, self.level)
+            skill_lines = "\n".join(f"New Skill: **{s['name']}**: {s['flavor']}" for s in skills)
             embed.add_field(
                 name=f"Preview: {name}",
                 value=f"{_core_stat_line(stats)}\n"
                       f"{_dodge_resist_line(stats['def'], stats['spatk'], stats['speed'])}\n"
-                      f"New Skill: **{skill['name']}** — {skill['flavor']}",
+                      f"{skill_lines}",
                 inline=False,
             )
         return embed
@@ -5156,11 +5160,12 @@ class SubclassConfirmButton(discord.ui.Button):
             return
 
         name = dungeon.display_name(picker.main_class, picker.subclass)
-        skill = dungeon.unlocked_skills(picker.main_class, picker.subclass, picker.level)[0]
+        skills = dungeon.unlocked_skills(picker.main_class, picker.subclass, picker.level)
+        skill_names = ", ".join(f"**{s['name']}**" for s in skills)
         embed = discord.Embed(
             title=f"✅ You are now a {name}!",
-            description=f"Your subclass is locked in — your skill line now starts with "
-                        f"**{skill['name']}**, replacing your base class's skill.\n\n"
+            description=f"Your subclass is locked in. Your skills are now {skill_names}, replacing "
+                        f"your base class's, and you can level up to {dungeon.max_level(picker.subclass)}.\n\n"
                         f"Use `!class` to see your updated character sheet.",
             color=discord.Color.green(),
         )

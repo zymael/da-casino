@@ -3,7 +3,7 @@
     "id": "word_gets_around",
     "main_class": "healer",
     "subclass": "spades",
-    "unlock_level": 5,
+    "unlock_level": 30,
     "name": "Word Gets Around",
     "flavor": "One phone call, and suddenly everyone at the table is playing their way.",
     "effects": [
@@ -28,7 +28,7 @@
     "id": "on_the_house",
     "main_class": "healer",
     "subclass": "clubs",
-    "unlock_level": 5,
+    "unlock_level": 30,
     "name": "On the House",
     "flavor": "Whatever's in the bottle, it's on the house tonight. Drink up.",
     "effects": [
@@ -49,7 +49,7 @@
     "id": "product_sample",
     "main_class": "healer",
     "subclass": "diamonds",
-    "unlock_level": 5,
+    "unlock_level": 30,
     "name": "Product Sample",
     "flavor": "First one's free. They want you coming back for more.",
     "effects": [
@@ -72,7 +72,7 @@
     "id": "burning_love",
     "main_class": "healer",
     "subclass": "hearts",
-    "unlock_level": 5,
+    "unlock_level": 30,
     "name": "Burning Love",
     "flavor": "A little of that old fire, passed around the whole room.",
     "effects": [
@@ -95,7 +95,7 @@
     "id": "bad_batch",
     "main_class": "healer",
     "subclass": "diamonds",
-    "unlock_level": 7,
+    "unlock_level": 35,
     "name": "Bad Batch",
     "flavor": "Whatever they took, it wasn't what they paid for.",
     "effects": [
@@ -120,7 +120,7 @@
     "id": "fix_is_in",
     "main_class": "healer",
     "subclass": "spades",
-    "unlock_level": 7,
+    "unlock_level": 35,
     "name": "The Fix Is In",
     "flavor": "By the time you notice something's wrong, it's already decided.",
     "effects": [
@@ -141,7 +141,7 @@
     "id": "viva_las_vegas",
     "main_class": "healer",
     "subclass": "hearts",
-    "unlock_level": 7,
+    "unlock_level": 35,
     "name": "Viva Las Vegas",
     "flavor": "The show doesn't stop for a heckler.",
     "effects": [
@@ -165,7 +165,7 @@
     "id": "fixed_fight",
     "main_class": "healer",
     "subclass": "clubs",
-    "unlock_level": 7,
+    "unlock_level": 35,
     "name": "Fixed Fight",
     "flavor": "The odds were never real to begin with.",
     "effects": [
@@ -222,7 +222,7 @@
     "id": "cold_deck",
     "main_class": "mage",
     "subclass": "diamonds",
-    "unlock_level": 1,
+    "unlock_level": 30,
     "name": "Cold Deck",
     "flavor": "Nobody notices the deck change. That's the whole trick.",
     "effects": [
@@ -239,7 +239,7 @@
     "id": "curse_the_table",
     "main_class": "mage",
     "subclass": "spades",
-    "unlock_level": 1,
+    "unlock_level": 30,
     "name": "Curse the Table",
     "flavor": "Everyone who sat down tonight is about to have the worst luck of their life.",
     "effects": [
@@ -263,7 +263,7 @@
     "id": "full_send",
     "main_class": "mage",
     "subclass": "clubs",
-    "unlock_level": 1,
+    "unlock_level": 30,
     "name": "Full Send",
     "flavor": "Every card on the table, face up, all at once.",
     "effect_groups": [
@@ -339,7 +339,7 @@
     "id": "second_dealing",
     "main_class": "mage",
     "subclass": "diamonds",
-    "unlock_level": 7,
+    "unlock_level": 35,
     "name": "Second Dealing",
     "flavor": "Deals themselves an extra card, and a clean alibi to go with it.",
     "effects": [
@@ -367,7 +367,7 @@
     "id": "dead_mans_hand",
     "main_class": "mage",
     "subclass": "spades",
-    "unlock_level": 7,
+    "unlock_level": 35,
     "name": "Dead Man's Hand",
     "flavor": "Aces and eights. Nobody who's dealt this hand gets to complain about the ending.",
     "effects": [
@@ -387,7 +387,7 @@
     "id": "nothing_up_my_sleeve",
     "main_class": "mage",
     "subclass": "hearts",
-    "unlock_level": 7,
+    "unlock_level": 35,
     "name": "Nothing Up My Sleeve",
     "flavor": "They show you both hands. By the time you look away, the trick's already done.",
     "effects": [
@@ -416,7 +416,7 @@
     "id": "wild_card",
     "main_class": "mage",
     "subclass": "clubs",
-    "unlock_level": 7,
+    "unlock_level": 35,
     "name": "Wild Card",
     "flavor": "Anything could happen. Whatever it is, you won't see straight after.",
     "effect_groups": [
@@ -506,7 +506,7 @@
     "id": "everybodys_in",
     "main_class": "rogue",
     "subclass": "diamonds",
-    "unlock_level": 7,
+    "unlock_level": 40,
     "name": "Everybody's In",
     "flavor": "Every mark at the table thinks they're the one running this. None of them are.",
     "effects": [
@@ -532,7 +532,7 @@
     "id": "house_deck",
     "main_class": "rogue",
     "subclass": "clubs",
-    "unlock_level": 7,
+    "unlock_level": 35,
     "name": "House Deck",
     "flavor": "Somehow, every hand they deal themselves is a little better than yours.",
     "effects": [
@@ -591,7 +591,7 @@
     "id": "insurance",
     "main_class": "rogue",
     "subclass": "spades",
-    "unlock_level": 5,
+    "unlock_level": 30,
     "name": "Insurance",
     "flavor": "They never take a job without a way out already planned.",
     "effects": [
@@ -622,7 +622,7 @@
     "id": "no_half_measures",
     "main_class": "rogue",
     "subclass": "spades",
-    "unlock_level": 1,
+    "unlock_level": 30,
     "name": "No Half Measures",
     "flavor": "A professional doesn't leave a job unfinished. They also don't leave witnesses to wonder why.",
     "effects": [
@@ -655,7 +655,7 @@
     "id": "coin_toss",
     "main_class": "rogue",
     "subclass": "diamonds",
-    "unlock_level": 7,
+    "unlock_level": 35,
     "name": "Coin toss",
     "flavor": "Plan A or Plan B. They never actually decided which.",
     "effect_groups": [
@@ -687,7 +687,7 @@
     "id": "mark",
     "main_class": "rogue",
     "subclass": "spades",
-    "unlock_level": 7,
+    "unlock_level": 35,
     "name": "The Mark",
     "flavor": "Once they're marked, it's already over. This part's just paperwork.",
     "effects": [
@@ -710,7 +710,7 @@
     "id": "reshuffle",
     "main_class": "rogue",
     "subclass": "hearts",
-    "unlock_level": 7,
+    "unlock_level": 35,
     "name": "Reshuffle",
     "flavor": "Everyone gets dealt back in. On the house.",
     "effects": [
@@ -741,7 +741,7 @@
     "id": "long_con",
     "main_class": "rogue",
     "subclass": "hearts",
-    "unlock_level": 7,
+    "unlock_level": 40,
     "name": "The Long Con",
     "flavor": "By the time they figure out the game, they've already fallen for the dealer.",
     "effects": [
@@ -776,7 +776,7 @@
     "id": "bar_stool_special",
     "main_class": "rogue",
     "subclass": "clubs",
-    "unlock_level": 1,
+    "unlock_level": 30,
     "name": "Bar Stool Special",
     "flavor": "House rule: whoever's still standing wasn't drinking the same night you were.",
     "effects": [
@@ -849,7 +849,7 @@
     "id": "collection_calls",
     "main_class": "fighter",
     "subclass": "diamonds",
-    "unlock_level": 7,
+    "unlock_level": 35,
     "name": "Collection Calls",
     "flavor": "Let me make a few calls...",
     "effect_groups": [
@@ -905,7 +905,7 @@
     "id": "first_payment",
     "main_class": "fighter",
     "subclass": "diamonds",
-    "unlock_level": 1,
+    "unlock_level": 30,
     "name": "First Payment",
     "flavor": "Consider that a down payment. The rest comes due shortly.",
     "effects": [
@@ -938,7 +938,7 @@
     "id": "showdown",
     "main_class": "fighter",
     "subclass": "spades",
-    "unlock_level": 7,
+    "unlock_level": 35,
     "name": "Showdown",
     "flavor": "Every hand gets shown at once. Only one of them was worth the bet.",
     "effects": [
@@ -961,7 +961,7 @@
     "id": "calculated_risk",
     "main_class": "fighter",
     "subclass": "spades",
-    "unlock_level": 5,
+    "unlock_level": 40,
     "name": "Calculated Risk",
     "flavor": "Every opening has already been mapped three moves ahead.",
     "effects": [
@@ -988,7 +988,7 @@
     "id": "protection",
     "main_class": "fighter",
     "subclass": "hearts",
-    "unlock_level": 7,
+    "unlock_level": 35,
     "name": "Protection",
     "flavor": "Whatever's coming for you, it goes through them first.",
     "effects": [
@@ -1016,7 +1016,7 @@
     "id": "on_my_watch",
     "main_class": "fighter",
     "subclass": "hearts",
-    "unlock_level": 5,
+    "unlock_level": 30,
     "name": "On My Watch",
     "flavor": "Nothing happens to anyone at this table. Not while they're standing.",
     "effects": [
@@ -1058,7 +1058,7 @@
     "id": "ante_up",
     "main_class": "fighter",
     "subclass": "clubs",
-    "unlock_level": 7,
+    "unlock_level": 35,
     "name": "Ante Up",
     "flavor": "Everyone pays before the first punch even lands.",
     "effects": [
@@ -1090,7 +1090,7 @@
     "id": "take_a_number",
     "main_class": "fighter",
     "subclass": "clubs",
-    "unlock_level": 5,
+    "unlock_level": 30,
     "name": "Take a Number",
     "flavor": "Everyone wants a piece. The line starts behind them.",
     "effects": [
@@ -1161,7 +1161,7 @@
     "id": "house_call",
     "main_class": "healer",
     "subclass": "spades",
-    "unlock_level": 1,
+    "unlock_level": 30,
     "name": "House Call",
     "flavor": "Nobody asks a Fixer to make house calls. They make them anyway -- and they fix everything while they're there.",
     "effects": [
@@ -1182,7 +1182,7 @@
     "id": "cutmans_orders",
     "main_class": "healer",
     "subclass": "clubs",
-    "unlock_level": 1,
+    "unlock_level": 30,
     "name": "Cutman's Orders",
     "flavor": "One word from the corner, and the whole fight changes.",
     "effects": [
@@ -1207,7 +1207,7 @@
     "id": "thank_you_thank_you_very_much",
     "main_class": "healer",
     "subclass": "hearts",
-    "unlock_level": 1,
+    "unlock_level": 30,
     "name": "Thank You, Thank You Very Much",
     "flavor": "They drop their voice an octave, and the whole room just… stops.",
     "effects": [
@@ -1232,7 +1232,7 @@
     "id": "word_on_the_street",
     "main_class": "healer",
     "subclass": "diamonds",
-    "unlock_level": 1,
+    "unlock_level": 30,
     "name": "The Word on the Street",
     "flavor": "Say the wrong thing to the wrong person, and word gets around fast.",
     "effects": [
@@ -1257,7 +1257,7 @@
     "id": "center_stage",
     "main_class": "mage",
     "subclass": "hearts",
-    "unlock_level": 1,
+    "unlock_level": 30,
     "name": "Center Stage",
     "flavor": "The whole room watches. That's rather the point.",
     "effects": [
@@ -1280,7 +1280,7 @@
     "id": "full_charge",
     "main_class": "mage",
     "subclass": "diamonds",
-    "unlock_level": 5,
+    "unlock_level": 30,
     "name": "Full Charge",
     "flavor": "They rigged the batteries themselves. The batteries were never rated for this.",
     "effects": [
@@ -1314,7 +1314,7 @@
     "id": "tempting_fate",
     "main_class": "mage",
     "subclass": "spades",
-    "unlock_level": 5,
+    "unlock_level": 30,
     "name": "Tempting Fate",
     "flavor": "Pushing this much luck into one place is asking for trouble. They're asking anyway.",
     "effects": [
@@ -1353,7 +1353,7 @@
     "id": "overload",
     "main_class": "mage",
     "subclass": "clubs",
-    "unlock_level": 5,
+    "unlock_level": 30,
     "name": "Overload",
     "flavor": "Nobody's sure what happens when a Wildcard channels this much power. Not even them.",
     "effect_groups": [
@@ -1400,7 +1400,7 @@
     "id": "big_finish",
     "main_class": "mage",
     "subclass": "hearts",
-    "unlock_level": 5,
+    "unlock_level": 30,
     "name": "The Big Finish",
     "flavor": "Every act builds to one moment. This is theirs.",
     "effects": [
@@ -1436,7 +1436,7 @@
     "id": "stacked_deck",
     "main_class": "rogue",
     "subclass": "hearts",
-    "unlock_level": 1,
+    "unlock_level": 30,
     "name": "Stacked Deck",
     "flavor": "Every card in this deck was arranged before you ever sat down. On purpose.",
     "effects": [
@@ -1461,7 +1461,7 @@
     "id": "last_rounds_on_me",
     "main_class": "rogue",
     "subclass": "clubs",
-    "unlock_level": 5,
+    "unlock_level": 30,
     "name": "Last Round's On Me",
     "flavor": "No need to get lucky. They hit just as hard sober.",
     "effects": [
@@ -1478,7 +1478,7 @@
     "id": "all_in_darling",
     "main_class": "rogue",
     "subclass": "hearts",
-    "unlock_level": 5,
+    "unlock_level": 30,
     "name": "All In, Darling",
     "flavor": "They never play it safe when someone's watching. But they're always watching out for you.",
     "effects": [
@@ -1501,7 +1501,7 @@
     "id": "going_for_broke",
     "main_class": "rogue",
     "subclass": "diamonds",
-    "unlock_level": 1,
+    "unlock_level": 30,
     "name": "Going for Broke",
     "flavor": "They never bet against a sure thing. The house is already broke, they just don't know it yet.",
     "effects": [
@@ -1524,7 +1524,7 @@
     "id": "outstanding_balance",
     "main_class": "fighter",
     "subclass": "diamonds",
-    "unlock_level": 5,
+    "unlock_level": 30,
     "name": "Outstanding Balance",
     "flavor": "Nobody walks away from an open account. They'll make sure of it.",
     "effects": [
@@ -1553,7 +1553,7 @@
     "id": "table_stakes",
     "main_class": "fighter",
     "subclass": "spades",
-    "unlock_level": 5,
+    "unlock_level": 30,
     "name": "Table Stakes",
     "flavor": "They're not leaving until the hand's over. Neither is anyone else.",
     "effects": [
@@ -1582,7 +1582,7 @@
     "id": "first_warning",
     "main_class": "fighter",
     "subclass": "clubs",
-    "unlock_level": 1,
+    "unlock_level": 30,
     "name": "First Warning",
     "flavor": "The muscle doesn't waste words. This is the only warning you get.",
     "effects": [
@@ -1614,7 +1614,7 @@
     "id": "opening_bet",
     "main_class": "fighter",
     "subclass": "spades",
-    "unlock_level": 1,
+    "unlock_level": 30,
     "name": "Opening Bet",
     "flavor": "Every hand starts somewhere. They like to start strong.",
     "effects": [
@@ -1646,7 +1646,7 @@
     "id": "not_your_table",
     "main_class": "fighter",
     "subclass": "hearts",
-    "unlock_level": 1,
+    "unlock_level": 30,
     "name": "Not Your Table",
     "flavor": "They don't ask twice. They didn't ask the first time either.",
     "effects": [

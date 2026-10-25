@@ -132,9 +132,8 @@ def _load_subclasses(path: str = _SUBCLASSES_PATH) -> dict[str, dict]:
 
 SUBCLASSES = _load_subclasses()
 
-# Level a character can first use !class again to pick a subclass -- a level gate for now, meant to
-# eventually become a quest requirement instead.
-SUBCLASS_UNLOCK_LEVEL = 5
+# When a character can pick a subclass is content, not a constant here -- see subclass_unlock_level/
+# subclass_unlock_quest (dungeon_leveling.json) further down.
 
 NO_SUBCLASS = "none"
 _NO_SUBCLASS_ENTRY = {
@@ -866,7 +865,7 @@ def pick_monster_group(room: dict) -> dict:
 # still shared by every class, editable through the admin panel's Leveling page (dungeon_leveling.json)
 # since they're pacing knobs, not balance-between-classes ones, so they don't fit as per-class fields.
 _LEVELING_PATH = os.path.join(os.path.dirname(__file__), "dungeon_leveling.json")
-_REQUIRED_LEVELING_FIELDS = {"id", "xp_per_level", "max_level"}
+_REQUIRED_LEVELING_FIELDS = {"id", "xp_per_level", "max_level", "subclass_unlock_level", "subclass_max_level"}
 
 
 def _load_leveling(path: str = _LEVELING_PATH) -> dict[str, dict]:
@@ -882,6 +881,14 @@ def _load_leveling(path: str = _LEVELING_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_leveling.json: entry {entry_id!r} xp_per_level must be >= 1")
         if entry["max_level"] < 1:
             raise ValueError(f"dungeon_leveling.json: entry {entry_id!r} max_level must be >= 1")
+        if not 1 <= entry["subclass_unlock_level"] <= entry["max_level"]:
+            raise ValueError(
+                f"dungeon_leveling.json: entry {entry_id!r} subclass_unlock_level must be between 1 and max_level"
+            )
+        if entry["subclass_max_level"] < entry["max_level"]:
+            raise ValueError(
+                f"dungeon_leveling.json: entry {entry_id!r} subclass_max_level must be >= max_level"
+            )
         leveling[entry_id] = entry
     if set(leveling) != {"global"}:
         raise ValueError(
@@ -958,11 +965,28 @@ def xp_to_next_level(level: int) -> int:
     return LEVELING["global"]["xp_per_level"] * level
 
 
-def max_level() -> int:
+def max_level(subclass: str = NO_SUBCLASS) -> int:
     """The current level cap -- editable through the admin panel's Leveling page
     (dungeon_leveling.json's "global" entry) same as xp_per_level, so raising it later is a content
-    edit, not a code change."""
+    edit, not a code change. A character with a real subclass gets subclass_max_level instead --
+    picking a subclass (only possible at subclass_unlock_level) is what lifts the cap."""
+    if subclass != NO_SUBCLASS:
+        return LEVELING["global"]["subclass_max_level"]
     return LEVELING["global"]["max_level"]
+
+
+def subclass_unlock_level() -> int:
+    """The level a base-class character must reach before !class offers the subclass picker (the
+    unlock quest, LEVELING's subclass_unlock_quest, is the other half of the gate) -- also the
+    level every subclass build's entry skill unlocks at (see _build_skills_by_combo)."""
+    return LEVELING["global"]["subclass_unlock_level"]
+
+
+def subclass_unlock_quest() -> str | None:
+    """The quests.json id a player must complete before !class offers the subclass picker, or None
+    while none is configured -- in which case the picker stays closed for everyone. Cross-validated
+    against QUESTS_BY_ID at the bottom of quests.py (this module can't import quests -- circular)."""
+    return LEVELING["global"].get("subclass_unlock_quest") or None
 
 
 # --- Skills ----------------------------------------------------------------------------------
@@ -1380,35 +1404,71 @@ def _build_skills_by_combo(skills: dict[str, dict]) -> dict[tuple[str, str], lis
         by_combo.setdefault(combo, []).append(skill)
     for combo, combo_skills in by_combo.items():
         combo_skills.sort(key=lambda s: s["unlock_level"])
-    # Every build must have exactly one level-1 skill -- otherwise a fresh character could get an
-    # empty Ability button, which is a strictly worse UX regression than anything a content typo
-    # elsewhere in this file would cause, so it's checked here rather than left to be noticed live.
-    # Zero is still a hard failure (no reasonable skill to synthesize, and it's a much rarer mistake
-    # to make than the other direction) -- but MORE than one (e.g. leftover template scaffolding
-    # from a Duplicate that never got re-leveled/re-subclassed before saving) degrades gracefully
-    # instead of taking the entire bot down over one bad combo in one build: keep the
-    # lowest-id skill deterministically, drop the rest from SKILLS_BY_COMBO (they're still in
-    # SKILLS/the admin panel's own list for whoever owns content to find and fix), and log it
-    # loudly so the mistake doesn't go unnoticed just because it stopped being fatal.
+    # Every build must have a skill at its entry level -- 1 for a base class, or
+    # subclass_unlock_level() for a subclass (the level you pick it at, since picking one replaces
+    # the base-class line wholesale) -- otherwise a character could get an empty Ability button,
+    # which is a strictly worse UX regression than anything a content typo elsewhere in this file
+    # would cause, so it's checked here rather than left to be noticed live. Zero is a hard
+    # failure (no reasonable skill to synthesize). A subclass may grant several at once (picking
+    # one at level 30 hands over its whole first tier), but a base class gets exactly one: MORE
+    # than one there (e.g. leftover template scaffolding from a Duplicate that never got
+    # re-leveled/re-subclassed before saving) degrades gracefully instead of taking the entire bot
+    # down over one bad combo in one build: keep the lowest-id skill deterministically, drop the
+    # rest from SKILLS_BY_COMBO (they're still in SKILLS/the admin panel's own list for whoever
+    # owns content to find and fix), and log it loudly so the mistake doesn't go unnoticed just
+    # because it stopped being fatal.
     for main_class in CLASSES:
         for subclass in list(SUBCLASSES) + [NO_SUBCLASS]:
             combo = (main_class, subclass)
-            level_ones = [s for s in by_combo.get(combo, []) if s["unlock_level"] == 1]
-            if not level_ones:
+            entry_level = _entry_skill_level(subclass)
+            entries = [s for s in by_combo.get(combo, []) if s["unlock_level"] == entry_level]
+            if not entries:
                 raise ValueError(
-                    f"dungeon_skills.json: {main_class}/{subclass} has no unlock_level=1 skill"
+                    f"dungeon_skills.json: {main_class}/{subclass} has no unlock_level={entry_level} skill"
                 )
-            if len(level_ones) > 1:
-                keep = min(level_ones, key=lambda s: s["id"])
-                drop_ids = {s["id"] for s in level_ones if s is not keep}
+            if len(entries) > 1 and subclass == NO_SUBCLASS:
+                keep = min(entries, key=lambda s: s["id"])
+                drop_ids = {s["id"] for s in entries if s is not keep}
                 print(
-                    f"[dungeon] {main_class}/{subclass} has {len(level_ones)} unlock_level=1 skills "
-                    f"({', '.join(sorted(s['id'] for s in level_ones))}) -- keeping {keep['id']!r}, "
+                    f"[dungeon] {main_class}/{subclass} has {len(entries)} unlock_level={entry_level} skills "
+                    f"({', '.join(sorted(s['id'] for s in entries))}) -- keeping {keep['id']!r}, "
                     f"dropping the rest so startup doesn't fail entirely. Fix this in the admin panel.",
                     flush=True,
                 )
                 by_combo[combo] = [s for s in by_combo[combo] if s["id"] not in drop_ids]
+            unreachable = [s["id"] for s in by_combo.get(combo, []) if s["unlock_level"] > max_level(subclass)]
+            if unreachable:
+                print(
+                    f"[dungeon] {main_class}/{subclass} skill(s) {', '.join(sorted(unreachable))} unlock above "
+                    f"that build's level cap ({max_level(subclass)}) and can never be reached.",
+                    flush=True,
+                )
     return by_combo
+
+
+def _entry_skill_level(subclass: str, leveling: dict[str, dict] | None = None) -> int:
+    """The level a build's first skill unlocks at -- see _build_skills_by_combo's comment."""
+    if subclass == NO_SUBCLASS:
+        return 1
+    return (LEVELING if leveling is None else leveling)["global"]["subclass_unlock_level"]
+
+
+def validate_subclass_entry_skills(leveling: dict[str, dict]) -> None:
+    """Save-time check for the admin panel's Leveling page: moving subclass_unlock_level away from
+    where every subclass build's entry skill actually sits would make _build_skills_by_combo refuse
+    to boot at the next restart, so it's rejected right at Save instead (same reasoning as
+    validate_class_chip_costs)."""
+    for main_class in CLASSES:
+        for subclass in SUBCLASSES:
+            entry_level = _entry_skill_level(subclass, leveling)
+            if not any(
+                s["unlock_level"] == entry_level for s in SKILLS.values()
+                if s["main_class"] == main_class and s["subclass"] == subclass
+            ):
+                raise ValueError(
+                    f"{main_class}/{subclass} has no skill at unlock_level {entry_level} -- re-level "
+                    f"its skills in dungeon_skills.json before moving subclass_unlock_level"
+                )
 
 
 SKILLS = _load_skills()
@@ -1417,8 +1477,14 @@ SKILLS_BY_COMBO = _build_skills_by_combo(SKILLS)
 
 def unlocked_skills(main_class: str, subclass: str, level: int) -> list[dict]:
     """All skills this build has unlocked by `level`, sorted by unlock_level ascending (so
-    index 0 is always the level-1 base skill)."""
-    return [s for s in SKILLS_BY_COMBO[(main_class, subclass)] if s["unlock_level"] <= level]
+    index 0 is always the build's entry skill). A subclassed character below
+    subclass_unlock_level (only possible for characters from before the level gate, or one edited
+    through the admin panel's Player Debug page) falls back to the base-class line rather than
+    getting no skills at all."""
+    skills = [s for s in SKILLS_BY_COMBO[(main_class, subclass)] if s["unlock_level"] <= level]
+    if not skills and subclass != NO_SUBCLASS:
+        return unlocked_skills(main_class, NO_SUBCLASS, level)
+    return skills
 
 
 def validate_class_chip_costs(classes: dict, subclasses: dict) -> None:

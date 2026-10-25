@@ -2,6 +2,8 @@
   {
     "id": "global",
     "xp_per_level": 100,
-    "max_level": 30
+    "max_level": 30,
+    "subclass_unlock_level": 30,
+    "subclass_max_level": 40
   }
 ]

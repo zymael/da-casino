@@ -65,6 +65,7 @@ from mancala_view import (
     start_mancala,
 )
 import moon
+import npcs
 import quests
 import ranch_view
 import room_commands
@@ -1027,13 +1028,23 @@ async def achievements_cmd(ctx):
 
 @bot.command(name="class")
 async def class_cmd(ctx):
-    """Pick your permanent dungeon class (one-time), or check your current one: !class --
-    subclass picking is disabled here for now (SubclassPickerView is unused, not removed --
-    it's coming back via a dedicated subclass-picking event instead of the old auto-unlock-at-
-    level-N flow)."""
+    """Pick your permanent dungeon class (one-time), pick your subclass once unlocked (also
+    one-time), or check your current one: !class. The subclass picker opens at
+    dungeon.subclass_unlock_level() *and* once dungeon.subclass_unlock_quest() is complete -- with
+    no quest configured, it stays closed for everyone."""
     character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
     if character is None:
         view = ClassPickerView(ctx.guild.id, ctx.author.id)
+        await ctx.send(embed=view.build_embed(), view=view)
+        return
+
+    unlock_level = dungeon.subclass_unlock_level()
+    unlock_quest = dungeon.subclass_unlock_quest()
+    quest_done = unlock_quest is not None and await quests.trigger_satisfied(
+        ctx.guild.id, ctx.author.id, {"type": "quest_complete", "quest_id": unlock_quest}
+    )
+    if character["subclass"] == dungeon.NO_SUBCLASS and character["level"] >= unlock_level and quest_done:
+        view = SubclassPickerView(ctx.guild.id, ctx.author.id, character)
         await ctx.send(embed=view.build_embed(), view=view)
         return
 
@@ -1044,7 +1055,7 @@ async def class_cmd(ctx):
     housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, ctx.guild.id, ctx.author.id)
     effective = dungeon.compute_effective_stats(character, equipped, housing_bonuses.get("stat_bonus", {}))
     max_chips = dungeon.compute_stats(character["main_class"], character["subclass"])["chips"]
-    if character["level"] >= dungeon.max_level():
+    if character["level"] >= dungeon.max_level(character["subclass"]):
         level_value = f"{character['level']} (MAX)"
     else:
         xp_needed = dungeon.xp_to_next_level(character["level"])
@@ -1055,9 +1066,14 @@ async def class_cmd(ctx):
     embed.add_field(name="Stats", value=_character_sheet_stats(character, effective, max_chips), inline=True)
     embed.add_field(name="⚔️ Equipment", value="\n".join(_gear_breakdown_lines(equipped)), inline=False)
     if character["subclass"] == dungeon.NO_SUBCLASS:
-        embed.set_footer(
-            text="Class is permanent — subclass picking isn't open yet, stay tuned for an event."
-        )
+        if unlock_quest is None:
+            footer = "Class is permanent. Subclasses aren't open yet, so stay tuned."
+        elif character["level"] < unlock_level:
+            footer = f"Class is permanent. At level {unlock_level}, a subclass is waiting for you."
+        else:
+            npc_name = npcs.NPCS[quests.QUESTS_BY_ID[unlock_quest]["npc"]]["name"]
+            footer = f"You're ready for a subclass. Go see {npc_name}."
+        embed.set_footer(text=footer)
     else:
         embed.set_footer(text="Class/subclass is permanent — gear and levels grow from delving.")
     await ctx.send(embed=embed)

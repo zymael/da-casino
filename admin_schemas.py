@@ -231,6 +231,7 @@ TRIGGER_PARAM_KINDS = {
     "recipe_id": "recipe", "kind": "achievement", "quest_id": "quest",
     "count": "int", "value": "int", "key": "str", "amount": "int",
     "main_class": "main_class", "subclass": "subclass", "phase": "moon_phase",
+    "level": "int",
 }
 # One-line explanations shown under each trigger param box -- the params themselves (tier vs
 # monster_id, drop_monster vs item_id) are easy to mix up out of context, especially since every
@@ -253,6 +254,7 @@ TRIGGER_PARAM_HINTS = {
     "subclass": "optional -- narrows to one specific subclass; blank means any subclass of main_class",
     "phase": "which of the 8 lunar phases (moon.py) must (moon_phase) or must not (not_moon_phase) "
               "currently be showing",
+    "level": "the player's dungeon character level must be at least this (no character = never satisfied)",
 }
 
 DUNGEON_CONTENT = "Dungeon Content"
@@ -693,7 +695,11 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "LEVELING",
         "loader": dungeon._load_leveling,
-        "list_columns": ["id", "xp_per_level", "max_level"],
+        "extra_validators": [
+            lambda new_registry: quests.validate_subclass_unlock_quest(leveling=new_registry),
+            lambda new_registry: dungeon.validate_subclass_entry_skills(new_registry),
+        ],
+        "list_columns": ["id", "xp_per_level", "max_level", "subclass_unlock_level", "subclass_max_level"],
         "fields": [
             {
                 "name": "id", "type": "str", "required": True, "group": "Identity",
@@ -706,6 +712,20 @@ CONTENT_TYPES = {
             {
                 "name": "max_level", "type": "int", "required": True, "min": 1, "group": "Pacing",
                 "hint": "characters stop gaining XP/levels once they hit this -- raise it any time to lift the cap",
+            },
+            {
+                "name": "subclass_unlock_level", "type": "int", "required": True, "min": 1, "group": "Subclasses",
+                "hint": "level a character must reach before !class offers the subclass picker -- also the "
+                        "level each subclass's entry skill unlocks at, so moving it means re-leveling skills too",
+            },
+            {
+                "name": "subclass_max_level", "type": "int", "required": True, "min": 1, "group": "Subclasses",
+                "hint": "level cap for a character who has picked a subclass (must be >= max_level)",
+            },
+            {
+                "name": "subclass_unlock_quest", "type": "str", "required": False, "group": "Subclasses",
+                "hint": "quest id that must be complete before !class offers the subclass picker -- "
+                        "blank keeps subclass picking closed for everyone",
             },
         ],
     },
@@ -742,6 +762,10 @@ CONTENT_TYPES = {
         "module": dungeon,
         "registry_attr": "SKILLS",
         "loader": dungeon._load_skills,
+        # _load_skills checks each skill alone; the per-build "exactly one entry-level skill" rule
+        # lives in _build_skills_by_combo, which would otherwise only run (and refuse to boot) at
+        # the next restart.
+        "extra_validators": [lambda new_registry: dungeon._build_skills_by_combo(new_registry)],
         "list_columns": ["id", "main_class", "subclass", "unlock_level", "name", "chip_cost", "effects", "effect_groups"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
@@ -1113,7 +1137,10 @@ CONTENT_TYPES = {
         # REWARD_REGISTRIES' own comment for why the other kinds -- material, consumable,
         # horse_clothes, housing_item -- can't be fully validated there yet) -- the rest are caught
         # here instead, as an extra save-time check, same "rooms"/"recipes"/"npcs" pattern above.
-        "extra_validators": [lambda new_registry: quests.validate_reward_item_kinds(new_registry)],
+        "extra_validators": [
+            lambda new_registry: quests.validate_reward_item_kinds(new_registry),
+            lambda new_registry: quests.validate_subclass_unlock_quest(quests_by_id=new_registry),
+        ],
         "list_columns": ["id", "name", "npc"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
