@@ -1773,7 +1773,16 @@ def usable_outside_combat(item: dict) -> bool:
     duplicates it."""
     if item.get("energy_restore"):
         return True
-    return any(e["type"] == "heal_fraction" for e in item.get("effects", []))
+    return out_of_combat_heal_fraction(item) is not None
+
+
+def out_of_combat_heal_fraction(item: dict) -> float | None:
+    """The flat fraction of max HP an out-of-combat use of `item` restores -- its first plain
+    `effects` heal_fraction entry's value (see usable_outside_combat for why effect_groups don't
+    count), or None if it has none. Shared by inventory_view.py's UseConsumableButton and a delve's
+    between-fights healing (dungeon_view.py's DelveHealItemSelect/PartyHealItemButton), so both
+    heal exactly the same amount for the same item."""
+    return next((e["value"] for e in item.get("effects", []) if e["type"] == "heal_fraction"), None)
 
 # Loaded here, after EQUIPMENT/MATERIALS/CONSUMABLES: a monster's drops list is cross-validated
 # against them (except "housing_item" drops -- see DROP_KINDS' own comment for why that one's

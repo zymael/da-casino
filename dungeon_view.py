@@ -1,5 +1,6 @@
 import asyncio
 import random
+import re
 
 import discord
 
@@ -792,7 +793,7 @@ async def _build_choice_room_view(session: DelveSession, room: dict) -> "ChoiceR
         if requires is not None:
             ok = await quests.trigger_satisfied(session.guild_id, session.user_id, requires, character=character)
         availability.append(ok)
-    return ChoiceRoomView(session, room, availability)
+    return ChoiceRoomView(session, room, availability, await _solo_heal_items(session))
 
 
 async def _build_room_display(interaction: discord.Interaction, session: DelveSession, intro_text: str = "") -> None:
@@ -956,13 +957,20 @@ class ChoiceRoomView(discord.ui.View):
     straight into a choice room needs its own way to bank loot and leave, same as a combat victory
     already does, rather than forcing a commitment to one of this room's actions."""
 
-    def __init__(self, session: DelveSession, room: dict, availability: list[bool]):
+    def __init__(
+        self, session: DelveSession, room: dict, availability: list[bool], heal_items: list[tuple[dict, int]] | None = None,
+    ):
         super().__init__(timeout=DELVE_ACTION_TIMEOUT)
         self.session = session
         self.room = room
         for i, (action, ok) in enumerate(zip(room["actions"], availability)):
             self.add_item(ChoiceActionButton(action, row=min(3, i // 5), disabled=not ok))
         self.add_item(RetreatFromChoiceButton(row=4))
+        # A Select needs a whole row to itself -- the first row the actions left free, if any
+        # (a room with 16+ actions fills rows 0-3 and simply doesn't offer healing here).
+        heal_row = (len(room["actions"]) - 1) // 5 + 1 if room["actions"] else 0
+        if heal_items and heal_row <= 3:
+            self.add_item(DelveHealItemSelect(heal_items, row=heal_row))
         session.current_view = self
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -994,10 +1002,12 @@ class ChoiceOutcomeView(discord.ui.View):
     Continue/Retreat, same timeout-defaults-to-retreat safety net) since this is the same kind of
     room-boundary pause, just triggered by a choice outcome instead of a combat win."""
 
-    def __init__(self, session: DelveSession, next_room_id: str):
+    def __init__(self, session: DelveSession, next_room_id: str, heal_items: list[tuple[dict, int]] | None = None):
         super().__init__(timeout=DELVE_ACTION_TIMEOUT)
         self.session = session
         self.next_room_id = next_room_id
+        if heal_items:
+            self.add_item(DelveHealItemSelect(heal_items, row=1))
         session.current_view = self
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -1042,8 +1052,202 @@ async def _present_choice_outcome(
 ):
     embed = discord.Embed(title="🚪 Onward", description="\n".join(log_lines), color=discord.Color.blurple())
     embed.add_field(name=f"{session.display_name} (You)", value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(session.hp, 0)}/{session.max_hp}", inline=True)
-    view = ChoiceOutcomeView(session, next_room_id)
+    view = ChoiceOutcomeView(session, next_room_id, await _solo_heal_items(session))
     await interaction.response.edit_message(embed=embed, attachments=[], view=view)
+
+
+# --- Between-fights healing ---------------------------------------------------------------------
+# Every non-combat delve screen (choice room, choice outcome, room cleared -- solo and party) lets
+# a player drink a heal_fraction consumable without it costing a turn. Heals session/member HP
+# (the delve's live source of truth, persisted by set_current_hp on retreat/victory/death), not
+# db.use_healing_item's current_hp column, which the session would just overwrite at the end. Same
+# flat amount as the inventory's own out-of-combat use (dungeon.out_of_combat_heal_fraction), and
+# only the heal applies -- any other effect on the item is combat-only, same as from the inventory.
+# Solo gets an inline Select on the screen itself; party gets one shared button that opens an
+# ephemeral picker of the clicking member's own inventory, since every member holds different items.
+
+PARTY_HEAL_CUSTOM_ID = "party_delve_heal"  # lets the leader-only party views' interaction_check wave it through
+_HP_FRACTION_RE = re.compile(r"\d+/\d+")
+
+
+async def _held_healing_items(guild_id: int, user_id: int) -> list[tuple[dict, int]]:
+    held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
+    items = [
+        (dungeon.CONSUMABLES[item_id], qty) for item_id, qty in held.items()
+        if qty > 0 and item_id in dungeon.CONSUMABLES
+        and dungeon.out_of_combat_heal_fraction(dungeon.CONSUMABLES[item_id]) is not None
+    ]
+    return items[:MAX_SELECT_OPTIONS]
+
+
+async def _solo_heal_items(session: DelveSession) -> list[tuple[dict, int]]:
+    """What a solo non-combat screen's DelveHealItemSelect offers -- nothing at full HP, so the
+    Select only shows up when it would actually do something."""
+    if session.hp >= session.max_hp:
+        return []
+    return await _held_healing_items(session.guild_id, session.user_id)
+
+
+def _heal_item_options(items: list[tuple[dict, int]]) -> list[discord.SelectOption]:
+    return [
+        discord.SelectOption(
+            label=f"{item['name']} (x{qty})"[:100], value=item["id"],
+            description=f"Restores {dungeon.out_of_combat_heal_fraction(item):.0%} of max {dungeon.stat_label('hp')}"[:100],
+        )
+        for item, qty in items
+    ]
+
+
+async def _heal_between_fights(guild_id: int, user_id: int, combatant, item: dict) -> tuple[bool, str]:
+    """Consumes one of `item` and heals `combatant` (a DelveSession or PartyMember) by its flat
+    out-of-combat fraction. Returns (healed, message for the player). The heal lands before the
+    consume await and is backed out if the item turns out to be gone, so a double-submit can't pass
+    the full-HP check twice and burn a second potion on an already-topped-up player."""
+    if combatant.hp >= combatant.max_hp:
+        return False, "You're already at full HP."
+    healed = min(combatant.max_hp, combatant.hp + round(combatant.max_hp * dungeon.out_of_combat_heal_fraction(item))) - combatant.hp
+    combatant.hp += healed
+    consumed = await asyncio.to_thread(db.consume_inventory_item, guild_id, user_id, item["id"], 1)
+    if not consumed:
+        combatant.hp -= healed
+        return False, "You don't have one of those anymore."
+    return True, f"❤️ Used **{item['name']}** and recovered **{healed}** HP ({combatant.hp}/{combatant.max_hp})."
+
+
+def _patch_hp_fields(embed: discord.Embed, message: discord.Message, hp_by_field: dict[str, tuple[int, int]]) -> discord.Embed:
+    """Rewrites the "hp/max" in every embed field named in hp_by_field to that entity's current
+    HP, leaving the rest of the screen (log text, action summaries) exactly as it was -- cheaper
+    than re-rendering the room image, and works on screens whose log lines aren't stored anywhere.
+    Re-points a fetched embed's image back at its attachment, since Discord hands the embed back
+    with the CDN URL and resending that would show the image a second time as a loose file."""
+    for i, field in enumerate(embed.fields):
+        if field.name in hp_by_field:
+            hp, max_hp = hp_by_field[field.name]
+            value = _HP_FRACTION_RE.sub(f"{max(hp, 0)}/{max_hp}", field.value, count=1)
+            embed.set_field_at(i, name=field.name, value=value, inline=field.inline)
+    if embed.image.url and message.attachments:
+        embed.set_image(url=f"attachment://{message.attachments[0].filename}")
+    return embed
+
+
+class DelveHealItemSelect(discord.ui.Select):
+    """Solo between-fights healing, placed on ChoiceRoomView/ChoiceOutcomeView/RoomResultView.
+    Edits the screen in place via its own interaction rather than session.message, since a solo
+    delve's message can be ephemeral (launched from a hub) and those can't be fetched or edited
+    through the channel."""
+
+    def __init__(self, items: list[tuple[dict, int]], row: int):
+        super().__init__(placeholder="❤️ Drink a healing item...", options=_heal_item_options(items), row=row)
+
+    async def callback(self, interaction: discord.Interaction):
+        view = self.view
+        session = view.session
+        if session.current_view is not view:
+            return  # stale screen -- the player already moved on
+        item = dungeon.CONSUMABLES[self.values[0]]
+        ok, text = await _heal_between_fights(session.guild_id, session.user_id, session, item)
+        if not ok:
+            await interaction.response.send_message(text, ephemeral=True)
+            return
+        row = self.row
+        view.remove_item(self)
+        items = await _solo_heal_items(session)
+        if items:
+            view.add_item(DelveHealItemSelect(items, row=row))
+        hp = (session.hp, session.max_hp)
+        embed = _patch_hp_fields(
+            interaction.message.embeds[0], interaction.message,
+            {f"{session.display_name} (You)": hp, dungeon.stat_label("hp"): hp},
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.followup.send(text, ephemeral=True)
+
+
+def _party_heal_allowed(interaction: discord.Interaction) -> bool:
+    """True for a click on a party screen's PartyHealItemButton -- the one component on the
+    leader-only party views any member may use (on themselves only; the button checks membership)."""
+    return (interaction.data or {}).get("custom_id") == PARTY_HEAL_CUSTOM_ID
+
+
+def _add_party_heal_button(view: discord.ui.View, session: "PartyDelveSession", row: int | None = None) -> None:
+    if any(not m.knocked_out and m.hp < m.max_hp for m in session.members):
+        view.add_item(PartyHealItemButton(row=row))
+
+
+class PartyHealItemButton(discord.ui.Button):
+    def __init__(self, row: int | None = None):
+        super().__init__(label="❤️ Use Healing Item", style=discord.ButtonStyle.secondary, row=row, custom_id=PARTY_HEAL_CUSTOM_ID)
+
+    async def callback(self, interaction: discord.Interaction):
+        view = self.view
+        session = view.session
+        member = session.members_by_id.get(interaction.user.id)
+        if member is None:
+            await interaction.response.send_message("You're not in this party.", ephemeral=True)
+            return
+        if member.knocked_out:
+            await interaction.response.send_message("You're knocked out, and a potion won't get you back up.", ephemeral=True)
+            return
+        if member.hp >= member.max_hp:
+            await interaction.response.send_message("You're already at full HP.", ephemeral=True)
+            return
+        items = await _held_healing_items(session.guild_id, member.user_id)
+        if not items:
+            await interaction.response.send_message("You don't have any healing items.", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            "Pick a healing item to drink:", view=PartyHealPickerView(session, view, member, items), ephemeral=True,
+        )
+
+
+class PartyHealPickerView(discord.ui.View):
+    """The ephemeral half of PartyHealItemButton -- one member's own healing items. Remembers which
+    party screen opened it so a pick made after the party has moved on (into combat, or out of the
+    delve) is refused instead of healing mid-fight for free."""
+
+    def __init__(self, session: "PartyDelveSession", source_view: discord.ui.View, member: "PartyMember", items: list[tuple[dict, int]]):
+        super().__init__(timeout=PARTY_ACTION_TIMEOUT)
+        self.session = session
+        self.source_view = source_view
+        self.member = member
+        self.add_item(PartyHealItemSelect(items))
+
+
+class PartyHealItemSelect(discord.ui.Select):
+    def __init__(self, items: list[tuple[dict, int]]):
+        super().__init__(placeholder="❤️ Drink a healing item...", options=_heal_item_options(items))
+
+    async def callback(self, interaction: discord.Interaction):
+        view = self.view
+        session, member = view.session, view.member
+        view.stop()
+        if session.current_view is not view.source_view:
+            await interaction.response.edit_message(content="The party has already moved on.", view=None)
+            return
+        if member.knocked_out:
+            await interaction.response.edit_message(content="You're knocked out, and a potion won't get you back up.", view=None)
+            return
+        item = dungeon.CONSUMABLES[self.values[0]]
+        ok, text = await _heal_between_fights(session.guild_id, member.user_id, member, item)
+        await interaction.response.edit_message(content=text, view=None)
+        if ok:
+            await _refresh_party_hp_display(session)
+
+
+async def _refresh_party_hp_display(session: "PartyDelveSession") -> None:
+    """Re-fetches the party's shared screen (session.message's cached embeds can be stale -- a
+    choice outcome edits it in place through the leader's interaction) and rewrites every member's
+    HP from live state, so two members healing at once both end up shown correctly."""
+    if session.message is None:
+        return
+    try:
+        message = await session.message.channel.fetch_message(session.message.id)
+        if not message.embeds:
+            return
+        embed = _patch_hp_fields(message.embeds[0], message, {m.label: (m.hp, m.max_hp) for m in session.members})
+        await message.edit(embed=embed)
+    except discord.HTTPException:
+        pass
 
 
 def _cleanup(entity) -> None:
@@ -1274,9 +1478,11 @@ class CombatView(discord.ui.View):
 
 
 class RoomResultView(discord.ui.View):
-    def __init__(self, session: DelveSession):
+    def __init__(self, session: DelveSession, heal_items: list[tuple[dict, int]] | None = None):
         super().__init__(timeout=DELVE_ACTION_TIMEOUT)
         self.session = session
+        if heal_items:
+            self.add_item(DelveHealItemSelect(heal_items, row=1))
         session.current_view = self
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -2534,7 +2740,7 @@ async def _present_room_result(interaction: discord.Interaction, session: DelveS
         return
 
     embed.description += "\n\nRetreat with your loot, or push deeper for a tougher fight and better rewards?"
-    view = RoomResultView(session)
+    view = RoomResultView(session, await _solo_heal_items(session))
     await _edit_response(interaction, embed=embed, attachments=[], view=view)
 
 
@@ -3466,9 +3672,12 @@ class PartyChoiceRoomView(discord.ui.View):
         for i, (action, ok) in enumerate(zip(room["actions"], availability)):
             self.add_item(PartyChoiceActionButton(action, row=min(3, i // 5), disabled=not ok))
         self.add_item(PartyRetreatFromChoiceButton(row=4))
+        _add_party_heal_button(self, session, row=4)
         session.current_view = self
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if _party_heal_allowed(interaction):
+            return True
         if interaction.user.id != self.leader.user_id:
             await interaction.response.send_message("Only the party leader can decide this.", ephemeral=True)
             return False
@@ -3499,9 +3708,12 @@ class PartyChoiceOutcomeView(discord.ui.View):
         super().__init__(timeout=PARTY_ACTION_TIMEOUT)
         self.session = session
         self.next_room_id = next_room_id
+        _add_party_heal_button(self, session)
         session.current_view = self
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if _party_heal_allowed(interaction):
+            return True
         leader = next(m for m in self.session.members if m.is_leader)
         if interaction.user.id != leader.user_id:
             await interaction.response.send_message("Only the party leader can decide this.", ephemeral=True)
@@ -3693,9 +3905,12 @@ class PartyRoomResultView(discord.ui.View):
     def __init__(self, session: PartyDelveSession):
         super().__init__(timeout=PARTY_ACTION_TIMEOUT)
         self.session = session
+        _add_party_heal_button(self, session)
         session.current_view = self
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if _party_heal_allowed(interaction):
+            return True
         leader = next(m for m in self.session.members if m.is_leader)
         if interaction.user.id != leader.user_id:
             await interaction.response.send_message("Only the party leader can decide this.", ephemeral=True)

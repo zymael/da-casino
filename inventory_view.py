@@ -338,7 +338,7 @@ class UseConsumableButton(discord.ui.Button):
                 db.use_energy_item, guild_id, user_id, self.item_id, item["energy_restore"]
             )
         else:
-            heal_fraction = next(e["value"] for e in item["effects"] if e["type"] == "heal_fraction")
+            heal_fraction = dungeon.out_of_combat_heal_fraction(item)
             status, value = await asyncio.to_thread(
                 db.use_healing_item, guild_id, user_id, self.item_id, heal_fraction
             )
