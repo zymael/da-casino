@@ -20,6 +20,9 @@ COAT_COLORS = [
 # something new foals can randomly roll into. Kept as a named constant so its meaning is
 # documented, even though nothing in this file references it directly.
 SPECIAL_COAT_RED_SPOTTED = "Red Spotted"
+# Also never rolled at random: every foal bought during a Mane-hay-tan Fallout gets it (see
+# manhattan.py and bot.py's _buy_foal). Its sprite is irradiated.png, the default name mapping.
+SPECIAL_COAT_IRRADIATED = "Irradiated"
 
 
 def random_sex() -> str:

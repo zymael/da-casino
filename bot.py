@@ -1577,8 +1577,9 @@ async def _buy_foal(ctx, name: str):
         return
 
     horse_index = await asyncio.to_thread(db.next_horse_index, ctx.guild.id, horserace.LEGEND_COUNT)
-    sex, coat = horserace.random_sex(), horserace.random_coat()
     irradiated = await asyncio.to_thread(manhattan.fallout_active, ctx.guild.id)
+    sex = horserace.random_sex()
+    coat = horserace.SPECIAL_COAT_IRRADIATED if irradiated else horserace.random_coat()
     status, balance = await asyncio.to_thread(
         db.buy_foal, ctx.guild.id, horse_index, ctx.author.id, name, horserace.FOAL_PRICE,
         *horserace.FOAL_BASE_STATS.values(), sex, coat, horserace.MAX_HORSES_PER_PLAYER, irradiated,

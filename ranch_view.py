@@ -72,7 +72,7 @@ def _stable_entry(horse: dict, worn: dict[str, str], irradiated: bool) -> str:
         training = "🏋️ Train ready"
     status = [health, racing, training]
     if irradiated:
-        status.append(f"☢️ Irradiated (stats cap {manhattan.FALLOUT_STAT_CAP})")
+        status.append(f"☢️ Stats cap {manhattan.FALLOUT_STAT_CAP}")
     if horse["pending_boost_stat"]:
         status.append(f"🧪 {horse['pending_boost_stat']} boost queued")
     if worn:
