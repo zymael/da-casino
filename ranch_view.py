@@ -11,6 +11,7 @@ import manhattan
 
 MAX_RANCH_HORSES = 10  # Discord embed field values cap at 1024 chars -- same cap style as !stats
 MAX_SELECT_OPTIONS = 25  # Discord's hard limit on a single Select's options
+_ROSTER_FIELD_BUDGET = 1024 - 60  # Discord's field value cap, minus room for the "...and N more" line
 
 
 class HorsePickerSelect(discord.ui.Select):
@@ -220,16 +221,23 @@ async def extra_embed_fields(guild_id: int, user_id: int) -> list[tuple[str, str
                 boost_text += f" — 🤕 injured, back <t:{healed_at}:R>"
             worn = equipped_clothes.get(horse["horse_index"], {})
             clothes_text = (
-                " — " + ", ".join(horse_clothes.HORSE_CLOTHES[item_id]["name"] for item_id in worn.values())
+                " — " + ", ".join(horse_clothes.HORSE_CLOTHES[item_id]["name"] for item_id in worn.values()
+                                  if item_id in horse_clothes.HORSE_CLOTHES)
                 if worn else ""
             )
-            lines.append(
+            line = (
                 f"{kind} **{horse['horse_index'] + 1}. {horse['name']}** {sex_symbol} {horse['coat']} — "
                 f"Age {horse['age']}\nSPD {horse['speed']:.0f} / END {horse['endurance']:.0f} / "
                 f"SPI {horse['spirit']:.0f} — {record}{boost_text}{clothes_text}"
             )
-        if len(owned) > MAX_RANCH_HORSES:
-            lines.append(f"...and {len(owned) - MAX_RANCH_HORSES} more — see `!horses`.")
+            # Injuries, boosts and gear make a line long enough that 10 horses can overflow
+            # Discord's 1024-char field cap, which fails the whole Ranch embed -- stop early instead,
+            # keeping room for the "...and N more" line.
+            if len("\n\n".join(lines + [line])) > _ROSTER_FIELD_BUDGET:
+                break
+            lines.append(line)
+        if len(owned) > len(lines):
+            lines.append(f"...and {len(owned) - len(lines)} more — see `!stable`.")
         fields.append((f"Your Horses ({len(owned)})", "\n\n".join(lines), False))
         footer = (
             f"Train/Boost ask which horse when clicked. Boost items cost {horserace.ITEM_COST} {currency} each. "
