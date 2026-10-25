@@ -237,5 +237,73 @@
     },
     "start_stage": "stage_0",
     "next_ordinal": 1
+  },
+  {
+    "id": "mondor_pick_a_suit",
+    "name": "MONDOR DEALS YOU IN",
+    "npc": "mondor",
+    "start_trigger": {
+      "type": "level_at_least",
+      "level": 30
+    },
+    "complete_message": "Mondor has dealt you in. Run `!class` to pick your subclass.",
+    "start_stage": "stage_0",
+    "next_ordinal": 2,
+    "layout": {
+      "stage_0": {
+        "x": 40,
+        "y": 40
+      },
+      "stage_1": {
+        "x": 260,
+        "y": 40
+      }
+    },
+    "stages": [
+      {
+        "id": "stage_0",
+        "ordinal": 0,
+        "prompt": "ADVENTURER. YOU HAVE PLAYED THE SAME FACE CARD FOR THIRTY LEVELS. MONDOR IS BORED FOR YOU. BUT A SUIT IS NOT GIVEN TO THE WEAK. IN THE BACK OF THE PIZZA PALACE, THEY ARE COOKING SOMETHING THAT SHOULD NOT BE ORDERED. LET IT FINISH. THEN SLAY THE NUMBER 5 AT THE THRESHOLD, AND MONDOR WILL CONSIDER DEALING YOU IN.",
+        "journal_text": "Defeat The Number 5 at the Threshold in the back of Da Big Cheeze Pizza Palace, then report back to Mondor.",
+        "topic_label": "\ud83c\udfb4 Ask about subclasses",
+        "discuss_with": [
+          "mondor"
+        ],
+        "paths": [
+          {
+            "trigger": {
+              "type": "kill_monster",
+              "count": 1,
+              "monster_id": "old_god_pizza"
+            },
+            "on_complete_message": "YOU ATE THE OLD GOD. MONDOR IS IMPRESSED. MONDOR IS ALSO SLIGHTLY AFRAID OF YOU NOW. NOW THE BUY-IN. EVEN DESTINY HAS A TABLE MINIMUM. TWENTY-FIVE HUNDRED, ON THE FELT, BEFORE MONDOR DEALS.",
+            "x": 230,
+            "y": 40,
+            "next": "stage_1"
+          }
+        ]
+      },
+      {
+        "id": "stage_1",
+        "ordinal": 1,
+        "prompt": "NOW THE BUY-IN. EVEN DESTINY HAS A TABLE MINIMUM. TWENTY-FIVE HUNDRED, ON THE FELT, BEFORE MONDOR DEALS.",
+        "journal_text": "Pay Mondor the 2500 buy-in.",
+        "discuss_with": [
+          "mondor"
+        ],
+        "paths": [
+          {
+            "trigger": {
+              "type": "pay_currency",
+              "amount": 2500
+            },
+            "on_complete_message": "CUT THE DECK, ADVENTURER. WHATEVER SUIT TURNS UP WAS YOURS ALL ALONG. TYPE !CLASS AND MEET YOUR DESTINY. MONDOR WILL BE OVER HERE. CRYING. IT IS BEAUTIFUL.",
+            "x": 450,
+            "y": 40,
+            "turn_in_label": "\ud83d\udcb0 Pay the buy-in"
+          }
+        ]
+      }
+    ]
   }
 ]
