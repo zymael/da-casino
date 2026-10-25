@@ -207,7 +207,7 @@
     "id": "los_alamares",
     "name": "\u2622\ufe0f Los Alamares",
     "description": "The Dubious Research Lab. Nobody here has a degree, but everybody has a clipboard. Something behind the blast door is humming.",
-    "background_path": "assets/rooms/the_front.png",
+    "background_path": "assets/rooms/los_alamares.png",
     "exits": [
       {
         "room_id": "ranch",
