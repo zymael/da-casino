@@ -2265,7 +2265,14 @@ async def _raid_resolve(
     success = random.random() < chance
     if success and op.immunity:
         await asyncio.to_thread(db.set_flag, guild_id, member.id, op.immune_flag, now + war.OP_IMMUNITY_SECONDS)
-    await _OP_OUTCOMES[op.id](ctx, member, success, f"(Odds were {chance:.0%}.)", operative, rescue_index)
+    landed = await _OP_OUTCOMES[op.id](ctx, member, success, f"(Odds were {chance:.0%}.)", operative, rescue_index)
+    if landed:
+        await achievements.try_award_many(ctx.send, guild_id, user_id, ctx.author.display_name, [_OP_ACHIEVEMENTS[op.id]])
+    elif not success:
+        if sentry is not None:
+            await achievements.try_award_many(ctx.send, guild_id, member.id, member.display_name, ["sentry_save"])
+        if op.id == "hitman":
+            await achievements.try_award_many(ctx.send, guild_id, user_id, ctx.author.display_name, ["raid_hitman_busted"])
 
 
 async def _spy_outcome(ctx, member, success, odds, spy, _rescue_index):
@@ -2299,6 +2306,7 @@ async def _spy_outcome(ctx, member, success, odds, spy, _rescue_index):
         await ctx.send(f"🕵️ {name}'s **{spy['name']}** comes home with a fat folder. Check your DMs. {odds}")
     except discord.HTTPException:
         await ctx.send(f"🕵️ {name}'s **{spy['name']}** comes home with a fat folder. Your DMs are closed, so here it is. {odds}", embed=embed)
+    return True
 
 
 async def _thief_outcome(ctx, member, success, odds, raider, _rescue_index):
@@ -2324,7 +2332,7 @@ async def _thief_outcome(ctx, member, success, odds, raider, _rescue_index):
         f"{member.display_name}'s stable and leads **{prize['name']}** away. It's theirs now. {odds}\n"
         f"🛟 {member.display_name} has {war.RESCUE_WINDOW_SECONDS // 86400} days to try a rescue."
     )
-    await achievements.try_award_many(ctx.send, guild_id, raider_id, ctx.author.display_name, ["raid_success"])
+    return True
 
 
 async def _hitman_outcome(ctx, member, success, odds, _operative, _rescue_index):
@@ -2349,6 +2357,7 @@ async def _hitman_outcome(ctx, member, success, odds, _operative, _rescue_index)
         await asyncio.to_thread(db.set_flag, guild_id, member.id, db.WAR_SENTRY_FLAG, 0)
         line += f"\n🛡️ That was the sentry. Nobody's watching {member.display_name}'s stable now."
     await ctx.send(line)
+    return True
 
 
 async def _smuggler_outcome(ctx, member, success, odds, smuggler, _rescue_index):
@@ -2368,6 +2377,7 @@ async def _smuggler_outcome(ctx, member, success, odds, smuggler, _rescue_index)
         f"{member.mention}\n💰 {name}'s **{smuggler['name']}** trots out of {member.display_name}'s place with "
         f"saddlebags full: **{amount} {currency}** lifted. {odds}"
     )
+    return True
 
 
 async def _arsonist_outcome(ctx, member, success, odds, _operative, _rescue_index):
@@ -2391,6 +2401,7 @@ async def _arsonist_outcome(ctx, member, success, odds, _operative, _rescue_inde
         f"{member.mention}\n🔥 {name} puts a torch to {member.display_name}'s fortress. It won't hold a line "
         f"for {war.ARSON_SECONDS // 3600}h. {odds}"
     )
+    return True
 
 
 async def _propaganda_outcome(ctx, member, success, odds, _operative, _rescue_index):
@@ -2409,6 +2420,7 @@ async def _propaganda_outcome(ctx, member, success, odds, _operative, _rescue_in
         f"next war within {war.PROPAGANDA_SECONDS // 3600}h, every unit fights with "
         f"-{war.PROPAGANDA_SPIRIT_PENALTY} Spirit. {odds}"
     )
+    return True
 
 
 async def _rescue_outcome(ctx, member, success, odds, rescuer, rescue_index):
@@ -2433,7 +2445,20 @@ async def _rescue_outcome(ctx, member, success, odds, rescuer, rescue_index):
         f"{member.mention}\n🛟 {name}'s **{rescuer['name']}** breaks **{target_name}** out of "
         f"{member.display_name}'s stable and brings it home. {odds}"
     )
+    return True
 
+
+# Each outcome returns True only when the job actually landed (a success that still found an empty
+# stall doesn't count) -- that's what earns _OP_ACHIEVEMENTS.
+_OP_ACHIEVEMENTS = {
+    "spy": "raid_spy_success",
+    "thief": "raid_success",
+    "hitman": "raid_hitman_success",
+    "smuggler": "raid_smuggler_success",
+    "arsonist": "raid_arsonist_success",
+    "propaganda": "raid_propaganda_success",
+    "rescue": "raid_rescue_success",
+}
 
 _OP_OUTCOMES = {
     "spy": _spy_outcome,
