@@ -216,7 +216,8 @@
       },
       {
         "type": "chip_gain",
-        "value": 8
+        "value": 8,
+        "target": "self"
       }
     ],
     "chip_cost": 0,
