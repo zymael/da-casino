@@ -17,6 +17,7 @@ import db
 from blackjack_view import active_tables as active_blackjack_tables, start_blackjack_table
 import dreams
 import dungeon
+import effect_text
 from dungeon_view import (
     ClassPickerView,
     DuelChallengeView,
@@ -1096,15 +1097,8 @@ async def class_cmd(ctx):
 
 
 def _skill_effect_text(skill: dict) -> str:
-    """One line of compact mechanical fragments (admin_server.format_effect, e.g. 'Dmg x1.8'),
-    ' + '-joined -- or, for a skill using effect_groups instead (weighted random alternatives), one
-    such line per group joined by ' or '."""
-    if skill.get("effects"):
-        return " + ".join(admin_server.format_effect(e) for e in skill["effects"])
-    return " or ".join(
-        " + ".join(admin_server.format_effect(e) for e in group["effects"])
-        for group in skill.get("effect_groups", [])
-    )
+    """What a skill does, grouped by who it lands on -- see effect_text.describe_skill."""
+    return effect_text.describe_skill(skill)
 
 
 def _skill_stat_label(skill: dict) -> str:
@@ -1203,7 +1197,20 @@ async def combathelp_cmd(ctx):
         f"{_skill_effect_text(skill)}"
         for skill in skills
     ]
-    embed.add_field(name="Your Skills", value="\n".join(skill_lines), inline=False)
+    # Split across fields -- one embed field caps at 1024 characters, and a full skill list overflows it.
+    chunks: list[list[str]] = [[]]
+    for line in skill_lines:
+        if chunks[-1] and len("\n".join(chunks[-1] + [line])) > 1024:
+            chunks.append([])
+        chunks[-1].append(line[:1024])
+    for i, chunk in enumerate(chunks):
+        embed.add_field(name="Your Skills" if i == 0 else "​", value="\n".join(chunk), inline=False)
+    embed.add_field(
+        name="Reading skills",
+        value="**You** is you, **Ally** is the teammate you have selected (you, when solo), **Party** is "
+              "everyone on your side. ⚠️ marks a drawback the skill puts on your own side.",
+        inline=False,
+    )
     embed.set_footer(text="!skills for full flavor text -- !class for your current stat values.")
     await ctx.send(embed=embed)
 

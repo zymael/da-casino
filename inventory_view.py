@@ -14,6 +14,7 @@ import discord
 
 import db
 import dungeon
+import effect_text
 import horse_clothes
 import housing
 import quests
@@ -105,46 +106,13 @@ def _equipment_summary(item: dict) -> str:
 
 
 def _effect_phrase(effect: dict) -> str:
-    """A short player-facing description of one on_use/on_hit effect -- e.g. '1.5x damage' or
-    'enemy DEF −3' -- used by dynamic_effect_lines. Deliberately terser than
-    admin_schemas.EFFECT_TYPE_HINTS, which is authoring-oriented text for someone filling in a
-    form, not a player reading their own gear."""
-    t, v = effect["type"], effect.get("value")
-    if t == "damage_multiplier":
-        return f"{v}x damage"
-    if t == "heal_fraction":
-        return f"heal {v * 100:.0f}% HP"
-    if t == "guard":
-        return f"block {effect['reduction'] * 100:.0f}% of the next hit"
-    if t == "lifesteal_fraction":
-        return f"drain {v * 100:.0f}% of the damage as HP"
-    if t == "def_shred":
-        return f"enemy DEF −{v}"
-    if t == "extra_attack":
-        return f"bonus attack (x{effect.get('multiplier', 1.0)})"
-    if t == "atk_buff":
-        return f"ATK +{v}"
-    if t == "def_buff":
-        return f"DEF +{v}"
-    if t == "spatk_buff":
-        return f"{dungeon.stat_label('spatk')} +{v}"
-    if t == "hp_buff":
-        return f"Max HP +{v}"
-    if t == "chip_gain":
-        return f"Chips +{v}"
-    if t == "atk_debuff":
-        return f"enemy ATK −{v}"
-    if t == "spatk_debuff":
-        return f"enemy {dungeon.stat_label('spatk')} −{v}"
-    if t == "dodge_buff":
-        return f"Dodge +{v * 100:.0f}% for {effect['duration']} round(s)"
-    if t == "resist_buff":
-        return f"Resist +{v * 100:.0f}% for {effect['duration']} round(s)"
-    if t == "dot":
-        return f"{v} dmg/round for {effect['duration']} round(s)"
-    if t == "hot":
-        return f"heal {v * 100:.0f}% HP/round for {effect['duration']} round(s)"
-    return t
+    """A short player-facing description of one on_use/on_hit effect -- e.g. '1.5× damage' or
+    'enemy Cover −3' -- used by dynamic_effect_lines. Same vocabulary as !skills (effect_text),
+    with the item's exact authored heal rather than a skill's caster-scaled one."""
+    phrase = effect_text.effect_phrase(effect, scales_with_caster=False)
+    if effect_text.recipient(effect) in ("Enemy", "All enemies") and effect["type"] not in dungeon.MODS_ONLY_EFFECT_TYPES:
+        return f"enemy takes {phrase}" if effect["type"] == "dot" else f"enemy {phrase}"
+    return phrase
 
 
 def dynamic_effect_lines(item: dict) -> list[str]:
