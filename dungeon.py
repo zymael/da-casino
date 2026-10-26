@@ -892,6 +892,16 @@ def _load_leveling(path: str = _LEVELING_PATH) -> dict[str, dict]:
             raise ValueError(
                 f"dungeon_leveling.json: entry {entry_id!r} subclass_max_level must be >= max_level"
             )
+        base_cost = entry.get("subclass_change_base_cost", 0)
+        max_cost = entry.get("subclass_change_max_cost", 0)
+        if not isinstance(base_cost, int) or base_cost < 0 or not isinstance(max_cost, int) or max_cost < 0:
+            raise ValueError(
+                f"dungeon_leveling.json: entry {entry_id!r} subclass_change_base_cost/max_cost must be ints >= 0"
+            )
+        if max_cost < base_cost:
+            raise ValueError(
+                f"dungeon_leveling.json: entry {entry_id!r} subclass_change_max_cost must be >= subclass_change_base_cost"
+            )
         leveling[entry_id] = entry
     if set(leveling) != {"global"}:
         raise ValueError(
@@ -990,6 +1000,22 @@ def subclass_unlock_quest() -> str | None:
     while none is configured -- in which case the picker stays closed for everyone. Cross-validated
     against QUESTS_BY_ID at the bottom of quests.py (this module can't import quests -- circular)."""
     return LEVELING["global"].get("subclass_unlock_quest") or None
+
+
+# flags-table key counting how many times a character has swapped subclass -- what prices the next one.
+SUBCLASS_CHANGES_FLAG = "subclass_changes"
+
+
+def subclass_change_cost(changes_made: int) -> int:
+    """Price of a character's next subclass change, given how many they've already made: the first
+    is free, then subclass_change_base_cost doubling each time, capped at subclass_change_max_cost
+    (both in dungeon_leveling.json). Never resets."""
+    if changes_made <= 0:
+        return 0
+    base = LEVELING["global"].get("subclass_change_base_cost", 0)
+    cap = LEVELING["global"].get("subclass_change_max_cost", 0)
+    # Exponent clamped so a long-lived character's count can't build an enormous int just to be capped.
+    return min(cap, base * 2 ** min(changes_made - 1, 32))
 
 
 # --- Skills ----------------------------------------------------------------------------------

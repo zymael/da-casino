@@ -732,6 +732,14 @@ CONTENT_TYPES = {
                 "hint": "quest id that must be complete before !class offers the subclass picker -- "
                         "blank keeps subclass picking closed for everyone",
             },
+            {
+                "name": "subclass_change_base_cost", "type": "int", "required": False, "min": 0, "group": "Subclasses",
+                "hint": "price of a character's 2nd subclass change (the 1st is free) -- doubles with each change after",
+            },
+            {
+                "name": "subclass_change_max_cost", "type": "int", "required": False, "min": 0, "group": "Subclasses",
+                "hint": "the doubling stops here -- every change past the cap costs exactly this",
+            },
         ],
     },
     "stat_labels": {

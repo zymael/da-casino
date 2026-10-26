@@ -26,6 +26,7 @@ from dungeon_view import (
     build_duel_challenge_embed,
     build_duel_target_picker,
     build_mode_choice_display,
+    build_subclass_change_view,
     start_duel,
 )
 import horse_clothes_view
@@ -1039,10 +1040,11 @@ async def achievements_cmd(ctx):
 
 @bot.command(name="class")
 async def class_cmd(ctx):
-    """Pick your permanent dungeon class (one-time), pick your subclass once unlocked (also
-    one-time), or check your current one: !class. The subclass picker opens at
-    dungeon.subclass_unlock_level() *and* once dungeon.subclass_unlock_quest() is complete -- with
-    no quest configured, it stays closed for everyone."""
+    """Pick your permanent dungeon class (one-time), pick your subclass once unlocked, or check your
+    current one: !class. The subclass picker opens at dungeon.subclass_unlock_level() *and* once
+    dungeon.subclass_unlock_quest() is complete -- with no quest configured, it stays closed for
+    everyone. A subclassed character's sheet carries a button to change it, priced by
+    dungeon.subclass_change_cost."""
     character = await asyncio.to_thread(db.get_character, ctx.guild.id, ctx.author.id)
     if character is None:
         view = ClassPickerView(ctx.guild.id, ctx.author.id)
@@ -1085,9 +1087,12 @@ async def class_cmd(ctx):
             npc_name = npcs.NPCS[quests.QUESTS_BY_ID[unlock_quest]["npc"]]["name"]
             footer = f"You're ready for a subclass. Go see {npc_name}."
         embed.set_footer(text=footer)
-    else:
-        embed.set_footer(text="Class/subclass is permanent — gear and levels grow from delving.")
-    await ctx.send(embed=embed)
+        await ctx.send(embed=embed)
+        return
+    embed.set_footer(text="Class is permanent. Subclass can be changed, at a price that rises each time.")
+    changes = await asyncio.to_thread(db.get_flag, ctx.guild.id, ctx.author.id, dungeon.SUBCLASS_CHANGES_FLAG)
+    currency = await asyncio.to_thread(db.get_currency_name, ctx.guild.id)
+    await ctx.send(embed=embed, view=build_subclass_change_view(ctx.author.id, changes, currency))
 
 
 def _skill_effect_text(skill: dict) -> str:

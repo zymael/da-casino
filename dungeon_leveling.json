@@ -5,6 +5,8 @@
     "max_level": 30,
     "subclass_unlock_level": 30,
     "subclass_max_level": 40,
-    "subclass_unlock_quest": "mondor_pick_a_suit"
+    "subclass_unlock_quest": "mondor_pick_a_suit",
+    "subclass_change_base_cost": 1000,
+    "subclass_change_max_cost": 10000
   }
 ]

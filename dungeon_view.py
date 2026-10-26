@@ -5013,6 +5013,7 @@ class SubclassSelect(discord.ui.Select):
         options = [
             discord.SelectOption(label=label, value=value, description=desc)
             for value, label, desc in _subclass_options(picker.main_class)
+            if value != picker.character["subclass"]
         ]
         super().__init__(placeholder="Choose your subclass...", options=options, row=1)
         self.picker = picker
@@ -5113,15 +5114,23 @@ class SubclassPickerView(discord.ui.View):
     Picking one also lifts their level cap (dungeon.max_level(subclass)). Base-class skills stay:
     dungeon.unlocked_skills layers the subclass's skills on top, upgrading the ones a subclass
     skill "replaces" -- nothing to persist beyond the stored subclass itself. Permanent once picked,
-    same one-shot guard shape as ClassPickerView/db.create_character (see db.choose_subclass)."""
+    same one-shot guard shape as ClassPickerView/db.create_character (see db.choose_subclass).
 
-    def __init__(self, guild_id: int, user_id: int, character: dict):
+    A character who already has a subclass gets the same picker in change mode instead (opened by
+    SubclassChangeButton on their !class sheet): their current subclass is left out of the Select,
+    and confirming swaps it via db.change_subclass for dungeon.subclass_change_cost(changes_made)."""
+
+    def __init__(self, guild_id: int, user_id: int, character: dict, changes_made: int = 0, currency_name: str = ""):
         super().__init__(timeout=120)
         self.guild_id = guild_id
         self.user_id = user_id
         self.character = character
         self.main_class = character["main_class"]
         self.level = character["level"]
+        self.changing = character["subclass"] != dungeon.NO_SUBCLASS
+        self.changes_made = changes_made
+        self.cost = dungeon.subclass_change_cost(changes_made) if self.changing else 0
+        self.currency_name = currency_name
         self.subclass: str | None = None
         self.add_item(SubclassSelect(self))
         self.add_item(SubclassConfirmButton(self))
@@ -5133,13 +5142,27 @@ class SubclassPickerView(discord.ui.View):
         return True
 
     def build_embed(self) -> discord.Embed:
-        embed = discord.Embed(title="🎴 Choose Your Subclass", color=discord.Color.blurple())
-        embed.description = (
-            f"Level {self.level}. This choice is **permanent**. You keep your skills: a subclass "
-            "upgrades some of them and adds new ones as you level, and your level cap rises to "
-            f"{dungeon.LEVELING['global']['subclass_max_level']}. Pick a subclass, then confirm."
-        )
+        if self.changing:
+            current = dungeon.display_name(self.main_class, self.character["subclass"])
+            price = "**free** this time" if self.cost == 0 else f"**{self.cost:,} {self.currency_name}**"
+            next_cost = dungeon.subclass_change_cost(self.changes_made + 1)
+            embed = discord.Embed(title="🎴 Change Your Subclass", color=discord.Color.blurple())
+            embed.description = (
+                f"Current subclass: **{current}**. Switching costs {price}, and the next switch after this one "
+                f"costs {next_cost:,}. Your subclass stats and skills move to the new suit; your level "
+                "and gear stay. Pick a subclass, then confirm."
+            )
+        else:
+            embed = discord.Embed(title="🎴 Choose Your Subclass", color=discord.Color.blurple())
+            embed.description = (
+                f"Level {self.level}. You keep your skills: a subclass upgrades some of them and adds "
+                "new ones as you level, and your level cap rises to "
+                f"{dungeon.LEVELING['global']['subclass_max_level']}. You can change it later, "
+                "for a price. Pick a subclass, then confirm."
+            )
         for sid, entry in dungeon.SUBCLASSES.items():
+            if sid == self.character["subclass"]:
+                continue
             build = dungeon.CLASS_BUILDS[f"{self.main_class}_{sid}"]
             embed.add_field(
                 name=f"{entry['symbol']} {build['display_name']}",
@@ -5148,16 +5171,15 @@ class SubclassPickerView(discord.ui.View):
                 inline=False,
             )
         if self.subclass:
+            # The old subclass's modifier comes back off first (zero for NO_SUBCLASS on a first pick).
+            old = dungeon.subclass_entry(self.character["subclass"])
             mod = dungeon.SUBCLASSES[self.subclass]
             name = dungeon.display_name(self.main_class, self.subclass)
             stats = {
-                "hp": self.character["hp"] + mod["hp"],
-                "atk": self.character["atk"] + mod["atk"],
-                "def": self.character["def"] + mod["def"],
-                "spatk": self.character["spatk"] + mod["spatk"],
-                "speed": self.character["speed"] + mod["speed"],
-                "chips": dungeon.compute_stats(self.main_class, self.subclass)["chips"],
+                stat: self.character[stat] - old[stat] + mod[stat]
+                for stat in ("hp", "atk", "def", "spatk", "speed")
             }
+            stats["chips"] = dungeon.compute_stats(self.main_class, self.subclass)["chips"]
             skill_lines = "\n".join(
                 f"Upgrade: {base['name']} → **{upgrade['name']}**: {upgrade['flavor']}"
                 for base, upgrade in dungeon.skill_upgrades(self.main_class, self.subclass, self.level)
@@ -5181,6 +5203,9 @@ class SubclassConfirmButton(discord.ui.Button):
         picker = self.picker
         if not picker.subclass:
             await interaction.response.send_message("Pick a subclass first.", ephemeral=True)
+            return
+        if picker.changing:
+            await self._change(interaction)
             return
 
         mod = dungeon.SUBCLASSES[picker.subclass]
@@ -5206,6 +5231,71 @@ class SubclassConfirmButton(discord.ui.Button):
         )
         await interaction.response.edit_message(embed=embed, view=None)
         picker.stop()
+
+    async def _change(self, interaction: discord.Interaction):
+        picker = self.picker
+        # A live session copied the subclass (and its skills) when it started -- swapping under it
+        # would leave the fight running on the old build.
+        if picker.user_id in active_delves or picker.user_id in busy_players:
+            await interaction.response.send_message("Finish what you're in the middle of first.", ephemeral=True)
+            return
+        old_subclass = picker.character["subclass"]
+        old, new = dungeon.SUBCLASSES[old_subclass], dungeon.SUBCLASSES[picker.subclass]
+        status, balance = await asyncio.to_thread(
+            db.change_subclass, picker.guild_id, picker.user_id, old_subclass, picker.subclass,
+            *(new[stat] - old[stat] for stat in ("hp", "atk", "def", "spatk", "speed")),
+            dungeon.SUBCLASS_CHANGES_FLAG, picker.changes_made, picker.cost,
+        )
+        if status == "broke":
+            await interaction.response.send_message(
+                f"That costs {picker.cost:,} {picker.currency_name} and you have {balance:,}.", ephemeral=True
+            )
+            return
+        if status == "stale":
+            await interaction.response.edit_message(
+                content="Your subclass changed since this opened. Run `!class` again.", embed=None, view=None
+            )
+            picker.stop()
+            return
+
+        name = dungeon.display_name(picker.main_class, picker.subclass)
+        paid = "No charge this time." if picker.cost == 0 else f"Paid {picker.cost:,} {picker.currency_name}."
+        embed = discord.Embed(
+            title=f"✅ You are now a {name}!",
+            description=f"{paid} Next change costs {dungeon.subclass_change_cost(picker.changes_made + 1):,}.\n"
+                        f"Use `!skills` to see your new skill line.",
+            color=discord.Color.green(),
+        )
+        await interaction.response.edit_message(embed=embed, view=None)
+        picker.stop()
+
+
+class SubclassChangeButton(discord.ui.Button):
+    """On a subclassed character's !class sheet -- opens SubclassPickerView in change mode, privately.
+    Re-reads the character and change count on click rather than trusting the sheet's snapshot."""
+
+    def __init__(self, user_id: int, cost: int, currency_name: str):
+        label = "Change Subclass (free)" if cost == 0 else f"Change Subclass ({cost:,} {currency_name})"
+        super().__init__(label=label, style=discord.ButtonStyle.secondary)
+        self.user_id = user_id
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't your character.", ephemeral=True)
+            return
+        guild_id = interaction.guild.id
+        character = await asyncio.to_thread(db.get_character, guild_id, self.user_id)
+        changes = await asyncio.to_thread(db.get_flag, guild_id, self.user_id, dungeon.SUBCLASS_CHANGES_FLAG)
+        currency = await asyncio.to_thread(db.get_currency_name, guild_id)
+        picker = SubclassPickerView(guild_id, self.user_id, character, changes, currency)
+        await interaction.response.send_message(embed=picker.build_embed(), view=picker, ephemeral=True)
+
+
+def build_subclass_change_view(user_id: int, changes_made: int, currency_name: str) -> discord.ui.View:
+    """The one-button view bot.py's class_cmd attaches to a subclassed character's sheet."""
+    view = discord.ui.View(timeout=300)
+    view.add_item(SubclassChangeButton(user_id, dungeon.subclass_change_cost(changes_made), currency_name))
+    return view
 
 
 async def extra_embed_fields(guild_id: int, user_id: int) -> list[tuple[str, str, bool]]:

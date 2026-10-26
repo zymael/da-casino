@@ -2469,6 +2469,64 @@ def choose_subclass(
         conn.close()
 
 
+def change_subclass(
+    guild_id: int, user_id: int, old_subclass: str, new_subclass: str,
+    hp_delta: int, atk_delta: int, def_delta: int, spatk_delta: int, speed_delta: int,
+    changes_key: str, expected_changes: int, cost: int,
+) -> tuple[str, int]:
+    """Swaps an already-picked subclass for another, all-or-nothing: applies the stat deltas (new
+    subclass's modifiers minus the old one's, same in-place shape as choose_subclass), deducts
+    `cost`, and bumps the `changes_key` flag that priced it. current_hp moves by hp_delta too,
+    clamped to 1..new max HP. Returns (status, balance): "ok", "broke" (nothing touched), or
+    "stale" -- the stored subclass or change count no longer matches what the picker priced, e.g. a
+    double-clicked Confirm, so nothing is charged twice."""
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        balance = conn.execute(
+            "SELECT balance FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
+        row = conn.execute(
+            "SELECT subclass, hp, atk, def, spatk, speed, current_hp "
+            "FROM characters WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ).fetchone()
+        changes_row = conn.execute(
+            "SELECT value FROM flags WHERE guild_id = ? AND user_id = ? AND key = ?", (guild_id, user_id, changes_key),
+        ).fetchone()
+        changes = changes_row[0] if changes_row else 0
+        if row is None or row[0] != old_subclass or changes != expected_changes:
+            conn.rollback()
+            return "stale", balance
+        if balance < cost:
+            conn.rollback()
+            return "broke", balance
+        _, hp, atk, def_, spatk, speed, current_hp = row
+        new_hp = hp + hp_delta
+        conn.execute(
+            "UPDATE characters SET subclass = ?, hp = ?, atk = ?, def = ?, spatk = ?, speed = ?, "
+            "current_hp = ? WHERE guild_id = ? AND user_id = ?",
+            (
+                new_subclass, new_hp, atk + atk_delta, def_ + def_delta, spatk + spatk_delta,
+                speed + speed_delta, max(1, min(new_hp, current_hp + hp_delta)), guild_id, user_id,
+            ),
+        )
+        conn.execute(
+            "UPDATE users SET balance = balance - ? WHERE guild_id = ? AND user_id = ?", (cost, guild_id, user_id),
+        )
+        conn.execute(
+            "INSERT INTO flags (guild_id, user_id, key, value) VALUES (?, ?, ?, 1) "
+            "ON CONFLICT(guild_id, user_id, key) DO UPDATE SET value = value + 1",
+            (guild_id, user_id, changes_key),
+        )
+        conn.commit()
+        return "ok", balance - cost
+    finally:
+        conn.close()
+
+
 def set_current_hp(guild_id: int, user_id: int, hp: int) -> None:
     """Persists a character's HP at the end of a delve (retreat, victory, death, or a party wipe)
     -- the value the *next* delve will start from, since HP no longer auto-refills between delves,
