@@ -151,6 +151,31 @@ def _merge_dodge_resist(groups: dict[str, list[str]]) -> None:
                 return
 
 
+def _all_effects(skill: dict) -> list[dict]:
+    if skill.get("effects"):
+        return skill["effects"]
+    return [e for g in skill.get("effect_groups", []) for e in g["effects"]]
+
+
+def describe_rolls(skill: dict) -> str:
+    """Which stat the skill's damage scales with, and how an enemy avoids it -- each only when it
+    applies: no damage stat for a skill that deals none, and no avoid line for one that never touches
+    an enemy (dungeon_view._resolve_player_action only rolls avoidance for enemy-resolved effects).
+    Empty for a pure self/party skill."""
+    effects = _all_effects(skill)
+    parts = []
+    if any(e["type"] in ("damage_multiplier", "extra_attack") for e in effects):
+        parts.append(f"Hits with your {dungeon.stat_label('spatk' if skill.get('special') else 'atk')}")
+    if any(recipient(e) in ("Enemy", "All enemies") for e in effects if e["type"] != "lifesteal_fraction"):
+        avoid = dungeon.resolved_avoid_type(skill)
+        defense = dungeon.stat_label("def" if avoid == "dodge" else "spatk")
+        parts.append(f"enemies can {dungeon.stat_label(avoid)} it with their {defense}")
+    if not parts:
+        return ""
+    text = ", ".join(parts) + "."
+    return text[0].upper() + text[1:]
+
+
 def describe_skill(skill: dict) -> str:
     """A whole skill: its effects, or for an effect_groups skill each alternative behind 'One at
     random:' (with odds when the groups' relative "chance" weights aren't all equal)."""
