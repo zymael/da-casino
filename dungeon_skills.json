@@ -845,7 +845,7 @@
         "type": "taunt",
         "value": 10,
         "aoe": true,
-        "target": "self"
+        "target": "enemy"
       },
       {
         "type": "def_buff",
@@ -1036,7 +1036,7 @@
         "type": "taunt",
         "value": 10,
         "aoe": true,
-        "target": "self"
+        "target": "enemy"
       },
       {
         "type": "def_buff",
@@ -1111,7 +1111,7 @@
         "type": "taunt",
         "value": 10,
         "aoe": true,
-        "target": "self"
+        "target": "enemy"
       },
       {
         "type": "def_buff",
@@ -1559,7 +1559,7 @@
         "type": "taunt",
         "value": 10,
         "aoe": true,
-        "target": "self"
+        "target": "enemy"
       },
       {
         "type": "def_buff",
@@ -1589,7 +1589,7 @@
         "type": "taunt",
         "value": 10,
         "aoe": true,
-        "target": "self"
+        "target": "enemy"
       },
       {
         "type": "def_buff",
