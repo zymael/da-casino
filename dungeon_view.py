@@ -3195,8 +3195,14 @@ class PartyAttackButton(discord.ui.Button):
         super().__init__(label="Attack", style=discord.ButtonStyle.primary)
 
     async def callback(self, interaction: discord.Interaction):
-        if await _handle_party_action(interaction, self.view.session, self.view.actor, skill=None):
+        session = self.view.session
+        if session.current_view is not self.view:
+            return  # already acted on (e.g. a double-click) -- don't resolve the same turn twice
+        session.current_view = None  # claimed synchronously, before any await -- see RoomResultView.push_button
+        if await _handle_party_action(interaction, session, self.view.actor, skill=None):
             self.view.stop()
+        else:
+            session.current_view = self.view  # rejected without consuming the turn -- release the claim
 
 
 class PartySkillButton(discord.ui.Button):
@@ -3205,8 +3211,14 @@ class PartySkillButton(discord.ui.Button):
         self.skill = skill
 
     async def callback(self, interaction: discord.Interaction):
-        if await _handle_party_action(interaction, self.view.session, self.view.actor, skill=self.skill):
+        session = self.view.session
+        if session.current_view is not self.view:
+            return  # already acted on (e.g. a double-click) -- don't resolve the same turn twice
+        session.current_view = None  # claimed synchronously, before any await -- see RoomResultView.push_button
+        if await _handle_party_action(interaction, session, self.view.actor, skill=self.skill):
             self.view.stop()
+        else:
+            session.current_view = self.view  # rejected without consuming the turn -- release the claim
 
 
 class PartyUseItemButton(discord.ui.Button):
@@ -3215,8 +3227,14 @@ class PartyUseItemButton(discord.ui.Button):
         self.item = item
 
     async def callback(self, interaction: discord.Interaction):
-        if await _handle_party_use_item(interaction, self.view.session, self.view.actor, self.item):
+        session = self.view.session
+        if session.current_view is not self.view:
+            return  # already acted on (e.g. a double-click) -- don't resolve the same turn twice
+        session.current_view = None  # claimed synchronously, before any await -- see RoomResultView.push_button
+        if await _handle_party_use_item(interaction, session, self.view.actor, self.item):
             self.view.stop()
+        else:
+            session.current_view = self.view  # rejected without consuming the turn -- release the claim
 
 
 class PartyUseItemSelect(discord.ui.Select):
@@ -3228,9 +3246,15 @@ class PartyUseItemSelect(discord.ui.Select):
         super().__init__(placeholder="🧪 Use an item...", options=options, row=1)
 
     async def callback(self, interaction: discord.Interaction):
+        session = self.view.session
+        if session.current_view is not self.view:
+            return  # already acted on (e.g. a double-click) -- don't resolve the same turn twice
+        session.current_view = None  # claimed synchronously, before any await -- see RoomResultView.push_button
         item = dungeon.CONSUMABLES[self.values[0]]
-        if await _handle_party_use_item(interaction, self.view.session, self.view.actor, item):
+        if await _handle_party_use_item(interaction, session, self.view.actor, item):
             self.view.stop()
+        else:
+            session.current_view = self.view  # rejected without consuming the turn -- release the claim
 
 
 class PartyCastItemButton(discord.ui.Button):
@@ -3242,8 +3266,14 @@ class PartyCastItemButton(discord.ui.Button):
         self.item = item
 
     async def callback(self, interaction: discord.Interaction):
-        if await _handle_party_cast_item(interaction, self.view.session, self.view.actor, self.item):
+        session = self.view.session
+        if session.current_view is not self.view:
+            return  # already acted on (e.g. a double-click) -- don't resolve the same turn twice
+        session.current_view = None  # claimed synchronously, before any await -- see RoomResultView.push_button
+        if await _handle_party_cast_item(interaction, session, self.view.actor, self.item):
             self.view.stop()
+        else:
+            session.current_view = self.view  # rejected without consuming the turn -- release the claim
 
 
 class PartyTargetSelect(discord.ui.Select):
@@ -3264,6 +3294,9 @@ class PartyTargetSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         session: PartyDelveSession = self.view.session
+        if session.current_view is not self.view:
+            return  # already acted on (e.g. a double-click) -- don't rebuild the view twice
+        session.current_view = None  # claimed synchronously, before any await -- see RoomResultView.push_button
         session.member_target_slots[self.view.actor.user_id] = int(self.values[0])
         await _defer_if_needed(interaction)
         log_text = interaction.message.embeds[0].description or ""
@@ -3295,6 +3328,9 @@ class PartyAllyTargetSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         session: PartyDelveSession = self.view.session
+        if session.current_view is not self.view:
+            return  # already acted on (e.g. a double-click) -- don't rebuild the view twice
+        session.current_view = None  # claimed synchronously, before any await -- see RoomResultView.push_button
         session.member_ally_target_ids[self.view.actor.user_id] = int(self.values[0])
         await _defer_if_needed(interaction)
         log_text = interaction.message.embeds[0].description or ""
