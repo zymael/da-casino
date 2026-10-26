@@ -1154,11 +1154,11 @@ async def combathelp_cmd(ctx):
             "bigger the cut, always, whether the hit was physical or magic. It can never chip your damage "
             "down to nothing, just take a bigger and bigger bite, plus there's a bit of random luck either "
             "way, and it'll never do zero, so a fight can't stall out.\n"
-            f"Anything a skill aims at an enemy can be avoided entirely, with **{dungeon.stat_label('dodge')}** "
-            f"(from the target's {dungeon.stat_label('def')}) or **{dungeon.stat_label('resist')}** (from their "
-            f"{magic}), depending on the skill -- !skills says which under each one. A successful avoid whiffs "
-            "everything that skill aimed at them, damage and debuffs alike; buffs on your own side always land. "
-            "That chance grows the more you stack the relevant stat, "
+            f"Damage can be avoided entirely with **{dungeon.stat_label('dodge')}** (from the target's "
+            f"{dungeon.stat_label('def')}). Status effects and debuffs, like stuns, DoTs and stat drops, can be "
+            f"shaken off with **{dungeon.stat_label('resist')}** (from their {magic}). They're separate rolls, so "
+            "a hit can land while its stun gets shaken off, or the other way around. Buffs on your own side "
+            "always land. Each chance grows the more you stack the relevant stat, "
             "but it's always kept well under a coin flip, so you can't build your way to being unhittable."
         ),
         inline=False,

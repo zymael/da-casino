@@ -214,7 +214,7 @@ def default_delve_id() -> str | None:
 
 def _delve_fight_sequence(delve_id: str) -> list[dict]:
     """One representative path through delve_id's real rooms, combat room by combat room, each
-    resolved to a single synthetic monster ({"hp", "def"}: summed HP, averaged DEF) standing in
+    resolved to a single synthetic monster ({"hp", "def", "spatk"}: summed HP, averaged DEF/Magic) standing in
     for that room's actual fight -- multi-monster groups are collapsed into one target
     rather than modeling per-monster turn order/targeting, which is out of scope for a damage/chip-
     economy tool. Deterministically takes each combat room's highest-chance monster_groups entry
@@ -240,6 +240,7 @@ def _delve_fight_sequence(delve_id: str) -> list[dict]:
             fights.append({
                 "hp": sum(m["hp"] for m in monsters),
                 "def": statistics.mean(m["def"] for m in monsters),
+                "spatk": statistics.mean(m["spatk"] for m in monsters),
             })
             room_id = room.get("next")
         else:
@@ -293,17 +294,16 @@ def _take_turn(state: dict, ranked: list[dict], hp_fraction: float | None = None
     passes the real live fraction each turn since that's the one place a target's HP actually
     depletes.
 
-    Ordering matches dungeon_view._resolve_player_action exactly, not just approximately: the
-    avoid roll is made ONCE per cast, against the target's DEF or Magic (dungeon.resolved_avoid_type
-    of the skill, not whether its damage is Physical/Special -- see that function's own docstring)
-    as it stood BEFORE this cast's own effects -- so a successful dodge/resist blocks this cast's
-    damage AND any enemy-targeted debuff it carried (def_shred/dot) alike, while a self-targeted
-    buff (atk_buff/spatk_buff) is never avoid-gated, same "self/ally effects don't care about the
+    Ordering matches dungeon_view._resolve_player_action exactly, not just approximately: two
+    independent avoid rolls per cast, both against the target as it stood BEFORE this cast's own
+    effects -- Dodge (the target's DEF) gates the damage, Resist (the target's Magic,
+    state["target_spatk"]) gates the enemy-targeted debuffs (def_shred/dot). A self-targeted buff
+    (atk_buff/spatk_buff) is never avoid-gated, same "self/ally effects don't care about the
     enemy's avoid roll" rule production follows. Any def_shred/atk_buff/spatk_buff THIS SAME cast
     applies still affects THIS SAME cast's own damage roll (buffs/debuffs resolve before the roll
     reads atk/spatk/def_, same as production) -- this is what makes a "soften them up then swing"
     skill (single cast, both effects) actually ramp within its own turn, not just on some later
-    cast. Damage MITIGATION (once a hit lands) is always DEF, regardless of avoid type."""
+    cast. Damage MITIGATION (once a hit lands) is always DEF."""
     damage = 0.0
     for tick in state["dot_ticks"]:
         damage += tick[0]
@@ -319,8 +319,8 @@ def _take_turn(state: dict, ranked: list[dict], hp_fraction: float | None = None
 
     state["chips"] -= skill["chip_cost"]
     is_special = skill.get("special", False)
-    use_resist = dungeon.resolved_avoid_type(skill) == "resist"
-    dodged = random.random() < dungeon.dodge_chance(state["spatk"] if use_resist else state["def_"])
+    dodged = random.random() < dungeon.dodge_chance(state["def_"])
+    resisted = random.random() < dungeon.dodge_chance(state["target_spatk"])
 
     multiplier, extras, is_dmg = 1.0, [], False
     for effect in dungeon.resolve_cast_effects(skill):
@@ -331,8 +331,10 @@ def _take_turn(state: dict, ranked: list[dict], hp_fraction: float | None = None
         if etype == "spatk_buff":
             state["spatk"] += effect["value"]
             continue  # self-targeted -- never dodge-gated
-        if dodged:
-            continue  # every remaining type here (damage/extra_attack/def_shred/dot) is enemy-targeted
+        # Every remaining type here is enemy-targeted: the damage ones gated by Dodge, the rest by Resist.
+        damage_shaped = etype in ("damage_multiplier", "extra_attack", "execute_multiplier")
+        if (damage_shaped and dodged) or (not damage_shaped and resisted):
+            continue
         if etype == "damage_multiplier":
             multiplier *= effect["value"]
             is_dmg = True
@@ -358,13 +360,13 @@ def _take_turn(state: dict, ranked: list[dict], hp_fraction: float | None = None
 
 
 def _run_fight(
-    atk: float, spatk: float, def_: float, hp: float, ranked: list[dict], chips: float,
+    atk: float, spatk: float, def_: float, hp: float, ranked: list[dict], chips: float, target_spatk: float = 0,
 ) -> tuple[float, int, float]:
     """Simulates one fight turn-by-turn via _take_turn until `hp` reaches 0 or ROTATION_TURN_CAP is
     hit. Returns (damage dealt, turns taken, Chips left over) -- `chips` here is whatever this fight
     is allowed to spend, which for "paced" is a per-fight slice, not the build's whole remaining
     pool (see simulate_build_rotations)."""
-    state = {"atk": atk, "spatk": spatk, "def_": def_, "chips": chips, "dot_ticks": []}
+    state = {"atk": atk, "spatk": spatk, "def_": def_, "target_spatk": target_spatk, "chips": chips, "dot_ticks": []}
     max_hp = hp
     turns = 0
     damage_total = 0.0
@@ -376,17 +378,19 @@ def _run_fight(
     return damage_total, turns, state["chips"]
 
 
-def _run_ramp(atk: float, spatk: float, def_: float, chips: float, ranked: list[dict], turns: int) -> list[float]:
+def _run_ramp(
+    atk: float, spatk: float, def_: float, chips: float, ranked: list[dict], turns: int, target_spatk: float = 0,
+) -> list[float]:
     """Same per-turn mechanics as _run_fight (via _take_turn) but always runs exactly `turns` turns
     against an undying target -- no HP tracked at all -- for charting how a rotation's own damage
     output ramps turn to turn (buffs/debuffs stacking, Chips running dry, ...) independent of how
     long a real fight at that difficulty would actually last. See damage_ramp_for_build."""
-    state = {"atk": atk, "spatk": spatk, "def_": def_, "chips": chips, "dot_ticks": []}
+    state = {"atk": atk, "spatk": spatk, "def_": def_, "target_spatk": target_spatk, "chips": chips, "dot_ticks": []}
     return [_take_turn(state, ranked) for _ in range(turns)]
 
 
 def monster_tiers() -> dict[str, dict]:
-    """{tier_label: {"def", "monster_count"}} for every non-empty MONSTER_TIER_LEVEL_BANDS
+    """{tier_label: {"def", "spatk", "monster_count"}} for every non-empty MONSTER_TIER_LEVEL_BANDS
     entry, computed live from dungeon.MONSTERS (never cached) so a monsters.json edit through the
     admin panel is reflected the next time this is called, same "read the live registry inside the
     function body" rule skill_balance_view itself follows."""
@@ -397,6 +401,7 @@ def monster_tiers() -> dict[str, dict]:
             continue
         tiers[label] = {
             "def": statistics.median(m["def"] for m in group),
+            "spatk": statistics.median(m["spatk"] for m in group),
             "monster_count": len(group),
         }
     return tiers
@@ -431,6 +436,7 @@ def damage_ramp_for_build(
         for _ in range(trials):
             turn_damages = _run_ramp(
                 stats["atk"], stats["spatk"], tier["def"], stats["chips"], ranked, RAMP_TURN_COUNT,
+                target_spatk=tier["spatk"],
             )
             for i, dmg in enumerate(turn_damages):
                 per_turn_samples[i].append(dmg)
@@ -480,7 +486,7 @@ def simulate_build_through_delve(
         for fight_index, monster in enumerate(fights):
             spend_limit = min(chips, fight_budget) if fight_budget is not None else chips
             dmg, turns, remaining = _run_fight(
-                atk, spatk, monster["def"], monster["hp"], ranked, spend_limit,
+                atk, spatk, monster["def"], monster["hp"], ranked, spend_limit, target_spatk=monster["spatk"],
             )
             chips -= (spend_limit - remaining)
             per_fight_dpt[fight_index].append(dmg / max(1, turns))

@@ -9,10 +9,9 @@ stat_label) is a second offense stat, parallel to ATK -- a skill flagged "specia
 (dungeon_skills.json's optional `special` field, defaulting to Physical/False) rolls its damage
 against Magic instead of ATK; the plain Attack action is always Physical. DEF mitigates every
 incoming hit, physical or magic alike (there's no separate special-defense stat any more -- SpDef
-was retired). A skill/monster-skill/on-use item can also carry an optional `avoid` ("dodge" or
-"resist", see resolved_avoid_type) picking whether it's avoided entirely via DEF (Dodge) or Magic
-(Resist) -- an independent choice from `special`, defaulting to whichever `special` implies when
-unset. Speed drives turn order (see preview_next_turns below) -- a Final Fantasy X-style
+was retired). What a target can avoid depends on what's landing, never on the skill: damage is
+avoided via DEF (Dodge), status effects and debuffs via Magic (Resist) -- see
+dungeon_view._defended_dodge_chance. Speed drives turn order (see preview_next_turns below) -- a Final Fantasy X-style
 Conditional Turn-Based queue, not a real-time gauge: turn order is a deterministic, precomputable
 "next N turns" list derived purely from each combatant's own speed, resolved turn-by-turn between
 discrete player actions, never live-filling. Skills cost Chips (dungeon_skills.json's chip_cost)
@@ -1352,11 +1351,6 @@ def resolve_cast_effects(entry: dict) -> list[dict]:
 # a monster to sway on a player's behalf the way taunt/lower_threat sway a monster's own choice.
 _MONSTER_SKILL_EXCLUDED_EFFECT_TYPES = {"taunt", "lower_threat"}
 
-# Which stat gates avoiding a skill/monster-skill/on-use item entirely -- see resolved_avoid_type
-# (combat section, below) for the full story and the default when a skill doesn't set this
-# explicitly. Defined here, well before SKILLS/EQUIPMENT/MONSTERS actually load, since their own
-# loaders validate this field against it.
-AVOID_TYPES = ("dodge", "resist")
 
 
 def _validate_monster_skill(skill: dict, context: str) -> None:
@@ -1379,8 +1373,6 @@ def _validate_monster_skill(skill: dict, context: str) -> None:
         raise ValueError(f"{context} skill {name!r} chance must be a number >= 0")
     if "special" in skill and not isinstance(skill["special"], bool):
         raise ValueError(f"{context} skill {name!r} special must be a bool")
-    if "avoid" in skill and skill["avoid"] not in AVOID_TYPES:
-        raise ValueError(f"{context} skill {name!r} avoid must be one of {AVOID_TYPES}")
     if "requires_allies" in skill and not isinstance(skill["requires_allies"], bool):
         raise ValueError(f"{context} skill {name!r} requires_allies must be a bool")
     if "flavor" in skill and not isinstance(skill["flavor"], str):
@@ -1423,8 +1415,6 @@ def _load_skills(path: str = _SKILLS_PATH) -> dict[str, dict]:
             )
         if "special" in entry and not isinstance(entry["special"], bool):
             raise ValueError(f"dungeon_skills.json: skill {entry_id!r} special must be a bool")
-        if "avoid" in entry and entry["avoid"] not in AVOID_TYPES:
-            raise ValueError(f"dungeon_skills.json: skill {entry_id!r} avoid must be one of {AVOID_TYPES}")
         _validate_effects_or_groups(entry, f"dungeon_skills.json: skill {entry_id!r}")
         skills[entry_id] = entry
     # Optional "replaces": a subclass skill that upgrades one of its class's base skills (see
@@ -1588,9 +1578,7 @@ def validate_class_chip_costs(classes: dict, subclasses: dict) -> None:
 #     relying on a `mods` dict nothing would ever read back for a proc.
 # An item's top-level optional `special` (bool, default False) picks Magic instead of ATK for an
 # on_use damage roll's OFFENSE stat -- mirrors a skill/consumable's own optional `special` field
-# exactly; only meaningful if the item has a damage-shaped on_use effect. Its own optional `avoid`
-# (see resolved_avoid_type) separately picks DEF vs. Magic for whether that action is avoided at
-# all.
+# exactly; only meaningful if the item has a damage-shaped on_use effect.
 
 # A fixed tier ladder -- "rarity" used to be flavor-only free text, unvalidated and never read by
 # game logic (real content had already drifted to both "epic" and "Epic"). Now does two real
@@ -1771,8 +1759,6 @@ def _load_equipment(path: str = _EQUIPMENT_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has unknown rarity {entry['rarity']!r}")
         if "special" in entry and not isinstance(entry["special"], bool):
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} special must be a bool")
-        if "avoid" in entry and entry["avoid"] not in AVOID_TYPES:
-            raise ValueError(f"dungeon_equipment.json: item {entry_id!r} avoid must be one of {AVOID_TYPES}")
         if entry["base_value"] < 0:
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} base_value must be >= 0")
         if "stat_multiplier" in entry:
@@ -2059,14 +2045,13 @@ def roll_damage(atk: int, defense: int, multiplier: float = 1.0) -> int:
     return max(1, round(raw))
 
 
-# Dodge (an action whiffing entirely against DEF) and Resist (the same against Magic/spatk) aren't
-# their own stats -- both are a diminishing-returns function of a stat that already exists
+# Dodge (damage whiffing entirely against DEF) and Resist (a status effect/debuff failing to stick
+# against Magic/spatk) aren't their own stats -- both are a diminishing-returns function of a stat that already exists
 # everywhere DEF/spatk do (every class, every monster, every equipped item), so there's nothing new
 # to add to CLASSES/SUBCLASSES/CONSTANT_EQUIPMENT_EFFECT_TYPES/the DB schema to get this working for
-# players AND monsters at once. Which one applies to a given skill is an explicit per-skill choice
-# (a skill/monster-skill/on-use item's own optional "avoid": "dodge"|"resist", see
-# resolved_avoid_type) -- NOT derived from whether the skill's damage is Physical or Special
-# ("special"/Magic still only picks the OFFENSE stat, see roll_damage's own docstring). DODGE_K=250
+# players AND monsters at once. Which one applies is decided by what's landing (damage vs. anything
+# else aimed at an enemy), not by the skill -- see dungeon_view._defended_dodge_chance ("special"/
+# Magic only picks the OFFENSE stat, see roll_damage's own docstring). DODGE_K=250
 # is deliberately gentle -- a fresh mage's DEF=2 dodges ~0.8%, a fresh fighter's DEF=6 dodges
 # ~2.3%, and even the toughest current monster (z_goolok, DEF=38) only reaches ~13.2% (raised from
 # 100 -- see the commit that changed this -- specifically to leave room for tougher monsters down
@@ -2104,21 +2089,6 @@ def dodge_chance(defense: int, speed: int = 0) -> float:
     defaults to 0 (no bonus) for a caller that only wants the pure DEF/Magic number."""
     effective = defense + min(SPEED_DODGE_CAP, max(0, speed) * SPEED_DODGE_WEIGHT)
     return min(DODGE_CAP, effective / (effective + DODGE_K))
-
-
-def resolved_avoid_type(skill: dict | None) -> str:
-    """Which stat (dungeon_view._defended_dodge_chance: DEF for "dodge", Magic/spatk for "resist")
-    gates avoiding whatever `skill` does -- its own explicit "avoid" if set, else derived from
-    "special" ("resist" if special else "dodge") so any skill/monster-skill/on-use item authored
-    before "avoid" existed keeps its exact old dodge/resist-gating behavior with zero migration,
-    same "default reproduces old behavior" precedent as default_effect_target. `skill` is None for
-    a plain Attack (always Physical/dodge, no skill dict to read)."""
-    if skill is None:
-        return "dodge"
-    avoid = skill.get("avoid")
-    if avoid is not None:
-        return avoid
-    return "resist" if skill.get("special") else "dodge"
 
 
 def roll_loot(monster: dict, loot_mult: float = 1.0) -> int:

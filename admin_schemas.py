@@ -296,7 +296,7 @@ CONTENT_TYPES = {
             {
                 "name": "spatk", "type": "int", "required": True, "min": 0, "group": "Stats",
                 "hint": "Magic -- used instead of atk when this monster's own skill is flagged special, "
-                        "also fuels Resist on any of its skills flagged that way (see the skill's own avoid)",
+                        "and fuels Resist against status effects and debuffs aimed at this monster",
             },
             {"name": "spd", "type": "int", "required": True, "min": 0, "group": "Stats"},
             {
@@ -382,13 +382,6 @@ CONTENT_TYPES = {
                 "hint": "Physical (unchecked) rolls an On Use damage effect against ATK; Special "
                         "(checked) uses Magic instead. Only matters if this item has a damage-shaped "
                         "On Use effect.",
-            },
-            {
-                "name": "avoid", "type": "enum", "required": False, "choices": list(dungeon.AVOID_TYPES),
-                "group": "Drop Info",
-                "hint": "Whether this item's On Use action (damage and any attached debuff alike) is "
-                        "avoided via Dodge (DEF) or Resist (Magic). Left blank, it's derived from Special "
-                        "above (Resist if Special, Dodge otherwise).",
             },
             {
                 "name": "intended_level", "type": "int", "required": False, "min": 1, "group": "Drop Info",
@@ -831,14 +824,6 @@ CONTENT_TYPES = {
                 "name": "special", "type": "bool", "required": False, "default": False, "group": "Class",
                 "hint": "Physical (unchecked) rolls damage against ATK; Special (checked) uses Magic "
                         "instead. Plain Attack is always Physical.",
-            },
-            {
-                "name": "avoid", "type": "enum", "required": False, "choices": list(dungeon.AVOID_TYPES),
-                "group": "Class",
-                "hint": "Whether this whole skill (damage and any attached debuff alike) is avoided via "
-                        "Dodge (DEF) or Resist (Magic). Left blank, it's derived from Special above "
-                        "(Resist if Special, Dodge otherwise) -- the behavior every existing skill already had "
-                        "before this field existed.",
             },
         ],
     },
@@ -1324,8 +1309,8 @@ EFFECT_TYPE_HINTS = {
     "speed_debuff": "value: flat amount the target's Speed is lowered by, for the rest of this fight -- slower turn order",
     "taunt": "value: flat threat gained against every monster in the fight right now -- higher means monsters are more likely to attack you instead of your allies. Player-only, party delves only.",
     "lower_threat": "value: flat threat lost against every monster in the fight right now -- lower means monsters are less likely to attack you. Player-only, party delves only.",
-    "dodge_buff": "value: bonus chance (0-1) to fully avoid a Dodge-gated action; duration: how many rounds it lasts",
-    "resist_buff": "value: bonus chance (0-1) to fully avoid a Resist-gated action; duration: how many rounds it lasts",
+    "dodge_buff": "value: bonus chance (0-1) to fully avoid incoming damage; duration: how many rounds it lasts",
+    "resist_buff": "value: bonus chance (0-1) to shake off incoming status effects/debuffs; duration: how many rounds it lasts",
     "dot": "value: flat damage taken each round; duration: how many rounds it lasts",
     "hot": "value: fraction of max HP restored each round (0-1); duration: how many rounds it lasts",
     "sap": "duration: how many of the target's own turns it skips -- broken early the instant they take any damage (including from this same hit)",

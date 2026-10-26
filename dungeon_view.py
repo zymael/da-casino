@@ -677,9 +677,9 @@ def _core_stat_line(stats: dict) -> str:
 
 
 def _dodge_resist_line(def_stat: int, spatk_stat: int, speed: int) -> str:
-    """Dodge%/Resist% as one player-facing line -- Dodge off DEF, Resist off Magic/spatk (see
-    dungeon.resolved_avoid_type for why these are no longer tied to a skill's Physical/Special
-    split), both through the same dungeon.dodge_chance curve."""
+    """Dodge%/Resist% as one player-facing line -- Dodge (vs. damage) off DEF, Resist (vs. status
+    effects) off Magic/spatk, see _defended_dodge_chance, both through the same dungeon.dodge_chance
+    curve."""
     L, E = dungeon.stat_label, dungeon.stat_emoji
     dodge_pct = round(dungeon.dodge_chance(def_stat, speed) * 100)
     resist_pct = round(dungeon.dodge_chance(spatk_stat, speed) * 100)
@@ -2079,7 +2079,7 @@ def _resolve_player_action(
     actor, ally_pool: list, enemy_pool: list, current_target,
     effects: list[dict], special: bool, verb: str, subject_label: str, possessive_label: str, drain_verb: str,
     moon_mult: float, equipped_items: list[dict], threat_gain: bool, log_lines: list[str],
-    ally_target=None, is_plain_attack: bool = False, crit_chance: float = 0.0, avoid: str = "dodge",
+    ally_target=None, is_plain_attack: bool = False, crit_chance: float = 0.0,
     scales_with_caster: bool = True,
 ) -> list:
     """Resolves one player-cast action (skill/consumable/equipment on-use) -- the shared core of
@@ -2096,12 +2096,9 @@ def _resolve_player_action(
     acting member has currently selected (PartyDelveSession.ally_target_for); solo/duel have no one
     else to pick, so they never need to pass anything different from the default. `is_plain_attack`
     is only ever True for a skill-less Attack -- see the `is_damage_action` line below for why this
-    can't just be inferred from `effects` being empty anymore. `avoid` (dungeon.resolved_avoid_type
-    of the triggering skill/item, "dodge" for a plain Attack) picks whether this whole action --
-    damage AND any attached debuff/CC alike, one shared roll per touched entity, same as `special`
-    used to decide alone -- is avoided via DEF (Dodge) or Magic/spatk (Resist); `special` itself now
-    ONLY picks ATK vs. Magic for the damage roll's own OUTPUT, unrelated to whether that damage (or
-    anything else this action does) lands at all.
+    can't just be inferred from `effects` being empty anymore. `special` only picks ATK vs. Magic
+    for the damage roll's own OUTPUT, unrelated to whether that damage (or anything else this action
+    does) lands at all -- see the dodge/resist bullet below for that.
 
     Every effect independently resolves WHO it lands on from its own "target" (self/ally/enemy,
     dungeon.EFFECT_TARGETS -- defaulting per type via dungeon.default_effect_target so untouched
@@ -2122,11 +2119,13 @@ def _resolve_player_action(
         entity in is still fixed by TYPE (second argument for ENEMY_TARGETED_EFFECT_TYPES, first
         for everything else) -- "target" only ever changes WHICH entity fills that slot, never
         which slot gets filled.
-      - dodge is rolled ONCE per entity resolved to "enemy" by anything this action touches
-        (mods-driven damage or any other effect) -- not once per effect -- and gates every one of
-        those enemy-resolved effects for that entity, exactly as it always gated every
-        enemy-shaped effect before "target" existed. An effect resolved to "self"/"ally" is never
-        dodge-gated, regardless of its type -- a self-inflicted stun was never really "the attack"
+      - avoidance depends on what's landing, never on the skill: damage is avoided by Dodge (the
+        target's DEF) and everything else aimed at an enemy -- status effects, debuffs, taunts --
+        by Resist (the target's Magic). Each is rolled at most ONCE per enemy entity this action
+        touches, and only if the action actually carries that kind of effect for them; a damage +
+        stun skill can land the hit and get the stun resisted, or the reverse. execute_multiplier
+        counts as damage (it only scales the hit). An effect resolved to "self"/"ally" is never
+        avoidable, regardless of its type -- a self-inflicted stun was never really "the attack"
         its caster could evade any more than a self-heal was.
 
     Returns every entity (of any kind -- self/ally included, not just a `MonsterInstance`, now that
@@ -2180,21 +2179,25 @@ def _resolve_player_action(
         else:
             damage_targets = [current_target]  # plain Attack, or a skill with no damage effect of its own
 
-    # Dodge is rolled once for every entity reached via an "enemy"-resolved path this action --
-    # self/ally-resolved effects never touch this at all.
-    touched = set(damage_targets) if damage_is_enemy else set()
-    for e, entities, is_enemy in handler_resolved:
-        if is_enemy:
-            touched.update(entities)
-    use_resist = avoid == "resist"
-    dodged = {}
-    for entity in touched:
-        avoid_stat = max(0, (entity.spatk - entity.spatk_debuff) if use_resist else (entity.def_ - entity.def_debuff))
-        dodged[entity] = random.random() < _defended_dodge_chance(entity, avoid_stat, use_resist)
+    # Dodge gates damage, Resist gates everything else aimed at an enemy -- each rolled once per
+    # enemy entity, and only when this action carries that kind of effect for it. Self/ally-resolved
+    # effects never touch either.
+    dodged = {
+        entity: random.random() < _defended_dodge_chance(entity, False)
+        for entity in (damage_targets if damage_is_enemy else [])
+    }
+    status_targets = {
+        entity for e, entities, is_enemy in handler_resolved
+        if is_enemy and e["type"] != "execute_multiplier" for entity in entities
+    }
+    resisted = {entity: random.random() < _defended_dodge_chance(entity, True) for entity in status_targets}
+    for entity, did_resist in resisted.items():
+        if did_resist:
+            log_lines.append(_resist_line(entity))
 
     for e, entities, is_enemy in handler_resolved:
         for entity in entities:
-            if is_enemy and dodged[entity]:
+            if is_enemy and e["type"] != "execute_multiplier" and resisted[entity]:
                 continue
             if e["type"] in dungeon.ENEMY_TARGETED_EFFECT_TYPES:
                 EFFECT_HANDLERS[e["type"]](actor, entity, e, log_lines, mods)
@@ -2245,20 +2248,27 @@ def _resolve_player_action(
     return hit_entities
 
 
-def _defended_dodge_chance(defender, defense: int, use_resist: bool) -> float:
-    """dungeon.dodge_chance's base roll (against `defense`, already debuff-adjusted by the caller,
-    plus the defender's own current Speed -- also debuff-adjusted here, same as every other stat
-    this function's caller already adjusts before handing it in) plus any active dodge_buff
-    (Dodge) / resist_buff (Resist) bonus from the defender's own timed_effects -- still capped at
-    dungeon.DODGE_CAP, the same hard ceiling that already bounds DEF/Magic/Speed stacking alone
-    (see dungeon.py's comment on DODGE_CAP). `use_resist` is the skill's own resolved "avoid" (see
-    dungeon.resolved_avoid_type), NOT whether the skill's damage is Physical/Special -- `defense` is
-    whichever stat (DEF or Magic/spatk) that same "avoid" choice points to, already resolved by the
-    caller."""
+def _defended_dodge_chance(defender, use_resist: bool) -> float:
+    """`defender`'s chance to avoid one incoming thing: Dodge (use_resist False) against damage,
+    rolled off their DEF, or Resist (use_resist True) against a status effect/debuff, rolled off
+    their Magic/spatk -- which one is decided by what's landing, never by the skill (see
+    _resolve_player_action's own docstring). dungeon.dodge_chance's base roll (that stat and the
+    defender's current Speed, both debuff-adjusted) plus any active dodge_buff/resist_buff bonus
+    from their own timed_effects, still capped at dungeon.DODGE_CAP (see dungeon.py's comment on
+    DODGE_CAP)."""
+    if use_resist:
+        defense = max(0, defender.spatk - defender.spatk_debuff)
+    else:
+        defense = max(0, defender.def_ - defender.def_debuff)
     buff_type = "resist_buff" if use_resist else "dodge_buff"
     bonus = next((e["value"] for e in defender.timed_effects if e["type"] == buff_type), 0)
     speed = max(0, defender.speed - defender.speed_debuff)
     return min(dungeon.DODGE_CAP, dungeon.dodge_chance(defense, speed) + bonus)
+
+
+def _resist_line(entity) -> str:
+    """The log line for `entity` resisting everything status-shaped an action aimed at them."""
+    return f"{_actor_label(entity)} {_verb(entity, 'call')} the bluff, and none of it sticks."
 
 
 def _tick_timed_effects(entities: list, log_lines: list[str]) -> None:
@@ -2395,10 +2405,10 @@ def _resolve_monster_attack(
     function's own docstring) -- a "buffer" monster's whole reason to exist. This runs exactly once
     regardless of how many entities the enemy-targeted effects go on to reach. Enemy-targeted
     effects (def_shred, the *_debuff family, and the damage roll itself) repeat once per target --
-    each gets its own independent dodge/resist roll (dungeon.resolved_avoid_type's own DEF or
-    Magic/spatk, minus its own debuff, plus any active dodge_buff/resist_buff -- see
-    _defended_dodge_chance) that negates only that target's own share of the action, not the
-    others'; damage MITIGATION (once a hit lands) is always DEF regardless of that choice.
+    each target gets its own independent rolls, Resist against the status effects and Dodge against
+    the damage (see _defended_dodge_chance), negating only that target's own share of the action,
+    not the others'. `dodged` in results means the damage was dodged; the status effects may still
+    have landed. Damage MITIGATION (once a hit lands) is always DEF.
 
     Returns (results, skill-or-None, lifesteal_line, is_damage_action) where results is one
     (target, damage, dodged) tuple per entry actually targeted, in order -- callers apply damage/
@@ -2417,7 +2427,6 @@ def _resolve_monster_attack(
     monster_group = monster_group or [attacker]
     skill = dungeon.pick_monster_action(attacker.monster, len(monster_group) - 1)
     special = bool(skill.get("special")) if skill else False
-    use_resist = dungeon.resolved_avoid_type(skill) == "resist"
     effects = dungeon.resolve_cast_effects(skill) if skill else []
 
     enemy_effects = []
@@ -2444,12 +2453,15 @@ def _resolve_monster_attack(
     results: list[tuple[object, int, bool]] = []
     total_dmg = 0
     for target in targets:
-        avoid_stat = max(0, (target.spatk - target.spatk_debuff) if use_resist else (target.def_ - target.def_debuff))
-        if random.random() < _defended_dodge_chance(target, avoid_stat, use_resist):
+        # Same split as _resolve_player_action: Resist gates the status effects, Dodge the damage.
+        if non_damage_enemy_effects and random.random() < _defended_dodge_chance(target, True):
+            log_lines.append(_resist_line(target))
+        else:
+            for effect in non_damage_enemy_effects:
+                EFFECT_HANDLERS[effect["type"]](attacker, target, effect, log_lines, mods)
+        if is_damage_action and random.random() < _defended_dodge_chance(target, False):
             results.append((target, 0, True))
             continue
-        for effect in non_damage_enemy_effects:
-            EFFECT_HANDLERS[effect["type"]](attacker, target, effect, log_lines, mods)
         target_def = max(0, target.def_ - target.def_debuff)  # damage mitigation is always DEF now
         dmg = 0
         if is_damage_action:
@@ -2636,7 +2648,7 @@ async def _advance_solo_turns(
 
 async def _resolve_combat_turn(
     interaction: discord.Interaction, session: DelveSession, effects: list[dict], verb: str, log_lines: list[str],
-    special: bool = False, is_plain_attack: bool = False, avoid: str = "dodge", scales_with_caster: bool = True,
+    special: bool = False, is_plain_attack: bool = False, scales_with_caster: bool = True,
 ) -> bool:
     """Resolves the player's own chosen action (plain Attack, a skill, or a consumed item) --
     applies `effects` via _resolve_player_action (each effect independently single-target or AOE
@@ -2648,10 +2660,7 @@ async def _resolve_combat_turn(
     roll happens (e.g. "attack", "unleash **Fireball**", "use **Healing Draught**") -- callers that
     only heal/buff never reach the line that reads it. `special` (always False for a plain Attack)
     picks ATK vs. Magic for the damage roll's own output -- set by callers from the triggering
-    skill/item's own "special" flag. `avoid` (dungeon.resolved_avoid_type of that same skill/item,
-    "dodge" for a plain Attack) separately picks whether DEF or Magic gates avoiding this action
-    entirely -- see _resolve_player_action's own docstring for why these are no longer the same
-    decision. `is_plain_attack` (only ever True for a skill-less Attack) is forwarded straight to
+    skill/item's own "special" flag. `is_plain_attack` (only ever True for a skill-less Attack) is forwarded straight to
     _resolve_player_action -- see its own note on why. Always returns True (this always consumes
     the turn -- any "can't do this right now" rejection happens before this is called)."""
     moon_effect = moon.effect_for("dungeon")
@@ -2660,7 +2669,7 @@ async def _resolve_combat_turn(
     hit = _resolve_player_action(
         session, [session], session.living_monsters(), session.current_target(), effects, special, verb,
         "You", "your", "drain", player_moon_mult, equipped_items, False, log_lines,
-        is_plain_attack=is_plain_attack, avoid=avoid, scales_with_caster=scales_with_caster,
+        is_plain_attack=is_plain_attack, scales_with_caster=scales_with_caster,
     )
 
     session.turn_clock += dungeon.turn_interval(max(1, session.speed - session.speed_debuff))
@@ -2701,12 +2710,11 @@ async def _handle_action(interaction: discord.Interaction, session: DelveSession
 
     effects = dungeon.resolve_cast_effects(skill) if skill is not None else []
     special = bool(skill.get("special")) if skill is not None else False
-    avoid = dungeon.resolved_avoid_type(skill)
     if skill is not None:
         session.chips -= skill["chip_cost"]
     verb = f"unleash **{skill['name']}**" if skill is not None else "attack"
     return await _resolve_combat_turn(
-        interaction, session, effects, verb, [], special, is_plain_attack=skill is None, avoid=avoid,
+        interaction, session, effects, verb, [], special, is_plain_attack=skill is None,
     )
 
 
@@ -2722,7 +2730,7 @@ async def _handle_use_item(interaction: discord.Interaction, session: DelveSessi
     verb = f"use **{item['name']}**"
     effects = dungeon.resolve_cast_effects(item)
     return await _resolve_combat_turn(
-        interaction, session, effects, verb, [], item.get("special", False), avoid=dungeon.resolved_avoid_type(item),
+        interaction, session, effects, verb, [], item.get("special", False),
         scales_with_caster=False,
     )
 
@@ -2739,7 +2747,7 @@ async def _handle_cast_item(interaction: discord.Interaction, session: DelveSess
     effects = [e for e in item["effects"] if e["trigger"] == "on_use"]
     verb = f"unleash **{item['name']}**"
     return await _resolve_combat_turn(
-        interaction, session, effects, verb, [], item.get("special", False), avoid=dungeon.resolved_avoid_type(item),
+        interaction, session, effects, verb, [], item.get("special", False),
         scales_with_caster=False,
     )
 
@@ -3062,7 +3070,7 @@ async def _advance_party_turns(
 async def _resolve_party_turn(
     interaction: discord.Interaction, session: PartyDelveSession, member: PartyMember,
     effects: list[dict], verb: str, log_lines: list[str], special: bool = False, is_plain_attack: bool = False,
-    avoid: str = "dodge", scales_with_caster: bool = True,
+    scales_with_caster: bool = True,
 ) -> bool:
     """Party sibling of _resolve_combat_turn: applies `effects` via _resolve_player_action (each
     effect independently single-target or AOE per its own "aoe" flag -- ally-aoe expands to
@@ -3073,9 +3081,8 @@ async def _resolve_party_turn(
     halved -- see _award_kill). Advances `member`'s own turn_clock, then hands off to
     _advance_party_turns for whatever happens next (automatic member/monster turns, in speed order,
     until some living member's own turn comes back around). `special` picks ATK vs. Magic for the
-    damage roll's own output, same as _resolve_combat_turn; `avoid` picks DEF vs. Magic for whether
-    this action lands at all, same "no longer the same decision" story as there; `is_plain_attack`
-    forwards the same way too."""
+    damage roll's own output, same as _resolve_combat_turn; `is_plain_attack` forwards the same way
+    too."""
     target = session.target_for(member)
     ally_target = session.ally_target_for(member)
     moon_effect = moon.effect_for("dungeon")
@@ -3084,7 +3091,7 @@ async def _resolve_party_turn(
     hit = _resolve_player_action(
         member, session.living_members(), session.living_monsters(), target, effects, special, verb,
         member.label, f"{member.label}'s", "drains", player_moon_mult, equipped_items, True, log_lines,
-        ally_target=ally_target, is_plain_attack=is_plain_attack, avoid=avoid, scales_with_caster=scales_with_caster,
+        ally_target=ally_target, is_plain_attack=is_plain_attack, scales_with_caster=scales_with_caster,
     )
 
     member.turn_clock += dungeon.turn_interval(max(1, member.speed - member.speed_debuff))
@@ -3140,12 +3147,11 @@ async def _handle_party_action(
         return False
     effects = dungeon.resolve_cast_effects(skill) if skill is not None else []
     special = bool(skill.get("special")) if skill is not None else False
-    avoid = dungeon.resolved_avoid_type(skill)
     if skill is not None:
         member.chips -= skill["chip_cost"]
     verb = f"unleash **{skill['name']}**" if skill is not None else "attack"
     return await _resolve_party_turn(
-        interaction, session, member, effects, verb, [], special, is_plain_attack=skill is None, avoid=avoid,
+        interaction, session, member, effects, verb, [], special, is_plain_attack=skill is None,
     )
 
 
@@ -3160,7 +3166,7 @@ async def _handle_party_use_item(
     effects = dungeon.resolve_cast_effects(item)
     return await _resolve_party_turn(
         interaction, session, member, effects, verb, [], item.get("special", False),
-        avoid=dungeon.resolved_avoid_type(item), scales_with_caster=False,
+        scales_with_caster=False,
     )
 
 
@@ -3177,7 +3183,7 @@ async def _handle_party_cast_item(
     verb = f"unleash **{item['name']}**"
     return await _resolve_party_turn(
         interaction, session, member, effects, verb, [], item.get("special", False),
-        avoid=dungeon.resolved_avoid_type(item), scales_with_caster=False,
+        scales_with_caster=False,
     )
 
 
@@ -4563,7 +4569,7 @@ async def _advance_duel_turns(interaction: discord.Interaction | None, session: 
 
 async def _resolve_duel_turn(
     interaction: discord.Interaction, session: DuelSession, actor: PartyMember, effects: list[dict],
-    verb: str, log_lines: list[str], special: bool = False, is_plain_attack: bool = False, avoid: str = "dodge",
+    verb: str, log_lines: list[str], special: bool = False, is_plain_attack: bool = False,
     scales_with_caster: bool = True,
 ) -> bool:
     """Duel sibling of _resolve_party_turn -- always exactly one possible opponent (the other
@@ -4578,7 +4584,7 @@ async def _resolve_duel_turn(
     _resolve_player_action(
         actor, [actor], [opponent], opponent, effects, special, verb,
         actor.label, f"{actor.label}'s", "drains", 1.0, equipped_items, False, log_lines,
-        is_plain_attack=is_plain_attack, crit_chance=DUEL_CRIT_CHANCE, avoid=avoid,
+        is_plain_attack=is_plain_attack, crit_chance=DUEL_CRIT_CHANCE,
         scales_with_caster=scales_with_caster,
     )
 
@@ -4620,12 +4626,11 @@ async def _handle_duel_action(
         return False
     effects = dungeon.resolve_cast_effects(skill) if skill is not None else []
     special = bool(skill.get("special")) if skill is not None else False
-    avoid = dungeon.resolved_avoid_type(skill)
     if skill is not None:
         actor.chips -= skill["chip_cost"]
     verb = f"unleash **{skill['name']}**" if skill is not None else "attack"
     return await _resolve_duel_turn(
-        interaction, session, actor, effects, verb, [], special, is_plain_attack=skill is None, avoid=avoid,
+        interaction, session, actor, effects, verb, [], special, is_plain_attack=skill is None,
     )
 
 
@@ -4640,7 +4645,7 @@ async def _handle_duel_use_item(
     effects = dungeon.resolve_cast_effects(item)
     return await _resolve_duel_turn(
         interaction, session, actor, effects, verb, [], item.get("special", False),
-        avoid=dungeon.resolved_avoid_type(item), scales_with_caster=False,
+        scales_with_caster=False,
     )
 
 
@@ -4655,7 +4660,7 @@ async def _handle_duel_cast_item(
     verb = f"unleash **{item['name']}**"
     return await _resolve_duel_turn(
         interaction, session, actor, effects, verb, [], item.get("special", False),
-        avoid=dungeon.resolved_avoid_type(item), scales_with_caster=False,
+        scales_with_caster=False,
     )
 
 

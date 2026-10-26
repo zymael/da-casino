@@ -2650,14 +2650,6 @@ def _render_monster_skill_row(prefix: str, skill: dict) -> str:
         f'<span class="skill-odds-pct" data-skill-pct>—</span>'
         f'<label class="checkbox-label"><input type="checkbox" name="{prefix}_special"'
         f'{" checked" if skill.get("special") else ""}> Special (rolls Magic instead of ATK for damage)</label>'
-        f'<label data-tooltip="Whether this whole skill (damage and any attached debuff alike) is avoided '
-        f'via Dodge (DEF) or Resist (Magic). Leave on Default to derive it from Special above (Resist if '
-        f'Special, Dodge otherwise) -- the same behavior this skill had before this field existed.">avoid'
-        f'<select name="{prefix}_avoid">'
-        f'<option value=""{" selected" if not skill.get("avoid") else ""}>Default (from Special)</option>'
-        f'<option value="dodge"{" selected" if skill.get("avoid") == "dodge" else ""}>Dodge</option>'
-        f'<option value="resist"{" selected" if skill.get("avoid") == "resist" else ""}>Resist</option>'
-        f'</select></label>'
         f'<label>flavor (optional -- shown in the combat log when this skill is used)'
         f'<textarea name="{prefix}_flavor" rows="2">{html.escape(skill.get("flavor", ""))}</textarea></label>'
         f'{effects_groups_toggle}'
@@ -4192,7 +4184,6 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
             effects = _parse_effects_list(f"{prefix}_effects", form)
             groups = _parse_effect_groups(f"{prefix}_effectgroup", form)
             special = f"{prefix}_special" in form
-            avoid = form.get(f"{prefix}_avoid", "").strip()
             flavor = form.get(f"{prefix}_flavor", "").strip()
             if not effects and not groups:
                 continue  # a skill with neither effects nor effect_groups yet isn't meaningful to save
@@ -4204,8 +4195,6 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
                 skill["effects"] = effects
             if groups:
                 skill["effect_groups"] = groups
-            if avoid:
-                skill["avoid"] = avoid
             if flavor:
                 skill["flavor"] = flavor
             skills.append(skill)

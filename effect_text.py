@@ -158,22 +158,31 @@ def _all_effects(skill: dict) -> list[dict]:
 
 
 def describe_rolls(skill: dict) -> str:
-    """Which stat the skill's damage scales with, and how an enemy avoids it -- each only when it
-    applies: no damage stat for a skill that deals none, and no avoid line for one that never touches
-    an enemy (dungeon_view._resolve_player_action only rolls avoidance for enemy-resolved effects).
-    Empty for a pure self/party skill."""
+    """Which stat the skill's damage scales with, and how an enemy avoids each part of it -- Dodge
+    against the damage (their DEF), Resist against everything else aimed at them (their Magic), the
+    same split dungeon_view._resolve_player_action rolls. Each piece appears only when it applies;
+    empty for a pure self/party skill."""
     effects = _all_effects(skill)
-    parts = []
-    if any(e["type"] in ("damage_multiplier", "extra_attack") for e in effects):
-        parts.append(f"Hits with your {dungeon.stat_label('spatk' if skill.get('special') else 'atk')}")
-    if any(recipient(e) in ("Enemy", "All enemies") for e in effects if e["type"] != "lifesteal_fraction"):
-        avoid = dungeon.resolved_avoid_type(skill)
-        defense = dungeon.stat_label("def" if avoid == "dodge" else "spatk")
-        parts.append(f"enemies can {dungeon.stat_label(avoid)} it with their {defense}")
-    if not parts:
-        return ""
-    text = ", ".join(parts) + "."
-    return text[0].upper() + text[1:]
+    damage_types = ("damage_multiplier", "extra_attack")
+    hits_enemy = any(e["type"] in damage_types and recipient(e) in ("Enemy", "All enemies") for e in effects)
+    has_status = any(
+        recipient(e) in ("Enemy", "All enemies") and e["type"] not in dungeon.MODS_ONLY_EFFECT_TYPES
+        and e["type"] != "execute_multiplier"
+        for e in effects
+    )
+    L = dungeon.stat_label
+    lines = []
+    if any(e["type"] in damage_types for e in effects):
+        lines.append(f"Hits with your {L('spatk' if skill.get('special') else 'atk')}.")
+    dodge = f"{L('dodge')} the damage with their {L('def')}"
+    resist = f"{L('resist')} the effects with their {L('spatk')}"
+    if hits_enemy and has_status:
+        lines.append(f"Enemies can {dodge} and {resist}.")
+    elif hits_enemy:
+        lines.append(f"Enemies can {L('dodge')} it with their {L('def')}.")
+    elif has_status:
+        lines.append(f"Enemies can {L('resist')} it with their {L('spatk')}.")
+    return " ".join(lines)
 
 
 def describe_skill(skill: dict) -> str:
