@@ -1071,7 +1071,7 @@ EFFECT_PARAM_SCHEMAS = {
     "dot": ({"value", "duration"}, set(), set()),
     "hot": ({"value", "duration"}, set(), {"value"}),
     # Crowd control -- also genuinely temporary (ticked by dungeon_view._tick_timed_effects) like
-    # the four above, but ENEMY_TARGETED rather than ally-shaped (see that set below): they land on
+    # the four above, but ENEMY_TARGETED (as dot is) rather than ally-shaped (see that set below): they land on
     # current_target/every monster, not the caster. No "value" param -- there's nothing to scale,
     # just "skip this many of the target's own turns." Sap breaks the instant its target takes ANY
     # damage, including from the very same action that applied it (dungeon_view._break_sap runs at
@@ -1115,6 +1115,9 @@ MODS_ONLY_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "lifesteal_fracti
 ENEMY_TARGETED_EFFECT_TYPES = {
     "atk_debuff", "spatk_debuff", "speed_debuff", "def_shred",
     "taunt", "lower_threat", "sap", "stun", "execute_multiplier",
+    # dot used to be ally-shaped (left over from when it sat next to hot), so an effect with no
+    # explicit "target" -- curse_the_table, every on_hit weapon proc -- festered on the caster.
+    "dot",
 }
 
 # Who an effect lands on -- fully decoupled from its type (dungeon_view._resolve_player_action):

@@ -1663,7 +1663,7 @@ async def _award_kill(
 # "session" because a party delve's monster state is shared across every member, while hp/atk/
 # def_ belong to whichever one PartyMember is acting. Every caller passes whichever entity this
 # action's opponent-targeted effects (def_shred, the *_debuff family) should land on -- self-
-# targeted effects (heal/guard/buffs/the timed dodge/resist/dot/hot ones) only ever touch `actor`
+# targeted effects (heal/guard/buffs/the timed dodge/resist/hot ones) only ever touch `actor`
 # and never read `monster_state` at all, so they behave identically regardless of who the opponent
 # is.
 
@@ -1951,9 +1951,11 @@ def _effect_resist_buff(actor, monster_state, effect: dict, log_lines: list[str]
 
 
 def _effect_dot(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    # Enemy-targeted like sap/stun below -- lands on `monster_state`, not the caster.
     _apply_timed_effect(
-        actor, "dot", effect["value"], effect["duration"], log_lines,
-        f"{_possessive_label(actor)} wounds will fester for **{effect['duration']}** more round(s).",
+        monster_state, "dot", effect["value"], effect["duration"], log_lines,
+        f"{_possessive_label(monster_state)} wounds will fester for **{effect['duration']}** round(s), "
+        f"**{round(effect['value'])}** damage each.",
     )
 
 
@@ -1965,7 +1967,7 @@ def _effect_hot(actor, monster_state, effect: dict, log_lines: list[str], mods: 
 
 
 def _effect_sap(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
-    # Enemy-targeted (unlike the ally-shaped dodge_buff/resist_buff/dot/hot above), so this lands on
+    # Enemy-targeted (unlike the ally-shaped dodge_buff/resist_buff/hot above), so this lands on
     # `monster_state` -- see _apply_timed_effect's own note that it only cares about a
     # `.timed_effects` list, not which role its first arg plays. _actor_label now safely names any
     # of the three entity shapes (DelveSession/PartyMember/MonsterInstance) monster_state could be
@@ -2279,7 +2281,7 @@ def _tick_timed_effects(entities: list, log_lines: list[str]) -> None:
                 # shows decimals too. round() is the floor against that either way, content typo or not.
                 dmg = round(eff["value"])
                 entity.hp -= dmg
-                log_lines.append(f"{_actor_label(entity)} {_verb(entity, 'take')} **{dmg}** damage from lingering harm.")
+                log_lines.append(f"{_actor_label(entity)} {_verb(entity, 'take')} **{dmg}** damage from festering wounds.")
                 _break_sap(entity, log_lines)
             elif eff["type"] == "hot":
                 healed = min(entity.max_hp, entity.hp + round(entity.max_hp * eff["value"])) - entity.hp
