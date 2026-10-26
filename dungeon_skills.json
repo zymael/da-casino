@@ -365,7 +365,8 @@
       },
       {
         "type": "guard",
-        "reduction": 0.5
+        "reduction": 0.5,
+        "target": "self"
       }
     ],
     "chip_cost": 10,
