@@ -1,4 +1,5 @@
 import asyncio
+import io
 import random
 
 import discord
@@ -441,6 +442,11 @@ class RouletteView(discord.ui.View):
         # is done), this is what run_roulette_table actually awaits between rounds so it doesn't
         # start editing the message for the next round while this one's still being settled.
         self.resolved_event = asyncio.Event()
+        # The settled round's wheel/table embeds and their PNG bytes (filename -> bytes), kept so
+        # run_roulette_table can repost them at the bottom of the channel with the next round's
+        # buttons. Bytes rather than discord.File, since a File is consumed by the first send.
+        self.result_embeds: list[discord.Embed] = []
+        self.result_images: dict[str, bytes] = {}
         self.add_item(TowerShapeSelect())
 
     def _reset_timer(self):
@@ -848,6 +854,8 @@ class RouletteView(discord.ui.View):
             table_buf = roulette_render.render_table(self.bets, winning_number=result)
             table_file = discord.File(table_buf, filename="table.png")
             table_embed.set_image(url="attachment://table.png")
+            self.result_embeds = [wheel_embed, table_embed]
+            self.result_images = {"wheel.png": wheel_buf.getvalue(), "table.png": table_buf.getvalue()}
 
             if self.message is not None:
                 try:
@@ -873,34 +881,37 @@ class RouletteView(discord.ui.View):
 
 
 async def run_roulette_table(ctx, starter: discord.abc.User, channel_id: int, guild_id: int):
-    """Runs a persistent roulette table: deals round after round from the same message, each one
+    """Runs a persistent roulette table: deals round after round, each on a freshly posted message, each one
     spinning BET_TIMEOUT_SECONDS after its last bet, until a round opens and closes with no bets
     placed at all (see RouletteView.resolve's empty-round path) -- same "nobody's playing anymore"
     signal blackjack's run_table uses to close, just without blackjack's seat/balance bookkeeping
     since roulette has no persistent membership to check."""
     message: discord.Message | None = None
+    previous: RouletteView | None = None
     try:
         while True:
             view = RouletteView(starter, channel_id, guild_id)
             active_rounds[channel_id] = view
-            if message is None:
-                # First round of the table -- nothing to show yet, so it's the only time this
-                # loop builds the empty "place your bets" board itself.
+            if message is not None:
+                # Repost fresh for every round instead of editing one message for the table's
+                # whole life -- the same "edit within, repost at the natural boundary" shape
+                # blackjack_view.play_round uses -- so the live board is always at the bottom of
+                # the channel, below the previous round's result text/achievements/popups.
+                try:
+                    await message.delete()
+                except discord.HTTPException:
+                    pass
+            if previous is not None and previous.result_embeds:
+                # The new board opens on the previous spin's wheel/table, as it always has; the
+                # first bet placed swaps in the normal betting board (place_bet et al. do their
+                # own build_display + edit), and an unbet round's resolve() shows "table closed".
+                files = [discord.File(io.BytesIO(data), filename=name) for name, data in previous.result_images.items()]
+                message = await ctx.send(embeds=previous.result_embeds, files=files, view=view)
+            else:
                 embed, file = view.build_display()
                 message = await ctx.send(embed=embed, file=file, view=view)
-            else:
-                # Every later round leaves the previous round's result on screen -- editing just
-                # `view` swaps in fresh, live buttons without touching the embeds/attachments
-                # already there. The first bet placed against this view replaces it with the
-                # normal betting board itself (place_bet et al. already do their own build_display
-                # + edit); if BET_TIMEOUT_SECONDS passes with no bets, resolve()'s empty-round path
-                # overwrites it with "table closed" instead.
-                try:
-                    await message.edit(view=view)
-                except discord.HTTPException:
-                    embed, file = view.build_display()
-                    message = await ctx.send(embed=embed, file=file, view=view)
             view.message = message
+            previous = view
 
             await view.resolved_event.wait()
             if not view.bets:
