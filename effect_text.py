@@ -68,7 +68,7 @@ def effect_phrase(effect: dict, scales_with_caster: bool = True) -> str:
     if t == "chip_gain":
         return f"{dungeon.stat_label('chips')} +{v:g}"
     if t == "taunt":
-        return f"draws aggro (+{v:g} threat)"
+        return f"draws aggro (+{v:g} threat, its next attack is on you)"
     if t == "lower_threat":
         return f"sheds aggro (−{v:g} threat)"
     if t == "dodge_buff":

@@ -116,6 +116,11 @@ class MonsterInstance:
         # never reads this (a monster always attacks the sole player directly there), so it just
         # sits inert for a solo MonsterInstance.
         self.threat: dict[int, float] = {}
+        # Set by a landed taunt (_effect_taunt): this monster's NEXT target pick in a party fight
+        # goes to that user no matter what the threat table says, then clears -- a taunt always
+        # pulls attention for at least a moment, on top of the lasting threat it adds. Latest
+        # taunt wins. Cleared unused if the taunter is knocked out first.
+        self.forced_target_id: int | None = None
 
 
 def _capped_speed_debuff(combatant, added: int) -> int:
@@ -1921,8 +1926,10 @@ def _effect_taunt(actor, monster_state, effect: dict, log_lines: list[str], mods
         log_lines.append("Threat means nothing between two players.")
         return
     monster_state.threat[actor.user_id] = monster_state.threat.get(actor.user_id, 0) + effect["value"]
+    monster_state.forced_target_id = actor.user_id
     log_lines.append(
-        f"{_possessive_label(actor)} Threat against {_combatant_name(monster_state)} rises by **{effect['value']}** for the rest of the fight."
+        f"{_possessive_label(actor)} Threat against {_combatant_name(monster_state)} rises by **{effect['value']}** for the rest of the fight, "
+        f"and its next attack is coming for them."
     )
 
 
@@ -3015,9 +3022,14 @@ async def _advance_party_turns(
         # coin flip -- who it's most likely to go after is a function of damage dealt against it
         # specifically and any taunt/lower_threat used, read live so a mid-fight swing changes the
         # very next pick.
-        target_id = dungeon.pick_target_by_threat(
-            [{"id": m.user_id, "threat": monster.threat.get(m.user_id, 0)} for m in living]
-        )
+        # A landed taunt overrides the weighted pick for this one turn (MonsterInstance.forced_target_id).
+        forced_id, monster.forced_target_id = monster.forced_target_id, None
+        if any(m.user_id == forced_id for m in living):
+            target_id = forced_id
+        else:
+            target_id = dungeon.pick_target_by_threat(
+                [{"id": m.user_id, "threat": monster.threat.get(m.user_id, 0)} for m in living]
+            )
         threat_target = session.members_by_id[target_id]
         # `living` is only actually used as the target pool when the picked skill's own damage
         # effect is flagged "aoe" -- see _resolve_monster_attack's own docstring. Every other

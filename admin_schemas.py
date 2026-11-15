@@ -1307,7 +1307,7 @@ EFFECT_TYPE_HINTS = {
     "atk_debuff": "value: flat amount the target's ATK is lowered by, for the rest of this fight",
     "spatk_debuff": "value: flat amount the target's Magic is lowered by, for the rest of this fight",
     "speed_debuff": "value: flat amount the target's Speed is lowered by, for the rest of this fight -- slower turn order",
-    "taunt": "value: flat threat gained against every monster in the fight right now -- higher means monsters are more likely to attack you instead of your allies. Player-only, party delves only.",
+    "taunt": "value: flat threat gained against every monster in the fight right now -- higher means monsters are more likely to attack you instead of your allies. Each monster it lands on also attacks you on its very next turn. Player-only, party delves only.",
     "lower_threat": "value: flat threat lost against every monster in the fight right now -- lower means monsters are less likely to attack you. Player-only, party delves only.",
     "dodge_buff": "value: bonus chance (0-1) to fully avoid incoming damage; duration: how many rounds it lasts",
     "resist_buff": "value: bonus chance (0-1) to shake off incoming status effects/debuffs; duration: how many rounds it lasts",
