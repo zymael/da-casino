@@ -1768,6 +1768,11 @@
         "value": 18
       },
       {
+        "type": "atk_buff",
+        "trigger": "constant",
+        "value": 8
+      },
+      {
         "type": "spatk_buff",
         "trigger": "constant",
         "value": 8
