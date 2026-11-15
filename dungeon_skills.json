@@ -1157,6 +1157,105 @@
     "special": true
   },
   {
+    "id": "comp_the_table",
+    "main_class": "healer",
+    "subclass": "none",
+    "unlock_level": 2,
+    "name": "Comp the Table",
+    "flavor": "Drinks, chips, a nice room upstairs. Whatever keeps you at the table.",
+    "effects": [
+      {
+        "type": "chip_gain",
+        "value": 6,
+        "target": "ally"
+      }
+    ],
+    "chip_cost": 0,
+    "special": true
+  },
+  {
+    "id": "between_rounds",
+    "main_class": "healer",
+    "subclass": "clubs",
+    "unlock_level": 30,
+    "name": "Between Rounds",
+    "flavor": "Sit down, breathe, rinse, spit. You've got one more round in you.",
+    "effects": [
+      {
+        "type": "chip_gain",
+        "value": 6,
+        "target": "ally"
+      },
+      {
+        "type": "def_buff",
+        "value": 3,
+        "target": "ally"
+      }
+    ],
+    "chip_cost": 0,
+    "replaces": "comp_the_table",
+    "special": true
+  },
+  {
+    "id": "inside_man",
+    "main_class": "healer",
+    "subclass": "spades",
+    "unlock_level": 30,
+    "name": "Inside Man",
+    "flavor": "The dealer's on the payroll. Funny how the cards keep falling your way.",
+    "effects": [
+      {
+        "type": "chip_gain",
+        "value": 6,
+        "target": "ally"
+      },
+      {
+        "type": "def_shred",
+        "value": 2
+      }
+    ],
+    "chip_cost": 0,
+    "replaces": "comp_the_table",
+    "special": true
+  },
+  {
+    "id": "love_me_tender",
+    "main_class": "healer",
+    "subclass": "hearts",
+    "unlock_level": 30,
+    "name": "Love Me Tender",
+    "flavor": "One slow song, and everybody in the room swears it was just for them.",
+    "effects": [
+      {
+        "type": "chip_gain",
+        "value": 3,
+        "target": "ally",
+        "aoe": true
+      }
+    ],
+    "chip_cost": 0,
+    "replaces": "comp_the_table",
+    "special": true
+  },
+  {
+    "id": "line_of_credit",
+    "main_class": "healer",
+    "subclass": "diamonds",
+    "unlock_level": 30,
+    "name": "Line of Credit",
+    "flavor": "Of course your credit's good here. We'll settle up later.",
+    "effects": [
+      {
+        "type": "chip_gain",
+        "value": 9,
+        "target": "ally"
+      }
+    ],
+    "chip_cost": 0,
+    "replaces": "comp_the_table",
+    "special": true
+  },
+  {
     "id": "healing_wine",
     "main_class": "healer",
     "subclass": "none",
