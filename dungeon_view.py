@@ -731,7 +731,8 @@ async def _apply_outcome_rewards(
             # add_inventory_item -- same store-don't-equip call _award_kill uses for a dropped item,
             # leaving the actual swap to !equipment. Loader guarantees a positive qty here.
             await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, item_id, item_qty)
-            log_lines.append(f"⚔️ {subject} {'get' + s} **{item_name}**, stored in `!equipment`.")
+            qty_prefix = f"{item_qty}x " if item_qty > 1 else ""
+            log_lines.append(f"⚔️ {subject} {'get' + s} **{qty_prefix}{item_name}**, stored in `!equipment`.")
         elif item_qty > 0:
             await asyncio.to_thread(db.add_inventory_item, guild_id, user_id, item_id, item_qty)
             log_lines.append(f"{subject} {'find' + s} **{item_qty}x {item_name}**.")
@@ -792,8 +793,122 @@ def _action_summary_lines(action: dict, currency_name: str) -> list[str]:
     return lines
 
 
+async def _holdings_line(guild_id: int, user_id: int, room: dict, who: str) -> str | None:
+    """"🎒 You have: 7x Arcade Token · 12x Prize Ticket" -- how much of whatever this room's
+    actions cost the payer is holding (plus their balance, if anything costs currency), so a shop
+    or arcade room shows what you can spend without a trip to !inventory. None for a room with no
+    costs at all."""
+    cost_items: dict[str, str] = {}  # item_id -> item_kind, in first-seen order
+    wants_currency = False
+    for action in room["actions"]:
+        cost = action.get("cost") or {}
+        if cost.get("item_id"):
+            cost_items.setdefault(cost["item_id"], cost["item_kind"])
+        wants_currency = wants_currency or bool(cost.get("currency"))
+    if not cost_items and not wants_currency:
+        return None
+    parts = []
+    if cost_items:
+        held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
+        for item_id, kind in cost_items.items():
+            name = _cost_item_registry(kind).get(item_id, {}).get("name", item_id)
+            parts.append(f"{held.get(item_id, 0)}x {name}")
+    if wants_currency:
+        balance = await asyncio.to_thread(db.get_balance, guild_id, user_id)
+        parts.append(f"{balance} {db.get_currency_name(guild_id)}")
+    return f"🎒 **{who}:** " + " · ".join(parts)
+
+
+# --- Bulk buying ----------------------------------------------------------------------------------
+# A "purchase" action (a cost, no check, an item reward, no HP/currency side effect, and it leaves
+# you in the same room -- the arcade's prize counter) can be bought several at once: the button
+# opens a quantity modal instead, and the action resolves through the normal choice-action path
+# with its cost and reward multiplied (_scaled_action), so the spend stays one atomic craft_item.
+
+MAX_BULK_QTY = 99
+
+
+def _is_bulk_purchase(room: dict, action: dict) -> bool:
+    outcome = action.get("on_success") or {}
+    return (
+        bool(action.get("cost")) and "check" not in action
+        and bool(outcome.get("item_id")) and outcome.get("item_qty", 0) > 0
+        and not outcome.get("hp_delta") and not outcome.get("currency_delta")
+        and outcome.get("next") == room["id"]
+    )
+
+
+async def _max_affordable(guild_id: int, user_id: int, cost: dict) -> int:
+    limits = [MAX_BULK_QTY]
+    if cost.get("item_id"):
+        held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
+        limits.append(held.get(cost["item_id"], 0) // cost.get("item_qty", 1))
+    if cost.get("currency"):
+        limits.append(await asyncio.to_thread(db.get_balance, guild_id, user_id) // cost["currency"])
+    return min(limits)
+
+
+def _scaled_action(action: dict, qty: int) -> dict:
+    cost = dict(action["cost"])
+    if cost.get("item_id"):
+        cost["item_qty"] = cost.get("item_qty", 1) * qty
+    if cost.get("currency"):
+        cost["currency"] *= qty
+    on_success = {**action["on_success"], "item_qty": action["on_success"]["item_qty"] * qty}
+    return {**action, "cost": cost, "on_success": on_success}
+
+
+class BulkBuyModal(discord.ui.Modal):
+    """`on_confirm` is an async (interaction, scaled_action) callback -- the solo/party button
+    passes its own choice-action handler, so this class only collects the quantity."""
+
+    def __init__(self, action: dict, max_qty: int, on_confirm):
+        prize = action["on_success"]
+        name = _cost_item_registry(prize["item_kind"]).get(prize["item_id"], {}).get("name", prize["item_id"])
+        super().__init__(title=f"Buy {name}"[:45])
+        self.action = action
+        self.max_qty = max_qty
+        self.on_confirm = on_confirm
+        self.quantity = discord.ui.TextInput(label=f"How many? (you can afford {max_qty})"[:45], default="1", max_length=3)
+        self.add_item(self.quantity)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            qty = int(self.quantity.value)
+        except ValueError:
+            await interaction.response.send_message("Enter a whole number.", ephemeral=True)
+            return
+        if not 1 <= qty <= self.max_qty:
+            await interaction.response.send_message(f"Pick a number from 1 to {self.max_qty}.", ephemeral=True)
+            return
+        await self.on_confirm(interaction, _scaled_action(self.action, qty))
+
+
+async def _maybe_open_bulk_buy(interaction: discord.Interaction, view, payer_id: int, action: dict, handler) -> bool:
+    """If `action` is a bulk purchase the payer can afford more than one of, opens BulkBuyModal and
+    returns True; `handler` is the (interaction, action) -> bool choice-action resolver, and `view`
+    is stopped once it resolves. False means "not a bulk buy, resolve it the normal way"."""
+    if not _is_bulk_purchase(view.room, action):
+        return False
+    max_qty = await _max_affordable(view.session.guild_id, payer_id, action["cost"])
+    if max_qty <= 1:
+        return False
+
+    async def on_confirm(modal_interaction: discord.Interaction, scaled: dict):
+        if view.session.current_view is not view or view.is_finished():  # resolved, or timed out into a retreat
+            await modal_interaction.response.send_message("That menu has moved on already.", ephemeral=True)
+            return
+        if await handler(modal_interaction, scaled):
+            view.stop()
+
+    await interaction.response.send_modal(BulkBuyModal(action, max_qty, on_confirm))
+    return True
+
+
 async def _choice_embed(session: DelveSession, room: dict, description: str) -> tuple[discord.Embed, discord.File]:
     currency = db.get_currency_name(session.guild_id)
+    if holdings := await _holdings_line(session.guild_id, session.user_id, room, "You have"):
+        description = f"{description}\n\n{holdings}"
     embed = discord.Embed(title="🚪 A Choice", description=description, color=discord.Color.blurple())
     embed.add_field(name=f"{session.display_name} (You)", value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(session.hp, 0)}/{session.max_hp}", inline=False)
     for action in room["actions"]:
@@ -964,8 +1079,15 @@ class ChoiceActionButton(discord.ui.Button):
         self.action = action
 
     async def callback(self, interaction: discord.Interaction):
-        if await _handle_choice_action(interaction, self.view.session, self.view.room, self.action):
-            self.view.stop()
+        view = self.view
+
+        async def handler(i, action):
+            return await _handle_choice_action(i, view.session, view.room, action)
+
+        if await _maybe_open_bulk_buy(interaction, view, view.session.user_id, self.action, handler):
+            return
+        if await handler(interaction, self.action):
+            view.stop()
 
 
 class RetreatFromChoiceButton(discord.ui.Button):
@@ -3408,6 +3530,10 @@ async def _apply_party_retreat(session: PartyDelveSession) -> discord.Embed:
 
 async def _party_choice_embed(session: PartyDelveSession, room: dict, description: str) -> tuple[discord.Embed, discord.File]:
     currency = db.get_currency_name(session.guild_id)
+    # The leader pays every choice-action cost (_handle_party_choice_action), so theirs is what counts.
+    leader = next(m for m in session.members if m.is_leader)
+    if holdings := await _holdings_line(session.guild_id, leader.user_id, room, f"{leader.label} (leader) has"):
+        description = f"{description}\n\n{holdings}"
     embed = discord.Embed(title="🚪 A Choice", description=description, color=discord.Color.blurple())
     for m in session.members:
         status = "💀 Knocked out" if m.knocked_out else f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}"
@@ -3722,7 +3848,13 @@ class PartyChoiceActionButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         view = self.view
-        if await _handle_party_choice_action(interaction, view.session, view.leader, view.room, self.action):
+
+        async def handler(i, action):
+            return await _handle_party_choice_action(i, view.session, view.leader, view.room, action)
+
+        if await _maybe_open_bulk_buy(interaction, view, view.leader.user_id, self.action, handler):
+            return
+        if await handler(interaction, self.action):
             view.stop()
 
 
