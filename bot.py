@@ -2206,7 +2206,8 @@ async def _rescue_choose_horse(ctx, member: discord.Member | None):
     )
     if member is not None:
         stolen = [h for h in stolen if h["owner_id"] == member.id]
-    holders = {h["owner_id"]: ctx.guild.get_member(h["owner_id"]) for h in stolen}
+    # _fetch_member, not get_member: the member cache is empty without the Members intent.
+    holders = {owner_id: await _fetch_member(ctx.guild, owner_id) for owner_id in {h["owner_id"] for h in stolen}}
     stolen = [h for h in stolen if holders[h["owner_id"]] is not None]
     if not stolen:
         await ctx.send("Nobody around here is holding a horse stolen from you this week.")
@@ -2418,7 +2419,7 @@ async def _spy_outcome(ctx, member, success, odds, spy, _rescue_index):
     ]
     held = await asyncio.to_thread(db.get_held_stolen_horses, guild_id, member.id, now - war.RESCUE_WINDOW_SECONDS)
     held_stolen = [
-        (h["name"], victim.display_name if (victim := ctx.guild.get_member(h["victim_id"])) else "someone")
+        (h["name"], victim.display_name if (victim := await _fetch_member(ctx.guild, h["victim_id"])) else "someone")
         for h in held
     ]
     embed = war_view.build_spy_report(
