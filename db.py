@@ -2047,6 +2047,7 @@ def glued_from_flag(horse_index: int) -> str:
 
 def glue_horse(
     guild_id: int, user_id: int, horse_index: int, item_id: str | None, qty: int, rescue_since: int,
+    curse_key: str | None = None, curse_gain: int = 0,
 ) -> str:
     """Renders a horse into `qty` of `item_id` (an ectoglue grade), all in one transaction -- a
     qty of 0 (too young or too weak, item_id None) still glues the horse, it just grants nothing.
@@ -2085,6 +2086,8 @@ def glue_horse(
             "DELETE FROM horse_clothes_equipped WHERE guild_id = ? AND horse_index = ?", (guild_id, horse_index),
         )
         _write_flag(conn, guild_id, GUILD_FLAG_USER, glued_from_flag(horse_index), user_id)
+        if curse_key and curse_gain:  # necromancy's Curse -- laying a horse to rest stains you
+            _write_flag(conn, guild_id, user_id, curse_key, _flag_value(conn, guild_id, user_id, curse_key) + curse_gain)
         if item_id is not None and qty > 0:  # never leave a 0-qty inventory row (see consume_inventory_item)
             conn.execute(
                 "INSERT INTO inventory (guild_id, user_id, item_id, qty) VALUES (?, ?, ?, ?) "
@@ -2103,19 +2106,25 @@ def prepare_spell(
     all_prepared_keys: list[str], max_prepared: int,
     ghost_index: int | None = None, ghost_key: str | None = None, bound_key: str | None = None,
     peace_key: str | None = None,
+    curse_key: str | None = None, curse_required: int = 0, curse_gain: int = 0,
 ) -> tuple[str, int]:
-    """!cast, in one transaction: checks the spell's cooldown (last_key), that it isn't already
-    prepared, and that fewer than max_prepared spells are (all_prepared_keys: every spell's
-    prepared-until key), then spends `cost` of item_id and prepares it. A summon spell also passes
+    """!cast, in one transaction: checks the caster's Curse (curse_key) is at least curse_required,
+    the spell's cooldown (last_key), that it isn't already prepared, and that fewer than
+    max_prepared spells are (all_prepared_keys: every spell's prepared-until key), then spends `cost`
+    of item_id, prepares it, and adds curse_gain to the caster's Curse. A summon spell also passes
     ghost_index (a glued horse), ghost_key (the caster's record of which ghost), bound_key (the
     guild-wide binding, see necromancy.bound_flag) and peace_key (necromancy.peace_flag): the ghost
     must really be glued, not at peace from a prayer, and not bound to anyone, and gets bound to the
-    caster until expires_at. Returns (status, extra): ("ok", 0), ("cooldown", seconds_left),
-    ("already", 0), ("full", 0), ("broke", qty_held), ("no_ghost", 0), ("at_peace", 0) or
-    ("bound", 0)."""
+    caster until expires_at. Returns (status, extra): ("ok", new_curse), ("too_pure", curse_now),
+    ("cooldown", seconds_left), ("already", 0), ("full", 0), ("broke", qty_held), ("no_ghost", 0),
+    ("at_peace", 0) or ("bound", 0)."""
     conn = _connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
+        curse = _flag_value(conn, guild_id, user_id, curse_key) if curse_key else 0
+        if curse < curse_required:
+            conn.rollback()
+            return "too_pure", curse
         last = _flag_value(conn, guild_id, user_id, last_key)
         if last and now - last < cooldown_seconds:
             conn.rollback()
@@ -2163,21 +2172,39 @@ def prepare_spell(
         if ghost_index is not None:
             _write_flag(conn, guild_id, user_id, ghost_key, ghost_index + 1)
             _write_flag(conn, guild_id, GUILD_FLAG_USER, bound_key, expires_at)
+        if curse_key:
+            curse += curse_gain
+            _write_flag(conn, guild_id, user_id, curse_key, curse)
         conn.commit()
-        return "ok", 0
+        return "ok", curse
+    finally:
+        conn.close()
+
+
+def burn_luck(guild_id: int, user_id: int, amount: int) -> int:
+    """Covenant of Ash (necromancy.py): destroys `amount` of this player's Luck outright -- no floor,
+    same as losing a war (apply_war_result). Returns their Luck after."""
+    conn = _connect()
+    try:
+        _ensure_user(conn, guild_id, user_id)
+        conn.execute("UPDATE users SET luck = luck - ? WHERE guild_id = ? AND user_id = ?", (amount, guild_id, user_id))
+        conn.commit()
+        return conn.execute(
+            "SELECT luck FROM users WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()[0]
     finally:
         conn.close()
 
 
 def pray_at_grave(
     guild_id: int, user_id: int, horse_index: int, *, now: int, cooldown_seconds: int, peace_seconds: int,
-    last_key: str, prayers_key: str, peace_key: str,
+    last_key: str, prayers_key: str, peace_key: str, curse_key: str | None = None, curse_relief: int = 0,
 ) -> tuple[str, int]:
     """!pray, in one transaction: checks the player's prayer cooldown (last_key, on their row) and
-    that horse_index really is a grave, then adds a prayer (prayers_key) and puts the grave at peace
+    that horse_index really is a grave, then adds a prayer (prayers_key), puts the grave at peace
     until now + peace_seconds (peace_key) -- both at GUILD_FLAG_USER, see necromancy.prayers_flag /
-    peace_flag. Returns (status, extra): ("ok", new_prayer_count), ("cooldown", seconds_left) or
-    ("no_grave", 0)."""
+    peace_flag -- and lifts curse_relief off the player's Curse (curse_key, never below 0). Returns
+    (status, extra): ("ok", new_prayer_count), ("cooldown", seconds_left) or ("no_grave", 0)."""
     conn = _connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -2196,6 +2223,9 @@ def pray_at_grave(
         _write_flag(conn, guild_id, GUILD_FLAG_USER, prayers_key, count)
         _write_flag(conn, guild_id, GUILD_FLAG_USER, peace_key, now + peace_seconds)
         _write_flag(conn, guild_id, user_id, last_key, now)
+        if curse_key and curse_relief:
+            curse = _flag_value(conn, guild_id, user_id, curse_key)
+            _write_flag(conn, guild_id, user_id, curse_key, max(0, curse - curse_relief))
         conn.commit()
         return "ok", count
     finally:

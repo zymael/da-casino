@@ -241,6 +241,13 @@ def _army_lines(army: war.Army) -> str:
         perks.append(f"🪧 Shaken by propaganda: -{army.spirit_penalty:.0f} Spirit")
     if army.on_foot:
         perks.append("No horses to ride, so they fight on foot!")
+    # Necromancy (war.apply_spell_effects)
+    if army.rot_pct:
+        perks.append(f"☠️ Rotting: loses {army.rot_pct:.0f}% of its HP every round")
+    if army.feast_pct:
+        perks.append(f"🦷 Feasting: heals {army.feast_pct:.0f}% of the damage it deals")
+    if army.harvest_pct:
+        perks.append(f"🌾 Harvesting: the enemy's fallen rise for it at {army.harvest_pct:.0f}%")
     return "\n".join(perks + lines)[:1024]
 
 
@@ -253,6 +260,13 @@ def _round_lines(index: int, log: war.RoundLog, names: dict[str, str]) -> str:
     if len(log.knockouts) > MAX_EVENTS_PER_KIND:
         lines.append(f"💥 ...and {len(log.knockouts) - MAX_EVENTS_PER_KIND} more are knocked out!")
     lines += [f"🪦 {unit} ({names[side]}) goes back in the ground." for side, unit in log.ghosts_laid_down]
+    # Necromancy: who fed, who rose, what the Rot took.
+    feasters = list(dict.fromkeys(f"{unit} ({names[side]})" for side, unit in log.feasts))
+    lines += [f"🦷 {who} feeds." for who in feasters[:MAX_EVENTS_PER_KIND]]
+    if len(feasters) > MAX_EVENTS_PER_KIND:
+        lines.append(f"🦷 ...and {len(feasters) - MAX_EVENTS_PER_KIND} more feed.")
+    lines += [f"🌾 {ghost} rises to fight for {names[side]}." for side, ghost in log.risen]
+    lines += [f"☠️ The Rot eats {round(hp)} HP from {names[side]}'s army." for side, hp in log.rot.items()]
     return "\n".join(lines)
 
 

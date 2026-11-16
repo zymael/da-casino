@@ -1,48 +1,91 @@
 [
   {
-    "id": "grave_fury",
-    "name": "Grave Fury",
-    "emoji": "💀",
-    "description": "Smear it on the hooves. Your horses charge like something is chasing them. Something is.",
-    "cost": 3,
-    "cooldown_hours": 24,
-    "charge_pct": 10
-  },
-  {
     "id": "unfeeling_flesh",
-    "name": "Unfeeling Flesh",
-    "emoji": "🧟",
-    "description": "Your horses stop noticing pain. They also stop noticing a few other things. Worry about that later.",
-    "cost": 3,
+    "name": "The Embalming",
+    "emoji": "⚰️",
+    "description": "Seal their flesh with Ectoglue and words that should not be said aloud. They will not fall. They will barely move. Pain is something that happens to the living.",
+    "cost": 2,
     "cooldown_hours": 24,
-    "hp_pct": 12
+    "curse": 2,
+    "curse_required": 0,
+    "hp_pct": 20
   },
   {
-    "id": "whinny_of_the_damned",
-    "name": "Whinny of the Damned",
-    "emoji": "👻",
-    "description": "A sound from under the ground that every horse on the field recognizes. Theirs lose heart.",
-    "cost": 4,
+    "id": "grave_fury",
+    "name": "Rite of the Hollow Gallop",
+    "emoji": "🩸",
+    "description": "Pour Ectoglue into their nostrils and speak the names of the dead. Their eyes go dark. They will run faster than anything living, and they will not stop when they break.",
+    "cost": 2,
+    "cooldown_hours": 24,
+    "curse": 3,
+    "curse_required": 0,
+    "charge_pct": 15
+  },
+  {
+    "id": "covenant_of_ash",
+    "name": "Covenant of Ash",
+    "emoji": "🕯️",
+    "description": "Melt Ectoglue into a black candle and speak your enemy's name into the smoke. Whatever fortune either of you carried, the dark takes its share. It is not particular about whose.",
+    "cost": 3,
     "cooldown_hours": 36,
-    "enemy_spirit": 20
+    "curse": 4,
+    "curse_required": 0,
+    "burn_enemy_luck": 15,
+    "burn_own_luck": 10
   },
   {
-    "id": "sanctuary_fog",
-    "name": "Sanctuary Fog",
-    "emoji": "🌫️",
-    "description": "Bottle some smokestack fog and uncork it on the battlefield. The enemy can't see where they're charging. Neither can you, but you're used to it.",
-    "cost": 5,
-    "cooldown_hours": 48,
-    "enemy_charge_pct": 8,
-    "spirit": 10
+    "id": "the_rot",
+    "name": "The Rot",
+    "emoji": "☠️",
+    "description": "Stir Ectoglue into the enemy's water trough before dawn. By the time they ride out, something is already eating them from the inside. It works slowly. It does not stop.",
+    "cost": 3,
+    "cooldown_hours": 36,
+    "curse": 6,
+    "curse_required": 10,
+    "rot_pct": 8
+  },
+  {
+    "id": "the_feast",
+    "name": "The Feast",
+    "emoji": "🦷",
+    "description": "Coat their teeth in Ectoglue and starve them for a night. In the morning they will not want hay. Every bite they take on the field gives back what was taken from them.",
+    "cost": 3,
+    "cooldown_hours": 36,
+    "curse": 6,
+    "curse_required": 10,
+    "feast_pct": 25
   },
   {
     "id": "raise_the_glued",
     "name": "Raise the Glued",
     "emoji": "🪦",
-    "description": "Pour the glue back over a grave and ask nicely. Whatever's down there rides with you one more time, a little less than it was. Anyone's grave will do.",
-    "cost": 6,
+    "description": "Pour Ectoglue back over the grave and call it by name until something answers. What climbs out will ride beside your horses. They will not look at it. Neither should you.",
+    "cost": 4,
     "cooldown_hours": 72,
+    "curse": 10,
+    "curse_required": 20,
     "summon_ghost_pct": 60
+  },
+  {
+    "id": "harvest_of_the_fallen",
+    "name": "Harvest of the Fallen",
+    "emoji": "🌾",
+    "description": "Mark your saddles with Ectoglue in the old sigils. When their horses fall, they do not stay down. They stand back up on your side, and they do not remember whose they were.",
+    "cost": 5,
+    "cooldown_hours": 72,
+    "curse": 12,
+    "curse_required": 35,
+    "harvest_pct": 35
+  },
+  {
+    "id": "the_offering",
+    "name": "The Offering",
+    "emoji": "🔪",
+    "description": "Paint the weakest of your herd in Ectoglue and lead it to the front. Everything it was is given to the rest. The others will not look at the empty space where it stood.",
+    "cost": 2,
+    "cooldown_hours": 72,
+    "curse": 15,
+    "curse_required": 50,
+    "offering_pct": 150
   }
 ]

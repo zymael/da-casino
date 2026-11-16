@@ -250,7 +250,7 @@ TRIGGER_PARAM_HINTS = {
     "key": "advanced/escape-hatch use -- prefer one of the other trigger types above if it fits. "
            "Start typing to see keys already in use (e.g. \"quest:<id>\"), or type a new one if "
            "something else in the game is going to set it",
-    "value": "the flag's value must be at least this",
+    "value": "flag_at_least: the flag must be at least this. flag_below: it must be under this",
     "amount": "how much currency must be paid to advance this stage",
     "main_class": "the player's dungeon class (e.g. mage) -- required for the \"class\" trigger",
     "subclass": "optional -- narrows to one specific subclass; blank means any subclass of main_class",
@@ -1260,7 +1260,7 @@ CONTENT_TYPES = {
         "module": necromancy,
         "registry_attr": "SPELLS",
         "loader": necromancy._load_spells,
-        "list_columns": ["id", "name", "cost", "cooldown_hours"],
+        "list_columns": ["id", "name", "cost", "curse", "curse_required"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
@@ -1268,39 +1268,74 @@ CONTENT_TYPES = {
             {"name": "description", "type": "text", "required": True, "group": "Identity"},
             {
                 "name": "cost", "type": "int", "required": True, "min": 1, "group": "Casting",
-                "hint": "Ectoglue spent per cast, all of one grade the caster picks. The grade scales every "
-                        "effect below: Faint x0.75, Ectoglue x1, Potent x1.25, Ancient x1.5.",
+                "hint": "Ectoglue spent per cast, all of one grade the caster picks. The grade strengthens every "
+                        "boon below (Faint x0.75, Ectoglue x1, Potent x1.25, Ancient x1.5) but never a price.",
             },
             {
                 "name": "cooldown_hours", "type": "int", "required": True, "min": 0, "group": "Casting",
                 "hint": "hours after casting before this spell can be cast again",
             },
             {
-                "name": "charge_pct", "type": "int", "required": False, "min": 0, "group": "Effects (next war)",
-                "hint": "optional -- % added to your army's charge. A side's spells stack, capped at "
-                        f"{war.SPELL_EFFECT_CAPS['charge_pct']}% total.",
+                "name": "curse", "type": "int", "required": False, "min": 0, "group": "Curse",
+                "hint": "how evil it is: added to the caster's Curse every time it's cast (blank = 0)",
             },
             {
-                "name": "hp_pct", "type": "int", "required": False, "min": 0, "group": "Effects (next war)",
-                "hint": f"optional -- % added to your army's max HP (stacked cap {war.SPELL_EFFECT_CAPS['hp_pct']}%)",
+                "name": "curse_required", "type": "int", "required": False, "min": 0, "group": "Curse",
+                "hint": "the caster's Curse must be at least this to cast it (blank = anyone). Titles: "
+                        + ", ".join(f"{minimum} {title}" for minimum, title in necromancy.CURSE_TITLES),
             },
             {
-                "name": "spirit", "type": "int", "required": False, "min": 0, "group": "Effects (next war)",
-                "hint": f"optional -- flat Spirit added to your units (stacked cap {war.SPELL_EFFECT_CAPS['spirit']})",
+                "name": "charge_pct", "type": "int", "required": False, "group": "Effects (next war)",
+                "hint": "optional -- % added to your army's charge, negative for a price. A side's spells stack, "
+                        f"clamped to +/-{war.SPELL_EFFECT_CAPS['charge_pct']}% total.",
             },
             {
-                "name": "enemy_charge_pct", "type": "int", "required": False, "min": 0, "group": "Effects (next war)",
-                "hint": f"optional -- % knocked off the enemy's charge (stacked cap {war.SPELL_EFFECT_CAPS['enemy_charge_pct']}%)",
+                "name": "hp_pct", "type": "int", "required": False, "group": "Effects (next war)",
+                "hint": f"optional -- % added to your army's max HP, negative for a price (cap {war.SPELL_EFFECT_CAPS['hp_pct']}%)",
             },
             {
-                "name": "enemy_spirit", "type": "int", "required": False, "min": 0, "group": "Effects (next war)",
-                "hint": f"optional -- Spirit knocked off the enemy's units, like propaganda (stacked cap {war.SPELL_EFFECT_CAPS['enemy_spirit']})",
+                "name": "spirit", "type": "int", "required": False, "group": "Effects (next war)",
+                "hint": f"optional -- flat Spirit added to your units, negative for a price (cap {war.SPELL_EFFECT_CAPS['spirit']})",
             },
             {
-                "name": "summon_ghost_pct", "type": "int", "required": False, "min": 0, "group": "Raise the Dead",
+                "name": "enemy_charge_pct", "type": "int", "required": False, "group": "Effects (next war)",
+                "hint": f"optional -- % knocked off the enemy's charge (cap {war.SPELL_EFFECT_CAPS['enemy_charge_pct']}%)",
+            },
+            {
+                "name": "enemy_spirit", "type": "int", "required": False, "group": "Effects (next war)",
+                "hint": f"optional -- Spirit knocked off the enemy's units (cap {war.SPELL_EFFECT_CAPS['enemy_spirit']})",
+            },
+            {
+                "name": "rot_pct", "type": "int", "required": False, "min": 0, "group": "Dark Arts (next war)",
+                "hint": f"optional -- every round, each enemy unit rots away this % of its max HP (cap {war.SPELL_EFFECT_CAPS['rot_pct']}%)",
+            },
+            {
+                "name": "feast_pct", "type": "int", "required": False, "min": 0, "group": "Dark Arts (next war)",
+                "hint": f"optional -- your units heal this % of the damage they deal (cap {war.SPELL_EFFECT_CAPS['feast_pct']}%)",
+            },
+            {
+                "name": "harvest_pct", "type": "int", "required": False, "min": 0, "group": "Dark Arts (next war)",
+                "hint": "optional -- every enemy horse your army knocks out rises as a ghost on your side at this % "
+                        f"of its strength, mid-battle (cap {war.SPELL_EFFECT_CAPS['harvest_pct']}%)",
+            },
+            {
+                "name": "offering_pct", "type": "int", "required": False, "min": 0, "group": "Dark Arts (next war)",
+                "hint": "optional -- sacrifices the caster's weakest horse in the army before the battle (glued for "
+                        "real, Ectoglue and all); this % of its charge is split among the rest. Needs 2+ horses.",
+            },
+            {
+                "name": "summon_ghost_pct", "type": "int", "required": False, "min": 0, "group": "Dark Arts (next war)",
                 "hint": "optional -- makes this a summon: the caster picks any glued horse in the graveyard (anyone's) "
                         "and its ghost rides in their next war at this % of its final stats, times the grade "
-                        f"(capped at {war.GHOST_STAT_CAP_PCT}%). Takes one army slot; never injured; no general bonus.",
+                        f"(capped at {war.GHOST_STAT_CAP_PCT}%). A bonus unit beyond the army cap; never injured.",
+            },
+            {
+                "name": "burn_enemy_luck", "type": "int", "required": False, "min": 0, "group": "Luck",
+                "hint": "optional -- Luck the enemy loses when the war starts (scales with grade)",
+            },
+            {
+                "name": "burn_own_luck", "type": "int", "required": False, "min": 0, "group": "Luck",
+                "hint": "optional -- Luck the caster loses when the war starts: a price, so it doesn't scale",
             },
         ],
     },

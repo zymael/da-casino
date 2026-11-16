@@ -34,7 +34,8 @@ check whether the "obvious" direction would be circular before writing a validat
 ## The trigger/flag system
 
 `quests.TRIGGER_SCHEMAS` is a generic condition language — `turn_in_item`, `achievement`,
-`kill_monster`, `craft_item`, `quest_complete`, `flag_at_least` — each a `{type, ...params}` dict
+`kill_monster`, `craft_item`, `quest_complete`, `flag_at_least`, `flag_below` (e.g. the Goo's store
+only opens while your necromancy Curse is under 20) — each a `{type, ...params}` dict
 with `quests.trigger_satisfied()` as the one function that evaluates any of them. This is shared by
 quest stage/start conditions *and* NPC presence conditions (`npcs.json`'s optional
 `visible_trigger`, checked via `quests.npcs_present_in_room`). Adding a new trigger *type* is the

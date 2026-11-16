@@ -175,6 +175,13 @@ class Army:
     fortune: float = 1.0  # rolled once per battle by simulate_battle
     fortune_low: float = FORTUNE_LOW  # raised to INTEL_FORTUNE_LOW by a spy's intel
     spirit_penalty: float = 0.0  # PROPAGANDA_SPIRIT_PENALTY while a propaganda op is live
+    # Necromancy (apply_spell_effects), all % and 0 when unused: rot_pct is how much of each of
+    # *this* army's units' max HP rots away every round (the enemy's Rot); feast_pct is how much of
+    # the damage this army deals it heals back; harvest_pct raises each enemy horse this army knocks
+    # out as a ghost on this side at that % of its strength.
+    rot_pct: float = 0.0
+    feast_pct: float = 0.0
+    harvest_pct: float = 0.0
 
     @property
     def living(self) -> list[Unit]:
@@ -192,6 +199,9 @@ class RoundLog:
     rallies: list[tuple[str, str]] = field(default_factory=list)  # (side, unit name)
     knockouts: list[tuple[str, str]] = field(default_factory=list)  # (side the KO'd unit was on, name)
     ghosts_laid_down: list[tuple[str, str]] = field(default_factory=list)  # same shape, for raised ghosts
+    feasts: list[tuple[str, str]] = field(default_factory=list)  # (side, unit name) that fed this round
+    risen: list[tuple[str, str]] = field(default_factory=list)  # (side it rose for, ghost name) via Harvest
+    rot: dict[str, float] = field(default_factory=dict)  # side -> HP the Rot ate off it this round
 
 
 @dataclass
@@ -289,32 +299,64 @@ def build_army(
 
 # Necromancy spells (necromancy.py / necromancy_spells.json) prepared before a war, applied by
 # apply_spell_effects to both freshly-built armies before simulate_battle. Each is an optional
-# integer field on a spell; values are summed across a side's prepared spells (already scaled by the
-# grade of ectoglue each was cast with) and then capped here, so stacking spells can't turn a war
-# into a lock -- the same reason FLAT_NOISE_MAX exists. Percentages are whole numbers (10 = 10%).
+# *signed* integer field on a spell -- positive is good for the caster, negative is the spell's
+# price (e.g. +20 charge_pct with -15 hp_pct). Values are summed across a side's prepared spells
+# and clamped to +/- the cap here, so stacking spells can't turn a war into a lock -- the same
+# reason FLAT_NOISE_MAX exists. Percentages are whole numbers (10 = 10%).
 SPELL_EFFECT_CAPS = {
-    "charge_pct": 25,  # own army's charge
-    "hp_pct": 25,  # own army's max HP
+    "charge_pct": 30,  # own army's charge
+    "hp_pct": 30,  # own army's max HP
     "spirit": 30,  # own units' Spirit (rally chance/strength while behind)
-    "enemy_charge_pct": 20,  # knocked off the enemy's charge
-    "enemy_spirit": 30,  # knocked off the enemy's Spirit, like propaganda
+    "enemy_charge_pct": 25,  # knocked off the enemy's charge
+    "enemy_spirit": 45,  # knocked off the enemy's Spirit, like propaganda
+    "rot_pct": 15,  # the Rot: % of each enemy unit's max HP eaten every round
+    "feast_pct": 60,  # the Feast: % of damage dealt that heals the dealer
+    "harvest_pct": 60,  # Harvest of the Fallen: enemy horses KO'd rise for you at this % strength
 }
 SPELL_EFFECTS = tuple(SPELL_EFFECT_CAPS)
+# The Offering isn't one of these: it needs a horse glued for real (db), so the caller runs it with
+# offering_victim/make_offering below before apply_spell_effects.
 
 
 def apply_spell_effects(army: Army, enemy: Army, effects: dict[str, float]):
-    """Applies one side's summed spell effects ({effect: amount}, any SPELL_EFFECTS subset) to its
-    own army and the enemy's. Call after build_army and before simulate_battle; resets HP to the new
-    max, the same way build_army does after its own bonuses."""
-    capped = {k: min(SPELL_EFFECT_CAPS[k], max(0.0, v)) for k, v in effects.items() if k in SPELL_EFFECT_CAPS}
+    """Applies one side's summed spell effects ({effect: signed amount}, any SPELL_EFFECTS subset)
+    to its own army and the enemy's. Call after build_army and before simulate_battle; resets HP to
+    the new max, the same way build_army does after its own bonuses."""
+    capped = {
+        k: max(-SPELL_EFFECT_CAPS[k], min(SPELL_EFFECT_CAPS[k], v))
+        for k, v in effects.items() if k in SPELL_EFFECT_CAPS
+    }
     for unit in army.units:
         unit.charge *= 1 + capped.get("charge_pct", 0) / 100
         unit.max_hp *= 1 + capped.get("hp_pct", 0) / 100
         unit.hp = unit.max_hp
-        unit.spirit += capped.get("spirit", 0)  # no ceiling -- barding/Fallout already push past 100
+        # No ceiling -- barding/Fallout already push past 100 -- but a price can't go below 0.
+        unit.spirit = max(0.0, unit.spirit + capped.get("spirit", 0))
     for unit in enemy.units:
         unit.charge *= 1 - capped.get("enemy_charge_pct", 0) / 100
         unit.spirit = max(0.0, unit.spirit - capped.get("enemy_spirit", 0))
+    enemy.rot_pct = max(0.0, capped.get("rot_pct", 0))
+    army.feast_pct = max(0.0, capped.get("feast_pct", 0))
+    army.harvest_pct = max(0.0, capped.get("harvest_pct", 0))
+
+
+def offering_victim(army: Army) -> Unit | None:
+    """The Offering's sacrifice: the weakest horse (by charge + max HP) in an army of at least two
+    horses -- None if there's nothing to spare (one horse, or a character on foot)."""
+    horses = [u for u in army.units if u.horse_index is not None]
+    if len(horses) < 2:
+        return None
+    return min(horses, key=lambda u: u.charge + u.max_hp)
+
+
+def make_offering(army: Army, victim: Unit, pct: float) -> float:
+    """Removes the victim from the army and splits pct% of its charge across everyone left as bonus
+    charge. Returns the charge each remaining unit gained."""
+    army.units.remove(victim)
+    share = victim.charge * pct / 100 / max(1, len(army.units))
+    for unit in army.units:
+        unit.charge += share
+    return share
 
 
 def _average_charge(army: Army) -> float:
@@ -334,14 +376,53 @@ def _strike(side: str, army: Army, enemy: Army, behind: bool, log: RoundLog):
             log.rallies.append((side, unit.name))
         damage = power * DAMAGE_SCALE
         log.damage[side] += damage
+        total_dealt = 0.0
         while damage > 0 and enemy.living:
             target = random.choice(enemy.living)
             dealt = min(damage, target.hp)
             target.hp -= dealt
             damage -= dealt
+            total_dealt += dealt
             if not target.alive:
                 ko = (DEFENDER if side == ATTACKER else ATTACKER, target.name)
                 (log.ghosts_laid_down if target.ghost else log.knockouts).append(ko)
+                if army.harvest_pct and not target.ghost:
+                    risen = _harvested_ghost(target, army.harvest_pct)
+                    army.units.append(risen)  # joins from next round -- army.living above was a snapshot
+                    log.risen.append((side, risen.name))
+        if army.feast_pct and total_dealt and unit.hp < unit.max_hp:
+            unit.hp = min(unit.max_hp, unit.hp + total_dealt * army.feast_pct / 100)
+            log.feasts.append((side, unit.name))
+
+
+def _harvested_ghost(fallen: Unit, pct: float) -> Unit:
+    """An enemy horse knocked out under Harvest of the Fallen, risen on the harvester's side at pct%
+    of its battle strength. A ghost, so never injured and never harvested again."""
+    fraction = min(GHOST_STAT_CAP_PCT, pct) / 100
+    return Unit(
+        name=f"Ghost of {fallen.name}",
+        horse_index=None,
+        charge=fallen.charge * fraction,
+        max_hp=BASE_HP + max(0.0, fallen.max_hp - BASE_HP) * fraction,
+        spirit=fallen.spirit * fraction,
+        ghost=True,
+    )
+
+
+def _rot(side: str, army: Army, log: RoundLog):
+    """The Rot: every living unit in a rotting army loses rot_pct of its max HP at the end of a round.
+    A unit the Rot finishes off is knocked out like any other."""
+    if not army.rot_pct:
+        return
+    eaten = 0.0
+    for unit in army.living:
+        loss = min(unit.hp, unit.max_hp * army.rot_pct / 100)
+        unit.hp -= loss
+        eaten += loss
+        if not unit.alive:
+            (log.ghosts_laid_down if unit.ghost else log.knockouts).append((side, unit.name))
+    if eaten:
+        log.rot[side] = eaten
 
 
 def simulate_battle(attacker: Army, defender: Army) -> BattleResult:
@@ -364,6 +445,8 @@ def simulate_battle(attacker: Army, defender: Army) -> BattleResult:
         for side, other in ((first, second), (second, first)):
             behind = armies[side].hp_fraction() < armies[other].hp_fraction()
             _strike(side, armies[side], armies[other], behind, log)
+        for side in (ATTACKER, DEFENDER):
+            _rot(side, armies[side], log)
         rounds.append(log)
         snapshots.append(copy.deepcopy(armies))
         if not attacker.living or not defender.living:

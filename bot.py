@@ -523,6 +523,9 @@ async def stats_cmd(ctx, member: discord.Member = None):
     times_haunted = await asyncio.to_thread(db.get_flag, guild_id, user_id, necromancy.HAUNTED_COUNT_FLAG)
     if times_haunted:
         embed.add_field(name="👻 Times Haunted", value=str(times_haunted), inline=True)
+    curse = await asyncio.to_thread(db.get_flag, guild_id, user_id, necromancy.CURSE_FLAG)
+    if curse:
+        embed.add_field(name="🩸 Curse", value=f"{curse}: {necromancy.curse_title(curse)}", inline=True)
 
     await ctx.send(embed=embed)
 
@@ -2022,10 +2025,8 @@ async def _war_choose_army(ctx, member: discord.Member):
         async def on_pick(pick_ctx, horse_indices):
             await _war_resolve(pick_ctx, member, horse_indices)
 
-        ghosts = _ghost_slots(await _prepared_spells(guild_id, attacker_id))
-        view = war_view.build_army_picker(attacker_id, healthy, on_pick, war.MAX_ARMY_SIZE - ghosts)
-        ghost_note = f" ({ghosts} slot{'s' if ghosts > 1 else ''} held for your ghosts)" if ghosts else ""
-        await ctx.send(f"Which horses ride against {member.display_name}?{ghost_note}", view=view)
+        view = war_view.build_army_picker(attacker_id, healthy, on_pick)
+        await ctx.send(f"Which horses ride against {member.display_name}?", view=view)
         return
     if await _war_general(guild_id, attacker_id) is None:
         await ctx.send("You have no army: no healthy horses and no class character. Try `!buyfoal` or `!class`.")
@@ -2039,9 +2040,32 @@ async def _prepared_spells(guild_id: int, user_id: int) -> list[necromancy.Prepa
     return necromancy.prepared_spells(flags, int(time.time()))
 
 
-def _ghost_slots(prepared: list[necromancy.Prepared]) -> int:
-    """Army slots raised ghosts will take (each takes one of war.MAX_ARMY_SIZE)."""
-    return sum(1 for p in prepared if p.ghost_index is not None)
+async def _make_offering(guild_id: int, side_id: int, side_name: str, army: war.Army, p, horses: dict[int, dict]) -> str:
+    """The Offering, for real: picks the weakest horse in the army, glues it (the caster keeps its
+    Ectoglue, as with any !glue), then pours its strength into the rest. Returns the line to post."""
+    victim = war.offering_victim(army)
+    if victim is None:
+        return f"🔪 **{side_name}**'s Offering finds nothing to take. There has to be a herd to give one up."
+    horse = horses.get(victim.horse_index)
+    if horse is None:
+        return f"🔪 **{side_name}**'s Offering falters. The altar stays empty."
+    irradiated = await asyncio.to_thread(manhattan.is_irradiated, guild_id, victim.horse_index)
+    item_id, amount = necromancy.ectoglue_yield(horse, not horse["is_foal"], irradiated)
+    status = await asyncio.to_thread(
+        db.glue_horse, guild_id, side_id, victim.horse_index, item_id, amount,
+        int(time.time()) - war.RESCUE_WINDOW_SECONDS,
+    )
+    if status != "ok":
+        return f"🔪 **{side_name}**'s Offering is refused. **{victim.name}** isn't theirs to give."
+    share = war.make_offering(army, victim, necromancy.offering_pct(p.spell, p.grade))
+    keepsake = ""
+    if item_id is not None:
+        item = quests.QUEST_ITEMS[item_id]
+        keepsake = f" {side_name} keeps the remains: {amount}× {item['emoji']} {item['name']}."
+    return (
+        f"🔪 **{side_name}** lays **{victim.name}** on the altar. It does not get up. Its strength pours "
+        f"into the rest of the herd (+{share:.0f} charge each).{keepsake}"
+    )
 
 
 async def _war_resolve(ctx, member: discord.Member, horse_indices: list[int]):
@@ -2050,20 +2074,12 @@ async def _war_resolve(ctx, member: discord.Member, horse_indices: list[int]):
     if await _reject_if_front_closed(ctx):
         return
     guild_id, attacker_id = ctx.guild.id, ctx.author.id
-    side_spells = {
-        war.ATTACKER: await _prepared_spells(guild_id, attacker_id),
-        war.DEFENDER: await _prepared_spells(guild_id, member.id),
-    }
-    attacker_max = war.MAX_ARMY_SIZE - _ghost_slots(side_spells[war.ATTACKER])
     healthy = {h["horse_index"]: h for h in await _available_horses(guild_id, attacker_id)}
     if any(i not in healthy for i in horse_indices):
         await ctx.send("Some of those horses aren't yours or aren't fit to fight anymore. Try `!war` again.")
         return
-    if len(horse_indices) > attacker_max:
-        await ctx.send(
-            f"You can only send up to {attacker_max} horses to this war"
-            + (" (your raised ghosts take the other slots)." if attacker_max < war.MAX_ARMY_SIZE else ".")
-        )
+    if len(horse_indices) > war.MAX_ARMY_SIZE:
+        await ctx.send(f"You can only send up to {war.MAX_ARMY_SIZE} horses to one war.")
         return
     defender_available = await _available_horses(guild_id, member.id)
     clothes = await asyncio.to_thread(db.get_guild_horse_clothes, guild_id)
@@ -2079,10 +2095,7 @@ async def _war_resolve(ctx, member: discord.Member, horse_indices: list[int]):
     intel = attacker_flags[intel_key] > now
     # A spy's scouted lineup only holds while its intel does.
     scouted = [attacker_flags[key] - 1 for key in lineup_keys if attacker_flags[key]] if intel else []
-    defender_healthy = war.defender_lineup(
-        [(h["horse_index"], h) for h in defender_available], scouted,
-        war.MAX_ARMY_SIZE - _ghost_slots(side_spells[war.DEFENDER]),
-    )
+    defender_healthy = war.defender_lineup([(h["horse_index"], h) for h in defender_available], scouted)
     attacker_propaganda = attacker_flags[db.WAR_PROPAGANDA_FLAG] > now
     defender_propaganda = defender_flags[db.WAR_PROPAGANDA_FLAG] > now
     fortress_tier = 0 if defender_flags[db.WAR_FORTRESS_OFF_FLAG] > now else (
@@ -2123,29 +2136,49 @@ async def _war_resolve(ctx, member: discord.Member, horse_indices: list[int]):
         await asyncio.to_thread(db.set_flag, guild_id, attacker_id, db.WAR_PROPAGANDA_FLAG, 0)
     if defender_propaganda:
         await asyncio.to_thread(db.set_flag, guild_id, member.id, db.WAR_PROPAGANDA_FLAG, 0)
-    # Necromancy: every spell either side has prepared is spent by this war, same as propaganda --
-    # raised ghosts join their side (after build_army, so no general bonus) and are released.
+    # Necromancy: every spell either side has prepared is spent by this war, same as propaganda.
+    # Raised ghosts join their side as a bonus unit (after build_army, so no general bonus, and on
+    # top of MAX_ARMY_SIZE); an Offering glues a horse for real; Luck burns happen now, win or lose.
+    side_spells = {
+        war.ATTACKER: await _prepared_spells(guild_id, attacker_id),
+        war.DEFENDER: await _prepared_spells(guild_id, member.id),
+    }
     graveyard = {h["horse_index"]: h for h in await asyncio.to_thread(db.get_glued_horses, guild_id)}
+    fighting_horses = {**healthy, **dict(defender_healthy)}
+    luck_burned = {war.ATTACKER: 0, war.DEFENDER: 0}
     spell_lines = []
-    for side, side_id, side_name, army in (
-        (war.ATTACKER, attacker_id, ctx.author.display_name, attacker_army),
-        (war.DEFENDER, member.id, member.display_name, defender_army),
-    ):
+    sides = (
+        (war.ATTACKER, war.DEFENDER, attacker_id, ctx.author.display_name, attacker_army),
+        (war.DEFENDER, war.ATTACKER, member.id, member.display_name, defender_army),
+    )
+    for side, other, side_id, side_name, army in sides:
         prepared = side_spells[side]
+        if not prepared:
+            continue
+        cast = ", ".join(f"{p.spell['emoji']} {p.spell['name']} ({_grade_name(p.grade)})" for p in prepared)
+        spell_lines.append(f"🕯️ **{side_name}** calls on the dead: {cast}")
         for p in prepared:
             await asyncio.to_thread(db.set_flag, guild_id, side_id, necromancy.prepared_flag(p.spell["id"]), 0)
+            if p.spell.get(necromancy.OFFERING_FIELD):
+                spell_lines.append(await _make_offering(guild_id, side_id, side_name, army, p, fighting_horses))
+            own_burn, enemy_burn = necromancy.luck_burns(p.spell, p.grade)
+            luck_burned[side] += own_burn
+            luck_burned[other] += enemy_burn
             if p.ghost_index is None:
                 continue
             await asyncio.to_thread(db.set_flag, guild_id, db.GUILD_FLAG_USER, necromancy.bound_flag(p.ghost_index), 0)
             ghost = graveyard.get(p.ghost_index)
             if ghost is not None:
                 army.units.append(war.ghost_unit(ghost, necromancy.ghost_stat_pct(p.spell, p.grade)))
-        if prepared:
-            cast = ", ".join(f"{p.spell['emoji']} {p.spell['name']} ({_grade_name(p.grade)})" for p in prepared)
-            spell_lines.append(f"🕯️ **{side_name}** calls on the dead: {cast}")
-            ghosts = [u.name for u in army.units if u.ghost]
-            if ghosts:
-                spell_lines.append(f"👻 Rising from the Horse Graveyard to ride with {side_name}: {', '.join(ghosts)}")
+                spell_lines.append(f"👻 The ghost of **{ghost['name']}** climbs out of the Horse Graveyard to ride with {side_name}.")
+    names = {war.ATTACKER: ctx.author.display_name, war.DEFENDER: member.display_name}
+    burns = []
+    for side, side_id in ((war.ATTACKER, attacker_id), (war.DEFENDER, member.id)):
+        if luck_burned[side]:
+            await asyncio.to_thread(db.burn_luck, guild_id, side_id, luck_burned[side])
+            burns.append(f"{names[side]} loses {luck_burned[side]} Luck")
+    if burns:
+        spell_lines.append(f"🕯️ The dark takes its share: {', '.join(burns)}.")
     war.apply_spell_effects(attacker_army, defender_army, necromancy.combined_effects(side_spells[war.ATTACKER]))
     war.apply_spell_effects(defender_army, attacker_army, necromancy.combined_effects(side_spells[war.DEFENDER]))
     if spell_lines:
@@ -2753,9 +2786,10 @@ async def _glue_horse(ctx, horse_index: int):
         await ctx.send("That horse isn't yours anymore.")
         return
     horse, item_id, amount = quote
+    curse_gain = necromancy.glue_curse(item_id, not horse["is_foal"])
     status = await asyncio.to_thread(
         db.glue_horse, guild_id, user_id, horse_index, item_id, amount,
-        int(time.time()) - war.RESCUE_WINDOW_SECONDS,
+        int(time.time()) - war.RESCUE_WINDOW_SECONDS, necromancy.CURSE_FLAG, curse_gain,
     )
     if status == "not_owner":
         await ctx.send("That horse isn't yours anymore.")
@@ -2784,8 +2818,16 @@ async def _glue_horse(ctx, horse_index: int):
     if not horse["is_foal"]:
         lines.append(f"🪦 **A legend is gone.** {horse['name']} will never race again, for anyone.")
         kinds.append("glue_legend")
+    lines.append(await _curse_line(guild_id, user_id, curse_gain))
     await ctx.send("\n".join(lines))
     await achievements.try_award_many(ctx.send, guild_id, user_id, ctx.author.display_name, kinds)
+
+
+async def _curse_line(guild_id: int, user_id: int, change: int) -> str:
+    """'Your Curse deepens/lifts (+N, now X: Title)' after something moved it."""
+    curse = await asyncio.to_thread(db.get_flag, guild_id, user_id, necromancy.CURSE_FLAG)
+    verb = "deepens" if change > 0 else "lifts a little"
+    return f"🩸 Your Curse {verb} ({change:+d}, now **{curse}: {necromancy.curse_title(curse)}**)."
 
 
 @bot.command(name="glue", aliases=["laytorest"])
@@ -2918,6 +2960,7 @@ async def _pray_at(ctx, horse_index: int):
         now=int(time.time()), cooldown_seconds=necromancy.PRAY_COOLDOWN_SECONDS,
         peace_seconds=necromancy.PEACE_SECONDS, last_key=necromancy.PRAY_LAST_FLAG,
         prayers_key=necromancy.prayers_flag(horse_index), peace_key=necromancy.peace_flag(horse_index),
+        curse_key=necromancy.CURSE_FLAG, curse_relief=necromancy.PRAY_CURSE_RELIEF,
     )
     if status == "cooldown":
         await ctx.send(f"🕯️ You've already prayed today. You can pray again {_in_seconds(extra)}.")
@@ -2937,9 +2980,11 @@ async def _pray_at(ctx, horse_index: int):
         )
     else:
         rest = f"**{name}** rests in peace. Nobody can raise it for the next {necromancy.PEACE_SECONDS // 3600} hours."
-    await ctx.send(
-        f"🕯️ {ctx.author.display_name} lights a candle at **{name}**'s grave ({extra} {plural} so far). {rest}"
-    )
+    lines = [f"🕯️ {ctx.author.display_name} lights a candle at **{name}**'s grave ({extra} {plural} so far). {rest}"]
+    curse = await asyncio.to_thread(db.get_flag, guild_id, user_id, necromancy.CURSE_FLAG)
+    if curse:
+        lines.append(f"🩸 Your Curse lifts a little (now **{curse}: {necromancy.curse_title(curse)}**).")
+    await ctx.send("\n".join(lines))
     await achievements.try_award_many(ctx.send, guild_id, user_id, ctx.author.display_name, ["necro_pray"])
 
 
@@ -2958,7 +3003,9 @@ async def cast_cmd(ctx, spell_id: str = None):
     flags = await asyncio.to_thread(db.get_flags, guild_id, user_id, necromancy.prepared_keys())
     ready = necromancy.prepared_spells(flags, now)
     graveyard = {h["horse_index"]: h for h in await asyncio.to_thread(db.get_glued_horses, guild_id)}
-    lines = ["🕯️ **Prepared for your next war:**" if ready else "🕯️ Nothing prepared yet."]
+    curse = await asyncio.to_thread(db.get_flag, guild_id, user_id, necromancy.CURSE_FLAG)
+    lines = [f"🩸 Your Curse: **{curse}: {necromancy.curse_title(curse)}**"]
+    lines.append("🕯️ **Prepared for your next war:**" if ready else "🕯️ Nothing prepared yet.")
     for p in ready:
         expires = flags[necromancy.prepared_flag(p.spell["id"])]
         ghost = graveyard.get(p.ghost_index) if p.ghost_index is not None else None
@@ -2973,7 +3020,16 @@ async def cast_cmd(ctx, spell_id: str = None):
     if not necromancy.SPELLS:
         await ctx.send("\n".join(lines))
         return
-    options = [(spell, necromancy.describe_spell(spell, 1)) for spell in necromancy.SPELLS.values()]
+    # Every spell is listed, locked ones too, so the ladder is visible: below a spell's required
+    # Curse its summary says what it needs instead (picking it just explains).
+    options = [
+        (
+            spell,
+            necromancy.describe_spell(spell, 1) if curse >= (spell.get("curse_required") or 0)
+            else f"🔒 Needs Curse {spell['curse_required']} ({necromancy.curse_title(spell['curse_required'])})",
+        )
+        for spell in necromancy.SPELLS.values()
+    ]
     await ctx.send("\n".join(lines), view=necro_view.build_spell_picker(user_id, options, _cast_choose_grade))
 
 
@@ -2982,6 +3038,10 @@ async def _cast_choose_grade(ctx, spell_id: str):
     spell = necromancy.SPELLS.get(spell_id)
     if spell is None:
         await ctx.send(f"There's no spell called `{spell_id}`. Try plain `!cast` for the list.")
+        return
+    curse = await asyncio.to_thread(db.get_flag, ctx.guild.id, ctx.author.id, necromancy.CURSE_FLAG)
+    if curse < (spell.get("curse_required") or 0):
+        await ctx.send(_too_pure_message(spell, curse))
         return
     held = await asyncio.to_thread(db.get_inventory, ctx.guild.id, ctx.author.id)
     affordable = [
@@ -3068,7 +3128,12 @@ async def _cast_spell(ctx, spell_id: str, grade: int, ghost_index: int | None = 
         ghost_key=necromancy.prepared_ghost_flag(spell_id) if summon else None,
         bound_key=necromancy.bound_flag(ghost_index) if summon else None,
         peace_key=necromancy.peace_flag(ghost_index) if summon else None,
+        curse_key=necromancy.CURSE_FLAG, curse_required=spell.get("curse_required") or 0,
+        curse_gain=spell.get("curse") or 0,
     )
+    if status == "too_pure":
+        await ctx.send(_too_pure_message(spell, extra))
+        return
     if status == "cooldown":
         await ctx.send(f"{spell['emoji']} **{spell['name']}** is still settling. You can cast it again {_in_seconds(extra)}.")
         return
@@ -3096,13 +3161,22 @@ async def _cast_spell(ctx, spell_id: str, grade: int, ghost_index: int | None = 
         ghost = next((h for h in graveyard if h["horse_index"] == ghost_index), None)
         if ghost is not None:
             raised = f"\n🪦 The ground over **{ghost['name']}** shifts. Something underneath has agreed to ride again."
+    curse_line = f"\n{await _curse_line(guild_id, user_id, spell['curse'])}" if spell.get("curse") else ""
     await ctx.send(
         f"🕯️ {ctx.author.display_name} works {spell['cost']}× {_grade_name(grade)} into **{spell['emoji']} "
         f"{spell['name']}** ({necromancy.describe_spell(spell, grade)}). It'll hold for your next war, "
-        f"attacking or defending, for up to {necromancy.PREPARED_SECONDS // 3600} hours.{raised}"
+        f"attacking or defending, for up to {necromancy.PREPARED_SECONDS // 3600} hours.{raised}{curse_line}"
     )
     if summon:
         await achievements.try_award_many(ctx.send, guild_id, user_id, ctx.author.display_name, ["necro_raise"])
+
+
+def _too_pure_message(spell: dict, curse: int) -> str:
+    required = spell["curse_required"]
+    return (
+        f"{spell['emoji']} **{spell['name']}** will not answer you. You are not wicked enough yet: it wants "
+        f"Curse {required} ({necromancy.curse_title(required)}), and you're at {curse}."
+    )
 
 
 @bot.command(name="donate")

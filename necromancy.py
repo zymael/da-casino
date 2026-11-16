@@ -64,7 +64,7 @@ if set(SEND_OFF) != {None, *GRADES}:
 # AGE_FACTOR_CAP. Rounded down. A fresh foal (105 total, age 0) and a weakling (<= STAT_FLOOR) both
 # render into nothing at all -- !glue lets them, then calls them a bad person for it.
 STAT_FLOOR = 130
-STATS_PER_GLUE = 10
+STATS_PER_GLUE = 6
 WINS_PER_GLUE = 3
 YOUNG_AGE = 4
 FULL_AGE = 12
@@ -106,24 +106,55 @@ validate_ectoglue_items()
 
 
 # ---------------------------------------------------------------------------------------------
-# Phase 2: spells. Content is necromancy_spells.json (admin panel: "Necromancy Spells"), each entry
-# {id, name, emoji, description, cost, cooldown_hours} plus any of war.SPELL_EFFECTS as optional
-# integers. !cast spends `cost` ectoglue of one grade the caster picks and *prepares* the spell; the
-# caster's next war -- attacking or defending -- applies every prepared spell and spends them all.
-# The grade scales every effect by GRADE_POWER. All state is flags on the caster (keys below), so
-# this needed no new table.
+# Spells. Content is necromancy_spells.json (admin panel: "Necromancy Spells"), each entry {id,
+# name, emoji, description, cost, cooldown_hours, curse, curse_required} plus any of the effect
+# fields below. !cast spends `cost` Ectoglue of one grade the caster picks and *prepares* the spell;
+# the caster's next war -- attacking or defending -- applies every prepared spell and spends them
+# all. The grade strengthens the boon, never the price: positive effects scale by GRADE_POWER,
+# negative ones (and burn_own_luck) stay fixed. All state is flags on the caster, no new table.
+#
+# Effect fields (all optional integers):
+#   war.SPELL_EFFECTS -- signed % / flat battle modifiers, plus rot_pct/feast_pct/harvest_pct
+#   summon_ghost_pct  -- raise one glued horse (anyone's) as a bonus unit at this % of its stats
+#   offering_pct      -- sacrifice your weakest horse in the army; this % of its charge goes to the rest
+#   burn_enemy_luck   -- the enemy loses this much Luck when the war starts (a boon, so it scales)
+#   burn_own_luck     -- you lose this much Luck too (a price, so it doesn't)
 # ---------------------------------------------------------------------------------------------
 
 _SPELLS_PATH = os.path.join(os.path.dirname(__file__), "necromancy_spells.json")
 _REQUIRED_SPELL_FIELDS = {"id", "name", "emoji", "description", "cost", "cooldown_hours"}
 
-GRADE_POWER = (0.75, 1.0, 1.25, 1.5)  # per GRADES index
+GRADE_POWER = (0.75, 1.0, 1.25, 1.5)  # per GRADES index -- boons only
 PREPARED_SECONDS = 48 * 3600  # a prepared spell fizzles if no war comes within this long
-MAX_PREPARED = 2  # spells a player can hold ready at once (so at most 2 ghosts per side, of 5 slots)
-# Optional on a spell: raise one glued horse (anyone's -- the caster picks from the whole guild's
-# graveyard) to fight in the caster's next war at this % of its final stats, times GRADE_POWER,
-# capped at war.GHOST_STAT_CAP_PCT. A ghost takes one of the army's MAX_ARMY_SIZE slots.
-SUMMON_FIELD = "summon_ghost_pct"
+MAX_PREPARED = 2  # spells a player can hold ready at once
+SUMMON_FIELD = "summon_ghost_pct"  # capped at war.GHOST_STAT_CAP_PCT; a bonus unit beyond MAX_ARMY_SIZE
+OFFERING_FIELD = "offering_pct"
+LUCK_FIELDS = ("burn_enemy_luck", "burn_own_luck")
+_SIGNED_FIELDS = war.SPELL_EFFECTS  # may be negative: a spell's price
+_UNSIGNED_FIELDS = (SUMMON_FIELD, OFFERING_FIELD, *LUCK_FIELDS)
+
+# Curse: every cast adds the spell's "curse" to the caster's CURSE_FLAG; a spell can't be cast below
+# its "curse_required"; gluing a horse adds GLUE_CURSE (more for a legend, most for a horse that gave
+# nothing); each prayer lifts PRAY_CURSE_RELIEF (never below 0). It's a plain flag, so other content
+# can gate on it with flag_at_least / flag_below -- e.g. the Goo's pet store won't let you in at
+# Curse 20+ (rooms.json). CURSE_TITLES are (minimum curse, title), lowest first.
+CURSE_FLAG = "necro:curse"
+GLUE_CURSE = 3
+GLUE_LEGEND_CURSE = 8
+GLUE_NOTHING_CURSE = 10
+PRAY_CURSE_RELIEF = 5
+CURSE_TITLES = ((0, "Untouched"), (10, "Tainted"), (20, "Cursed"), (35, "Damned"), (50, "Abomination"))
+
+
+def curse_title(curse: int) -> str:
+    return next(title for minimum, title in reversed(CURSE_TITLES) if curse >= minimum)
+
+
+def glue_curse(item_id: str | None, is_legend: bool) -> int:
+    """How much Curse laying this horse to rest costs -- a horse that gave nothing costs the most."""
+    if item_id is None:
+        return GLUE_NOTHING_CURSE
+    return GLUE_LEGEND_CURSE if is_legend else GLUE_CURSE
 
 
 def _load_spells(path: str = _SPELLS_PATH) -> dict[str, dict]:
@@ -132,24 +163,25 @@ def _load_spells(path: str = _SPELLS_PATH) -> dict[str, dict]:
     spells: dict[str, dict] = {}
     for entry in raw:
         spell_id = entry.get("id", "?")
+        context = f"necromancy_spells.json: spell {spell_id!r}"
         missing = _REQUIRED_SPELL_FIELDS - entry.keys()
         if missing:
-            raise ValueError(f"necromancy_spells.json: spell {spell_id!r} missing field(s): {sorted(missing)}")
+            raise ValueError(f"{context} missing field(s): {sorted(missing)}")
         if spell_id in spells:
             raise ValueError(f"necromancy_spells.json: duplicate spell id {spell_id!r}")
         if not isinstance(entry["cost"], int) or entry["cost"] < 1:
-            raise ValueError(f"necromancy_spells.json: spell {spell_id!r} cost must be an integer >= 1")
-        if not isinstance(entry["cooldown_hours"], int) or entry["cooldown_hours"] < 0:
-            raise ValueError(f"necromancy_spells.json: spell {spell_id!r} cooldown_hours must be an integer >= 0")
-        effects = {k: entry[k] for k in (*war.SPELL_EFFECTS, SUMMON_FIELD) if entry.get(k) is not None}
-        for key, value in effects.items():
-            if not isinstance(value, int) or value < 0:
-                raise ValueError(f"necromancy_spells.json: spell {spell_id!r} {key} must be an integer >= 0")
-        if not any(effects.values()):
-            raise ValueError(
-                f"necromancy_spells.json: spell {spell_id!r} has no effect -- set at least one of "
-                f"{[*war.SPELL_EFFECTS, SUMMON_FIELD]}"
-            )
+            raise ValueError(f"{context} cost must be an integer >= 1")
+        for key in ("cooldown_hours", "curse", "curse_required", *_UNSIGNED_FIELDS):
+            value = entry.get(key)
+            if value is not None and (not isinstance(value, int) or value < 0):
+                raise ValueError(f"{context} {key} must be an integer >= 0")
+        for key in _SIGNED_FIELDS:
+            value = entry.get(key)
+            if value is not None and not isinstance(value, int):
+                raise ValueError(f"{context} {key} must be an integer")
+        boons = [entry.get(k) for k in (*_SIGNED_FIELDS, SUMMON_FIELD, OFFERING_FIELD, "burn_enemy_luck")]
+        if not any(v and v > 0 for v in boons):
+            raise ValueError(f"{context} does nothing for its caster -- give it at least one positive effect")
         spells[spell_id] = entry
     return spells
 
@@ -161,8 +193,22 @@ def is_summon(spell: dict) -> bool:
     return bool(spell.get(SUMMON_FIELD))
 
 
+def _boon(value: float, grade: int) -> float:
+    """A positive effect scales with the grade of Ectoglue; a negative one (a price) doesn't."""
+    return value * GRADE_POWER[grade] if value > 0 else value
+
+
 def ghost_stat_pct(spell: dict, grade: int) -> float:
-    return min(war.GHOST_STAT_CAP_PCT, spell[SUMMON_FIELD] * GRADE_POWER[grade])
+    return min(war.GHOST_STAT_CAP_PCT, _boon(spell[SUMMON_FIELD], grade))
+
+
+def offering_pct(spell: dict, grade: int) -> float:
+    return _boon(spell.get(OFFERING_FIELD) or 0, grade)
+
+
+def luck_burns(spell: dict, grade: int) -> tuple[int, int]:
+    """(Luck the caster burns, Luck the enemy burns) when the war starts."""
+    return spell.get("burn_own_luck") or 0, round(_boon(spell.get("burn_enemy_luck") or 0, grade))
 
 
 def prepared_flag(spell_id: str) -> str:
@@ -262,8 +308,9 @@ def prepared_spells(flags: dict[str, int], now: int) -> list[Prepared]:
 
 
 def spell_effects(spell: dict, grade: int) -> dict[str, float]:
-    """One spell's war effects (not its summon), scaled by the grade of ectoglue it was cast with."""
-    return {k: spell[k] * GRADE_POWER[grade] for k in war.SPELL_EFFECTS if spell.get(k)}
+    """One spell's battle effects (war.SPELL_EFFECTS only -- not its summon, offering or Luck),
+    boons scaled by the grade of Ectoglue it was cast with, prices left as they are."""
+    return {k: _boon(spell[k], grade) for k in war.SPELL_EFFECTS if spell.get(k)}
 
 
 def combined_effects(prepared: list[Prepared]) -> dict[str, float]:
@@ -275,18 +322,40 @@ def combined_effects(prepared: list[Prepared]) -> dict[str, float]:
     return total
 
 
-_EFFECT_TEXT = {
-    "charge_pct": "+{:g}% charge",
-    "hp_pct": "+{:g}% HP",
-    "spirit": "+{:g} Spirit",
-    "enemy_charge_pct": "enemy −{:g}% charge",
-    "enemy_spirit": "enemy −{:g} Spirit",
-}
+def _signed(value: float) -> str:
+    return f"{'+' if value >= 0 else '−'}{abs(round(value, 1)):g}"
+
+
+def _effect_text(key: str, value: float) -> str:
+    if key == "charge_pct":
+        return f"{_signed(value)}% charge"
+    if key == "hp_pct":
+        return f"{_signed(value)}% HP"
+    if key == "spirit":
+        return f"{_signed(value)} Spirit"
+    if key == "enemy_charge_pct":
+        return f"enemy {_signed(-value)}% charge"
+    if key == "enemy_spirit":
+        return f"enemy {_signed(-value)} Spirit"
+    if key == "rot_pct":
+        return f"enemy rots {round(value, 1):g}% HP a round"
+    if key == "feast_pct":
+        return f"heals {round(value, 1):g}% of damage dealt"
+    if key == "harvest_pct":
+        return f"enemy fallen rise for you at {round(value, 1):g}%"
+    return f"{key} {_signed(value)}"
 
 
 def describe_spell(spell: dict, grade: int) -> str:
     """One-line summary of what this spell does when cast with `grade`."""
-    parts = [_EFFECT_TEXT[k].format(round(v, 1)) for k, v in spell_effects(spell, grade).items()]
+    parts = [_effect_text(k, v) for k, v in spell_effects(spell, grade).items()]
     if is_summon(spell):
         parts.insert(0, f"raises a ghost at {ghost_stat_pct(spell, grade):g}% of its old stats")
+    if spell.get(OFFERING_FIELD):
+        parts.insert(0, f"sacrifices your weakest horse for {offering_pct(spell, grade):g}% of its charge")
+    own, enemy = luck_burns(spell, grade)
+    if enemy:
+        parts.append(f"enemy burns {enemy} Luck")
+    if own:
+        parts.append(f"you burn {own} Luck")
     return ", ".join(parts)

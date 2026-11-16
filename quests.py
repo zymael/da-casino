@@ -91,6 +91,9 @@ TRIGGER_SCHEMAS = {
     "craft_item": ({"count"}, {"recipe_id"}),
     "quest_complete": ({"quest_id"}, set()),
     "flag_at_least": ({"key", "value"}, set()),
+    # The inverse: holds while the flag is still *under* value -- e.g. the Goo's pet store only
+    # lets you in while your necromancy Curse (necromancy.CURSE_FLAG) is below 20.
+    "flag_below": ({"key", "value"}, set()),
     # Checks a *character's* class/subclass rather than any player-state db.py already tracks --
     # the one trigger type trigger_satisfied needs an explicit `character` dict for (every other
     # type is self-contained from guild_id/user_id alone). Added for dungeon.py's choice-room
@@ -993,6 +996,9 @@ async def trigger_satisfied(
     if trigger_type == "flag_at_least":
         value = await asyncio.to_thread(db.get_flag, guild_id, user_id, trigger["key"])
         return value >= trigger["value"]
+    if trigger_type == "flag_below":
+        value = await asyncio.to_thread(db.get_flag, guild_id, user_id, trigger["key"])
+        return value < trigger["value"]
     if trigger_type == "class":
         return (
             character is not None
