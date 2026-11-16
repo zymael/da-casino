@@ -518,6 +518,12 @@ async def stats_cmd(ctx, member: discord.Member = None):
         legs_broken = await asyncio.to_thread(db.get_flag, guild_id, user_id, TAXMAN_LEGS_BROKEN_FLAG)
         embed.add_field(name="🦵 Legs Broken", value=str(legs_broken), inline=True)
 
+    # Casino hauntings only (necro_view.maybe_haunt_winners), not the /play room ones -- and only
+    # once it's happened, since unlike the Daughters this can be anyone.
+    times_haunted = await asyncio.to_thread(db.get_flag, guild_id, user_id, necromancy.HAUNTED_COUNT_FLAG)
+    if times_haunted:
+        embed.add_field(name="👻 Times Haunted", value=str(times_haunted), inline=True)
+
     await ctx.send(embed=embed)
 
 

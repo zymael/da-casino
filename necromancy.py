@@ -218,6 +218,7 @@ def peace_flag(horse_index: int) -> str:
 # someone has prayed at (peace_flag) rests and doesn't haunt anyone.
 HAUNT_WIN_CHANCE = 0.05
 HAUNT_IMAGE_PATH = "assets/ghost_horse.png"
+HAUNTED_COUNT_FLAG = "necro:times_haunted"  # on the haunted player's row: casino hauntings only, shown on !stats
 # ...and in the /play rooms: each room a haunted player opens has HAUNT_ROOM_CHANCE of one of their
 # ghosts turning up faintly in the banner, ghost-photo style (npc_render._composite_ghost), with
 # HAUNT_ROOM_LINE under it.

@@ -44,6 +44,7 @@ async def maybe_haunt_winners(send, guild_id: int, net_by_user: dict[int, int]) 
         if not ghosts:
             continue
         name = random.choice(ghosts)
+        await asyncio.to_thread(db.increment_flag, guild_id, user_id, necromancy.HAUNTED_COUNT_FLAG)
         embed = discord.Embed(
             title="👻 You're Being Haunted",
             description=random.choice(necromancy.HAUNT_WIN_LINES).format(name=name),
