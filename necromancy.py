@@ -145,6 +145,15 @@ GLUE_NOTHING_CURSE = 10
 PRAY_CURSE_RELIEF = 5
 CURSE_TITLES = ((0, "Untouched"), (10, "Tainted"), (20, "Cursed"), (35, "Damned"), (50, "Abomination"))
 
+# Da Alpha: on a full moon, a delve started by an Abomination (the top CURSE_TITLES rung) has
+# ALPHA_CHANCE of being replaced by ALPHA_DELVE_ID, one fight against Werewolf Kel (dungeon_view.
+# _full_moon_ambush). For a party it's the leader's Curse; raids are never swapped. The delve and
+# monster are ordinary content (dungeon_delves.json / dungeon_monsters.json); the delve is inactive
+# so nobody picks it on purpose.
+ALPHA_DELVE_ID = "da_alpha"
+ALPHA_CURSE = CURSE_TITLES[-1][0]
+ALPHA_CHANCE = 0.25
+
 
 def curse_title(curse: int) -> str:
     return next(title for minimum, title in reversed(CURSE_TITLES) if curse >= minimum)

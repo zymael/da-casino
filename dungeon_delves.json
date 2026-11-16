@@ -1378,5 +1378,30 @@
       "kind": "pizza_devotee"
     },
     "background_path": "assets/dungeon/backgrounds/pizza_parlor.jpg"
+  },
+  {
+    "id": "da_alpha",
+    "name": "The Full Moon",
+    "active": false,
+    "raid": false,
+    "flavor": "You were going somewhere else. You are not going there anymore.",
+    "rooms": [
+      {
+        "id": "Da Alpha",
+        "type": "combat",
+        "prompt": "The path you took isn't the path you're on. The trees are wrong. The moon is too big. You're standing in a pasture you don't remember walking into, and every horse in it has backed into the far corner, as far from you as they can get.\n\nSomething in a cowboy hat steps between you and them. It sniffs the air once, slowly. It smells the Ectoglue on your hands, and it knows exactly what that used to be.\n\n\"You smell like my horses, kit...ten.\" Its knuckles crack. \"You smell like *all* of them.\"",
+        "monster_groups": [
+          {
+            "monsters": [
+              "da_alpha"
+            ],
+            "fork": false
+          }
+        ],
+        "background_path": "assets/dungeon/backgrounds/da_alpha.png"
+      }
+    ],
+    "start_room": "Da Alpha",
+    "background_path": "assets/dungeon/backgrounds/da_alpha.png"
   }
 ]

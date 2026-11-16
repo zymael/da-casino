@@ -88,6 +88,38 @@ def _load_monster_sprite(sprite_path: str, target_height: int = SPRITE_HEIGHT) -
     return sprite.resize(new_size, Image.NEAREST)
 
 
+@lru_cache(maxsize=64)
+def _load_monster_overlay(sprite_path: str) -> Image.Image | None:
+    """A sprite_overlay monster's art (dungeon_monsters.json): no trimming or height-normalizing,
+    just the same cover-fit the background gets, so art painted at the background's own size lands
+    exactly where it was drawn. Same missing-file forgiveness and caching as _load_monster_sprite."""
+    if not sprite_path or not os.path.exists(sprite_path):
+        return None
+    return _fit_frame(Image.open(sprite_path).convert("RGBA"))
+
+
+# An overlay fills the frame, so an attack can't slide it around the way a cutout tackles (it would
+# leave an empty strip at the bottom where the body should be). It lunges at the camera instead:
+# the tackle's dy keyframes become a scale, anchored at the bottom center, so a rise is a pull-back
+# (shrink) and the snap down is a lean in (grow). Pixels per 1.0 of scale.
+_OVERLAY_LUNGE_PX = 120
+
+
+def _place_overlay(img: Image.Image, overlay: Image.Image, offset: tuple[int, int] = (0, 0)) -> None:
+    dx, dy = offset
+    if dy:
+        scale = 1 + dy / _OVERLAY_LUNGE_PX
+        overlay = overlay.resize((round(overlay.width * scale), round(overlay.height * scale)), Image.NEAREST)
+    x = round((WIDTH - overlay.width) / 2) + dx
+    y = HEIGHT - overlay.height
+    # Clip to the frame by hand: alpha_composite won't take a negative destination.
+    sx, sy = max(-x, 0), max(-y, 0)
+    x, y = max(x, 0), max(y, 0)
+    w, h = min(overlay.width - sx, WIDTH - x), min(overlay.height - sy, HEIGHT - y)
+    if w > 0 and h > 0:
+        img.alpha_composite(overlay.crop((sx, sy, sx + w, sy + h)), (x, y))
+
+
 def _fit_frame(img: Image.Image) -> Image.Image:
     """Cover-fits one frame to exactly WIDTH x HEIGHT -- scale to fill, then center-crop, rather
     than stretching (which would distort) or leaving the frame partially empty. Shared by every
@@ -234,7 +266,9 @@ def _compose_frame(
     for i, (sprite, monster, x_offset) in enumerate(sprites):
         dx, dy = offset if i == offset_index else (0, 0)
         mx, my = cx + x_offset + dx, cy + dy
-        if sprite:
+        if sprite and monster.get("sprite_overlay"):
+            _place_overlay(img, sprite, (dx, dy))
+        elif sprite:
             pos = (round(mx - sprite.width / 2), round(my + 110 - sprite.height))
             img.alpha_composite(sprite, pos)
         else:
@@ -370,7 +404,8 @@ def render_room(
     sprite_height = _sprite_height_for(count)
     offsets = _GROUP_X_OFFSETS.get(count, _GROUP_X_OFFSETS[4])
     sprites = [
-        (_load_monster_sprite(monster.get("sprite_path"), round(sprite_height * monster.get("sprite_scale", 1.0))),
+        (_load_monster_overlay(monster.get("sprite_path")) if monster.get("sprite_overlay")
+         else _load_monster_sprite(monster.get("sprite_path"), round(sprite_height * monster.get("sprite_scale", 1.0))),
          monster, x_offset)
         for monster, x_offset in zip(monsters, offsets)
     ]
@@ -391,7 +426,9 @@ def render_room(
         idx = attack.get("index")
         if keyframes_fn is not None and idx is not None and 0 <= idx < len(sprites):
             attacker_sprite = sprites[idx][0]
-            attacker_height = attacker_sprite.height if attacker_sprite else sprite_height
+            # An overlay is frame-sized, so its lunge is scaled like a normal sprite's (see _place_overlay).
+            overlay = sprites[idx][1].get("sprite_overlay")
+            attacker_height = attacker_sprite.height if attacker_sprite and not overlay else sprite_height
             keyframes = keyframes_fn(attacker_height)
             attack_frames = [
                 _compose_frame(frames[0], sprites, room_label, strip, offset_index=idx, offset=(dx, dy))

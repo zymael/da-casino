@@ -351,6 +351,13 @@ CONTENT_TYPES = {
                         "this on a sprite that looks too small next to its cohort instead of "
                         "re-exporting the art.",
             },
+            {
+                "name": "sprite_overlay", "type": "bool", "required": False, "default": False, "group": "Appearance",
+                "hint": "draw the sprite as a full-screen overlay instead of a trimmed, centered cutout: "
+                        "it's laid over the room exactly like the background (same size, same crop), so "
+                        "art painted at the background's own size lines up perfectly. Meant for a boss "
+                        "fought alone. sprite_scale is ignored.",
+            },
         ],
     },
     "equipment": {

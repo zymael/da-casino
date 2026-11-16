@@ -1552,5 +1552,78 @@
       }
     ],
     "sprite_path": "assets/dungeon/monsters/old_god_pizza.png"
+  },
+  {
+    "id": "da_alpha",
+    "name": "Da Alpha",
+    "hp": 380,
+    "atk": 88,
+    "def": 60,
+    "spatk": 60,
+    "spd": 32,
+    "intended_level": 45,
+    "shape": "circle",
+    "color": "#3f6b2a",
+    "flavor": "Kel. It's still Kel, mostly. The hat is the same, and so is the love for every last horse on that ranch. The rest of him grew under the full moon.\n\nHe has counted the empty stalls. He knows whose hands smell like glue.",
+    "loot_min": 4000,
+    "loot_max": 6000,
+    "drops": [],
+    "attack_chance": 1,
+    "skills": [
+      {
+        "name": "Kit...ten...",
+        "chance": 1,
+        "special": true,
+        "effects": [
+          {
+            "type": "def_shred",
+            "value": 8
+          },
+          {
+            "type": "speed_debuff",
+            "value": 3
+          }
+        ],
+        "flavor": "He tips his hat and says it slow, like he's tasting it. Your armor suddenly feels like it belongs to somebody else, and your legs forget how running works."
+      },
+      {
+        "name": "Get Morbed",
+        "chance": 1,
+        "special": false,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 1.8
+          }
+        ],
+        "flavor": "He's on you before you see him move. Behind him, the horses stamp and whinny like they're cheering him on."
+      },
+      {
+        "name": "Moonlit Pursuit",
+        "chance": 1,
+        "special": false,
+        "effects": [
+          {
+            "type": "extra_attack",
+            "multiplier": 0.8
+          }
+        ],
+        "flavor": "You run. He's faster. He was always going to be faster."
+      },
+      {
+        "name": "Da Alpha's Embrace",
+        "chance": 0.8,
+        "special": true,
+        "effects": [
+          {
+            "type": "lifesteal_fraction",
+            "value": 0.5
+          }
+        ],
+        "flavor": "He pulls you in close. It is a hug. It is not only a hug. Whatever he takes out of you, he keeps."
+      }
+    ],
+    "sprite_path": "assets/dungeon/monsters/da_alpha.png",
+    "sprite_overlay": true
   }
 ]

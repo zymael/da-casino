@@ -320,6 +320,8 @@ def _load_monsters(path: str = _MONSTERS_PATH) -> dict[str, dict]:
             not isinstance(entry["sprite_scale"], (int, float)) or entry["sprite_scale"] <= 0
         ):
             raise ValueError(f"dungeon_monsters.json: monster {entry_id!r} sprite_scale must be a positive number")
+        if "sprite_overlay" in entry and not isinstance(entry["sprite_overlay"], bool):
+            raise ValueError(f"dungeon_monsters.json: monster {entry_id!r} sprite_overlay must be true/false")
         if entry.get("skills"):
             for skill in entry["skills"]:
                 _validate_monster_skill(skill, f"dungeon_monsters.json: monster {entry_id!r}")

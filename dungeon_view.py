@@ -11,6 +11,7 @@ import dungeon_render
 import housing
 import hub_ui
 import moon
+import necromancy
 import quests
 from holdem_view import busy_players
 
@@ -4374,7 +4375,8 @@ class PartyLobbyView(discord.ui.View):
                 housing_bonuses.get("stat_bonus", {}),
             ))
 
-        session = PartyDelveSession(lobby.guild_id, lobby.delve, members)
+        delve = await _full_moon_ambush(lobby.guild_id, lobby.leader_id, lobby.delve)
+        session = PartyDelveSession(lobby.guild_id, delve, members)
         for uid in lobby.member_ids:
             active_delves[uid] = session  # swap PartyLobby -> PartyDelveSession in place, ids stay registered throughout
         await _build_party_room_display(interaction, session)
@@ -5044,7 +5046,8 @@ class DelveModeChoiceView(discord.ui.View):
         if not has_energy:
             await interaction.response.send_message("You're out of energy — run `!rest` to refill it.", ephemeral=True)
             return
-        session = await _new_delve_session(self.guild_id, self.user_id, self.character, self.delve)
+        delve = await _full_moon_ambush(self.guild_id, self.user_id, self.delve)
+        session = await _new_delve_session(self.guild_id, self.user_id, self.character, delve)
         try:
             await _build_room_display(interaction, session)
         except Exception:
@@ -5084,6 +5087,19 @@ async def build_mode_choice_display(
         color=discord.Color.blurple(),
     )
     return embed, DelveModeChoiceView(guild_id, user_id, character, delve)
+
+
+async def _full_moon_ambush(guild_id: int, user_id: int, delve: dict) -> dict:
+    """The delve that actually starts: usually `delve`, but on a full moon an Abomination (Curse at
+    necromancy.ALPHA_CURSE) has necromancy.ALPHA_CHANCE of getting Da Alpha's delve instead. Called
+    after energy is spent, so the swap costs what the original would have. Raids are never swapped."""
+    alpha = dungeon.DELVES.get(necromancy.ALPHA_DELVE_ID)
+    if alpha is None or delve.get("raid") or delve is alpha:
+        return delve
+    if moon.current_phase()[0] != "full_moon" or random.random() >= necromancy.ALPHA_CHANCE:
+        return delve
+    curse = await asyncio.to_thread(db.get_flag, guild_id, user_id, necromancy.CURSE_FLAG)
+    return alpha if curse >= necromancy.ALPHA_CURSE else delve
 
 
 async def _new_delve_session(guild_id: int, user_id: int, character: dict, delve: dict) -> DelveSession:
