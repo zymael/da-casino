@@ -6,6 +6,7 @@ import discord
 
 import achievements
 import db
+import necro_view
 import roulette
 import roulette_render
 from holdem_view import busy_players as holdem_busy_players
@@ -873,6 +874,7 @@ class RouletteView(discord.ui.View):
 
             if self.message is not None:
                 await _maybe_send_daughters_popup(self.message.channel, net_by_user)
+                await necro_view.maybe_haunt_winners(self.message.channel.send, self.guild_id, net_by_user)
         finally:
             self.resolved_event.set()
 

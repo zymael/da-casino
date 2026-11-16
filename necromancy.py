@@ -211,6 +211,29 @@ def peace_flag(horse_index: int) -> str:
     return f"necro:peace:{horse_index}"
 
 
+# Hauntings: a glued horse haunts whoever glued it (db.glued_from_flag). Purely cosmetic, the same
+# kind of running gag as roulette_view's Sickly Victorian Daughters, but for anyone with blood on
+# their hooves: after a casino game, each haunted player who came out ahead rolls HAUNT_WIN_CHANCE
+# for one of their ghosts to show up and make it weird (necro_view.maybe_haunt_winners). A grave
+# someone has prayed at (peace_flag) rests and doesn't haunt anyone.
+HAUNT_WIN_CHANCE = 0.05
+HAUNT_IMAGE_PATH = "assets/ghost_horse.png"
+# ...and in the /play rooms: each room a haunted player opens has HAUNT_ROOM_CHANCE of one of their
+# ghosts turning up faintly in the banner, ghost-photo style (npc_render._composite_ghost), with
+# HAUNT_ROOM_LINE under it.
+HAUNT_ROOM_CHANCE = 0.10
+HAUNT_OVERLAY_PATH = "assets/ghost_horse_overlay.png"
+HAUNT_ROOM_LINE = "👻 {name} is standing behind you."
+HAUNT_WIN_LINES = (
+    "The ghost of **{name}** drifts up to the table in a bedsheet and asks, very quietly, whether "
+    "these winnings are worth more than it was.",
+    "The ghost of **{name}** has been standing behind your chair this whole time. It watched every "
+    "bet. It doesn't say anything. It doesn't have to.",
+    "The ghost of **{name}** taps you on the shoulder to say congratulations. It would clap, but it "
+    "doesn't have hands. It never did.",
+)
+
+
 def prepared_keys() -> list[str]:
     """Every flag key a war needs to read to find a player's prepared spells."""
     return [

@@ -98,18 +98,60 @@ def render_npc_dialogue(
     return buf
 
 
-def render_room_banner(banner_path: str, sprite_paths: list[str] = (), irradiated: bool = False) -> io.BytesIO:
+# Ghost-photo look for a haunting (necromancy.py): the overlay is cropped to its visible pixels,
+# then scaled, placed, mirrored, faded and blurred at random each time, so no two sightings match.
+# Depth is faked from size -- a smaller ghost stands higher in the frame (further back) and comes
+# out blurrier, the way a real long-exposure "ghost" does.
+GHOST_HEIGHT_RANGE = (0.25, 0.65)  # fraction of the banner's height
+GHOST_OPACITY_RANGE = (0.15, 0.45)
+GHOST_MAX_BLUR = 2.0  # px, applied in full to the smallest ghost
+
+
+def _composite_ghost(base: Image.Image, ghost_path: str) -> Image.Image:
+    ghost = Image.open(ghost_path).convert("RGBA")
+    bbox = ghost.getbbox()
+    if bbox:
+        ghost = ghost.crop(bbox)
+    low, high = GHOST_HEIGHT_RANGE
+    height_frac = random.uniform(low, high)
+    depth = (height_frac - low) / (high - low)  # 0 = far away, 1 = right up close
+    height = max(1, int(base.height * height_frac))
+    width = max(1, int(ghost.width * height / ghost.height))
+    ghost = ghost.resize((width, height), Image.LANCZOS)
+    if random.random() < 0.5:
+        ghost = ImageOps.mirror(ghost)
+    blur = GHOST_MAX_BLUR * (1 - depth)
+    if blur > 0.2:
+        ghost = ghost.filter(ImageFilter.GaussianBlur(blur))
+    opacity = random.uniform(*GHOST_OPACITY_RANGE)
+    alpha = ghost.getchannel("A").point(lambda a: int(a * opacity))
+    ghost.putalpha(alpha)
+    # Feet land lower the closer it is: from ~70% down the frame (far) to the bottom edge (close).
+    feet_y = int(base.height * (0.7 + 0.3 * depth))
+    y = max(0, min(base.height - height, feet_y - height))
+    x = random.randint(min(0, base.width - width), max(0, base.width - width))
+    layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    layer.paste(ghost, (x, y), ghost)
+    return Image.alpha_composite(base, layer)
+
+
+def render_room_banner(
+    banner_path: str, sprite_paths: list[str] = (), irradiated: bool = False, ghost_path: str | None = None,
+) -> io.BytesIO:
     """The plain banner, with every currently-present NPC's portrait sprite (if any) composited on
     in order -- no dialogue bubble, unlike render_npc_dialogue. Used for a room's resting/default
     state so e.g. a completed quest's reveal NPC (the Greasy Princess) stays visible every time the
     room is opened, not just mid-conversation. Composites a *list* rather than a single optional
     sprite so this works uniformly for any room regardless of how many present NPCs have a
     sprite_path -- room_view.py is what actually decides who's present and passes their paths in,
-    this function has no idea what a "princess" or a "quest" is."""
+    this function has no idea what a "princess" or a "quest" is. `ghost_path`, when given, adds a
+    haunting's ghost on top (see _composite_ghost) -- room_view decides when, this just draws it."""
     base = Image.open(banner_path).convert("RGBA")
     for sprite_path in sprite_paths:
         sprite = Image.open(sprite_path).convert("RGBA")
         base.alpha_composite(sprite)
+    if ghost_path:
+        base = _composite_ghost(base, ghost_path)
     if irradiated:
         base = _irradiate(base)
     buf = io.BytesIO()

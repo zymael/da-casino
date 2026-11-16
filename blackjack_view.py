@@ -6,6 +6,7 @@ import achievements
 import blackjack_render
 import db
 import moon
+import necro_view
 from game import Deck, hand_value, is_blackjack
 from holdem_view import busy_players
 
@@ -527,12 +528,14 @@ async def settle_round(ctx, table: BlackjackTable, hands: list[BlackjackHand], d
         table.round.phase = "settled"
 
     achievement_hands = []
+    net_by_user: dict[int, int] = {}  # summed across split hands, for necro_view's hauntings
     for hand in hands:
         outcome = outcome_for(hand, dealer, dealer_natural)
         payout = int(hand.bet * OUTCOME_PAYOUT_MULTIPLIERS[outcome])
         if payout:
             await asyncio.to_thread(db.update_balance, table.guild_id, hand.member.id, payout)
         net = payout - hand.bet
+        net_by_user[hand.member.id] = net_by_user.get(hand.member.id, 0) + net
         await asyncio.to_thread(db.log_bet, table.guild_id, hand.member.id, "blackjack", hand.bet, net)
         # Read by blackjack_render.render_table to draw this hand's result on the table image
         # instead of a separate per-hand embed.
@@ -553,6 +556,7 @@ async def settle_round(ctx, table: BlackjackTable, hands: list[BlackjackHand], d
     await _send_or_edit_round(table, ctx, embeds=table.last_result_embeds, files=[file], view=None)
     for member, kinds in achievement_hands:
         await achievements.try_award_many(ctx.send, table.guild_id, member.id, member.display_name, kinds)
+    await necro_view.maybe_haunt_winners(ctx.send, table.guild_id, net_by_user)
 
 
 class BetweenHandsBetModal(discord.ui.Modal):

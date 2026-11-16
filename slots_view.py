@@ -5,6 +5,7 @@ import discord
 import achievements
 import db
 import jackpot
+import necro_view
 import slots
 import slots_render
 from holdem_view import busy_players as holdem_busy_players
@@ -135,6 +136,7 @@ class SpinButton(discord.ui.Button):
             await achievements.try_award_many(
                 interaction.followup.send, view.guild_id, view.author.id, view.author.display_name, kinds
             )
+        await necro_view.maybe_haunt_winners(interaction.followup.send, view.guild_id, {view.author.id: net})
 
 
 class SlotsView(discord.ui.View):

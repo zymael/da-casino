@@ -6,6 +6,7 @@ import achievements
 import cards_render
 import db
 import jackpot
+import necro_view
 import video_poker
 from game import Deck
 from holdem_view import busy_players as holdem_busy_players
@@ -85,6 +86,7 @@ class DrawButton(discord.ui.Button):
             await achievements.try_award_many(
                 interaction.followup.send, view.guild_id, view.author.id, view.author.display_name, kinds
             )
+        await necro_view.maybe_haunt_winners(interaction.followup.send, view.guild_id, {view.author.id: net})
 
 
 class PlayAgainButton(discord.ui.Button):

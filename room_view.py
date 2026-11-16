@@ -22,13 +22,17 @@ most" before adding a third.
 
 import asyncio
 import os
+import random
+import time
 
 import discord
 
 import casino_view
+import db
 import dungeon_view
 import hub_ui
 import manhattan
+import necromancy
 import npc_render
 import npc_view
 import npcs
@@ -75,13 +79,26 @@ async def build_room_display(
         npcs.NPCS[npc_id]["sprite_path"] for npc_id in present_npcs if npcs.NPCS[npc_id].get("sprite_path")
     ]
     irradiated = await asyncio.to_thread(manhattan.fallout_active, guild_id)
-    buf = await asyncio.to_thread(npc_render.render_room_banner, room["background_path"], sprite_paths, irradiated)
+    # A haunting (necromancy.py): now and then, one of the horses this player glued turns up in the
+    # photo. Rolled before the DB read so an unhaunted room view costs nothing extra.
+    haunted_by = None
+    if random.random() < necromancy.HAUNT_ROOM_CHANCE:
+        ghosts = await asyncio.to_thread(
+            db.get_haunting_horses, guild_id, user_id, int(time.time()), necromancy.peace_flag(""),
+        )
+        haunted_by = random.choice(ghosts) if ghosts else None
+    buf = await asyncio.to_thread(
+        npc_render.render_room_banner, room["background_path"], sprite_paths, irradiated,
+        necromancy.HAUNT_OVERLAY_PATH if haunted_by else None,
+    )
     file = discord.File(buf, filename=filename)
 
     embed = discord.Embed(title=room["name"], color=discord.Color.blurple())
     if room.get("description"):
         embed.description = room["description"]
     embed.set_image(url=f"attachment://{filename}")
+    if haunted_by:
+        embed.set_footer(text=necromancy.HAUNT_ROOM_LINE.format(name=haunted_by))
 
     specialization = _SPECIALIZATIONS.get(room.get("specialization"))
     if specialization is not None and hasattr(specialization, "extra_embed_fields"):

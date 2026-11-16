@@ -2202,6 +2202,26 @@ def pray_at_grave(
         conn.close()
 
 
+def get_haunting_horses(guild_id: int, user_id: int, now: int, peace_prefix: str) -> list[str]:
+    """Names of the glued horses haunting user_id: every grave they brought in (glued_from_flag),
+    minus any resting at peace after a prayer -- peace_prefix is necromancy.peace_flag's key with
+    the index left off, so this doesn't have to import necromancy."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT h.horse_index, h.name FROM horses h JOIN flags f "
+            "ON f.guild_id = h.guild_id AND f.user_id = ? AND f.key = ? || h.horse_index "
+            "WHERE h.guild_id = ? AND h.glued_at IS NOT NULL AND f.value = ?",
+            (GUILD_FLAG_USER, glued_from_flag(""), guild_id, user_id),
+        ).fetchall()
+        return [
+            name for horse_index, name in rows
+            if _flag_value(conn, guild_id, GUILD_FLAG_USER, f"{peace_prefix}{horse_index}") <= now
+        ]
+    finally:
+        conn.close()
+
+
 def get_glued_horses(guild_id: int) -> list[dict]:
     """The guild's graveyard: every glued horse with its final stats (its row keeps them), who
     glued it, and when -- most recently glued first. Each is {"horse_index", "name", "is_foal",

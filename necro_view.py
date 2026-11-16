@@ -3,9 +3,55 @@
 bot.py never builds discord.ui components itself, and the sanctuary room's button stays a plain
 NoArgButton (see CLAUDE.md's "rooms are thin command wrappers")."""
 
+import asyncio
+import random
+import time
+
 import discord
 
+import db
 import hub_ui
+import necromancy
+
+
+class HauntingView(discord.ui.View):
+    """One-button dismissal for a haunting popup -- purely cosmetic, same shape as roulette_view's
+    SicklyVictorianDaughtersView. Anyone can clear it; looking away is a group effort."""
+
+    def __init__(self):
+        super().__init__(timeout=300)
+
+    @discord.ui.button(label="Pretend you didn't see it", style=discord.ButtonStyle.secondary)
+    async def look_away(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        try:
+            await interaction.message.delete()
+        except discord.HTTPException:
+            pass
+
+
+async def maybe_haunt_winners(send, guild_id: int, net_by_user: dict[int, int]) -> None:
+    """Called once a casino game's results are out. Every player who came out ahead and has glued a
+    horse rolls necromancy.HAUNT_WIN_CHANCE for one of their ghosts (not prayed to peace) to show
+    up. `send` is the game's own channel send (ctx.send / interaction.followup.send / ...)."""
+    now = int(time.time())
+    for user_id, net in net_by_user.items():
+        if net <= 0 or random.random() >= necromancy.HAUNT_WIN_CHANCE:
+            continue
+        ghosts = await asyncio.to_thread(
+            db.get_haunting_horses, guild_id, user_id, now, necromancy.peace_flag(""),
+        )
+        if not ghosts:
+            continue
+        name = random.choice(ghosts)
+        embed = discord.Embed(
+            title="👻 You're Being Haunted",
+            description=random.choice(necromancy.HAUNT_WIN_LINES).format(name=name),
+            color=discord.Color.dark_gray(),
+        )
+        file = discord.File(necromancy.HAUNT_IMAGE_PATH, filename="ghost_horse.png")
+        embed.set_image(url="attachment://ghost_horse.png")
+        await send(f"<@{user_id}>", embed=embed, file=file, view=HauntingView())
 
 
 class GlueConfirmView(discord.ui.View):

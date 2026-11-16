@@ -7,6 +7,7 @@ import db
 import horse_clothes
 import horserace
 import horserace_render
+import necro_view
 from holdem_view import busy_players as holdem_busy_players
 
 ROUND_SECONDS = 45
@@ -285,6 +286,7 @@ class HorseRaceView(discord.ui.View):
         lines = []
         pot = 0
         achievement_bets = []
+        net_by_user: dict[int, int] = {}  # summed across a player's bets, for necro_view's hauntings
         for bet in self.bets:
             kind = bet["kind"]
             stake = bet["amount"] * horserace.STAKE_MULTIPLIER[kind]
@@ -303,6 +305,7 @@ class HorseRaceView(discord.ui.View):
             else:
                 balance = await asyncio.to_thread(db.get_balance, self.guild_id, bet["user_id"])
             net = payout - stake
+            net_by_user[bet["user_id"]] = net_by_user.get(bet["user_id"], 0) + net
             await asyncio.to_thread(db.log_bet, self.guild_id, bet["user_id"], "horserace", stake, net)
             kinds = achievements.kinds_for_bet("horserace", net)
             kinds += await achievements.record_and_check(self.guild_id, bet["user_id"], "horserace", net)
@@ -361,6 +364,7 @@ class HorseRaceView(discord.ui.View):
                 await achievements.try_award_many(
                     self.message.channel.send, self.guild_id, bet["user_id"], bet["display_name"], kinds
                 )
+            await necro_view.maybe_haunt_winners(self.message.channel.send, self.guild_id, net_by_user)
 
     async def on_timeout(self):
         await self.resolve()
