@@ -1112,7 +1112,7 @@
       {
         "kind": "quest_item",
         "item_id": "slimy_bathrobe",
-        "chance": 0.2
+        "chance": 1.0
       }
     ],
     "skills": [

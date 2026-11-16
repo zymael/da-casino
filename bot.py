@@ -143,11 +143,14 @@ bot = commands.Bot(
 )
 
 HELP_CATEGORIES = [
-    ("💰 Economy", ["balance", "stats", "rest", "mine", "tip", "transfer", "pizza", "leaderboard"]),
+    ("💰 Economy", ["balance", "stats", "rest", "mine", "tip", "transfer", "pizza", "house", "leaderboard"]),
     ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
+    ("🤝 Challenges", ["duel", "mancala", "connect4", "icebreak", "uno"]),
     ("🐎 Horse Racing", ["horserace", "horses", "stable", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost", "horseequip", "givehorse"]),
     ("⚔️ War", ["war", "raid", "sentry", "pvp"]),
-    ("🗡️ Dungeon", ["class", "combathelp", "delve", "inventory", "equipment", "craft", "smash", "journal"]),
+    ("🪦 Greener Pastures", ["graveyard", "pray", "glue", "cast"]),
+    ("🗡️ Dungeon", ["class", "skills", "combathelp", "delve", "inn", "inventory", "equipment", "craft", "smash", "journal"]),
+    ("☢️ Mane-hay-tan Project", ["manhattan", "donate", "launch"]),
     ("🏆 Achievements", ["achievements"]),
     ("⚙️ Utility", ["ping", "setcasino", "setcurrency", "setdelvetest", "rub", "roy", "deletebot"]),
 ]
@@ -351,7 +354,7 @@ async def setcurrency_cmd(ctx, *, name: str = None):
     await ctx.send(f"💱 This server's currency is now called **{name}**.")
 
 
-@bot.command(name="setdelvetest")
+@bot.command(name="setdelvetest", brief="Toggle playing inactive delves on this server.")
 @commands.guild_only()
 @commands.is_owner()
 async def setdelvetest_cmd(ctx, state: str = None):
@@ -905,7 +908,7 @@ async def roulette_cmd(ctx):
     await start_roulette_table(ctx)
 
 
-@bot.command(name="horserace", aliases=["horse", "race"])
+@bot.command(name="horserace", aliases=["horse", "race"], brief="Open a horse race others can bet on.")
 async def horserace_cmd(ctx):
     """Open a horse race others can bet on before it runs: !horserace"""
     if ctx.channel.id in active_races:
@@ -932,7 +935,7 @@ async def horserace_cmd(ctx):
 HORSES_PAGE_SIZE = 15
 
 
-@bot.command(name="horses")
+@bot.command(name="horses", brief="Every horse in the stable, its price, record and owner.")
 async def horses_cmd(ctx):
     """List every horse in the stable, its price/record, and who owns it: !horses"""
     # Odds deliberately aren't shown here -- current_probabilities() is now a fresh per-race
@@ -994,7 +997,7 @@ async def horses_cmd(ctx):
         await ctx.send(embed=build_page(0))
 
 
-@bot.command(name="stable")
+@bot.command(name="stable", brief="Your horses' stats, health, training and gear.")
 async def stable_cmd(ctx, member: discord.Member = None):
     """See every horse you own with its stats, health, training, and gear: !stable, or !stable @user
     to look at someone else's."""
@@ -1050,7 +1053,7 @@ async def achievements_cmd(ctx):
     await ctx.send(embed=embed)
 
 
-@bot.command(name="class")
+@bot.command(name="class", brief="Pick or check your dungeon class and subclass.")
 async def class_cmd(ctx):
     """Pick your permanent dungeon class (one-time), pick your subclass once unlocked, or check your
     current one: !class. The subclass picker opens at dungeon.subclass_unlock_level() *and* once
@@ -1135,7 +1138,7 @@ async def skills_cmd(ctx):
     await ctx.send(embed=embed)
 
 
-@bot.command(name="combathelp")
+@bot.command(name="combathelp", brief="How dungeon combat works, plus your own skills.")
 async def combathelp_cmd(ctx):
     """Explains how dungeon combat works -- stats, damage, dodge, turn order, chips -- plus a
     condensed rundown of your own unlocked skills: !combathelp"""
@@ -1215,7 +1218,7 @@ async def combathelp_cmd(ctx):
     await ctx.send(embed=embed)
 
 
-@bot.command(name="inn")
+@bot.command(name="inn", brief="Pay to fully heal your dungeon character.")
 async def inn_cmd(ctx):
     """Pay to fully heal your dungeon character outside of a delve: !inn -- costs 10 x your level
     in currency, scaling with how much max HP a higher level actually has."""
@@ -1248,7 +1251,7 @@ async def inn_cmd(ctx):
     )
 
 
-@bot.command(name="delve")
+@bot.command(name="delve", brief="Delve the dungeon for loot. Costs 1 ⚡ energy.")
 async def delve_cmd(ctx, delve_id: str = None):
     """Delve the dungeon for a class-biased, push-your-luck payout -- costs 1 ⚡ energy: !delve, or
     !delve <delve_id> to jump straight into one specific dungeon -- what a room's own Delve button
@@ -1356,7 +1359,7 @@ async def _duel_challenge(ctx, member: discord.Member, wager: int) -> None:
     challenge.message = await ctx.send(content=member.mention, embed=build_duel_challenge_embed(challenge), view=view)
 
 
-@bot.command(name="duel")
+@bot.command(name="duel", brief="Challenge someone to a 1v1 duel, with an optional wager.")
 async def duel_cmd(ctx, member: discord.Member = None, wager: int = 0):
     """Challenge another player to a 1v1 duel (same combat system as the dungeon, no dungeon HP/XP
     at stake -- both start at full HP): !duel @user [wager], or plain !duel to pick a target from a
@@ -1404,7 +1407,7 @@ async def _mancala_challenge(ctx, member: discord.Member, wager: int) -> None:
     challenge.message = await ctx.send(content=member.mention, embed=build_mancala_challenge_embed(challenge), view=view)
 
 
-@bot.command(name="mancala")
+@bot.command(name="mancala", brief="Challenge someone to Mancala, with an optional wager.")
 async def mancala_cmd(ctx, member: discord.Member = None, wager: int = 0):
     """Challenge another player to a game of Mancala: !mancala @user [wager], or plain !mancala to
     pick a target from a dropdown instead (a room's Mancala button always resolves this way, same
@@ -1450,7 +1453,7 @@ async def _connect4_challenge(ctx, member: discord.Member, wager: int) -> None:
     challenge.message = await ctx.send(content=member.mention, embed=build_connect4_challenge_embed(challenge), view=view)
 
 
-@bot.command(name="connect4")
+@bot.command(name="connect4", brief="Challenge someone to Connect 4, with an optional wager.")
 async def connect4_cmd(ctx, member: discord.Member = None, wager: int = 0):
     """Challenge another player to Connect 4: !connect4 @user [wager], or plain !connect4 to pick
     a target from a dropdown instead (same fallback shape as !duel/!mancala). They have to Accept
@@ -1496,7 +1499,7 @@ async def _icebreak_challenge(ctx, member: discord.Member, wager: int) -> None:
     challenge.message = await ctx.send(content=member.mention, embed=build_icebreak_challenge_embed(challenge), view=view)
 
 
-@bot.command(name="icebreak")
+@bot.command(name="icebreak", brief="Challenge someone to Don't Break the Ice, with an optional wager.")
 async def icebreak_cmd(ctx, member: discord.Member = None, wager: int = 0):
     """Challenge another player to Don't Break the Ice: !icebreak @user [wager], or plain
     !icebreak to pick a target from a dropdown instead (same fallback shape as !duel/!mancala/
@@ -1542,7 +1545,7 @@ async def smash_cmd(ctx):
     await ctx.send(embed=embed, view=view)
 
 
-@bot.command(name="journal", aliases=["quests"])
+@bot.command(name="journal", aliases=["quests"], brief="Your quest journal.")
 async def journal_cmd(ctx):
     """Your quest journal: objective-style summaries of every quest you've started, and picks up
     any new quest that's eligible to start without visiting anyone: !journal or !quests. Turning
@@ -1556,7 +1559,7 @@ async def journal_cmd(ctx):
     await ctx.send(embed=embed)
 
 
-@bot.command(name="buyhorse")
+@bot.command(name="buyhorse", brief="Buy an unowned legend horse.")
 async def buyhorse_cmd(ctx, number: int = None):
     """Buy an unowned legend: !buyhorse <number> — see !horses for numbers and prices"""
     if await _reject_if_at_poker_table(ctx):
@@ -1598,7 +1601,7 @@ async def buyhorse_cmd(ctx, number: int = None):
     await achievements.try_award_many(ctx.send, ctx.guild.id, ctx.author.id, ctx.author.display_name, ["first_horse"])
 
 
-@bot.command(name="buyfoal")
+@bot.command(name="buyfoal", brief="Buy a cheap foal and name it.")
 async def buyfoal_cmd(ctx, *, name: str = None):
     """Buy a brand-new foal and name it: !buyfoal <name> — cheap, but weaker than a legend until trained up.
     Plain !buyfoal asks for the name in a pop-up instead."""
@@ -1730,7 +1733,7 @@ async def _train_horse(ctx, horse_index: int):
     await ctx.send("\n".join(lines))
 
 
-@bot.command(name="train")
+@bot.command(name="train", brief="Train one of your horses, once every 12 hours.")
 async def train_cmd(ctx, number: int = None):
     """Train a horse you own once every 12 hours, raising its stats and age: !train <number>, or
     plain !train to pick from a dropdown of your horses instead of needing to already know its number."""
@@ -1748,7 +1751,7 @@ async def train_cmd(ctx, number: int = None):
     await _train_horse(ctx, number - 1)
 
 
-@bot.command(name="facility")
+@bot.command(name="facility", brief="Check or upgrade your ranch's training facility.")
 async def facility_cmd(ctx, action: str = None):
     """Check or upgrade your ranch's permanent training facility: !facility or !facility buy"""
     guild_id, user_id = ctx.guild.id, ctx.author.id
@@ -1818,7 +1821,7 @@ async def _boost_horse(ctx, horse_index: int, stat: str):
     )
 
 
-@bot.command(name="boost")
+@bot.command(name="boost", brief="Buy a training boost for one of your horses.")
 async def boost_cmd(ctx, stat: str = None, number: int = None):
     """Buy a training-boost item for a horse you own, queued for its next training: !boost
     <speed|endurance|spirit> <number>, or omit the number to pick from a dropdown of your horses
@@ -1861,7 +1864,7 @@ async def _show_horse_clothes(ctx, horse_index: int):
     await ctx.send(embed=embed, view=view)
 
 
-@bot.command(name="horseequip")
+@bot.command(name="horseequip", brief="Dress up a horse in clothes you own.")
 async def horseequip_cmd(ctx, number: int = None):
     """Dress a horse you own up in owned cosmetic clothing -- no effect on races, though some
     pieces count as barding in !war: !horseequip <number>, or plain !horseequip to pick from a
@@ -1880,7 +1883,7 @@ async def horseequip_cmd(ctx, number: int = None):
     await _show_horse_clothes(ctx, number - 1)
 
 
-@bot.command(name="givehorse", aliases=["transferhorse"])
+@bot.command(name="givehorse", aliases=["transferhorse"], brief="Give a horse, outfit and all, to another player.")
 async def givehorse_cmd(ctx, member: discord.Member = None, number: int = None):
     """Give a horse you own to another player, along with whatever it's wearing: !givehorse @user
     <number>, or leave either out to pick from a dropdown instead."""
@@ -1975,7 +1978,7 @@ async def _reject_if_front_closed(ctx) -> bool:
     return True
 
 
-@bot.command(name="war")
+@bot.command(name="war", brief="Declare war on another player for their Luck.")
 async def war_cmd(ctx, member: discord.Member = None):
     """Declare war on another player for their Luck (once every 12 hours): !war @user, or plain
     !war to pick a target. You choose up to 5 healthy horses to ride out; up to 5 of theirs, picked
@@ -2215,7 +2218,7 @@ _LYING_LOW = "🔪 You're lying low after that botched job. You can show your fa
 _PILE_ON_ALERT = "{target} has been hit twice today and is on high alert against every job. Try again {when}."
 
 
-@bot.command(name="raid")
+@bot.command(name="raid", brief="Spy on, steal from, or sabotage another player's stable.")
 async def raid_cmd(ctx, member: discord.Member = None):
     """Run a covert job on another player's stable: !raid, or !raid @user. Spy, steal a horse,
     hire a hitman, smuggle flakes, torch a fortress, spread propaganda, or rescue a stolen horse.
@@ -2703,7 +2706,7 @@ _OP_OUTCOMES = {
 }
 
 
-@bot.command(name="sentry")
+@bot.command(name="sentry", brief="Put one of your horses on watch against raids.")
 async def sentry_cmd(ctx):
     """Station one of your horses on watch: !sentry. Every !raid job against you gets harder and is
     checked against your sentry's stats, but a sentry sits out wars and raids while on post."""
@@ -2830,7 +2833,7 @@ async def _curse_line(guild_id: int, user_id: int, change: int) -> str:
     return f"🩸 Your Curse {verb} ({change:+d}, now **{curse}: {necromancy.curse_title(curse)}**)."
 
 
-@bot.command(name="glue", aliases=["laytorest"])
+@bot.command(name="glue", aliases=["laytorest"], brief="Lay one of your horses to rest for Ectoglue. Permanent.")
 async def glue_cmd(ctx, number: int = None):
     """Lay one of your horses to rest at Greener Pastures: !glue <number>, or plain !glue to pick
     from a dropdown. Permanent, even for legends. You get Ectoglue for it."""
@@ -2889,7 +2892,7 @@ async def _grave_states(guild_id: int, graveyard: list[dict]) -> dict[int, dict]
     return states
 
 
-@bot.command(name="graveyard", aliases=["graves"])
+@bot.command(name="graveyard", aliases=["graves"], brief="Every horse ever laid to rest, and who brought it.")
 async def graveyard_cmd(ctx):
     """Visit the Horse Graveyard: every horse ever laid to rest at Greener Pastures, and who brought it."""
     graveyard = await asyncio.to_thread(db.get_glued_horses, ctx.guild.id)
@@ -2918,7 +2921,7 @@ async def graveyard_cmd(ctx):
     await ctx.send("\n".join(lines))
 
 
-@bot.command(name="pray")
+@bot.command(name="pray", brief="Pray at a grave once a day. Lifts your Curse.")
 async def pray_cmd(ctx):
     """Pray at a grave in the Horse Graveyard, once a day. A grave someone has prayed at rests in
     peace for a day: nobody can raise its ghost."""
@@ -2988,7 +2991,7 @@ async def _pray_at(ctx, horse_index: int):
     await achievements.try_award_many(ctx.send, guild_id, user_id, ctx.author.display_name, ["necro_pray"])
 
 
-@bot.command(name="cast")
+@bot.command(name="cast", brief="Spend Ectoglue on a dark spell for your next war.")
 async def cast_cmd(ctx, spell_id: str = None):
     """Prepare a necromancy spell with Ectoglue: !cast, or !cast <spell id>. It takes effect in your
     next war, attacking or defending. Better Ectoglue, stronger spell."""
@@ -3179,7 +3182,7 @@ def _too_pure_message(spell: dict, curse: int) -> str:
     )
 
 
-@bot.command(name="donate")
+@bot.command(name="donate", brief="Fund the Mane-hay-tan Project's Dubious Research.")
 async def donate_cmd(ctx, amount: int = None):
     """Fund the Mane-hay-tan Project's Dubious Research: !donate <amount>. The whole server shares
     one pot; once it reaches the goal the bomb is armed and anyone can !launch it."""
@@ -3284,7 +3287,7 @@ async def holdem_cmd(ctx, buy_in: int = None):
     await start_holdem_table(ctx, buy_in)
 
 
-@bot.command(name="uno")
+@bot.command(name="uno", brief="Open a 2-4 player UNO table, with an optional buy-in.")
 async def uno_cmd(ctx, buy_in: int = 0):
     """Open a 2-4 player UNO table: !uno [buy_in] — others join with the Join button, the host
     starts once at least 2 are seated, first to empty their hand takes the pot."""
@@ -3492,7 +3495,7 @@ async def pizza(ctx):
 HOUSE_UNLOCK_QUEST_ID = "leto_first_home"
 
 
-@bot.command(name="house", aliases=["home"])
+@bot.command(name="house", aliases=["home"], brief="View your house and arrange your furniture.")
 async def house_cmd(ctx):
     """View your house and place items in its 3x3 grid: !house. Unlike !train (a single typed
     horse number), placing an item needs two arguments -- which slot, which item -- so there's no
