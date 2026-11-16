@@ -7,11 +7,12 @@ Gluing is permanent, for legends too: a glued horse keeps its row in `horses` (g
 NULL -- see db.glue_horse for why the row is never deleted), so a glued legend is gone from the
 whole guild for good, and the row doubles as the graveyard later phases raise ghosts from.
 
-The whole feature is locked behind the sanctuary room's "unlock_trigger" (rooms.json, see
-rooms.py's docstring) -- the exit into it is hidden and !glue refuses until that trigger holds. It
-ships as flag_at_least on UNLOCK_FLAG, which nobody has (an owner can grant it with !necrounlock
-for testing); unlocking via a quest later is just swapping that trigger for a quest_complete in
-the admin panel. Every necromancy command checks quests.room_unlocked(ROOM_ID) the same way.
+The Sanctuary's front room (horse_sanctuary) is open to everyone: a Guest Area with the public
+graveyard. Gluing and spells live in ROOM_ID, the Back Rooms, locked by that room's "unlock_trigger"
+(rooms.json, see rooms.py's docstring) -- holding a Slimy Bathrobe (a quest item the Bathhouse's
+cloaked goo cultists drop), the disguise that gets you past the rope. Without it the exit back is
+hidden and !glue/!cast refuse; every Back Rooms command checks quests.room_unlocked(ROOM_ID). The
+gate is entirely that trigger, so changing who gets in is an admin-panel edit, not code.
 
 Ectoglue is a set of graded quest items (quest_items.json, see GRADES) so it shows in !inventory
 like everything else; GRADES is the one set of ids this code depends on, checked below at import
@@ -21,12 +22,12 @@ and again on every admin-panel quest-item save.
 import json
 import math
 import os
+from typing import NamedTuple
 
 import quests
 import war
 
-ROOM_ID = "horse_sanctuary"
-UNLOCK_FLAG = "necro:unlocked"  # the placeholder gate rooms.json's horse_sanctuary unlock_trigger checks
+ROOM_ID = "sanctuary_back_rooms"  # where gluing and spells happen -- its unlock_trigger is the gate
 
 # Ectoglue grades, worst to best -- each its own quest item, since the inventory table is just
 # item_id -> qty with no per-unit quality. Strong horses make *more* glue; old horses make *better*
@@ -96,7 +97,11 @@ _REQUIRED_SPELL_FIELDS = {"id", "name", "emoji", "description", "cost", "cooldow
 
 GRADE_POWER = (0.75, 1.0, 1.25, 1.5)  # per GRADES index
 PREPARED_SECONDS = 48 * 3600  # a prepared spell fizzles if no war comes within this long
-MAX_PREPARED = 2  # spells a player can hold ready at once
+MAX_PREPARED = 2  # spells a player can hold ready at once (so at most 2 ghosts per side, of 5 slots)
+# Optional on a spell: raise one glued horse (anyone's -- the caster picks from the whole guild's
+# graveyard) to fight in the caster's next war at this % of its final stats, times GRADE_POWER,
+# capped at war.GHOST_STAT_CAP_PCT. A ghost takes one of the army's MAX_ARMY_SIZE slots.
+SUMMON_FIELD = "summon_ghost_pct"
 
 
 def _load_spells(path: str = _SPELLS_PATH) -> dict[str, dict]:
@@ -114,19 +119,28 @@ def _load_spells(path: str = _SPELLS_PATH) -> dict[str, dict]:
             raise ValueError(f"necromancy_spells.json: spell {spell_id!r} cost must be an integer >= 1")
         if not isinstance(entry["cooldown_hours"], int) or entry["cooldown_hours"] < 0:
             raise ValueError(f"necromancy_spells.json: spell {spell_id!r} cooldown_hours must be an integer >= 0")
-        effects = {k: entry[k] for k in war.SPELL_EFFECTS if entry.get(k) is not None}
+        effects = {k: entry[k] for k in (*war.SPELL_EFFECTS, SUMMON_FIELD) if entry.get(k) is not None}
         for key, value in effects.items():
             if not isinstance(value, int) or value < 0:
                 raise ValueError(f"necromancy_spells.json: spell {spell_id!r} {key} must be an integer >= 0")
         if not any(effects.values()):
             raise ValueError(
-                f"necromancy_spells.json: spell {spell_id!r} has no effect -- set at least one of {list(war.SPELL_EFFECTS)}"
+                f"necromancy_spells.json: spell {spell_id!r} has no effect -- set at least one of "
+                f"{[*war.SPELL_EFFECTS, SUMMON_FIELD]}"
             )
         spells[spell_id] = entry
     return spells
 
 
 SPELLS = _load_spells()
+
+
+def is_summon(spell: dict) -> bool:
+    return bool(spell.get(SUMMON_FIELD))
+
+
+def ghost_stat_pct(spell: dict, grade: int) -> float:
+    return min(war.GHOST_STAT_CAP_PCT, spell[SUMMON_FIELD] * GRADE_POWER[grade])
 
 
 def prepared_flag(spell_id: str) -> str:
@@ -139,6 +153,18 @@ def prepared_grade_flag(spell_id: str) -> str:
     return f"necro:prepared:{spell_id}:grade"
 
 
+def prepared_ghost_flag(spell_id: str) -> str:
+    """On the caster's row: horse_index + 1 of the ghost a prepared summon spell will raise."""
+    return f"necro:prepared:{spell_id}:ghost"
+
+
+def bound_flag(horse_index: int) -> str:
+    """At GUILD_FLAG_USER: unix time a glued horse's ghost stays bound to whoever's summon spell
+    holds it (0 = free). Keeps two players from raising the same ghost at once; cleared by the war
+    that spends the spell, or it just runs out with the spell (PREPARED_SECONDS)."""
+    return f"necro:bound:{horse_index}"
+
+
 def cast_last_flag(spell_id: str) -> str:
     """On the caster's row: unix time this spell was last cast, for its cooldown."""
     return f"necro:cast:{spell_id}:last"
@@ -146,30 +172,40 @@ def cast_last_flag(spell_id: str) -> str:
 
 def prepared_keys() -> list[str]:
     """Every flag key a war needs to read to find a player's prepared spells."""
-    return [key for spell_id in SPELLS for key in (prepared_flag(spell_id), prepared_grade_flag(spell_id))]
+    return [
+        key for spell_id in SPELLS
+        for key in (prepared_flag(spell_id), prepared_grade_flag(spell_id), prepared_ghost_flag(spell_id))
+    ]
 
 
-def prepared_spells(flags: dict[str, int], now: int) -> list[tuple[dict, int]]:
-    """(spell, grade index) for every spell still prepared in `flags` (a db.get_flags result over
-    prepared_keys()). A spell deleted from the JSON while prepared just never shows up."""
+class Prepared(NamedTuple):
+    spell: dict
+    grade: int  # GRADES index
+    ghost_index: int | None  # the glued horse a summon spell will raise, else None
+
+
+def prepared_spells(flags: dict[str, int], now: int) -> list[Prepared]:
+    """Every spell still prepared in `flags` (a db.get_flags result over prepared_keys()). A spell
+    deleted from the JSON while prepared just never shows up."""
     ready = []
     for spell_id, spell in SPELLS.items():
         if flags.get(prepared_flag(spell_id), 0) > now:
             grade = min(len(GRADES) - 1, max(0, flags.get(prepared_grade_flag(spell_id), 1) - 1))
-            ready.append((spell, grade))
+            ghost = flags.get(prepared_ghost_flag(spell_id), 0)
+            ready.append(Prepared(spell, grade, ghost - 1 if ghost and is_summon(spell) else None))
     return ready
 
 
 def spell_effects(spell: dict, grade: int) -> dict[str, float]:
-    """One spell's effects, scaled by the grade of ectoglue it was cast with."""
+    """One spell's war effects (not its summon), scaled by the grade of ectoglue it was cast with."""
     return {k: spell[k] * GRADE_POWER[grade] for k in war.SPELL_EFFECTS if spell.get(k)}
 
 
-def combined_effects(prepared: list[tuple[dict, int]]) -> dict[str, float]:
+def combined_effects(prepared: list[Prepared]) -> dict[str, float]:
     """Every prepared spell's scaled effects summed -- war.apply_spell_effects caps the totals."""
     total: dict[str, float] = {}
-    for spell, grade in prepared:
-        for key, value in spell_effects(spell, grade).items():
+    for p in prepared:
+        for key, value in spell_effects(p.spell, p.grade).items():
             total[key] = total.get(key, 0.0) + value
     return total
 
@@ -183,5 +219,9 @@ _EFFECT_TEXT = {
 }
 
 
-def describe_effects(effects: dict[str, float]) -> str:
-    return ", ".join(_EFFECT_TEXT[k].format(round(v, 1)) for k, v in effects.items())
+def describe_spell(spell: dict, grade: int) -> str:
+    """One-line summary of what this spell does when cast with `grade`."""
+    parts = [_EFFECT_TEXT[k].format(round(v, 1)) for k, v in spell_effects(spell, grade).items()]
+    if is_summon(spell):
+        parts.insert(0, f"raises a ghost at {ghost_stat_pct(spell, grade):g}% of its old stats")
+    return ", ".join(parts)

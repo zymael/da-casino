@@ -26,8 +26,8 @@ A room's optional "unlock_trigger" locks the whole room: every exit leading into
 the trigger holds (room_view.build_room_display), and a command that belongs to a locked feature
 checks quests.room_unlocked itself, so typing it directly is gated too (same pairing as a delve's
 unlock_trigger + delve_cmd). It's the one place a feature's "is this unlocked yet" lives -- e.g. the
-Horse Sanctuary starts locked behind a flag nobody has, and a quest can unlock it later by changing
-just this trigger in the admin panel. Validated by quests.validate_room_triggers, not here.
+Sanctuary Back Rooms (gluing, spells) unlock while you hold a Slimy Bathrobe; changing who gets in
+is just editing this trigger in the admin panel. Validated by quests.validate_room_triggers, not here.
 """
 
 import json

@@ -95,9 +95,14 @@ exit to); there's no more per-hub `_go_X`/`go_home`-closure threading anywhere.
 hides every exit into it until the trigger holds. The room's feature commands check
 `quests.room_unlocked(guild_id, user_id, room_id)` themselves, so typing the command can't bypass the
 lock. This is the one place a feature's "unlocked yet?" state lives, and it's data: the Horse
-Sanctuary (`necromancy.py`) ships locked behind a placeholder `flag_at_least necro:unlocked` that
-nobody has (`!necrounlock` grants it for testing), and unlocking it via a quest later means changing
-only that trigger. Don't add a separate code-side enabled flag next to it.
+Sanctuary's Guest Area is open to all, but its Back Rooms (`necromancy.ROOM_ID` — gluing and
+spells) unlock via `turn_in_item slimy_bathrobe`, i.e. while you're holding the disguise the
+Bathhouse's cloaked goo cultists drop. Changing who gets in means changing only that trigger. Don't
+add a separate code-side enabled flag next to it.
+
+**Monster drops can be quest items** (`"kind": "quest_item"`) that drop for anyone, quest or not —
+distinct from a quest's `turn_in_item` + `drop_monster`, which only drops while that stage is
+waiting on it (`quests.roll_item_drop`) and gets consumed on turn-in.
 
 `room_commands.py` holds `COMMANDS: dict = {}`, populated once by `bot.py` right after every
 `@bot.command` is defined — `rooms.json`'s `commands[].key` references into this dict. It starts

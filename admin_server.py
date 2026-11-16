@@ -359,6 +359,9 @@ def _cascade_options() -> dict:
             "material": _choices(dungeon.MATERIALS),
             "consumable": _choices(dungeon.CONSUMABLES),
             "housing_item": _choices(housing.HOUSING_ITEMS),
+            # Drops for anyone, quest or not -- unlike a quest's turn_in_item drop_monster, which
+            # only drops while that quest stage is waiting on it (quests.roll_item_drop).
+            "quest_item": _choices(quests.QUEST_ITEMS),
         },
         # A choice-room action's own cost -- backs its item_kind -> item_id select. Equipment isn't
         # here on purpose: costs are qty-based (db.craft_item's {item_id: qty} shape), which
@@ -5510,10 +5513,11 @@ def _delete_blockers(content_type: str, item_id: str) -> list[str]:
             if any(d["kind"] == drop_kind and d["item_id"] == item_id for d in m.get("drops", []))
         ]
         return recipe_blockers + monster_blockers
-    if content_type == "housing_items":
+    if content_type in ("housing_items", "quest_items"):
+        drop_kind = "housing_item" if content_type == "housing_items" else "quest_item"
         return [
             m["name"] for m in dungeon.MONSTERS.values()
-            if any(d["kind"] == "housing_item" and d["item_id"] == item_id for d in m.get("drops", []))
+            if any(d["kind"] == drop_kind and d["item_id"] == item_id for d in m.get("drops", []))
         ]
     if content_type == "monsters":
         return [

@@ -283,6 +283,7 @@ CONTENT_TYPES = {
         # direction from "equipment" above.
         "extra_validators": [
             lambda new_registry: quests.validate_monster_drop_housing_items(new_registry),
+            lambda new_registry: quests.validate_monster_drop_quest_items(new_registry),
             lambda new_registry: dungeon.validate_vs_monster_debuffs(dungeon.EQUIPMENT, new_registry),
         ],
         "list_columns": ["id", "name", "intended_level", "hp", "atk", "def", "spatk", "spd"],
@@ -1020,7 +1021,10 @@ CONTENT_TYPES = {
         "loader": quests._load_quest_items,
         # !glue grants the ectoglue grades by id (necromancy.GRADES), so none can be deleted
         # or renamed through here.
-        "extra_validators": [lambda new_registry: necromancy.validate_ectoglue_items(new_registry)],
+        "extra_validators": [
+            lambda new_registry: necromancy.validate_ectoglue_items(new_registry),
+            lambda new_registry: quests.validate_monster_drop_quest_items(quest_items=new_registry),
+        ],
         "list_columns": ["id", "name", "emoji"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
@@ -1285,6 +1289,12 @@ CONTENT_TYPES = {
             {
                 "name": "enemy_spirit", "type": "int", "required": False, "min": 0, "group": "Effects (next war)",
                 "hint": f"optional -- Spirit knocked off the enemy's units, like propaganda (stacked cap {war.SPELL_EFFECT_CAPS['enemy_spirit']})",
+            },
+            {
+                "name": "summon_ghost_pct", "type": "int", "required": False, "min": 0, "group": "Raise the Dead",
+                "hint": "optional -- makes this a summon: the caster picks any glued horse in the graveyard (anyone's) "
+                        "and its ghost rides in their next war at this % of its final stats, times the grade "
+                        f"(capped at {war.GHOST_STAT_CAP_PCT}%). Takes one army slot; never injured; no general bonus.",
             },
         ],
     },

@@ -685,6 +685,27 @@ def validate_monster_drop_housing_items(monsters: dict[str, dict] | None = None)
                 )
 
 
+def validate_monster_drop_quest_items(
+    monsters: dict[str, dict] | None = None, quest_items: dict[str, dict] | None = None,
+):
+    """A monster's "quest_item"-kind drop must name a real quest item -- dungeon._validate_monster_drops
+    can't check it (circular import). Unlike roll_item_drop's quest-driven drops, this one drops
+    for anyone, quest or not (e.g. the Slimy Bathrobe disguise). Run at import, and as a save-time
+    extra_validator on both "monsters" and "quest_items" (admin_schemas.py), each passing its own
+    candidate registry, so neither side can be edited into a dangling reference."""
+    quest_items = QUEST_ITEMS if quest_items is None else quest_items
+    for monster_id, entry in (dungeon.MONSTERS if monsters is None else monsters).items():
+        for i, drop in enumerate(entry.get("drops") or []):
+            if drop["kind"] == "quest_item" and drop["item_id"] not in quest_items:
+                raise ValueError(
+                    f"dungeon_monsters.json: monster {monster_id!r} drop {i} item_id {drop['item_id']!r} "
+                    f"not found in QUEST_ITEMS"
+                )
+
+
+validate_monster_drop_quest_items()
+
+
 # npcs.py can't validate its own "visible_trigger" field (that needs TRIGGER_SCHEMAS/
 # _validate_trigger, and this module already imports npcs -- the reverse would be circular), so
 # it's cross-validated here instead, right after both registries are loaded. Same "one direction

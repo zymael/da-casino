@@ -209,21 +209,48 @@
   },
   {
     "id": "horse_sanctuary",
-    "name": "\ud83e\udea6 Nature Sanctuary and Horse Graveyard",
-    "description": "A peaceful memorial to the fallen heroes of the Great Horse Wars. There have been no fallen heroes of the Great Horse Wars. A thick green fog rolls out of the smokestacks, and the whole place smells faintly of craft supplies.",
-    "background_path": "assets/rooms/the_front.png",
-    "unlock_trigger": {
-      "type": "flag_at_least",
-      "key": "necro:unlocked",
-      "value": 1
-    },
+    "name": "\ud83e\udea6 Nature Sanctuary and Horse Graveyard \u2014 Guest Area",
+    "description": "A peaceful memorial to the fallen heroes of the Great Horse Wars. There have been no fallen heroes of the Great Horse Wars. A thick green fog rolls out of the smokestacks, and the whole place smells faintly of craft supplies. A velvet rope and a very wet attendant in a hooded robe keep guests out of the back.",
+    "background_path": "assets/rooms/horse_sanctuary.png",
     "exits": [
       {
         "room_id": "the_front",
         "label": "\u2694\ufe0f The Front"
+      },
+      {
+        "room_id": "sanctuary_back_rooms",
+        "label": "\ud83e\udd7b Slip Past the Rope"
       }
     ],
     "commands": [
+      {
+        "key": "graveyard",
+        "kind": "none",
+        "label": "\ud83e\udea6 Visit the Graves"
+      }
+    ]
+  },
+  {
+    "id": "sanctuary_back_rooms",
+    "name": "\ud83c\udf2b\ufe0f Sanctuary Back Rooms",
+    "description": "Nobody looks twice at another slimy bathrobe back here. Vats bubble. A conveyor belt carries something horse-shaped toward a large machine labeled MEMORIAL KEEPSAKES. Robed figures murmur in three wet slaps.",
+    "background_path": "assets/rooms/sanctuary_back_rooms.png",
+    "unlock_trigger": {
+      "type": "turn_in_item",
+      "item_id": "slimy_bathrobe"
+    },
+    "exits": [
+      {
+        "room_id": "horse_sanctuary",
+        "label": "\ud83e\udea6 Back to the Guest Area"
+      }
+    ],
+    "commands": [
+      {
+        "key": "graveyard",
+        "kind": "none",
+        "label": "\ud83e\udea6 The Graveyard"
+      },
       {
         "key": "glue",
         "kind": "none",

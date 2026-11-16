@@ -1108,6 +1108,11 @@
         "kind": "equipment",
         "item_id": "slimy_hood",
         "chance": 0.18
+      },
+      {
+        "kind": "quest_item",
+        "item_id": "slimy_bathrobe",
+        "chance": 0.12
       }
     ],
     "skills": [

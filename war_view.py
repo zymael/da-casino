@@ -56,9 +56,10 @@ def build_target_picker(owner_id: int, on_pick, placeholder: str) -> discord.ui.
 
 class ArmySelect(discord.ui.Select):
     """Multi-select of the attacker's healthy horses. `on_pick` is an async (ctx, [horse_index])
-    callback -- bot.py re-checks ownership/health before anything is spent."""
+    callback -- bot.py re-checks ownership/health before anything is spent. `max_size` is
+    MAX_ARMY_SIZE less any ghosts the attacker has raised (they take a slot each)."""
 
-    def __init__(self, healthy: list[dict], on_pick):
+    def __init__(self, healthy: list[dict], on_pick, max_size: int = war.MAX_ARMY_SIZE):
         options = [
             discord.SelectOption(
                 label=f"{h['horse_index'] + 1}. {h['name']}"[:100],
@@ -68,8 +69,8 @@ class ArmySelect(discord.ui.Select):
             for h in healthy[:MAX_SELECT_OPTIONS]
         ]
         super().__init__(
-            placeholder=f"Choose up to {war.MAX_ARMY_SIZE} horses to ride to war...", min_values=1,
-            max_values=min(war.MAX_ARMY_SIZE, len(options)), options=options,
+            placeholder=f"Choose up to {max_size} horses to ride to war...", min_values=1,
+            max_values=max(1, min(max_size, len(options))), options=options,
         )
         self.on_pick = on_pick
 
@@ -79,9 +80,9 @@ class ArmySelect(discord.ui.Select):
         await self.on_pick(hub_ui.InteractionContext(interaction), [int(v) for v in self.values])
 
 
-def build_army_picker(owner_id: int, healthy: list[dict], on_pick) -> discord.ui.View:
+def build_army_picker(owner_id: int, healthy: list[dict], on_pick, max_size: int = war.MAX_ARMY_SIZE) -> discord.ui.View:
     view = _OwnerOnlyView(owner_id, timeout=180)
-    view.add_item(ArmySelect(healthy, on_pick))
+    view.add_item(ArmySelect(healthy, on_pick, max_size))
     return view
 
 
@@ -218,7 +219,10 @@ def _hp_bar(fraction: float) -> str:
 def _army_lines(army: war.Army) -> str:
     lines = []
     for unit in army.units[:MAX_ARMY_LINES]:
-        icon = "🚶" if unit.horse_index is None else ("🐴" if unit.alive else "💥")
+        if unit.ghost:
+            icon = "👻" if unit.alive else "🪦"
+        else:
+            icon = "🚶" if unit.horse_index is None else ("🐴" if unit.alive else "💥")
         hp = max(0, round(unit.hp))
         lines.append(f"{icon} **{unit.name}** {_hp_bar(unit.hp / unit.max_hp)} {hp}/{round(unit.max_hp)}")
     hidden = army.units[MAX_ARMY_LINES:]

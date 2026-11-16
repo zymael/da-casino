@@ -1750,6 +1750,10 @@ async def _award_kill(
         elif kind == "consumable":
             await asyncio.to_thread(db.add_inventory_item, guild_id, actor.user_id, dropped["id"])
             log_lines.append(f"🧪 Found **{dropped['name']}** — check `!inventory`.")
+        elif kind == "quest_item":  # resolved here, same as housing_item below -- see dungeon.roll_drops
+            item = quests.QUEST_ITEMS[dropped["id"]]
+            await asyncio.to_thread(db.add_inventory_item, guild_id, actor.user_id, dropped["id"])
+            log_lines.append(f"{item['emoji']} Found a **{item['name']}**... check `!inventory`.")
         else:  # "housing_item" -- dungeon.roll_drops couldn't resolve its name itself, see its own docstring
             item = housing.HOUSING_ITEMS[dropped["id"]]
             await asyncio.to_thread(db.add_inventory_item, guild_id, actor.user_id, dropped["id"])

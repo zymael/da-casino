@@ -150,11 +150,12 @@ WAR_STATS = ("speed", "endurance", "spirit")
 @dataclass
 class Unit:
     name: str
-    horse_index: int | None  # None for a character fighting on foot
+    horse_index: int | None  # None for a character fighting on foot, or a raised ghost
     charge: float
     max_hp: float
     spirit: float
     hp: float = 0.0
+    ghost: bool = False  # a glued horse raised by necromancy (see ghost_unit)
 
     def __post_init__(self):
         self.hp = self.max_hp
@@ -427,16 +428,38 @@ def op_chance(
     return max(op.min_chance, min(op.max_chance, chance))
 
 
-def defender_lineup(available: list[tuple[int, dict]], scouted: list[int]) -> list[tuple[int, dict]]:
-    """The defender's war army: random MAX_ARMY_SIZE of `available` (horse_index, horse), unless a
-    spy scouted the lineup -- then those horses still available fight, topped up at random if
-    some got injured, sold, or posted as sentry since."""
-    if len(available) <= MAX_ARMY_SIZE:
+def defender_lineup(
+    available: list[tuple[int, dict]], scouted: list[int], size: int = MAX_ARMY_SIZE,
+) -> list[tuple[int, dict]]:
+    """The defender's war army: random `size` (normally MAX_ARMY_SIZE, less any raised ghosts) of
+    `available` (horse_index, horse), unless a spy scouted the lineup -- then those horses still
+    available fight, topped up at random if some got injured, sold, or posted as sentry since."""
+    if len(available) <= size:
         return available
     by_index = dict(available)
-    lineup = [(i, by_index[i]) for i in scouted if i in by_index][:MAX_ARMY_SIZE]
+    lineup = [(i, by_index[i]) for i in scouted if i in by_index][:size]
     rest = [pair for pair in available if pair[0] not in {i for i, _ in lineup}]
-    return lineup + random.sample(rest, MAX_ARMY_SIZE - len(lineup))
+    return lineup + random.sample(rest, size - len(lineup))
+
+
+GHOST_STAT_CAP_PCT = 100  # a ghost never comes back stronger than it died
+
+
+def ghost_unit(horse: dict, stat_pct: float) -> Unit:
+    """A glued horse raised to fight again at stat_pct% of its final stats (its row keeps them --
+    see db.glue_horse). No barding (its clothes came off at the Sanctuary) and, added after
+    build_army, no general bonus: the dead don't take orders. horse_index stays None so
+    BattleResult.knocked_out_horses never tries to injure it -- a KO'd ghost just goes back in the
+    ground."""
+    fraction = min(GHOST_STAT_CAP_PCT, stat_pct) / 100
+    return Unit(
+        name=f"Ghost of {horse['name']}",
+        horse_index=None,
+        charge=horse["speed"] * fraction,
+        max_hp=BASE_HP + horse["endurance"] * fraction,
+        spirit=horse["spirit"] * fraction,
+        ghost=True,
+    )
 
 
 def smuggle_amount(balance: int) -> int:

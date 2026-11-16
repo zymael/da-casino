@@ -35,5 +35,14 @@
     "cooldown_hours": 48,
     "enemy_charge_pct": 8,
     "spirit": 10
+  },
+  {
+    "id": "raise_the_glued",
+    "name": "Raise the Glued",
+    "emoji": "🪦",
+    "description": "Pour the glue back over a grave and ask nicely. Whatever's down there rides with you one more time, a little less than it was. Anyone's grave will do.",
+    "cost": 6,
+    "cooldown_hours": 72,
+    "summon_ghost_pct": 60
   }
 ]

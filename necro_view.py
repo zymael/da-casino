@@ -86,6 +86,21 @@ def build_spell_picker(user_id: int, spells: list[tuple[dict, str]], on_pick) ->
     return view
 
 
+def build_ghost_picker(user_id: int, entries: list[tuple[int, str, str]], on_pick) -> discord.ui.View:
+    """entries: (horse_index, name, description) per grave, already sorted. on_pick(ctx, horse_index)."""
+    options = [
+        discord.SelectOption(label=name[:100], value=str(horse_index), emoji="🪦", description=description[:100])
+        for horse_index, name, description in entries
+    ]
+
+    async def picked(ctx, value: str):
+        await on_pick(ctx, int(value))
+
+    view = _OwnerOnlyView(user_id)
+    view.add_item(_CallbackSelect(options, picked, "Choose a grave to disturb..."))
+    return view
+
+
 def build_grade_picker(user_id: int, grades: list[tuple[int, dict, int, str]], on_pick) -> discord.ui.View:
     """grades: (grade index, quest item dict, qty held, effect summary at that grade) for every grade
     the player can afford. on_pick(ctx, grade_index)."""

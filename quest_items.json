@@ -30,6 +30,12 @@
     "description": "This seems to be an ad for some sort of bath house... but the paper is so damp that you can't make out anything. Maybe someone really wet could read it?"
   },
   {
+    "id": "slimy_bathrobe",
+    "name": "Slimy Bathrobe",
+    "emoji": "🥻",
+    "description": "Peeled off a Cloaked Quivering Blob. It's still warm, it's still moving a little, and it smells exactly like the fog over the Horse Sanctuary. Wear it and the cultists might take you for one of their own."
+  },
+  {
     "id": "faint_ectoglue",
     "name": "Faint Ectoglue",
     "emoji": "💧",

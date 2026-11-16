@@ -435,6 +435,14 @@ ACHIEVEMENTS = [
         "description": "Lay a horse to rest that was too young or too weak to give a single drop. It died for nothing. You did that.",
         "reward": 1,
     },
+    {
+        "kind": "necro_raise",
+        "scope": "personal",
+        "emoji": "👻",
+        "name": "Necromanser",
+        "description": "Raise a horse from the graveyard to ride with you again. It doesn't seem happy about it.",
+        "reward": 50,
+    },
 ]
 
 # Maps each game bucket to its emoji/title and the db.log_bet() `game` string(s) that feed it

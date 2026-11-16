@@ -257,7 +257,7 @@ _MONSTERS_PATH = os.path.join(os.path.dirname(__file__), "dungeon_monsters.json"
 _REQUIRED_MONSTER_FIELDS = {
     "id", "name", "hp", "atk", "def", "spatk", "spd", "shape", "color", "flavor", "loot_min", "loot_max",
 }
-DROP_KINDS = ("equipment", "material", "consumable", "housing_item")
+DROP_KINDS = ("equipment", "material", "consumable", "housing_item", "quest_item")
 # kind -> its registry, for the three kinds dungeon.py can resolve itself ("housing_item" is the
 # one exception -- see DROP_KINDS' own comment). Built fresh on every call rather than once at
 # import time, so it never captures a registry that's since gone stale from a hot-reloaded save.
@@ -283,8 +283,10 @@ def _validate_monster_drops(drops, context: str):
         # dungeon_view._award_kill (dungeon.roll_drops itself has no db/quest access).
         if "requires" in drop and not isinstance(drop["requires"], dict):
             raise ValueError(f"{context} has a drop for {item_id!r} with a non-dict 'requires'")
-        if kind == "housing_item":
-            continue  # deferred -- see quests.validate_monster_drop_housing_items
+        if kind in ("housing_item", "quest_item"):
+            # deferred -- see quests.validate_monster_drop_housing_items / validate_monster_drop_quest_items
+            # (QUEST_ITEMS lives in quests.py, which imports this module)
+            continue
         registry = _drop_registries()[kind]
         if item_id not in registry:
             raise ValueError(f"{context} has a drop referencing unknown {kind} {item_id!r}")
@@ -342,8 +344,8 @@ def roll_drops(monster: dict, chance_mult: float = 1.0) -> list[dict]:
     for drop in monster.get("drops", []):
         if random.random() > drop["chance"] * chance_mult:
             continue
-        if drop["kind"] == "housing_item":
-            hits.append({"id": drop["item_id"], "_drop_kind": "housing_item"})
+        if drop["kind"] in ("housing_item", "quest_item"):  # resolved by the caller, see docstring
+            hits.append({"id": drop["item_id"], "_drop_kind": drop["kind"]})
             continue
         registry = _drop_registries()[drop["kind"]]
         item = dict(registry[drop["item_id"]])

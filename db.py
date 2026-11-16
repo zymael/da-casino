@@ -2101,11 +2101,16 @@ def prepare_spell(
     guild_id: int, user_id: int, *, item_id: str, cost: int, now: int, cooldown_seconds: int,
     last_key: str, prepared_key: str, grade_key: str, grade_value: int, expires_at: int,
     all_prepared_keys: list[str], max_prepared: int,
+    ghost_index: int | None = None, ghost_key: str | None = None, bound_key: str | None = None,
 ) -> tuple[str, int]:
     """!cast, in one transaction: checks the spell's cooldown (last_key), that it isn't already
     prepared, and that fewer than max_prepared spells are (all_prepared_keys: every spell's
-    prepared-until key), then spends `cost` of item_id and prepares it. Returns (status, extra):
-    ("ok", 0), ("cooldown", seconds_left), ("already", 0), ("full", 0), or ("broke", qty_held)."""
+    prepared-until key), then spends `cost` of item_id and prepares it. A summon spell also passes
+    ghost_index (a glued horse), ghost_key (the caster's record of which ghost) and bound_key (the
+    guild-wide binding, see necromancy.bound_flag): the ghost must really be glued and not bound to
+    anyone, and gets bound to the caster until expires_at. Returns (status, extra): ("ok", 0),
+    ("cooldown", seconds_left), ("already", 0), ("full", 0), ("broke", qty_held), ("no_ghost", 0) or
+    ("bound", 0)."""
     conn = _connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -2120,6 +2125,17 @@ def prepare_spell(
         if live >= max_prepared:
             conn.rollback()
             return "full", 0
+        if ghost_index is not None:
+            glued = conn.execute(
+                "SELECT 1 FROM horses WHERE guild_id = ? AND horse_index = ? AND glued_at IS NOT NULL",
+                (guild_id, ghost_index),
+            ).fetchone()
+            if not glued:
+                conn.rollback()
+                return "no_ghost", 0
+            if _flag_value(conn, guild_id, GUILD_FLAG_USER, bound_key) > now:
+                conn.rollback()
+                return "bound", 0
         row = conn.execute(
             "SELECT qty FROM inventory WHERE guild_id = ? AND user_id = ? AND item_id = ?", (guild_id, user_id, item_id),
         ).fetchone()
@@ -2139,8 +2155,35 @@ def prepare_spell(
         _write_flag(conn, guild_id, user_id, last_key, now)
         _write_flag(conn, guild_id, user_id, prepared_key, expires_at)
         _write_flag(conn, guild_id, user_id, grade_key, grade_value)
+        if ghost_index is not None:
+            _write_flag(conn, guild_id, user_id, ghost_key, ghost_index + 1)
+            _write_flag(conn, guild_id, GUILD_FLAG_USER, bound_key, expires_at)
         conn.commit()
         return "ok", 0
+    finally:
+        conn.close()
+
+
+def get_glued_horses(guild_id: int) -> list[dict]:
+    """The guild's graveyard: every glued horse with its final stats (its row keeps them), who
+    glued it, and when -- most recently glued first. Each is {"horse_index", "name", "is_foal",
+    "speed", "endurance", "spirit", "wins", "glued_at", "glued_by"} (glued_by None if unknown)."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT horse_index, name, is_foal, speed, endurance, spirit, wins, glued_at FROM horses "
+            "WHERE guild_id = ? AND glued_at IS NOT NULL ORDER BY glued_at DESC",
+            (guild_id,),
+        ).fetchall()
+        graveyard = []
+        for horse_index, name, is_foal, speed, endurance, spirit, wins, glued_at in rows:
+            glued_by = _flag_value(conn, guild_id, GUILD_FLAG_USER, glued_from_flag(horse_index))
+            graveyard.append({
+                "horse_index": horse_index, "name": name, "is_foal": bool(is_foal), "speed": speed,
+                "endurance": endurance, "spirit": spirit, "wins": wins, "glued_at": glued_at,
+                "glued_by": glued_by or None,
+            })
+        return graveyard
     finally:
         conn.close()
 
