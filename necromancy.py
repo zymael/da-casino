@@ -192,6 +192,25 @@ def cast_last_flag(spell_id: str) -> str:
     return f"necro:cast:{spell_id}:last"
 
 
+# Praying (!pray, open to everyone in the Guest Area): once per PRAY_COOLDOWN_SECONDS per player, at
+# any grave. Each prayer adds to that grave's public count and puts it at peace for PEACE_SECONDS --
+# no summon spell can pick it meanwhile, the counterplay to "anyone can raise anyone's dead". A ghost
+# already bound when someone prays stays bound (its caster already paid); the peace covers after.
+PRAY_COOLDOWN_SECONDS = 24 * 3600
+PEACE_SECONDS = 24 * 3600
+PRAY_LAST_FLAG = "necro:pray:last"  # on the praying player's row: unix time of their last prayer
+
+
+def prayers_flag(horse_index: int) -> str:
+    """At GUILD_FLAG_USER: how many prayers this grave has ever received."""
+    return f"necro:prayers:{horse_index}"
+
+
+def peace_flag(horse_index: int) -> str:
+    """At GUILD_FLAG_USER: unix time this grave stays at peace (unraisable) until."""
+    return f"necro:peace:{horse_index}"
+
+
 def prepared_keys() -> list[str]:
     """Every flag key a war needs to read to find a player's prepared spells."""
     return [

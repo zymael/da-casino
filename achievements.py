@@ -443,6 +443,14 @@ ACHIEVEMENTS = [
         "description": "Raise a horse from the graveyard to ride with you again. It doesn't seem happy about it.",
         "reward": 50,
     },
+    {
+        "kind": "necro_pray",
+        "scope": "personal",
+        "emoji": "🕯️",
+        "name": "Thoughts and Prayers",
+        "description": "Light a candle at a grave in the Horse Graveyard. It's the least you could do. Literally.",
+        "reward": 10,
+    },
 ]
 
 # Maps each game bucket to its emoji/title and the db.log_bet() `game` string(s) that feed it

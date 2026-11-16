@@ -2816,6 +2816,31 @@ def _member_name(guild: discord.Guild, user_id: int | None) -> str:
 GRAVEYARD_LIMIT = 20  # Discord message length -- the newest graves are the ones worth reading
 
 
+async def _grave_states(guild_id: int, graveyard: list[dict]) -> dict[int, dict]:
+    """{horse_index: {"bound", "at_peace" (bools), "peace_until", "prayers"}} for every grave --
+    one flags read for !graveyard, !pray and a summon spell's grave picker alike."""
+    keys = [
+        key for h in graveyard
+        for key in (
+            necromancy.bound_flag(h["horse_index"]), necromancy.peace_flag(h["horse_index"]),
+            necromancy.prayers_flag(h["horse_index"]),
+        )
+    ]
+    flags = await asyncio.to_thread(db.get_flags, guild_id, db.GUILD_FLAG_USER, keys)
+    now = int(time.time())
+    states = {}
+    for h in graveyard:
+        i = h["horse_index"]
+        peace_until = flags[necromancy.peace_flag(i)]
+        states[i] = {
+            "bound": flags[necromancy.bound_flag(i)] > now,
+            "at_peace": peace_until > now,
+            "peace_until": peace_until,
+            "prayers": flags[necromancy.prayers_flag(i)],
+        }
+    return states
+
+
 @bot.command(name="graveyard", aliases=["graves"])
 async def graveyard_cmd(ctx):
     """Visit the Horse Graveyard: every horse ever laid to rest at Greener Pastures, and who brought it."""
@@ -2823,21 +2848,93 @@ async def graveyard_cmd(ctx):
     if not graveyard:
         await ctx.send("🪦 The Horse Graveyard is freshly mowed and completely empty. For now.")
         return
-    now = int(time.time())
-    bound = await asyncio.to_thread(
-        db.get_flags, ctx.guild.id, db.GUILD_FLAG_USER, [necromancy.bound_flag(h["horse_index"]) for h in graveyard],
-    )
+    states = await _grave_states(ctx.guild.id, graveyard)
     lines = [f"🪦 **The Horse Graveyard** ({len(graveyard)} laid to rest)"]
     for horse in graveyard[:GRAVEYARD_LIMIT]:
+        state = states[horse["horse_index"]]
         kind = "🏆" if not horse["is_foal"] else "🐣"
-        restless = " 👻 *restless*" if bound[necromancy.bound_flag(horse["horse_index"])] > now else ""
+        notes = []
+        if state["prayers"]:
+            notes.append(f"🕯️ {state['prayers']}")
+        if state["bound"]:
+            notes.append("👻 *restless*")
+        elif state["at_peace"]:
+            notes.append("🕊️ *at peace*")
         lines.append(
             f"{kind} **{horse['name']}**: SPD {horse['speed']:.0f} / END {horse['endurance']:.0f} / "
-            f"SPI {horse['spirit']:.0f}, brought in by {_member_name(ctx.guild, horse['glued_by'])}{restless}"
+            f"SPI {horse['spirit']:.0f}, brought in by {_member_name(ctx.guild, horse['glued_by'])}"
+            + (f" {' '.join(notes)}" if notes else "")
         )
     if len(graveyard) > GRAVEYARD_LIMIT:
         lines.append(f"...and {len(graveyard) - GRAVEYARD_LIMIT} older graves, too overgrown to read.")
     await ctx.send("\n".join(lines))
+
+
+@bot.command(name="pray")
+async def pray_cmd(ctx):
+    """Pray at a grave in the Horse Graveyard, once a day. A grave someone has prayed at rests in
+    peace for a day: nobody can raise its ghost."""
+    guild_id, user_id = ctx.guild.id, ctx.author.id
+    last = await asyncio.to_thread(db.get_flag, guild_id, user_id, necromancy.PRAY_LAST_FLAG)
+    now = int(time.time())
+    if last and now - last < necromancy.PRAY_COOLDOWN_SECONDS:
+        await ctx.send(
+            f"🕯️ You've already prayed today. You can pray again "
+            f"{_in_seconds(necromancy.PRAY_COOLDOWN_SECONDS - (now - last))}."
+        )
+        return
+    graveyard = await asyncio.to_thread(db.get_glued_horses, guild_id)
+    if not graveyard:
+        await ctx.send("🪦 There's nobody in the Horse Graveyard to pray for. For now.")
+        return
+    states = await _grave_states(guild_id, graveyard)
+    entries = []
+    for h in graveyard[:25]:  # newest first, same as !graveyard; a Select caps at 25
+        state = states[h["horse_index"]]
+        status = "restless" if state["bound"] else ("at peace" if state["at_peace"] else "unguarded")
+        entries.append((
+            h["horse_index"], h["name"],
+            f"🕯️ {state['prayers']} prayers · {status} · brought in by {_member_name(ctx.guild, h['glued_by'])}",
+        ))
+    await ctx.send(
+        "🕯️ Whose grave do you visit?",
+        view=necro_view.build_grave_picker(
+            user_id, entries, _pray_at, "Choose a grave to pray at...", emoji="🕯️",
+            reject_message="Say your own prayers.",
+        ),
+    )
+
+
+async def _pray_at(ctx, horse_index: int):
+    guild_id, user_id = ctx.guild.id, ctx.author.id
+    status, extra = await asyncio.to_thread(
+        db.pray_at_grave, guild_id, user_id, horse_index,
+        now=int(time.time()), cooldown_seconds=necromancy.PRAY_COOLDOWN_SECONDS,
+        peace_seconds=necromancy.PEACE_SECONDS, last_key=necromancy.PRAY_LAST_FLAG,
+        prayers_key=necromancy.prayers_flag(horse_index), peace_key=necromancy.peace_flag(horse_index),
+    )
+    if status == "cooldown":
+        await ctx.send(f"🕯️ You've already prayed today. You can pray again {_in_seconds(extra)}.")
+        return
+    if status == "no_grave":
+        await ctx.send("That grave seems to have moved. Try `!pray` again.")
+        return
+    graveyard = await asyncio.to_thread(db.get_glued_horses, guild_id)
+    horse = next((h for h in graveyard if h["horse_index"] == horse_index), None)
+    name = horse["name"] if horse else "the departed"
+    plural = "prayer" if extra == 1 else "prayers"
+    bound = await asyncio.to_thread(db.get_flag, guild_id, db.GUILD_FLAG_USER, necromancy.bound_flag(horse_index))
+    if bound > int(time.time()):
+        rest = (
+            f"The ground over **{name}** is still restless. Someone has already called on it, and a candle "
+            f"can't undo that, but nobody else can raise it for the next {necromancy.PEACE_SECONDS // 3600} hours."
+        )
+    else:
+        rest = f"**{name}** rests in peace. Nobody can raise it for the next {necromancy.PEACE_SECONDS // 3600} hours."
+    await ctx.send(
+        f"🕯️ {ctx.author.display_name} lights a candle at **{name}**'s grave ({extra} {plural} so far). {rest}"
+    )
+    await achievements.try_award_many(ctx.send, guild_id, user_id, ctx.author.display_name, ["necro_pray"])
 
 
 @bot.command(name="cast")
@@ -2907,18 +3004,15 @@ async def _cast_choose_grade(ctx, spell_id: str):
 
 async def _cast_choose_ghost(ctx, spell_id: str, grade: int):
     """A summon spell's last step: which glued horse to raise -- anyone's, as long as nobody else
-    has its ghost bound right now."""
+    has its ghost bound right now and nobody has prayed it to peace (!pray)."""
     guild_id = ctx.guild.id
     graveyard = await asyncio.to_thread(db.get_glued_horses, guild_id)
-    now = int(time.time())
-    bound = await asyncio.to_thread(
-        db.get_flags, guild_id, db.GUILD_FLAG_USER, [necromancy.bound_flag(h["horse_index"]) for h in graveyard],
-    )
-    free = [h for h in graveyard if bound[necromancy.bound_flag(h["horse_index"])] <= now]
+    states = await _grave_states(guild_id, graveyard)
+    free = [h for h in graveyard if not states[h["horse_index"]]["bound"] and not states[h["horse_index"]]["at_peace"]]
     if not free:
         await ctx.send(
             "🪦 There's nobody in the graveyard to raise." if not graveyard
-            else "👻 Every ghost in the graveyard is already bound to someone. Try again after their wars."
+            else "👻 Every grave is either already bound to someone or resting in peace after a prayer. Try again later."
         )
         return
     # Strongest first, since the Select caps at 25 options.
@@ -2936,7 +3030,10 @@ async def _cast_choose_ghost(ctx, spell_id: str, grade: int):
     async def on_pick(pick_ctx, ghost_index: int):
         await _cast_spell(pick_ctx, spell_id, grade, ghost_index)
 
-    await ctx.send("🪦 Whose grave do you disturb?", view=necro_view.build_ghost_picker(ctx.author.id, entries, on_pick))
+    await ctx.send(
+        "🪦 Whose grave do you disturb?",
+        view=necro_view.build_grave_picker(ctx.author.id, entries, on_pick, "Choose a grave to disturb..."),
+    )
 
 
 async def _cast_spell(ctx, spell_id: str, grade: int, ghost_index: int | None = None):
@@ -2964,6 +3061,7 @@ async def _cast_spell(ctx, spell_id: str, grade: int, ghost_index: int | None = 
         ghost_index=ghost_index if summon else None,
         ghost_key=necromancy.prepared_ghost_flag(spell_id) if summon else None,
         bound_key=necromancy.bound_flag(ghost_index) if summon else None,
+        peace_key=necromancy.peace_flag(ghost_index) if summon else None,
     )
     if status == "cooldown":
         await ctx.send(f"{spell['emoji']} **{spell['name']}** is still settling. You can cast it again {_in_seconds(extra)}.")
@@ -2979,6 +3077,9 @@ async def _cast_spell(ctx, spell_id: str, grade: int, ghost_index: int | None = 
         return
     if status == "no_ghost":
         await ctx.send("That grave is empty. Try `!cast` again.")
+        return
+    if status == "at_peace":
+        await ctx.send("🕊️ Someone has prayed over that grave. It rests in peace, for now. Pick another grave.")
         return
     if status == "bound":
         await ctx.send("👻 Someone else got to that ghost first. Pick another grave.")
@@ -3411,6 +3512,7 @@ room_commands.COMMANDS.update({
     "glue": glue_cmd.callback,
     "cast": cast_cmd.callback,
     "graveyard": graveyard_cmd.callback,
+    "pray": pray_cmd.callback,
 })
 # Catches a typo'd rooms.json command key loudly at startup instead of a KeyError the moment some
 # player clicks the broken button -- see rooms.py's own docstring for why this can't run any

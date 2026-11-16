@@ -227,6 +227,11 @@
         "key": "graveyard",
         "kind": "none",
         "label": "\ud83e\udea6 Visit the Graves"
+      },
+      {
+        "key": "pray",
+        "kind": "none",
+        "label": "\ud83d\udd6f\ufe0f Pray at a Grave"
       }
     ]
   },

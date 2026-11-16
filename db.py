@@ -2102,14 +2102,16 @@ def prepare_spell(
     last_key: str, prepared_key: str, grade_key: str, grade_value: int, expires_at: int,
     all_prepared_keys: list[str], max_prepared: int,
     ghost_index: int | None = None, ghost_key: str | None = None, bound_key: str | None = None,
+    peace_key: str | None = None,
 ) -> tuple[str, int]:
     """!cast, in one transaction: checks the spell's cooldown (last_key), that it isn't already
     prepared, and that fewer than max_prepared spells are (all_prepared_keys: every spell's
     prepared-until key), then spends `cost` of item_id and prepares it. A summon spell also passes
-    ghost_index (a glued horse), ghost_key (the caster's record of which ghost) and bound_key (the
-    guild-wide binding, see necromancy.bound_flag): the ghost must really be glued and not bound to
-    anyone, and gets bound to the caster until expires_at. Returns (status, extra): ("ok", 0),
-    ("cooldown", seconds_left), ("already", 0), ("full", 0), ("broke", qty_held), ("no_ghost", 0) or
+    ghost_index (a glued horse), ghost_key (the caster's record of which ghost), bound_key (the
+    guild-wide binding, see necromancy.bound_flag) and peace_key (necromancy.peace_flag): the ghost
+    must really be glued, not at peace from a prayer, and not bound to anyone, and gets bound to the
+    caster until expires_at. Returns (status, extra): ("ok", 0), ("cooldown", seconds_left),
+    ("already", 0), ("full", 0), ("broke", qty_held), ("no_ghost", 0), ("at_peace", 0) or
     ("bound", 0)."""
     conn = _connect()
     try:
@@ -2133,6 +2135,9 @@ def prepare_spell(
             if not glued:
                 conn.rollback()
                 return "no_ghost", 0
+            if peace_key is not None and _flag_value(conn, guild_id, GUILD_FLAG_USER, peace_key) > now:
+                conn.rollback()
+                return "at_peace", 0
             if _flag_value(conn, guild_id, GUILD_FLAG_USER, bound_key) > now:
                 conn.rollback()
                 return "bound", 0
@@ -2160,6 +2165,39 @@ def prepare_spell(
             _write_flag(conn, guild_id, GUILD_FLAG_USER, bound_key, expires_at)
         conn.commit()
         return "ok", 0
+    finally:
+        conn.close()
+
+
+def pray_at_grave(
+    guild_id: int, user_id: int, horse_index: int, *, now: int, cooldown_seconds: int, peace_seconds: int,
+    last_key: str, prayers_key: str, peace_key: str,
+) -> tuple[str, int]:
+    """!pray, in one transaction: checks the player's prayer cooldown (last_key, on their row) and
+    that horse_index really is a grave, then adds a prayer (prayers_key) and puts the grave at peace
+    until now + peace_seconds (peace_key) -- both at GUILD_FLAG_USER, see necromancy.prayers_flag /
+    peace_flag. Returns (status, extra): ("ok", new_prayer_count), ("cooldown", seconds_left) or
+    ("no_grave", 0)."""
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        last = _flag_value(conn, guild_id, user_id, last_key)
+        if last and now - last < cooldown_seconds:
+            conn.rollback()
+            return "cooldown", cooldown_seconds - (now - last)
+        grave = conn.execute(
+            "SELECT 1 FROM horses WHERE guild_id = ? AND horse_index = ? AND glued_at IS NOT NULL",
+            (guild_id, horse_index),
+        ).fetchone()
+        if not grave:
+            conn.rollback()
+            return "no_grave", 0
+        count = _flag_value(conn, guild_id, GUILD_FLAG_USER, prayers_key) + 1
+        _write_flag(conn, guild_id, GUILD_FLAG_USER, prayers_key, count)
+        _write_flag(conn, guild_id, GUILD_FLAG_USER, peace_key, now + peace_seconds)
+        _write_flag(conn, guild_id, user_id, last_key, now)
+        conn.commit()
+        return "ok", count
     finally:
         conn.close()
 

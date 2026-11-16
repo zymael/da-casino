@@ -47,13 +47,14 @@ def build_glue_confirm(user_id: int, horse_index: int, on_confirm) -> discord.ui
 
 
 class _OwnerOnlyView(discord.ui.View):
-    def __init__(self, user_id: int):
+    def __init__(self, user_id: int, reject_message: str = "Get your own Ectoglue."):
         super().__init__(timeout=300)
         self.user_id = user_id
+        self.reject_message = reject_message
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message("Get your own Ectoglue.", ephemeral=True)
+            await interaction.response.send_message(self.reject_message, ephemeral=True)
             return False
         return True
 
@@ -86,18 +87,22 @@ def build_spell_picker(user_id: int, spells: list[tuple[dict, str]], on_pick) ->
     return view
 
 
-def build_ghost_picker(user_id: int, entries: list[tuple[int, str, str]], on_pick) -> discord.ui.View:
-    """entries: (horse_index, name, description) per grave, already sorted. on_pick(ctx, horse_index)."""
+def build_grave_picker(
+    user_id: int, entries: list[tuple[int, str, str]], on_pick, placeholder: str, emoji: str = "🪦",
+    reject_message: str = "Get your own Ectoglue.",
+) -> discord.ui.View:
+    """A Select over graveyard plots -- shared by a summon spell's "whose grave do you disturb" and
+    !pray. entries: (horse_index, name, description) per grave, already sorted. on_pick(ctx, horse_index)."""
     options = [
-        discord.SelectOption(label=name[:100], value=str(horse_index), emoji="🪦", description=description[:100])
+        discord.SelectOption(label=name[:100], value=str(horse_index), emoji=emoji, description=description[:100])
         for horse_index, name, description in entries
     ]
 
     async def picked(ctx, value: str):
         await on_pick(ctx, int(value))
 
-    view = _OwnerOnlyView(user_id)
-    view.add_item(_CallbackSelect(options, picked, "Choose a grave to disturb..."))
+    view = _OwnerOnlyView(user_id, reject_message)
+    view.add_item(_CallbackSelect(options, picked, placeholder))
     return view
 
 
