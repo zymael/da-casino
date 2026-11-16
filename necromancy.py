@@ -18,9 +18,12 @@ like everything else; GRADES is the one set of ids this code depends on, checked
 and again on every admin-panel quest-item save.
 """
 
+import json
 import math
+import os
 
 import quests
+import war
 
 ROOM_ID = "horse_sanctuary"
 UNLOCK_FLAG = "necro:unlocked"  # the placeholder gate rooms.json's horse_sanctuary unlock_trigger checks
@@ -77,3 +80,108 @@ def validate_ectoglue_items(quest_items: dict[str, dict] | None = None):
 
 
 validate_ectoglue_items()
+
+
+# ---------------------------------------------------------------------------------------------
+# Phase 2: spells. Content is necromancy_spells.json (admin panel: "Necromancy Spells"), each entry
+# {id, name, emoji, description, cost, cooldown_hours} plus any of war.SPELL_EFFECTS as optional
+# integers. !cast spends `cost` ectoglue of one grade the caster picks and *prepares* the spell; the
+# caster's next war -- attacking or defending -- applies every prepared spell and spends them all.
+# The grade scales every effect by GRADE_POWER. All state is flags on the caster (keys below), so
+# this needed no new table.
+# ---------------------------------------------------------------------------------------------
+
+_SPELLS_PATH = os.path.join(os.path.dirname(__file__), "necromancy_spells.json")
+_REQUIRED_SPELL_FIELDS = {"id", "name", "emoji", "description", "cost", "cooldown_hours"}
+
+GRADE_POWER = (0.75, 1.0, 1.25, 1.5)  # per GRADES index
+PREPARED_SECONDS = 48 * 3600  # a prepared spell fizzles if no war comes within this long
+MAX_PREPARED = 2  # spells a player can hold ready at once
+
+
+def _load_spells(path: str = _SPELLS_PATH) -> dict[str, dict]:
+    with open(path, encoding="utf-8") as f:
+        raw = json.load(f)
+    spells: dict[str, dict] = {}
+    for entry in raw:
+        spell_id = entry.get("id", "?")
+        missing = _REQUIRED_SPELL_FIELDS - entry.keys()
+        if missing:
+            raise ValueError(f"necromancy_spells.json: spell {spell_id!r} missing field(s): {sorted(missing)}")
+        if spell_id in spells:
+            raise ValueError(f"necromancy_spells.json: duplicate spell id {spell_id!r}")
+        if not isinstance(entry["cost"], int) or entry["cost"] < 1:
+            raise ValueError(f"necromancy_spells.json: spell {spell_id!r} cost must be an integer >= 1")
+        if not isinstance(entry["cooldown_hours"], int) or entry["cooldown_hours"] < 0:
+            raise ValueError(f"necromancy_spells.json: spell {spell_id!r} cooldown_hours must be an integer >= 0")
+        effects = {k: entry[k] for k in war.SPELL_EFFECTS if entry.get(k) is not None}
+        for key, value in effects.items():
+            if not isinstance(value, int) or value < 0:
+                raise ValueError(f"necromancy_spells.json: spell {spell_id!r} {key} must be an integer >= 0")
+        if not any(effects.values()):
+            raise ValueError(
+                f"necromancy_spells.json: spell {spell_id!r} has no effect -- set at least one of {list(war.SPELL_EFFECTS)}"
+            )
+        spells[spell_id] = entry
+    return spells
+
+
+SPELLS = _load_spells()
+
+
+def prepared_flag(spell_id: str) -> str:
+    """On the caster's row: unix time this prepared spell fizzles at (0 = not prepared)."""
+    return f"necro:prepared:{spell_id}"
+
+
+def prepared_grade_flag(spell_id: str) -> str:
+    """On the caster's row: GRADES index + 1 the prepared spell was cast with."""
+    return f"necro:prepared:{spell_id}:grade"
+
+
+def cast_last_flag(spell_id: str) -> str:
+    """On the caster's row: unix time this spell was last cast, for its cooldown."""
+    return f"necro:cast:{spell_id}:last"
+
+
+def prepared_keys() -> list[str]:
+    """Every flag key a war needs to read to find a player's prepared spells."""
+    return [key for spell_id in SPELLS for key in (prepared_flag(spell_id), prepared_grade_flag(spell_id))]
+
+
+def prepared_spells(flags: dict[str, int], now: int) -> list[tuple[dict, int]]:
+    """(spell, grade index) for every spell still prepared in `flags` (a db.get_flags result over
+    prepared_keys()). A spell deleted from the JSON while prepared just never shows up."""
+    ready = []
+    for spell_id, spell in SPELLS.items():
+        if flags.get(prepared_flag(spell_id), 0) > now:
+            grade = min(len(GRADES) - 1, max(0, flags.get(prepared_grade_flag(spell_id), 1) - 1))
+            ready.append((spell, grade))
+    return ready
+
+
+def spell_effects(spell: dict, grade: int) -> dict[str, float]:
+    """One spell's effects, scaled by the grade of ectoglue it was cast with."""
+    return {k: spell[k] * GRADE_POWER[grade] for k in war.SPELL_EFFECTS if spell.get(k)}
+
+
+def combined_effects(prepared: list[tuple[dict, int]]) -> dict[str, float]:
+    """Every prepared spell's scaled effects summed -- war.apply_spell_effects caps the totals."""
+    total: dict[str, float] = {}
+    for spell, grade in prepared:
+        for key, value in spell_effects(spell, grade).items():
+            total[key] = total.get(key, 0.0) + value
+    return total
+
+
+_EFFECT_TEXT = {
+    "charge_pct": "+{:g}% charge",
+    "hp_pct": "+{:g}% HP",
+    "spirit": "+{:g} Spirit",
+    "enemy_charge_pct": "enemy −{:g}% charge",
+    "enemy_spirit": "enemy −{:g} Spirit",
+}
+
+
+def describe_effects(effects: dict[str, float]) -> str:
+    return ", ".join(_EFFECT_TEXT[k].format(round(v, 1)) for k, v in effects.items())

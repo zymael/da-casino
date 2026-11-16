@@ -44,3 +44,62 @@ class GlueConfirmView(discord.ui.View):
 
 def build_glue_confirm(user_id: int, horse_index: int, on_confirm) -> discord.ui.View:
     return GlueConfirmView(user_id, horse_index, on_confirm)
+
+
+class _OwnerOnlyView(discord.ui.View):
+    def __init__(self, user_id: int):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Get your own glue.", ephemeral=True)
+            return False
+        return True
+
+
+class _CallbackSelect(discord.ui.Select):
+    """A Select that hands its one picked value to `on_pick(ctx, value)` and disables itself."""
+
+    def __init__(self, options: list[discord.SelectOption], on_pick, placeholder: str):
+        super().__init__(placeholder=placeholder, options=options[:25])
+        self.on_pick = on_pick
+
+    async def callback(self, interaction: discord.Interaction):
+        self.disabled = True
+        await interaction.response.edit_message(view=self.view)
+        self.view.stop()
+        await self.on_pick(hub_ui.InteractionContext(interaction), self.values[0])
+
+
+def build_spell_picker(user_id: int, spells: list[tuple[dict, str]], on_pick) -> discord.ui.View:
+    """spells: (spell dict, one-line summary) per option. on_pick(ctx, spell_id)."""
+    options = [
+        discord.SelectOption(
+            label=f"{spell['name']} ({spell['cost']} glue)"[:100], value=spell["id"],
+            emoji=spell["emoji"], description=summary[:100],
+        )
+        for spell, summary in spells
+    ]
+    view = _OwnerOnlyView(user_id)
+    view.add_item(_CallbackSelect(options, on_pick, "Choose a spell to prepare..."))
+    return view
+
+
+def build_grade_picker(user_id: int, grades: list[tuple[int, dict, int, str]], on_pick) -> discord.ui.View:
+    """grades: (grade index, quest item dict, qty held, effect summary at that grade) for every grade
+    the player can afford. on_pick(ctx, grade_index)."""
+    options = [
+        discord.SelectOption(
+            label=f"{item['name']} (you have {held})"[:100], value=str(grade),
+            emoji=item["emoji"], description=summary[:100],
+        )
+        for grade, item, held, summary in grades
+    ]
+
+    async def picked(ctx, value: str):
+        await on_pick(ctx, int(value))
+
+    view = _OwnerOnlyView(user_id)
+    view.add_item(_CallbackSelect(options, picked, "Pay with which grade?"))
+    return view

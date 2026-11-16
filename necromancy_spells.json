@@ -1,0 +1,39 @@
+[
+  {
+    "id": "grave_fury",
+    "name": "Grave Fury",
+    "emoji": "💀",
+    "description": "Smear it on the hooves. Your horses charge like something is chasing them. Something is.",
+    "cost": 3,
+    "cooldown_hours": 24,
+    "charge_pct": 10
+  },
+  {
+    "id": "unfeeling_flesh",
+    "name": "Unfeeling Flesh",
+    "emoji": "🧟",
+    "description": "Your horses stop noticing pain. They also stop noticing a few other things. Worry about that later.",
+    "cost": 3,
+    "cooldown_hours": 24,
+    "hp_pct": 12
+  },
+  {
+    "id": "whinny_of_the_damned",
+    "name": "Whinny of the Damned",
+    "emoji": "👻",
+    "description": "A sound from under the ground that every horse on the field recognizes. Theirs lose heart.",
+    "cost": 4,
+    "cooldown_hours": 36,
+    "enemy_spirit": 20
+  },
+  {
+    "id": "sanctuary_fog",
+    "name": "Sanctuary Fog",
+    "emoji": "🌫️",
+    "description": "Bottle some smokestack fog and uncork it on the battlefield. The enemy can't see where they're charging. Neither can you, but you're used to it.",
+    "cost": 5,
+    "cooldown_hours": 48,
+    "enemy_charge_pct": 8,
+    "spirit": 10
+  }
+]

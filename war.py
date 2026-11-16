@@ -285,6 +285,36 @@ def build_army(
     )
 
 
+# Necromancy spells (necromancy.py / necromancy_spells.json) prepared before a war, applied by
+# apply_spell_effects to both freshly-built armies before simulate_battle. Each is an optional
+# integer field on a spell; values are summed across a side's prepared spells (already scaled by the
+# grade of ectoglue each was cast with) and then capped here, so stacking spells can't turn a war
+# into a lock -- the same reason FLAT_NOISE_MAX exists. Percentages are whole numbers (10 = 10%).
+SPELL_EFFECT_CAPS = {
+    "charge_pct": 25,  # own army's charge
+    "hp_pct": 25,  # own army's max HP
+    "spirit": 30,  # own units' Spirit (rally chance/strength while behind)
+    "enemy_charge_pct": 20,  # knocked off the enemy's charge
+    "enemy_spirit": 30,  # knocked off the enemy's Spirit, like propaganda
+}
+SPELL_EFFECTS = tuple(SPELL_EFFECT_CAPS)
+
+
+def apply_spell_effects(army: Army, enemy: Army, effects: dict[str, float]):
+    """Applies one side's summed spell effects ({effect: amount}, any SPELL_EFFECTS subset) to its
+    own army and the enemy's. Call after build_army and before simulate_battle; resets HP to the new
+    max, the same way build_army does after its own bonuses."""
+    capped = {k: min(SPELL_EFFECT_CAPS[k], max(0.0, v)) for k, v in effects.items() if k in SPELL_EFFECT_CAPS}
+    for unit in army.units:
+        unit.charge *= 1 + capped.get("charge_pct", 0) / 100
+        unit.max_hp *= 1 + capped.get("hp_pct", 0) / 100
+        unit.hp = unit.max_hp
+        unit.spirit += capped.get("spirit", 0)  # no ceiling -- barding/Fallout already push past 100
+    for unit in enemy.units:
+        unit.charge *= 1 - capped.get("enemy_charge_pct", 0) / 100
+        unit.spirit = max(0.0, unit.spirit - capped.get("enemy_spirit", 0))
+
+
 def _average_charge(army: Army) -> float:
     living = army.living
     return sum(u.charge for u in living) / len(living) if living else 0.0

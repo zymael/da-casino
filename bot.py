@@ -2093,6 +2093,25 @@ async def _war_resolve(ctx, member: discord.Member, horse_indices: list[int]):
         await asyncio.to_thread(db.set_flag, guild_id, attacker_id, db.WAR_PROPAGANDA_FLAG, 0)
     if defender_propaganda:
         await asyncio.to_thread(db.set_flag, guild_id, member.id, db.WAR_PROPAGANDA_FLAG, 0)
+    # Necromancy: every spell either side has prepared is spent by this war, same as propaganda.
+    spell_keys = necromancy.prepared_keys()
+    spell_lines = []
+    side_spells = {}
+    for side, side_id, side_name in (
+        (war.ATTACKER, attacker_id, ctx.author.display_name), (war.DEFENDER, member.id, member.display_name),
+    ):
+        flags = await asyncio.to_thread(db.get_flags, guild_id, side_id, spell_keys)
+        prepared = necromancy.prepared_spells(flags, now)
+        side_spells[side] = prepared
+        for spell, _grade in prepared:
+            await asyncio.to_thread(db.set_flag, guild_id, side_id, necromancy.prepared_flag(spell["id"]), 0)
+        if prepared:
+            cast = ", ".join(f"{spell['emoji']} {spell['name']} ({_grade_name(grade)})" for spell, grade in prepared)
+            spell_lines.append(f"🕯️ **{side_name}** calls on the dead: {cast}")
+    war.apply_spell_effects(attacker_army, defender_army, necromancy.combined_effects(side_spells[war.ATTACKER]))
+    war.apply_spell_effects(defender_army, attacker_army, necromancy.combined_effects(side_spells[war.DEFENDER]))
+    if spell_lines:
+        await ctx.send("\n".join(spell_lines))
 
     result = war.simulate_battle(attacker_army, defender_army)
     attacker_won = result.winner == war.ATTACKER
@@ -2769,6 +2788,111 @@ async def necrounlock_cmd(ctx, member: discord.Member = None, state: str = None)
     await ctx.send(f"🌫️ {member.display_name} {verb} the Horse Sanctuary past The Front.")
 
 
+def _grade_name(grade: int) -> str:
+    item = quests.QUEST_ITEMS[necromancy.GRADES[grade]]
+    return f"{item['emoji']} {item['name']}"
+
+
+@bot.command(name="cast")
+async def cast_cmd(ctx, spell_id: str = None):
+    """Prepare a necromancy spell with Ectoglue: !cast, or !cast <spell id>. It takes effect in your
+    next war, attacking or defending. Better glue, stronger spell."""
+    guild_id, user_id = ctx.guild.id, ctx.author.id
+    if not await quests.room_unlocked(guild_id, user_id, necromancy.ROOM_ID):
+        await ctx.send(_SANCTUARY_LOCKED)
+        return
+    if spell_id is not None:
+        await _cast_choose_grade(ctx, spell_id.lower())
+        return
+    now = int(time.time())
+    flags = await asyncio.to_thread(db.get_flags, guild_id, user_id, necromancy.prepared_keys())
+    ready = necromancy.prepared_spells(flags, now)
+    lines = ["🕯️ **Prepared for your next war:**" if ready else "🕯️ Nothing prepared yet."]
+    for spell, grade in ready:
+        expires = flags[necromancy.prepared_flag(spell["id"])]
+        lines.append(f"{spell['emoji']} **{spell['name']}** with {_grade_name(grade)}, fizzles <t:{expires}:R>")
+    if len(ready) >= necromancy.MAX_PREPARED:
+        lines.append(f"You can hold {necromancy.MAX_PREPARED} spells at once. Go start a war.")
+        await ctx.send("\n".join(lines))
+        return
+    if not necromancy.SPELLS:
+        await ctx.send("\n".join(lines))
+        return
+    options = [
+        (spell, necromancy.describe_effects(necromancy.spell_effects(spell, 1)))
+        for spell in necromancy.SPELLS.values()
+    ]
+    await ctx.send("\n".join(lines), view=necro_view.build_spell_picker(user_id, options, _cast_choose_grade))
+
+
+async def _cast_choose_grade(ctx, spell_id: str):
+    """Asks which grade of glue pays for the spell -- shared by !cast <id> and the spell picker."""
+    spell = necromancy.SPELLS.get(spell_id)
+    if spell is None:
+        await ctx.send(f"There's no spell called `{spell_id}`. Try plain `!cast` for the list.")
+        return
+    held = await asyncio.to_thread(db.get_inventory, ctx.guild.id, ctx.author.id)
+    affordable = [
+        (grade, quests.QUEST_ITEMS[item_id], held.get(item_id, 0),
+         necromancy.describe_effects(necromancy.spell_effects(spell, grade)))
+        for grade, item_id in enumerate(necromancy.GRADES)
+        if held.get(item_id, 0) >= spell["cost"]
+    ]
+    if not affordable:
+        await ctx.send(
+            f"{spell['emoji']} **{spell['name']}** takes {spell['cost']} Ectoglue of a single grade, and you "
+            f"don't have that much of any. The Sanctuary is always accepting horses."
+        )
+        return
+
+    async def on_pick(pick_ctx, grade: int):
+        await _cast_spell(pick_ctx, spell_id, grade)
+
+    await ctx.send(
+        f"{spell['emoji']} **{spell['name']}**: {spell['description']}",
+        view=necro_view.build_grade_picker(ctx.author.id, affordable, on_pick),
+    )
+
+
+async def _cast_spell(ctx, spell_id: str, grade: int):
+    guild_id, user_id = ctx.guild.id, ctx.author.id
+    if not await quests.room_unlocked(guild_id, user_id, necromancy.ROOM_ID):
+        await ctx.send(_SANCTUARY_LOCKED)
+        return
+    spell = necromancy.SPELLS.get(spell_id)
+    if spell is None:
+        await ctx.send("That spell has faded from the world. Try `!cast` again.")
+        return
+    now = int(time.time())
+    status, extra = await asyncio.to_thread(
+        db.prepare_spell, guild_id, user_id,
+        item_id=necromancy.GRADES[grade], cost=spell["cost"], now=now,
+        cooldown_seconds=spell["cooldown_hours"] * 3600, last_key=necromancy.cast_last_flag(spell_id),
+        prepared_key=necromancy.prepared_flag(spell_id), grade_key=necromancy.prepared_grade_flag(spell_id),
+        grade_value=grade + 1, expires_at=now + necromancy.PREPARED_SECONDS,
+        all_prepared_keys=[necromancy.prepared_flag(s) for s in necromancy.SPELLS],
+        max_prepared=necromancy.MAX_PREPARED,
+    )
+    if status == "cooldown":
+        await ctx.send(f"{spell['emoji']} **{spell['name']}** is still settling. You can cast it again {_in_seconds(extra)}.")
+        return
+    if status == "already":
+        await ctx.send(f"{spell['emoji']} **{spell['name']}** is already prepared. Save it for the war.")
+        return
+    if status == "full":
+        await ctx.send(f"You're already holding {necromancy.MAX_PREPARED} spells. Spend them in a war first.")
+        return
+    if status == "broke":
+        await ctx.send(f"You need {spell['cost']} {_grade_name(grade)} and only have {extra}.")
+        return
+    effects = necromancy.describe_effects(necromancy.spell_effects(spell, grade))
+    await ctx.send(
+        f"🕯️ {ctx.author.display_name} works {spell['cost']}× {_grade_name(grade)} into **{spell['emoji']} "
+        f"{spell['name']}** ({effects}). It'll hold for your next war, attacking or defending, "
+        f"for up to {necromancy.PREPARED_SECONDS // 3600} hours."
+    )
+
+
 @bot.command(name="donate")
 async def donate_cmd(ctx, amount: int = None):
     """Fund the Mane-hay-tan Project's Dubious Research: !donate <amount>. The whole server shares
@@ -3180,6 +3304,7 @@ room_commands.COMMANDS.update({
     "manhattan": manhattan_cmd.callback,
     "launch": launch_cmd.callback,
     "glue": glue_cmd.callback,
+    "cast": cast_cmd.callback,
 })
 # Catches a typo'd rooms.json command key loudly at startup instead of a KeyError the moment some
 # player clicks the broken button -- see rooms.py's own docstring for why this can't run any

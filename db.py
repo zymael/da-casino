@@ -2097,6 +2097,54 @@ def glue_horse(
         conn.close()
 
 
+def prepare_spell(
+    guild_id: int, user_id: int, *, item_id: str, cost: int, now: int, cooldown_seconds: int,
+    last_key: str, prepared_key: str, grade_key: str, grade_value: int, expires_at: int,
+    all_prepared_keys: list[str], max_prepared: int,
+) -> tuple[str, int]:
+    """!cast, in one transaction: checks the spell's cooldown (last_key), that it isn't already
+    prepared, and that fewer than max_prepared spells are (all_prepared_keys: every spell's
+    prepared-until key), then spends `cost` of item_id and prepares it. Returns (status, extra):
+    ("ok", 0), ("cooldown", seconds_left), ("already", 0), ("full", 0), or ("broke", qty_held)."""
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        last = _flag_value(conn, guild_id, user_id, last_key)
+        if last and now - last < cooldown_seconds:
+            conn.rollback()
+            return "cooldown", cooldown_seconds - (now - last)
+        if _flag_value(conn, guild_id, user_id, prepared_key) > now:
+            conn.rollback()
+            return "already", 0
+        live = sum(1 for key in all_prepared_keys if _flag_value(conn, guild_id, user_id, key) > now)
+        if live >= max_prepared:
+            conn.rollback()
+            return "full", 0
+        row = conn.execute(
+            "SELECT qty FROM inventory WHERE guild_id = ? AND user_id = ? AND item_id = ?", (guild_id, user_id, item_id),
+        ).fetchone()
+        held = row[0] if row else 0
+        if held < cost:
+            conn.rollback()
+            return "broke", held
+        if held == cost:
+            conn.execute(
+                "DELETE FROM inventory WHERE guild_id = ? AND user_id = ? AND item_id = ?", (guild_id, user_id, item_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE inventory SET qty = qty - ? WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                (cost, guild_id, user_id, item_id),
+            )
+        _write_flag(conn, guild_id, user_id, last_key, now)
+        _write_flag(conn, guild_id, user_id, prepared_key, expires_at)
+        _write_flag(conn, guild_id, user_id, grade_key, grade_value)
+        conn.commit()
+        return "ok", 0
+    finally:
+        conn.close()
+
+
 def _seconds_until_next_day() -> float:
     """Seconds remaining until the calendar day (per date.today()) rolls over."""
     tomorrow = date.today() + timedelta(days=1)

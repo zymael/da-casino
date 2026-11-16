@@ -228,6 +228,11 @@
         "key": "glue",
         "kind": "none",
         "label": "\u26b1\ufe0f Lay a Horse to Rest"
+      },
+      {
+        "key": "cast",
+        "kind": "none",
+        "label": "\ud83d\udd6f\ufe0f Cast a Spell"
       }
     ]
   },

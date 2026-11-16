@@ -221,6 +221,7 @@ import quests
 import room_commands
 import room_view
 import rooms
+import war
 
 # Every trigger type across quests.TRIGGER_SCHEMAS only ever uses these param names -- unlike
 # "effects" (whose params are all numeric), triggers mix string ids and numbers, so each param
@@ -1238,6 +1239,52 @@ CONTENT_TYPES = {
             {
                 "name": "war_spirit", "type": "int", "required": False, "group": "War (Barding)",
                 "hint": "optional -- added to the wearer's Spirit in !war only",
+            },
+        ],
+    },
+    "necromancy_spells": {
+        "label": "Necromancy Spells",
+        "category": RANCH_CONTENT,
+        "icon": "🕯️",
+        "json_path": "necromancy_spells.json",
+        "module": necromancy,
+        "registry_attr": "SPELLS",
+        "loader": necromancy._load_spells,
+        "list_columns": ["id", "name", "cost", "cooldown_hours"],
+        "fields": [
+            {"name": "id", "type": "str", "required": True, "group": "Identity"},
+            {"name": "name", "type": "str", "required": True, "group": "Identity"},
+            {"name": "emoji", "type": "str", "required": True, "group": "Identity"},
+            {"name": "description", "type": "text", "required": True, "group": "Identity"},
+            {
+                "name": "cost", "type": "int", "required": True, "min": 1, "group": "Casting",
+                "hint": "Ectoglue spent per cast, all of one grade the caster picks. The grade scales every "
+                        "effect below: Faint x0.75, Ectoglue x1, Potent x1.25, Ancient x1.5.",
+            },
+            {
+                "name": "cooldown_hours", "type": "int", "required": True, "min": 0, "group": "Casting",
+                "hint": "hours after casting before this spell can be cast again",
+            },
+            {
+                "name": "charge_pct", "type": "int", "required": False, "min": 0, "group": "Effects (next war)",
+                "hint": "optional -- % added to your army's charge. A side's spells stack, capped at "
+                        f"{war.SPELL_EFFECT_CAPS['charge_pct']}% total.",
+            },
+            {
+                "name": "hp_pct", "type": "int", "required": False, "min": 0, "group": "Effects (next war)",
+                "hint": f"optional -- % added to your army's max HP (stacked cap {war.SPELL_EFFECT_CAPS['hp_pct']}%)",
+            },
+            {
+                "name": "spirit", "type": "int", "required": False, "min": 0, "group": "Effects (next war)",
+                "hint": f"optional -- flat Spirit added to your units (stacked cap {war.SPELL_EFFECT_CAPS['spirit']})",
+            },
+            {
+                "name": "enemy_charge_pct", "type": "int", "required": False, "min": 0, "group": "Effects (next war)",
+                "hint": f"optional -- % knocked off the enemy's charge (stacked cap {war.SPELL_EFFECT_CAPS['enemy_charge_pct']}%)",
+            },
+            {
+                "name": "enemy_spirit", "type": "int", "required": False, "min": 0, "group": "Effects (next war)",
+                "hint": f"optional -- Spirit knocked off the enemy's units, like propaganda (stacked cap {war.SPELL_EFFECT_CAPS['enemy_spirit']})",
             },
         ],
     },
