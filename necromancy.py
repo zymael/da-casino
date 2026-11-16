@@ -53,7 +53,7 @@ SEND_OFF = {
     ),
     "ancient_ectoglue": (
         "The smokestacks go silent. Then every light in Greener Pastures flickers, and the fog comes out nearly black.",
-        "The jar is cold. Something inside knocks twice.",
+        "The jar is cold, and every so often, it whinnies.",
     ),
 }
 if set(SEND_OFF) != {None, *GRADES}:
