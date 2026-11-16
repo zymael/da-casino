@@ -2696,12 +2696,6 @@ async def sentry_cmd(ctx):
     await ctx.send(status, view=war_view.build_sentry_picker(user_id, available, sentry is not None, on_pick))
 
 
-_SANCTUARY_LOCKED = (
-    "🥻 A dripping attendant in a hooded robe steps in front of the rope. \"Guests are to remain in the "
-    "Guest Area.\" They look you up and down. \"You are not dressed for the back.\""
-)
-
-
 async def _glue_quote(guild_id: int, user_id: int, horse_index: int) -> tuple[dict, str | None, int] | None:
     """(horse, ectoglue grade item id, quantity) for a horse this player owns right now, or None --
     the grade is None and the quantity 0 for a horse too young or weak to give anything. Used for
@@ -2746,7 +2740,7 @@ async def _glue_horse(ctx, horse_index: int):
     """Actually renders the horse (the confirmation button's callback)."""
     guild_id, user_id = ctx.guild.id, ctx.author.id
     if not await quests.room_unlocked(guild_id, user_id, necromancy.ROOM_ID):
-        await ctx.send(_SANCTUARY_LOCKED)
+        await ctx.send(rooms.locked_message(necromancy.ROOM_ID))
         return
     quote = await _glue_quote(guild_id, user_id, horse_index)
     if quote is None:
@@ -2792,7 +2786,7 @@ async def glue_cmd(ctx, number: int = None):
     """Lay one of your horses to rest at Greener Pastures: !glue <number>, or plain !glue to pick
     from a dropdown. Permanent, even for legends. You get Ectoglue for it."""
     if not await quests.room_unlocked(ctx.guild.id, ctx.author.id, necromancy.ROOM_ID):
-        await ctx.send(_SANCTUARY_LOCKED)
+        await ctx.send(rooms.locked_message(necromancy.ROOM_ID))
         return
     if number is None:
         owned = await asyncio.to_thread(db.get_ranch_horses, ctx.guild.id, ctx.author.id)
@@ -2851,7 +2845,7 @@ async def cast_cmd(ctx, spell_id: str = None):
     next war, attacking or defending. Better glue, stronger spell."""
     guild_id, user_id = ctx.guild.id, ctx.author.id
     if not await quests.room_unlocked(guild_id, user_id, necromancy.ROOM_ID):
-        await ctx.send(_SANCTUARY_LOCKED)
+        await ctx.send(rooms.locked_message(necromancy.ROOM_ID))
         return
     if spell_id is not None:
         await _cast_choose_grade(ctx, spell_id.lower())
@@ -2947,7 +2941,7 @@ async def _cast_choose_ghost(ctx, spell_id: str, grade: int):
 async def _cast_spell(ctx, spell_id: str, grade: int, ghost_index: int | None = None):
     guild_id, user_id = ctx.guild.id, ctx.author.id
     if not await quests.room_unlocked(guild_id, user_id, necromancy.ROOM_ID):
-        await ctx.send(_SANCTUARY_LOCKED)
+        await ctx.send(rooms.locked_message(necromancy.ROOM_ID))
         return
     spell = necromancy.SPELLS.get(spell_id)
     if spell is None:

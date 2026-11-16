@@ -98,7 +98,9 @@ lock. This is the one place a feature's "unlocked yet?" state lives, and it's da
 Sanctuary's Guest Area is open to all, but its Back Rooms (`necromancy.ROOM_ID` — gluing and
 spells) unlock via `turn_in_item slimy_bathrobe`, i.e. while you're holding the disguise the
 Bathhouse's cloaked goo cultists drop. Changing who gets in means changing only that trigger. Don't
-add a separate code-side enabled flag next to it.
+add a separate code-side enabled flag next to it. A locked room can also set `locked_message`: its
+exits then stay visible, and clicking one (or typing a gated command, via `rooms.locked_message`)
+shows that hint instead of moving the player. `RoomExitButton` re-checks the lock at click time.
 
 **Monster drops can be quest items** (`"kind": "quest_item"`) that drop for anyone, quest or not —
 distinct from a quest's `turn_in_item` + `drop_monster`, which only drops while that stage is

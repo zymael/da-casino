@@ -939,9 +939,15 @@ CONTENT_TYPES = {
             },
             {
                 "name": "unlock_trigger", "type": "trigger", "required": False, "group": "Identity",
-                "hint": "optional -- locks the whole room until this holds: every exit into it is hidden, "
-                        "and the room's own feature commands (e.g. !glue) refuse to run. Blank means "
-                        "always open. Swap a placeholder flag for a quest_complete to unlock via a quest.",
+                "hint": "optional -- locks the whole room until this holds: every exit into it is hidden "
+                        "(unless a locked message is set below), and the room's own feature commands "
+                        "(e.g. !glue) refuse to run. Blank means always open.",
+            },
+            {
+                "name": "locked_message", "type": "text", "required": False, "group": "Identity",
+                "hint": "optional, needs an unlock trigger -- if set, exits into this room stay visible while "
+                        "it's locked, and clicking one (or typing one of its commands) shows this instead. "
+                        "The place to hint at what gets you in.",
             },
             {"name": "background_path", "type": "image", "required": True, "subdir": "rooms"},
             {"name": "exits", "type": "room_exits", "required": True},

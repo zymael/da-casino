@@ -28,6 +28,10 @@ checks quests.room_unlocked itself, so typing it directly is gated too (same pai
 unlock_trigger + delve_cmd). It's the one place a feature's "is this unlocked yet" lives -- e.g. the
 Sanctuary Back Rooms (gluing, spells) unlock while you hold a Slimy Bathrobe; changing who gets in
 is just editing this trigger in the admin panel. Validated by quests.validate_room_triggers, not here.
+
+A locked room may also set "locked_message": then its exits stay visible while locked, and clicking
+one shows that message (privately) instead of moving -- the place to hint at what unlocks it. The
+room's feature commands show the same message when typed (see locked_message() below).
 """
 
 import json
@@ -87,6 +91,8 @@ def _load_rooms(path: str = _ROOMS_PATH) -> dict[str, dict]:
         # quests.validate_room_triggers (same circular-import story as exits' visible_trigger).
         if entry.get("unlock_trigger") is not None and not isinstance(entry["unlock_trigger"], dict):
             raise ValueError(f"rooms.json: room {room_id!r} unlock_trigger must be a trigger object")
+        if entry.get("locked_message") and entry.get("unlock_trigger") is None:
+            raise ValueError(f"rooms.json: room {room_id!r} has a locked_message but no unlock_trigger to lock it")
         rooms_by_id[room_id] = entry
 
     # Second pass: an exit's room_id might reference a room defined later in the file.
@@ -100,6 +106,11 @@ def _load_rooms(path: str = _ROOMS_PATH) -> dict[str, dict]:
 
 
 ROOMS = _load_rooms()
+
+
+def locked_message(room_id: str, default: str = "That way is closed to you.") -> str:
+    """What a player sees when a locked room turns them away -- its "locked_message", or `default`."""
+    return ROOMS[room_id].get("locked_message") or default
 
 
 def validate_command_keys(known_command_keys, rooms_by_id: dict[str, dict] | None = None):

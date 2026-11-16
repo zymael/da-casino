@@ -56,14 +56,18 @@ async def build_room_display(
     room = rooms.ROOMS[room_id]
     present_npcs = await quests.npcs_present_in_room(guild_id, user_id, room_id)
     # An exit shows only if its own visible_trigger holds *and* the room it leads into is unlocked
-    # (rooms.py's "unlock_trigger") -- a locked room has no visible way in from anywhere.
+    # (rooms.py's "unlock_trigger") -- unless that room has a "locked_message", in which case the
+    # exit shows anyway and clicking it while locked just shows the message (RoomExitButton).
     visible_exits = [
         exit_entry for exit_entry in room["exits"]
         if (
             exit_entry.get("visible_trigger") is None
             or await quests.trigger_satisfied(guild_id, user_id, exit_entry["visible_trigger"])
         )
-        and await quests.room_unlocked(guild_id, user_id, exit_entry["room_id"])
+        and (
+            rooms.ROOMS[exit_entry["room_id"]].get("locked_message")
+            or await quests.room_unlocked(guild_id, user_id, exit_entry["room_id"])
+        )
     ]
 
     filename = os.path.basename(room["background_path"])
@@ -101,6 +105,11 @@ class RoomExitButton(discord.ui.Button):
         self.session = session
 
     async def callback(self, interaction: discord.Interaction):
+        # Checked at click time, not just when the button was built: a locked room with a
+        # "locked_message" shows its exit anyway, and a stale view shouldn't get anyone past a lock.
+        if not await quests.room_unlocked(self.guild_id, self.user_id, self.target_room_id):
+            await interaction.response.send_message(rooms.locked_message(self.target_room_id), ephemeral=True)
+            return
         embed, view, file = await build_room_display(self.guild_id, self.user_id, self.target_room_id, self.session)
         await interaction.response.edit_message(embed=embed, attachments=[file], view=view)
 

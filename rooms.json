@@ -235,6 +235,7 @@
     "name": "\ud83c\udf2b\ufe0f Greener Pastures Back Rooms",
     "description": "Nobody looks twice at another slimy bathrobe back here. Vats bubble. A conveyor belt carries something horse-shaped toward a large machine labeled MEMORIAL KEEPSAKES. Robed figures murmur in three wet slaps.",
     "background_path": "assets/rooms/sanctuary_back_rooms.png",
+    "locked_message": "🥻 A dripping attendant in a hooded robe steps in front of the rope. \"Guests are to remain in the Guest Area.\" They look you up and down. \"You are not dressed for the back.\" Their robe is soaked through and smells like a bathhouse drain. Through the gap in the curtain, everyone back there seems to be wearing one.",
     "unlock_trigger": {
       "type": "turn_in_item",
       "item_id": "slimy_bathrobe"
