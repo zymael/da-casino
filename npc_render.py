@@ -130,8 +130,10 @@ def _composite_ghost(base: Image.Image, ghost_path: str) -> Image.Image:
     feet_y = int(base.height * (0.7 + 0.3 * depth))
     y = max(0, min(base.height - height, feet_y - height))
     x = random.randint(min(0, base.width - width), max(0, base.width - width))
+    # A plain paste onto the empty layer: passing the ghost as its own mask too would apply its alpha
+    # twice (opacity squared -- a 30% ghost came out ~9%, invisible once blurred into a busy banner).
     layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    layer.paste(ghost, (x, y), ghost)
+    layer.paste(ghost, (x, y))
     return Image.alpha_composite(base, layer)
 
 
