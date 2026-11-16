@@ -53,7 +53,7 @@ class _OwnerOnlyView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message("Get your own glue.", ephemeral=True)
+            await interaction.response.send_message("Get your own Ectoglue.", ephemeral=True)
             return False
         return True
 
@@ -76,7 +76,7 @@ def build_spell_picker(user_id: int, spells: list[tuple[dict, str]], on_pick) ->
     """spells: (spell dict, one-line summary) per option. on_pick(ctx, spell_id)."""
     options = [
         discord.SelectOption(
-            label=f"{spell['name']} ({spell['cost']} glue)"[:100], value=spell["id"],
+            label=f"{spell['name']} ({spell['cost']} Ectoglue)"[:100], value=spell["id"],
             emoji=spell["emoji"], description=summary[:100],
         )
         for spell, summary in spells

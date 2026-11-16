@@ -2842,7 +2842,7 @@ async def graveyard_cmd(ctx):
 @bot.command(name="cast")
 async def cast_cmd(ctx, spell_id: str = None):
     """Prepare a necromancy spell with Ectoglue: !cast, or !cast <spell id>. It takes effect in your
-    next war, attacking or defending. Better glue, stronger spell."""
+    next war, attacking or defending. Better Ectoglue, stronger spell."""
     guild_id, user_id = ctx.guild.id, ctx.author.id
     if not await quests.room_unlocked(guild_id, user_id, necromancy.ROOM_ID):
         await ctx.send(rooms.locked_message(necromancy.ROOM_ID))
