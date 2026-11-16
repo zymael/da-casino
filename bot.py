@@ -77,6 +77,7 @@ import room_view
 import rooms
 import war
 import war_view
+from craps_view import active_rounds as active_craps_rounds, start_craps_table
 from roulette_view import (
     DAUGHTERS_NEGLECT_FLAG,
     DAUGHTERS_TARGET_ID,
@@ -144,7 +145,7 @@ bot = commands.Bot(
 
 HELP_CATEGORIES = [
     ("💰 Economy", ["balance", "stats", "rest", "mine", "tip", "transfer", "pizza", "house", "leaderboard"]),
-    ("🎲 Casino Games", ["blackjack", "slots", "roulette", "holdem", "videopoker", "deuceswild"]),
+    ("🎲 Casino Games", ["blackjack", "slots", "roulette", "craps", "holdem", "videopoker", "deuceswild"]),
     ("🤝 Challenges", ["duel", "mancala", "connect4", "icebreak", "uno"]),
     ("🐎 Horse Racing", ["horserace", "horses", "stable", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost", "horseequip", "givehorse"]),
     ("⚔️ War", ["war", "raid", "sentry", "pvp"]),
@@ -906,6 +907,16 @@ async def roulette_cmd(ctx):
         return
 
     await start_roulette_table(ctx)
+
+
+@bot.command(name="craps", aliases=["dice"])
+async def craps_cmd(ctx):
+    """Open a persistent craps table: !craps. Each roll happens 30s after its last bet; line, place and hardway bets ride until the dice decide them."""
+    if ctx.channel.id in active_craps_rounds:
+        await ctx.send("A craps table is already open here. Get your bets down on that one!")
+        return
+
+    await start_craps_table(ctx)
 
 
 @bot.command(name="horserace", aliases=["horse", "race"], brief="Open a horse race others can bet on.")
@@ -3586,6 +3597,7 @@ room_commands.COMMANDS.update({
     "blackjack": blackjack_cmd.callback,
     "slots": slots_cmd.callback,
     "roulette": roulette_cmd.callback,
+    "craps": craps_cmd.callback,
     "holdem": holdem_cmd.callback,
     "videopoker": video_poker_cmd.callback,
     "deuceswild": deuces_wild_cmd.callback,

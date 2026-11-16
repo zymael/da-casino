@@ -61,6 +61,14 @@ ACHIEVEMENTS = [
         "reward": 25,
     },
     {
+        "kind": "win_craps",
+        "scope": "personal",
+        "emoji": "🎲",
+        "name": "Hot Shooter",
+        "description": "Win a bet at the craps table.",
+        "reward": 25,
+    },
+    {
         "kind": "win_horserace",
         "scope": "personal",
         "emoji": "🏁",
@@ -460,6 +468,7 @@ GAMES = {
     "blackjack": {"emoji": "🃏", "title": "Blackjack", "log_keys": ["blackjack"], "first_win_kind": "win_blackjack"},
     "slots": {"emoji": "🎰", "title": "Slots", "log_keys": ["slots"], "first_win_kind": "win_slots"},
     "roulette": {"emoji": "🎡", "title": "Roulette", "log_keys": ["roulette"], "first_win_kind": "win_roulette"},
+    "craps": {"emoji": "🎲", "title": "Craps", "log_keys": ["craps"], "first_win_kind": "win_craps"},
     "horserace": {"emoji": "🏁", "title": "Horse Racing", "log_keys": ["horserace"], "first_win_kind": "win_horserace"},
     "video_poker": {
         "emoji": "🎴", "title": "Video Poker", "log_keys": ["jacks_or_better", "deuces_wild"],

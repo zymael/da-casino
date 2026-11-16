@@ -1,6 +1,6 @@
 # da-casino
 
-A Discord casino bot built with [discord.py](https://discordpy.readthedocs.io/). Members earn virtual credits and play blackjack, slots, roulette, video poker, Texas hold'em, and horse racing against each other — plus a dungeon RPG and horse ranch side game with crafting, quests, and NPCs — all restricted to a single `#da-casino` channel (or a channel of the server's choosing).
+A Discord casino bot built with [discord.py](https://discordpy.readthedocs.io/). Members earn virtual credits and play blackjack, slots, roulette, craps, video poker, Texas hold'em, and horse racing against each other — plus a dungeon RPG and horse ranch side game with crafting, quests, and NPCs — all restricted to a single `#da-casino` channel (or a channel of the server's choosing).
 
 Most of the game's *content* — monsters, equipment, materials, recipes, skills, delves, quest items, quests, NPCs, and rooms — lives in JSON files and is editable through a built-in, password-gated web content editor, without touching Python or restarting the bot.
 
@@ -10,6 +10,7 @@ Most of the game's *content* — monsters, equipment, materials, recipes, skills
 - **Blackjack** (`!blackjack` / `!bj`) — persistent multi-round tables: join, bet, and the table deals back-to-back hands, checking in with everyone between rounds to keep or change their bet.
 - **Slots** (`!slots` / `!slot`) — 3x3 slot machine with up to 5 selectable paylines and a bet multiplier, all configured interactively via dropdowns before each spin.
 - **Roulette** (`!roulette` / `!rl`) — table roulette with rendered board/wheel images, covering straight, split, column, dozen, and multi-number bets, plus a one-click Repeat Bets option.
+- **Craps** (`!craps` / `!dice`) — a shared craps table in the same style as roulette: Pass Line, Don't Pass, Field, Place, Hardways and one-roll props. Line, place and hardway bets ride across rolls until the dice decide them.
 - **Texas Hold'em** (`!holdem` / `!poker`) — multiplayer poker tables with buy-ins.
 - **Video Poker** (`!videopoker` / `!vp`) — 5-card draw, Jacks or Better paytable. Hold cards, then draw.
 - **Deuces Wild** (`!deuceswild` / `!dw`) — 5-card draw with wild deuces and its own paytable.
@@ -50,6 +51,7 @@ A built-in web UI (password-gated, served on the same process as the bot) lets y
 | `!blackjack bet` | `!bj` | Open/join a blackjack table |
 | `!slots` | `!slot` | Open the slot machine — pick paylines/multiplier, then spin |
 | `!roulette` | `!rl` | Open a roulette round |
+| `!craps` | `!dice` | Open a craps table |
 | `!holdem buy_in` | `!poker` | Start/join a hold'em table |
 | `!videopoker bet` | `!vp` | Play 5-card draw video poker (Jacks or Better) |
 | `!deuceswild bet` | `!dw` | Play 5-card draw video poker with wild deuces |
@@ -111,9 +113,9 @@ In production this repo runs under systemd as `da-casino-bot.service`; deploying
 - `casino_view.py`, `ranch_view.py`, `dungeon_view.py` — each room's `specialization` hook (extra embed fields / extra components a generic room can't derive on its own, e.g. Casino's game picker, Ranch's horse roster)
 - `crafting.py` / `crafting_view.py`, `dungeon_recipes.json`, `dungeon_materials.json`, `dungeon_consumables.json` — the crafting system and its content registries
 - `admin_server.py` / `admin_schemas.py` — the password-gated web content editor (generic CRUD over every JSON-backed content type)
-- `blackjack_view.py`, `holdem_view.py`, `roulette_view.py`, `slots_view.py`, `video_poker_view.py`, `horserace_view.py` — Discord UI views per game
-- `cards_render.py`, `roulette_render.py`, `slots_render.py`, `horserace_render.py`, `dungeon_render.py` — image rendering per game (card hands, the roulette board, the slot cabinet, the race track, the dungeon corridor)
-- `poker.py`, `roulette.py`, `slots.py`, `video_poker.py`, `horserace.py`, `dungeon.py` — core game logic
+- `blackjack_view.py`, `holdem_view.py`, `roulette_view.py`, `craps_view.py`, `slots_view.py`, `video_poker_view.py`, `horserace_view.py` — Discord UI views per game
+- `cards_render.py`, `roulette_render.py`, `craps_render.py`, `slots_render.py`, `horserace_render.py`, `dungeon_render.py` — image rendering per game (card hands, the roulette board, the slot cabinet, the race track, the dungeon corridor)
+- `poker.py`, `roulette.py`, `craps.py`, `slots.py`, `video_poker.py`, `horserace.py`, `dungeon.py` — core game logic
 - `dungeon_monsters.json`, `dungeon_equipment.json`, `dungeon_skills.json`, `dungeon_delves.json` — dungeon content (monster stats/loot, equipment, skills, delve room layouts), loaded and validated at startup — add an entry via the content editor, no code change needed
 
 See `CLAUDE.md` for the architectural conventions and design decisions behind the content-is-data system, the trigger/flag system, and the rules around what a room's view is and isn't allowed to do.

@@ -26,6 +26,7 @@ GAMES = [
     {"key": "blackjack", "label": "🃏 Blackjack", "amount": True, "modal_title": "Blackjack Bet", "input_label": "Bet amount"},
     {"key": "slots", "label": "🎰 Slots", "amount": False},
     {"key": "roulette", "label": "🎡 Roulette", "amount": False},
+    {"key": "craps", "label": "🎲 Craps", "amount": False},
     {"key": "holdem", "label": "♠️ Hold'em", "amount": True, "modal_title": "Hold'em Buy-in", "input_label": "Buy-in (blank = default)", "required": False},
     {"key": "videopoker", "label": "🎴 Video Poker", "amount": True, "modal_title": "Video Poker Bet", "input_label": "Bet amount"},
     {"key": "deuceswild", "label": "🎴 Deuces Wild", "amount": True, "modal_title": "Deuces Wild Bet", "input_label": "Bet amount"},

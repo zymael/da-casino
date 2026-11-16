@@ -1,5 +1,5 @@
 """One-off dev utility: exports every hand-drawn PIL visual element from the casino games
-(roulette, slots, cards, connect4, mancala, uno, icebreak) as an individual PNG template, sized at
+(roulette, craps, slots, cards, connect4, mancala, uno, icebreak) as an individual PNG template, sized at
 its real render dimensions, so each can be repainted into real art and later swapped in as an
 image asset (same pattern as assets/npcs, assets/horses, assets/dungeon).
 
@@ -69,6 +69,12 @@ def export_blackjack():
     import blackjack_render as bjr
 
     _save(bjr._base_table(), "blackjack", "table_background")
+
+
+def export_craps():
+    import craps_render as cr
+
+    _save(cr._procedural_table(), "craps", "craps_table")
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +250,7 @@ def export_icebreak():
 if __name__ == "__main__":
     export_roulette()
     export_blackjack()
+    export_craps()
     export_cards()
     export_connect4()
     export_mancala()
