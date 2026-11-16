@@ -1653,7 +1653,7 @@ def train_horse(
 WAR_LAST_ATTACK_FLAG = "war:last_attack"
 WAR_SHIELD_UNTIL_FLAG = "war:shield_until"
 # !raid ops: each op's own cooldown/immunity keys live on war.Operation (last_flag/immune_flag).
-RAID_LOCKOUT_FLAG = "raid:lockout_until"  # a caught hitman: no !war and no ops but Rescue until then
+RAID_LOCKOUT_FLAG = "raid:lockout_until"  # a caught hitman: no ops but Rescue until then (war is unaffected)
 WAR_SENTRY_FLAG = "war:sentry"  # horse_index + 1 of the stationed sentry, 0 = none
 WAR_FORTRESS_OFF_FLAG = "war:fortress_off_until"  # an arsonist's work
 WAR_PROPAGANDA_FLAG = "war:propaganda_until"  # consumed by this player's next war
@@ -1703,15 +1703,10 @@ def claim_war_attack(guild_id: int, attacker_id: int, target_id: int, now: int, 
     """Atomically checks and claims !war's attack window. `now`/`cooldown` are unix seconds.
     Declaring war also drops the attacker's own loser shield -- a shield is for hiding, not for
     swinging from behind. Returns (status, seconds_remaining): "ok" (0), "cooldown" (attacker's
-    own window), "lockout" (attacker is lying low after a caught hitman), or "shielded" (the
-    target's)."""
+    own window) or "shielded" (the target's). A caught hitman's lockout doesn't touch war."""
     conn = _connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
-        lockout_until = _flag_value(conn, guild_id, attacker_id, RAID_LOCKOUT_FLAG)
-        if lockout_until > now:
-            conn.rollback()
-            return "lockout", lockout_until - now
         last_attack = _flag_value(conn, guild_id, attacker_id, WAR_LAST_ATTACK_FLAG)
         if last_attack and now - last_attack < cooldown:
             conn.rollback()

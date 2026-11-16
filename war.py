@@ -79,7 +79,7 @@ SENTRY_PENALTY = 0.10
 OP_IMMUNITY_SECONDS = 48 * 3600
 
 HITMAN_INJURY_HOURS = 48
-HITMAN_LOCKOUT_SECONDS = 24 * 3600  # a caught hitman lies low: no !war and no ops but Rescue
+HITMAN_LOCKOUT_SECONDS = 24 * 3600  # a caught hitman lies low: no ops but Rescue (war is unaffected)
 SMUGGLER_INJURY_HOURS = 24
 SMUGGLE_FRACTION, SMUGGLE_CAP = 0.05, 500
 ARSON_SECONDS = 48 * 3600

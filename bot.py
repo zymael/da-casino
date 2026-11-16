@@ -2016,10 +2016,6 @@ async def _war_choose_army(ctx, member: discord.Member):
         await ctx.send("Bots don't have any Luck to take.")
         return
     now = int(time.time())
-    lockout_until = await asyncio.to_thread(db.get_flag, guild_id, attacker_id, db.RAID_LOCKOUT_FLAG)
-    if lockout_until > now:
-        await ctx.send(_LYING_LOW.format(when=_in_seconds(lockout_until - now)))
-        return
     last_attack = await asyncio.to_thread(db.get_flag, guild_id, attacker_id, db.WAR_LAST_ATTACK_FLAG)
     if last_attack and now - last_attack < war.ATTACK_COOLDOWN_SECONDS:
         await ctx.send(
@@ -2139,9 +2135,6 @@ async def _war_resolve(ctx, member: discord.Member, horse_indices: list[int]):
         return
     if status == "shielded":
         await ctx.send(f"🏳️ {member.display_name} is under a ceasefire. It lifts {_in_seconds(remaining)}.")
-        return
-    if status == "lockout":
-        await ctx.send(_LYING_LOW.format(when=_in_seconds(remaining)))
         return
     # Intel and propaganda are spent by the war they show up in (an arson just runs out on its own).
     if intel:
@@ -2597,7 +2590,7 @@ async def _hitman_outcome(ctx, member, success, odds, _operative, _rescue_index)
         )
         await ctx.send(
             f"{member.mention}\n🚨 {member.display_name}'s stable hands catch {name} creeping in with a knife. "
-            f"{name} has to lie low: no wars and no jobs for {war.HITMAN_LOCKOUT_SECONDS // 3600}h. {odds}"
+            f"{name} has to lie low: no jobs for {war.HITMAN_LOCKOUT_SECONDS // 3600}h. {odds}"
         )
         return
     _owned, available, sentry = await _stable_state(guild_id, member.id)
