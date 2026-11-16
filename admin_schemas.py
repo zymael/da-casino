@@ -1343,6 +1343,12 @@ CONTENT_TYPES = {
                 "name": "detonation_text", "type": "text", "required": True, "group": "Research Log",
                 "hint": "the !launch announcement",
             },
+            {
+                "name": "detonation_video", "type": "str", "required": False, "group": "Research Log",
+                "hint": "optional -- repo-relative path to a video (.mp4/.mov/.webm, e.g. "
+                        "assets/manhattan/little_colt.mp4) DM'd to every player when this bomb is launched. "
+                        "The file must already exist in the repo; this panel can't upload videos.",
+            },
         ],
     },
 }

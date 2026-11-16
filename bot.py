@@ -3163,6 +3163,35 @@ async def launch_cmd(ctx):
         return
     await ctx.send(embed=manhattan_view.build_detonation_embed(bomb, ctx.author.display_name, fallout_until))
     await achievements.try_award_many(ctx.send, guild_id, ctx.author.id, ctx.author.display_name, ["oppenhaymer"])
+    video = manhattan.detonation_video_path(bomb)
+    if video:
+        # Background task so !launch answers immediately however many players there are to DM.
+        task = asyncio.create_task(_dm_detonation_video(ctx.guild, video))
+        _BACKGROUND_TASKS.add(task)  # asyncio only keeps a weak ref to running tasks
+        task.add_done_callback(_BACKGROUND_TASKS.discard)
+
+
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
+DETONATION_DM_GAP_SECONDS = 1.0  # between DMs, to stay well clear of Discord's rate limits
+
+
+async def _dm_detonation_video(guild: discord.Guild, video_path: str):
+    """DMs a launched bomb's detonation_video, with no text, to every player in the guild: every
+    economy account (db.list_known_users) that's still a member and isn't a bot. Players with DMs
+    closed are skipped."""
+    user_ids = await asyncio.to_thread(db.list_known_users, guild.id)
+    sent = 0
+    for user_id in user_ids:
+        try:
+            member = await _fetch_member(guild, user_id)
+            if member is None or member.bot:
+                continue
+            await member.send(file=discord.File(video_path))
+            sent += 1
+        except discord.HTTPException:  # includes Forbidden (DMs closed)
+            pass
+        await asyncio.sleep(DETONATION_DM_GAP_SECONDS)
+    print(f"[manhattan] detonation video DM'd to {sent}/{len(user_ids)} players in guild {guild.id}", flush=True)
 
 
 @bot.command(name="holdem", aliases=["poker"])

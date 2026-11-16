@@ -16,11 +16,16 @@ import time
 
 import db
 
-_MANHATTAN_PATH = os.path.join(os.path.dirname(__file__), "manhattan.json")
+_BASE_DIR = os.path.dirname(__file__)
+_MANHATTAN_PATH = os.path.join(_BASE_DIR, "manhattan.json")
 _REQUIRED_FIELDS = {
     "id", "order", "name", "goal", "fallout_hours", "log_25", "log_50", "log_75", "armed_text", "detonation_text",
 }
 LOG_FIELDS = ((25, "log_25"), (50, "log_50"), (75, "log_75"))
+# Optional per-bomb `detonation_video`: a repo-relative path (e.g. "assets/manhattan/little_colt.mp4")
+# DM'd to every player when that bomb is launched (bot.py's _dm_detonation_video). A video, not an
+# image, so it's a plain path field rather than the admin panel's image-upload field.
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm"}
 
 GOAL_GROWTH = 1.5  # per cycle, once the ladder runs out
 FALLOUT_STAT_CAP = 120  # permanent cap for a foal bought during Fallout (normal: horserace.STAT_CAP)
@@ -45,6 +50,15 @@ def _load_bombs(path: str = _MANHATTAN_PATH) -> dict[str, dict]:
             raise ValueError(f"manhattan.json: bomb {entry_id!r} goal must be a positive integer")
         if not isinstance(entry["fallout_hours"], int) or entry["fallout_hours"] < 1:
             raise ValueError(f"manhattan.json: bomb {entry_id!r} fallout_hours must be a positive integer")
+        video = entry.get("detonation_video")
+        if video is not None:
+            if not isinstance(video, str) or os.path.splitext(video)[1].lower() not in VIDEO_EXTENSIONS:
+                raise ValueError(
+                    f"manhattan.json: bomb {entry_id!r} detonation_video must be a path ending in one of "
+                    f"{sorted(VIDEO_EXTENSIONS)}"
+                )
+            if not os.path.isfile(os.path.join(_BASE_DIR, video)):
+                raise ValueError(f"manhattan.json: bomb {entry_id!r} detonation_video {video!r} not found")
         orders.add(entry["order"])
         bombs[entry_id] = entry
     if not bombs:
@@ -64,6 +78,12 @@ def bomb_for_cycle(cycle: int) -> dict:
     bomb = dict(ladder[-1])
     bomb["goal"] = int(bomb["goal"] * GOAL_GROWTH ** (cycle - len(ladder) + 1))
     return bomb
+
+
+def detonation_video_path(bomb: dict) -> str | None:
+    """Absolute path of `bomb`'s detonation_video, or None if it has none."""
+    video = bomb.get("detonation_video")
+    return os.path.join(_BASE_DIR, video) if video else None
 
 
 def current_cycle(guild_id: int) -> int:

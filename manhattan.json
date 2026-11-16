@@ -9,7 +9,8 @@
     "log_50": "Research Log, Day 40: The hay has started humming. We have stopped asking questions.",
     "log_75": "Research Log, Day 91: Dr. Oppenhay-mer has not slept. He keeps muttering about splitting the haystack.",
     "armed_text": "\ud83d\udd34 **Little Colt is ARMED.** It's sitting on a pallet behind the stables, ticking. Anyone with the nerve can `!launch` it.",
-    "detonation_text": "A flash brighter than the Casino sign. A mushroom cloud shaped suspiciously like a horse's head. Somewhere, a foal is born glowing."
+    "detonation_text": "A flash brighter than the Casino sign. A mushroom cloud shaped suspiciously like a horse's head. Somewhere, a foal is born glowing.",
+    "detonation_video": "assets/manhattan/little_colt.mp4"
   },
   {
     "id": "fat_mare",
