@@ -129,7 +129,7 @@ class CrapsView(discord.ui.View):
         for item in self.children:
             item.disabled = True
 
-    async def _refresh(self):
+    async def _redraw(self):
         if self.message is None:
             return
         try:
@@ -197,7 +197,7 @@ class CrapsView(discord.ui.View):
             msg += f"\nSkipped (come-out only): {', '.join(craps.describe_bet(b['kind'], b['value']) for b in skipped)}."
         await interaction.response.send_message(msg, ephemeral=True)
         self.timeout = BET_TIMEOUT_SECONDS
-        await self._refresh()
+        await self._redraw()
         return True
 
     async def repeat_bets(self, interaction: discord.Interaction):
