@@ -758,16 +758,36 @@ for _delve in dungeon.DELVES.values():
     if _unlock_trigger is not None:
         _validate_trigger(_unlock_trigger, f"dungeon_delves.json: delve {_delve['id']!r} unlock_trigger")
 
-# rooms.py can't validate its own exits' optional "visible_trigger" either (same story again --
-# rooms.py has no reason to import this module, and the reverse would be circular if it did), so
-# it's cross-validated here too. This is the room-exit half of the same idea npcs.json's own
-# visible_trigger already covers for NPC presence -- room_view.build_room_display calls
-# trigger_satisfied the same way for both.
-for _room in rooms.ROOMS.values():
-    for _i, _exit in enumerate(_room["exits"]):
-        _exit_trigger = _exit.get("visible_trigger")
-        if _exit_trigger is not None:
-            _validate_trigger(_exit_trigger, f"rooms.json: room {_room['id']!r} exit {_i} visible_trigger")
+def validate_room_triggers(rooms_by_id: dict[str, dict] | None = None):
+    """rooms.py can't validate its own exits' optional "visible_trigger" or a room's optional
+    "unlock_trigger" (same story again -- rooms.py has no reason to import this module, and the
+    reverse would be circular if it did), so they're cross-validated here. This is the room half of
+    the same idea npcs.json's own visible_trigger already covers for NPC presence --
+    room_view.build_room_display calls trigger_satisfied the same way for all of them. Run once at
+    import time and again as a "rooms" save-time extra_validator (admin_schemas.py). Counted types
+    are rejected for unlock_trigger, same reason as a delve gate: no quest stage to scope them to."""
+    for room in (rooms.ROOMS if rooms_by_id is None else rooms_by_id).values():
+        for i, exit_entry in enumerate(room["exits"]):
+            exit_trigger = exit_entry.get("visible_trigger")
+            if exit_trigger is not None:
+                _validate_trigger(exit_trigger, f"rooms.json: room {room['id']!r} exit {i} visible_trigger")
+        unlock_trigger = room.get("unlock_trigger")
+        if unlock_trigger is not None:
+            context = f"rooms.json: room {room['id']!r} unlock_trigger"
+            _validate_trigger(unlock_trigger, context)
+            if unlock_trigger["type"] in ("kill_monster", "craft_item"):
+                raise ValueError(f"{context}: {unlock_trigger['type']!r} can't gate a room (no quest to scope its counter to)")
+
+
+validate_room_triggers()
+
+
+async def room_unlocked(guild_id: int, user_id: int, room_id: str) -> bool:
+    """Whether a room's optional "unlock_trigger" holds for this player (always True without one).
+    Gates both the exits into the room (room_view) and any command belonging to a locked feature,
+    so typing the command directly can't skip the lock."""
+    trigger = rooms.ROOMS[room_id].get("unlock_trigger")
+    return trigger is None or await trigger_satisfied(guild_id, user_id, trigger)
 
 
 def validate_subclass_unlock_quest(leveling: dict[str, dict] | None = None, quests_by_id: dict[str, dict] | None = None):

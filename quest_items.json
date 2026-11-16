@@ -28,5 +28,29 @@
     "name": "Damp Flier",
     "emoji": "\ud83d\udcc4",
     "description": "This seems to be an ad for some sort of bath house... but the paper is so damp that you can't make out anything. Maybe someone really wet could read it?"
+  },
+  {
+    "id": "faint_ectoglue",
+    "name": "Faint Ectoglue",
+    "emoji": "💧",
+    "description": "A thin, barely-green smear. Whatever horse this came from didn't have much going on, spiritually."
+  },
+  {
+    "id": "ectoglue",
+    "name": "Ectoglue",
+    "emoji": "👻",
+    "description": "A faintly glowing green paste, a bit warm to the touch. The Sanctuary insists it's a \"memorial keepsake.\" Sometimes, if you hold it to your ear, you can hear a faint whinny."
+  },
+  {
+    "id": "potent_ectoglue",
+    "name": "Potent Ectoglue",
+    "emoji": "🟢",
+    "description": "Thick, vividly green, and it moves when you aren't looking at it. Smells like a winner's circle and a craft store."
+  },
+  {
+    "id": "ancient_ectoglue",
+    "name": "Ancient Ectoglue",
+    "emoji": "💀",
+    "description": "Rendered from a horse so old it remembers the first race. The jar rattles at night. Something in there is still trying to finish."
   }
 ]

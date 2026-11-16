@@ -67,6 +67,8 @@ from mancala_view import (
     start_mancala,
 )
 import moon
+import necro_view
+import necromancy
 import npcs
 import quests
 import ranch_view
@@ -147,7 +149,7 @@ HELP_CATEGORIES = [
     ("⚔️ War", ["war", "raid", "sentry", "pvp"]),
     ("🗡️ Dungeon", ["class", "combathelp", "delve", "inventory", "equipment", "craft", "smash", "journal"]),
     ("🏆 Achievements", ["achievements"]),
-    ("⚙️ Utility", ["ping", "setcasino", "setcurrency", "setdelvetest", "rub", "roy", "deletebot"]),
+    ("⚙️ Utility", ["ping", "setcasino", "setcurrency", "setdelvetest", "necrounlock", "rub", "roy", "deletebot"]),
 ]
 
 _SYNCED_GUILD_IDS: set[int] = set()
@@ -1555,7 +1557,14 @@ async def buyhorse_cmd(ctx, number: int = None):
         return
 
     horse_index = number - 1
-    _roster, _eligible, probabilities = await asyncio.to_thread(horserace.current_probabilities, ctx.guild.id)
+    roster, _eligible, probabilities = await asyncio.to_thread(horserace.current_probabilities, ctx.guild.id)
+    if horse_index not in roster:
+        # The roster leaves out glued horses (db.get_guild_horses), and a glued legend has no odds to price it by.
+        await ctx.send(f"🪦 {horserace.HORSES[horse_index]['name']} has been laid to rest. It isn't for sale, or for anything.")
+        return
+    if horse_index not in probabilities["win"]:
+        await ctx.send("That horse is already owned — check `!horses` for what's still available.")
+        return
     price = horserace.price_of(horse_index, probabilities["win"])
     status, balance = await asyncio.to_thread(
         db.buy_legend_horse, ctx.guild.id, horse_index, ctx.author.id, price, horserace.MAX_HORSES_PER_PLAYER,
@@ -2636,6 +2645,130 @@ async def sentry_cmd(ctx):
     await ctx.send(status, view=war_view.build_sentry_picker(user_id, available, sentry is not None, on_pick))
 
 
+_SANCTUARY_LOCKED = "🌫️ There's nothing out past The Front but fog. Probably."
+
+
+async def _glue_quote(guild_id: int, user_id: int, horse_index: int) -> tuple[dict, str | None, int] | None:
+    """(horse, ectoglue grade item id, quantity) for a horse this player owns right now, or None --
+    the grade is None and the quantity 0 for a horse too young or weak to give anything. Used for
+    both the confirmation prompt and the real render, so the yield shown is the one granted."""
+    owned = await asyncio.to_thread(db.get_ranch_horses, guild_id, user_id)
+    horse = next((h for h in owned if h["horse_index"] == horse_index), None)
+    if horse is None:
+        return None
+    irradiated = await asyncio.to_thread(manhattan.is_irradiated, guild_id, horse_index)
+    item_id, amount = necromancy.ectoglue_yield(horse, not horse["is_foal"], irradiated)
+    return horse, item_id, amount
+
+
+async def _glue_prompt(ctx, horse_index: int):
+    """Shows the "this is forever" confirmation for one horse -- shared by !glue <number> and the
+    picker's callback, same "one real code path" shape as _train_horse. A worthless horse gets no
+    warning that it's worthless, on purpose -- the caretaker just stays vague, and _glue_horse
+    mocks them afterward."""
+    quote = await _glue_quote(ctx.guild.id, ctx.author.id, horse_index)
+    if quote is None:
+        await ctx.send("That isn't one of your horses. Check `!stable`.")
+        return
+    horse, item_id, amount = quote
+    if item_id is None:
+        keepsake_line = "\"We'll see what we can do.\""
+    else:
+        item = quests.QUEST_ITEMS[item_id]
+        keepsake_line = f"You'll receive a memorial keepsake: **{amount}× {item['emoji']} {item['name']}**."
+    legend_line = (
+        f"\n⚠️ **{horse['name']}** is a legend. Lay it to rest and it's gone from the whole server, forever."
+        if not horse["is_foal"] else ""
+    )
+    await ctx.send(
+        f"⚱️ The Sanctuary's caretaker looks **{horse['name']}** over and nods slowly. "
+        f"\"A peaceful rest. We'll take very good care of it.\"\n"
+        f"{keepsake_line} There's no undoing this.{legend_line}",
+        view=necro_view.build_glue_confirm(ctx.author.id, horse_index, _glue_horse),
+    )
+
+
+async def _glue_horse(ctx, horse_index: int):
+    """Actually renders the horse (the confirmation button's callback)."""
+    guild_id, user_id = ctx.guild.id, ctx.author.id
+    if not await quests.room_unlocked(guild_id, user_id, necromancy.ROOM_ID):
+        await ctx.send(_SANCTUARY_LOCKED)
+        return
+    quote = await _glue_quote(guild_id, user_id, horse_index)
+    if quote is None:
+        await ctx.send("That horse isn't yours anymore.")
+        return
+    horse, item_id, amount = quote
+    status = await asyncio.to_thread(
+        db.glue_horse, guild_id, user_id, horse_index, item_id, amount,
+        int(time.time()) - war.RESCUE_WINDOW_SECONDS,
+    )
+    if status == "not_owner":
+        await ctx.send("That horse isn't yours anymore.")
+        return
+    if status == "rescue_pending":
+        await ctx.send(
+            f"🛟 The caretaker checks a ledger and frowns. Someone's still looking for **{horse['name']}**. "
+            f"The Sanctuary won't take a horse until its old owner has tried a rescue, or "
+            f"{war.RESCUE_WINDOW_SECONDS // 86400} days have passed since the theft."
+        )
+        return
+    lines = [f"⚱️ **{horse['name']}** has been laid to rest. The smokestacks cough a fresh plume of green fog."]
+    kinds = ["glue_first"]
+    if item_id is None:
+        lines.append(
+            f"...and that's it. Nothing came out. Not one drop. **{horse['name']}** was too young and too "
+            f"weak to give the Sanctuary anything at all, and {ctx.author.display_name} brought it in anyway. "
+            f"The caretaker stares at you for a long moment. \"You know that was a living creature, right?\"\n"
+            f"🫥 {ctx.author.display_name} is a bad person."
+        )
+        kinds.append("glue_nothing")
+    else:
+        item = quests.QUEST_ITEMS[item_id]
+        lines.append(f"{ctx.author.display_name} receives **{amount}× {item['emoji']} {item['name']}**. It's still warm.")
+    if not horse["is_foal"]:
+        lines.append(f"🪦 **A legend is gone.** {horse['name']} will never race again, for anyone.")
+        kinds.append("glue_legend")
+    await ctx.send("\n".join(lines))
+    await achievements.try_award_many(ctx.send, guild_id, user_id, ctx.author.display_name, kinds)
+
+
+@bot.command(name="glue", aliases=["laytorest"])
+async def glue_cmd(ctx, number: int = None):
+    """Lay one of your horses to rest at the Nature Sanctuary: !glue <number>, or plain !glue to pick
+    from a dropdown. Permanent, even for legends. You get Ectoglue for it."""
+    if not await quests.room_unlocked(ctx.guild.id, ctx.author.id, necromancy.ROOM_ID):
+        await ctx.send(_SANCTUARY_LOCKED)
+        return
+    if number is None:
+        owned = await asyncio.to_thread(db.get_ranch_horses, ctx.guild.id, ctx.author.id)
+        if not owned:
+            await ctx.send("You don't have any horses to lay to rest.")
+            return
+        view = ranch_view.build_horse_picker(owned, _glue_prompt, placeholder="Choose a horse to lay to rest...")
+        await ctx.send("⚱️ Which horse is ready for its peaceful rest?", view=view)
+        return
+    if number < 1:
+        await ctx.send("Usage: `!glue <number>` — see `!stable` for numbers.")
+        return
+    await _glue_prompt(ctx, number - 1)
+
+
+@bot.command(name="necrounlock")
+@commands.guild_only()
+@commands.is_owner()
+async def necrounlock_cmd(ctx, member: discord.Member = None, state: str = None):
+    """Grant or revoke someone's access to the Horse Sanctuary for testing: !necrounlock @member on/off.
+    Only does anything while the sanctuary's unlock_trigger (rooms.json) is still the placeholder
+    flag -- once it's a quest_complete, the quest is the way in."""
+    if member is None or state not in ("on", "off"):
+        await ctx.send("Usage: `!necrounlock @member on` or `!necrounlock @member off`")
+        return
+    await asyncio.to_thread(db.set_flag, ctx.guild.id, member.id, necromancy.UNLOCK_FLAG, 1 if state == "on" else 0)
+    verb = "can now find" if state == "on" else "can no longer find"
+    await ctx.send(f"🌫️ {member.display_name} {verb} the Horse Sanctuary past The Front.")
+
+
 @bot.command(name="donate")
 async def donate_cmd(ctx, amount: int = None):
     """Fund the Mane-hay-tan Project's Dubious Research: !donate <amount>. The whole server shares
@@ -3046,6 +3179,7 @@ room_commands.COMMANDS.update({
     "donate": donate_cmd.callback,
     "manhattan": manhattan_cmd.callback,
     "launch": launch_cmd.callback,
+    "glue": glue_cmd.callback,
 })
 # Catches a typo'd rooms.json command key loudly at startup instead of a KeyError the moment some
 # player clicks the broken button -- see rooms.py's own docstring for why this can't run any

@@ -91,6 +91,14 @@ the *only* room-rendering code left — one generic implementation for every roo
 hub. `RoomExitButton` handles all navigation uniformly (any room can reach any other room it has an
 exit to); there's no more per-hub `_go_X`/`go_home`-closure threading anywhere.
 
+**Locking a feature behind a room.** A room's optional `unlock_trigger` (any non-counted trigger)
+hides every exit into it until the trigger holds. The room's feature commands check
+`quests.room_unlocked(guild_id, user_id, room_id)` themselves, so typing the command can't bypass the
+lock. This is the one place a feature's "unlocked yet?" state lives, and it's data: the Horse
+Sanctuary (`necromancy.py`) ships locked behind a placeholder `flag_at_least necro:unlocked` that
+nobody has (`!necrounlock` grants it for testing), and unlocking it via a quest later means changing
+only that trigger. Don't add a separate code-side enabled flag next to it.
+
 `room_commands.py` holds `COMMANDS: dict = {}`, populated once by `bot.py` right after every
 `@bot.command` is defined — `rooms.json`'s `commands[].key` references into this dict. It starts
 out *empty* at `rooms.py`/`admin_schemas.py` import time (bot.py populates it much later in

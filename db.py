@@ -330,6 +330,13 @@ def init_db():
     # until (see horserace.is_injured). NULL means healthy, which is every existing row's state.
     if "injured_until" not in columns:
         conn.execute("ALTER TABLE horses ADD COLUMN injured_until TEXT")
+    # !glue -- a datetime.now().isoformat() of when the horse was rendered into ectoglue (see
+    # glue_horse). NULL means alive, which is every existing row's state. A glued horse keeps its
+    # row forever rather than being deleted: deleting a legend would let seed_legend's INSERT OR
+    # IGNORE resurrect it, deleting the top foal would let next_horse_index hand its index (and any
+    # flags keyed by it) to the next foal, and the row is the graveyard the dead are raised from.
+    if "glued_at" not in columns:
+        conn.execute("ALTER TABLE horses ADD COLUMN glued_at TEXT")
     # A horse's equipped cosmetics, one row per filled slot (saddle/hat) -- keyed by horse_index
     # rather than owner, since the horse (not the owner) is what's dressed up, and ownership can
     # change hands via buy_legend_horse while a cosmetic stays on. Unlike character_equipment,
@@ -1165,12 +1172,15 @@ def set_currency_name(guild_id: int, name: str) -> str:
 
 def get_guild_horses(guild_id: int) -> dict[int, dict]:
     """Returns {horse_index: {...}} for every horse that exists in this guild's stable —
-    legends already touched here, plus any foals bought into it."""
+    legends already touched here, plus any foals bought into it. Glued horses are dead and left
+    out (they keep their row; see glue_horse) -- so they never race, never show up for sale, and
+    every roster-driven screen forgets them without a check of its own."""
     conn = _connect()
     try:
         rows = conn.execute(
             "SELECT horse_index, is_foal, name, owner_id, speed, endurance, spirit, age, wins, places, shows, "
-            "races, race_starts, last_trained, sex, coat, pending_boost_stat, injured_until FROM horses WHERE guild_id = ?",
+            "races, race_starts, last_trained, sex, coat, pending_boost_stat, injured_until FROM horses "
+            "WHERE guild_id = ? AND glued_at IS NULL",
             (guild_id,),
         ).fetchall()
         return {
@@ -1279,8 +1289,10 @@ def buy_legend_horse(guild_id: int, horse_index: int, user_id: int, price: int, 
         _ensure_user(conn, guild_id, user_id)
         conn.commit()
         conn.execute("BEGIN IMMEDIATE")
+        # A glued legend has owner_id NULL too, but it's dead, not for sale.
         row = conn.execute(
-            "SELECT owner_id FROM horses WHERE guild_id = ? AND horse_index = ?", (guild_id, horse_index)
+            "SELECT owner_id FROM horses WHERE guild_id = ? AND horse_index = ? AND glued_at IS NULL",
+            (guild_id, horse_index),
         ).fetchone()
         if row is None or row[0] is not None:
             conn.rollback()
@@ -2022,6 +2034,65 @@ def injure_horse(guild_id: int, horse_index: int, injured_until: str):
             (injured_until, guild_id, horse_index),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def glued_from_flag(horse_index: int) -> str:
+    """At GUILD_FLAG_USER, keyed by horse: the user_id who glued it -- the graveyard's "formerly of
+    X's stable". Kept off the horse row since owner_id has to go NULL for every owner-scoped query to
+    forget the horse."""
+    return f"necro:glued_from:{horse_index}"
+
+
+def glue_horse(
+    guild_id: int, user_id: int, horse_index: int, item_id: str | None, qty: int, rescue_since: int,
+) -> str:
+    """Renders a horse into `qty` of `item_id` (an ectoglue grade), all in one transaction -- a
+    qty of 0 (too young or too weak, item_id None) still glues the horse, it just grants nothing.
+    Returns "ok",
+    "not_owner" (user_id doesn't own it, or it's already glued -- a glued horse has no owner), or
+    "rescue_pending" (someone's stolen_flag on this horse is still >= rescue_since, i.e. the victim
+    hasn't spent their one rescue attempt and the window hasn't closed -- a rescue attempt zeroes
+    the flag whether or not it lands). Checked under BEGIN IMMEDIATE so a rescue can't land between
+    the check and the gluing.
+
+    The row stays (see the glued_at migration comment): glued_at is set and owner_id goes NULL,
+    which alone drops it from every owner-scoped query (ranch, training, war, raids, sentry). Its
+    clothes come off -- they're a reusable wardrobe, so the owner loses nothing."""
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT owner_id FROM horses WHERE guild_id = ? AND horse_index = ? AND glued_at IS NULL",
+            (guild_id, horse_index),
+        ).fetchone()
+        if row is None or row[0] != user_id:
+            conn.rollback()
+            return "not_owner"
+        pending = conn.execute(
+            "SELECT 1 FROM flags WHERE guild_id = ? AND key = ? AND value >= ? LIMIT 1",
+            (guild_id, stolen_flag(horse_index), rescue_since),
+        ).fetchone()
+        if pending:
+            conn.rollback()
+            return "rescue_pending"
+        conn.execute(
+            "UPDATE horses SET glued_at = ?, owner_id = NULL WHERE guild_id = ? AND horse_index = ?",
+            (datetime.now().isoformat(), guild_id, horse_index),
+        )
+        conn.execute(
+            "DELETE FROM horse_clothes_equipped WHERE guild_id = ? AND horse_index = ?", (guild_id, horse_index),
+        )
+        _write_flag(conn, guild_id, GUILD_FLAG_USER, glued_from_flag(horse_index), user_id)
+        if item_id is not None and qty > 0:  # never leave a 0-qty inventory row (see consume_inventory_item)
+            conn.execute(
+                "INSERT INTO inventory (guild_id, user_id, item_id, qty) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(guild_id, user_id, item_id) DO UPDATE SET qty = qty + excluded.qty",
+                (guild_id, user_id, item_id, qty),
+            )
+        conn.commit()
+        return "ok"
     finally:
         conn.close()
 

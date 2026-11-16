@@ -183,6 +183,10 @@
       {
         "room_id": "ranch",
         "label": "\ud83d\udc34 Ranch"
+      },
+      {
+        "room_id": "horse_sanctuary",
+        "label": "\ud83e\udea6 Horse Sanctuary"
       }
     ],
     "commands": [
@@ -200,6 +204,30 @@
         "key": "sentry",
         "kind": "none",
         "label": "\ud83d\udee1\ufe0f Sentry"
+      }
+    ]
+  },
+  {
+    "id": "horse_sanctuary",
+    "name": "\ud83e\udea6 Nature Sanctuary and Horse Graveyard",
+    "description": "A peaceful memorial to the fallen heroes of the Great Horse Wars. There have been no fallen heroes of the Great Horse Wars. A thick green fog rolls out of the smokestacks, and the whole place smells faintly of craft supplies.",
+    "background_path": "assets/rooms/the_front.png",
+    "unlock_trigger": {
+      "type": "flag_at_least",
+      "key": "necro:unlocked",
+      "value": 1
+    },
+    "exits": [
+      {
+        "room_id": "the_front",
+        "label": "\u2694\ufe0f The Front"
+      }
+    ],
+    "commands": [
+      {
+        "key": "glue",
+        "kind": "none",
+        "label": "\u26b1\ufe0f Lay a Horse to Rest"
       }
     ]
   },

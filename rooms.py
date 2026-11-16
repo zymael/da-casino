@@ -21,6 +21,13 @@ runs:
 Both are instead checked by validate_command_keys()/validate_specializations() below, called from
 whichever module can see the *other* side once it's actually ready (bot.py, room_view.py) -- same
 "one direction only" idea as quests.py cross-validating npcs.json's visible_trigger.
+
+A room's optional "unlock_trigger" locks the whole room: every exit leading into it is hidden until
+the trigger holds (room_view.build_room_display), and a command that belongs to a locked feature
+checks quests.room_unlocked itself, so typing it directly is gated too (same pairing as a delve's
+unlock_trigger + delve_cmd). It's the one place a feature's "is this unlocked yet" lives -- e.g. the
+Horse Sanctuary starts locked behind a flag nobody has, and a quest can unlock it later by changing
+just this trigger in the admin panel. Validated by quests.validate_room_triggers, not here.
 """
 
 import json
@@ -76,6 +83,10 @@ def _load_rooms(path: str = _ROOMS_PATH) -> dict[str, dict]:
                 raise ValueError(f"rooms.json: room {room_id!r} exit missing field(s): {sorted(missing_exit)}")
         for command in entry["commands"]:
             _validate_command(command, f"rooms.json: room {room_id!r}")
+        # Only the shape is checked here -- the trigger itself is validated by
+        # quests.validate_room_triggers (same circular-import story as exits' visible_trigger).
+        if entry.get("unlock_trigger") is not None and not isinstance(entry["unlock_trigger"], dict):
+            raise ValueError(f"rooms.json: room {room_id!r} unlock_trigger must be a trigger object")
         rooms_by_id[room_id] = entry
 
     # Second pass: an exit's room_id might reference a room defined later in the file.

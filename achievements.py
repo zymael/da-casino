@@ -411,6 +411,30 @@ ACHIEVEMENTS = [
         "description": "Press the big red button on a Mane-hay-tan bomb. Now you are become Death, destroyer of stables.",
         "reward": 250,
     },
+    {
+        "kind": "glue_first",
+        "scope": "personal",
+        "emoji": "⚱️",
+        "name": "Gone to a Farm Upstate",
+        "description": "Lay a horse to rest at the Nature Sanctuary. It's in a better place now. Several better places, actually.",
+        "reward": 25,
+    },
+    {
+        "kind": "glue_legend",
+        "scope": "personal",
+        "emoji": "🪦",
+        "name": "Sticky Legacy",
+        "description": "Lay a legend to rest. It isn't coming back for anyone, ever.",
+        "reward": 100,
+    },
+    {
+        "kind": "glue_nothing",
+        "scope": "personal",
+        "emoji": "🫥",
+        "name": "Bad Person",
+        "description": "Lay a horse to rest that was too young or too weak to give a single drop. It died for nothing. You did that.",
+        "reward": 1,
+    },
 ]
 
 # Maps each game bucket to its emoji/title and the db.log_bet() `game` string(s) that feed it

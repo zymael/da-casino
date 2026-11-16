@@ -210,6 +210,7 @@ from this editor.
 """
 
 import achievements
+import necromancy
 import dreams
 import dungeon
 import horse_clothes
@@ -917,6 +918,7 @@ CONTENT_TYPES = {
         "extra_validators": [
             lambda new_registry: rooms.validate_command_keys(room_commands.COMMANDS.keys(), new_registry),
             lambda new_registry: rooms.validate_specializations(room_view._SPECIALIZATIONS.keys(), new_registry),
+            lambda new_registry: quests.validate_room_triggers(new_registry),
         ],
         "list_columns": ["id", "name", "specialization"],
         "fields": [
@@ -932,6 +934,12 @@ CONTENT_TYPES = {
                 "hint": "optional -- hooks in a room's one-off extra embed fields and/or components "
                         "(e.g. Casino's game picker, Ranch's horse roster) that a plain room can't "
                         "express as data. Leave blank for a room with no such extras.",
+            },
+            {
+                "name": "unlock_trigger", "type": "trigger", "required": False, "group": "Identity",
+                "hint": "optional -- locks the whole room until this holds: every exit into it is hidden, "
+                        "and the room's own feature commands (e.g. !glue) refuse to run. Blank means "
+                        "always open. Swap a placeholder flag for a quest_complete to unlock via a quest.",
             },
             {"name": "background_path", "type": "image", "required": True, "subdir": "rooms"},
             {"name": "exits", "type": "room_exits", "required": True},
@@ -1009,6 +1017,9 @@ CONTENT_TYPES = {
         "module": quests,
         "registry_attr": "QUEST_ITEMS",
         "loader": quests._load_quest_items,
+        # !glue grants the ectoglue grades by id (necromancy.GRADES), so none can be deleted
+        # or renamed through here.
+        "extra_validators": [lambda new_registry: necromancy.validate_ectoglue_items(new_registry)],
         "list_columns": ["id", "name", "emoji"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},

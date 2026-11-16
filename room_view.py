@@ -55,10 +55,15 @@ async def build_room_display(
     build_X_display used to follow individually)."""
     room = rooms.ROOMS[room_id]
     present_npcs = await quests.npcs_present_in_room(guild_id, user_id, room_id)
+    # An exit shows only if its own visible_trigger holds *and* the room it leads into is unlocked
+    # (rooms.py's "unlock_trigger") -- a locked room has no visible way in from anywhere.
     visible_exits = [
         exit_entry for exit_entry in room["exits"]
-        if exit_entry.get("visible_trigger") is None
-        or await quests.trigger_satisfied(guild_id, user_id, exit_entry["visible_trigger"])
+        if (
+            exit_entry.get("visible_trigger") is None
+            or await quests.trigger_satisfied(guild_id, user_id, exit_entry["visible_trigger"])
+        )
+        and await quests.room_unlocked(guild_id, user_id, exit_entry["room_id"])
     ]
 
     filename = os.path.basename(room["background_path"])
