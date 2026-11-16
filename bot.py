@@ -2761,7 +2761,8 @@ async def _glue_horse(ctx, horse_index: int):
             f"{war.RESCUE_WINDOW_SECONDS // 86400} days have passed since the theft."
         )
         return
-    lines = [f"⚱️ **{horse['name']}** has been laid to rest. The smokestacks cough a fresh plume of green fog."]
+    smokestacks, reaction = necromancy.SEND_OFF[item_id]
+    lines = [f"⚱️ **{horse['name']}** has been laid to rest. {smokestacks}"]
     kinds = ["glue_first"]
     if item_id is None:
         lines.append(
@@ -2773,7 +2774,7 @@ async def _glue_horse(ctx, horse_index: int):
         kinds.append("glue_nothing")
     else:
         item = quests.QUEST_ITEMS[item_id]
-        lines.append(f"{ctx.author.display_name} receives **{amount}× {item['emoji']} {item['name']}**. It's still warm.")
+        lines.append(f"{ctx.author.display_name} receives **{amount}× {item['emoji']} {item['name']}**. {reaction}")
     if not horse["is_foal"]:
         lines.append(f"🪦 **A legend is gone.** {horse['name']} will never race again, for anyone.")
         kinds.append("glue_legend")

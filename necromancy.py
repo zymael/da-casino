@@ -37,6 +37,28 @@ ROOM_ID = "sanctuary_back_rooms"  # where gluing and spells happen -- its unlock
 GRADES = ("faint_ectoglue", "ectoglue", "potent_ectoglue", "ancient_ectoglue")
 GRADE_MIN_AGES = (0, 10, 20, 40)  # placeholders -- check real ages in the live db before settling
 
+# !glue's send-off, escalating with what came out: (smokestack line, reaction after the receipt),
+# keyed by grade item id -- None is a horse that gave nothing (its reaction is the "bad person"
+# ending, written in bot.py since it names the horse and player).
+SEND_OFF = {
+    None: ("The smokestacks don't even bother.", None),
+    "faint_ectoglue": (
+        "A thin, apologetic wisp drifts out of one smokestack.",
+        "It's barely there. The caretaker hands it over without making eye contact.",
+    ),
+    "ectoglue": ("The smokestacks cough a fresh plume of green fog.", "It's still warm."),
+    "potent_ectoglue": (
+        "All three smokestacks belch thick green fog, and somewhere in the back, something cheers.",
+        "The jar hums in your hands.",
+    ),
+    "ancient_ectoglue": (
+        "The smokestacks go silent. Then every light in Greener Pastures flickers, and the fog comes out nearly black.",
+        "The jar is cold. Something inside knocks twice.",
+    ),
+}
+if set(SEND_OFF) != {None, *GRADES}:
+    raise ValueError("necromancy.SEND_OFF must have exactly one entry per grade, plus None")
+
 # Quantity: (total stats - STAT_FLOOR) / STATS_PER_GLUE, plus wins / WINS_PER_GLUE, times an age
 # factor that's 0 through YOUNG_AGE, ramps linearly to 1.0 at FULL_AGE, and keeps climbing to
 # AGE_FACTOR_CAP. Rounded down. A fresh foal (105 total, age 0) and a weakling (<= STAT_FLOOR) both
