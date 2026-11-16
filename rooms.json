@@ -186,7 +186,7 @@
       },
       {
         "room_id": "horse_sanctuary",
-        "label": "\ud83e\udea6 Horse Sanctuary"
+        "label": "\ud83e\udea6 Greener Pastures"
       }
     ],
     "commands": [
@@ -209,8 +209,8 @@
   },
   {
     "id": "horse_sanctuary",
-    "name": "\ud83e\udea6 Nature Sanctuary and Horse Graveyard \u2014 Guest Area",
-    "description": "A peaceful memorial to the fallen heroes of the Great Horse Wars. There have been no fallen heroes of the Great Horse Wars. A thick green fog rolls out of the smokestacks, and the whole place smells faintly of craft supplies. A velvet rope and a very wet attendant in a hooded robe keep guests out of the back.",
+    "name": "\ud83e\udea6 Greener Pastures Guest Area",
+    "description": "Welcome to Greener Pastures Nature Sanctuary and Horse Graveyard, a peaceful memorial to the fallen heroes of the Great Horse Wars. There have been no fallen heroes of the Great Horse Wars. A thick green fog rolls out of the smokestacks, and the whole place smells faintly of craft supplies. A velvet rope and a very wet attendant in a hooded robe keep guests out of the back.",
     "background_path": "assets/rooms/horse_sanctuary.png",
     "exits": [
       {
@@ -232,7 +232,7 @@
   },
   {
     "id": "sanctuary_back_rooms",
-    "name": "\ud83c\udf2b\ufe0f Sanctuary Back Rooms",
+    "name": "\ud83c\udf2b\ufe0f Greener Pastures Back Rooms",
     "description": "Nobody looks twice at another slimy bathrobe back here. Vats bubble. A conveyor belt carries something horse-shaped toward a large machine labeled MEMORIAL KEEPSAKES. Robed figures murmur in three wet slaps.",
     "background_path": "assets/rooms/sanctuary_back_rooms.png",
     "unlock_trigger": {

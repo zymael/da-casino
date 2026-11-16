@@ -416,7 +416,7 @@ ACHIEVEMENTS = [
         "scope": "personal",
         "emoji": "⚱️",
         "name": "Gone to a Farm Upstate",
-        "description": "Lay a horse to rest at the Nature Sanctuary. It's in a better place now. Several better places, actually.",
+        "description": "Lay a horse to rest at Greener Pastures. It's in a better place now. Several better places, actually.",
         "reward": 25,
     },
     {
@@ -439,7 +439,7 @@ ACHIEVEMENTS = [
         "kind": "necro_raise",
         "scope": "personal",
         "emoji": "👻",
-        "name": "Necromanser",
+        "name": "Neighcromancer",
         "description": "Raise a horse from the graveyard to ride with you again. It doesn't seem happy about it.",
         "reward": 50,
     },

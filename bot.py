@@ -2697,7 +2697,7 @@ async def sentry_cmd(ctx):
 
 
 _SANCTUARY_LOCKED = (
-    "🥻 A dripping attendant in a hooded robe steps in front of the door. \"Guests are to remain in the "
+    "🥻 A dripping attendant in a hooded robe steps in front of the rope. \"Guests are to remain in the "
     "Guest Area.\" They look you up and down. \"You are not dressed for the back.\""
 )
 
@@ -2735,7 +2735,7 @@ async def _glue_prompt(ctx, horse_index: int):
         if not horse["is_foal"] else ""
     )
     await ctx.send(
-        f"⚱️ The Sanctuary's caretaker looks **{horse['name']}** over and nods slowly. "
+        f"⚱️ The caretaker at Greener Pastures looks **{horse['name']}** over and nods slowly. "
         f"\"A peaceful rest. We'll take very good care of it.\"\n"
         f"{keepsake_line} There's no undoing this.{legend_line}",
         view=necro_view.build_glue_confirm(ctx.author.id, horse_index, _glue_horse),
@@ -2763,7 +2763,7 @@ async def _glue_horse(ctx, horse_index: int):
     if status == "rescue_pending":
         await ctx.send(
             f"🛟 The caretaker checks a ledger and frowns. Someone's still looking for **{horse['name']}**. "
-            f"The Sanctuary won't take a horse until its old owner has tried a rescue, or "
+            f"Greener Pastures won't take a horse until its old owner has tried a rescue, or "
             f"{war.RESCUE_WINDOW_SECONDS // 86400} days have passed since the theft."
         )
         return
@@ -2772,7 +2772,7 @@ async def _glue_horse(ctx, horse_index: int):
     if item_id is None:
         lines.append(
             f"...and that's it. Nothing came out. Not one drop. **{horse['name']}** was too young and too "
-            f"weak to give the Sanctuary anything at all, and {ctx.author.display_name} brought it in anyway. "
+            f"weak to give anything at all, and {ctx.author.display_name} brought it in anyway. "
             f"The caretaker stares at you for a long moment. \"You know that was a living creature, right?\"\n"
             f"🫥 {ctx.author.display_name} is a bad person."
         )
@@ -2789,7 +2789,7 @@ async def _glue_horse(ctx, horse_index: int):
 
 @bot.command(name="glue", aliases=["laytorest"])
 async def glue_cmd(ctx, number: int = None):
-    """Lay one of your horses to rest at the Nature Sanctuary: !glue <number>, or plain !glue to pick
+    """Lay one of your horses to rest at Greener Pastures: !glue <number>, or plain !glue to pick
     from a dropdown. Permanent, even for legends. You get Ectoglue for it."""
     if not await quests.room_unlocked(ctx.guild.id, ctx.author.id, necromancy.ROOM_ID):
         await ctx.send(_SANCTUARY_LOCKED)
@@ -2803,7 +2803,7 @@ async def glue_cmd(ctx, number: int = None):
         await ctx.send("⚱️ Which horse is ready for its peaceful rest?", view=view)
         return
     if number < 1:
-        await ctx.send("Usage: `!glue <number>` — see `!stable` for numbers.")
+        await ctx.send("Usage: `!glue <number>`. See `!stable` for numbers.")
         return
     await _glue_prompt(ctx, number - 1)
 
@@ -2823,7 +2823,7 @@ GRAVEYARD_LIMIT = 20  # Discord message length -- the newest graves are the ones
 
 @bot.command(name="graveyard", aliases=["graves"])
 async def graveyard_cmd(ctx):
-    """Visit the Horse Graveyard: every horse ever laid to rest at the Sanctuary, and who brought it."""
+    """Visit the Horse Graveyard: every horse ever laid to rest at Greener Pastures, and who brought it."""
     graveyard = await asyncio.to_thread(db.get_glued_horses, ctx.guild.id)
     if not graveyard:
         await ctx.send("🪦 The Horse Graveyard is freshly mowed and completely empty. For now.")
@@ -2832,12 +2832,12 @@ async def graveyard_cmd(ctx):
     bound = await asyncio.to_thread(
         db.get_flags, ctx.guild.id, db.GUILD_FLAG_USER, [necromancy.bound_flag(h["horse_index"]) for h in graveyard],
     )
-    lines = [f"🪦 **The Horse Graveyard** — {len(graveyard)} laid to rest"]
+    lines = [f"🪦 **The Horse Graveyard** ({len(graveyard)} laid to rest)"]
     for horse in graveyard[:GRAVEYARD_LIMIT]:
         kind = "🏆" if not horse["is_foal"] else "🐣"
         restless = " 👻 *restless*" if bound[necromancy.bound_flag(horse["horse_index"])] > now else ""
         lines.append(
-            f"{kind} **{horse['name']}** — SPD {horse['speed']:.0f} / END {horse['endurance']:.0f} / "
+            f"{kind} **{horse['name']}**: SPD {horse['speed']:.0f} / END {horse['endurance']:.0f} / "
             f"SPI {horse['spirit']:.0f}, brought in by {_member_name(ctx.guild, horse['glued_by'])}{restless}"
         )
     if len(graveyard) > GRAVEYARD_LIMIT:
@@ -2894,7 +2894,7 @@ async def _cast_choose_grade(ctx, spell_id: str):
     if not affordable:
         await ctx.send(
             f"{spell['emoji']} **{spell['name']}** takes {spell['cost']} Ectoglue of a single grade, and you "
-            f"don't have that much of any. The Sanctuary is always accepting horses."
+            f"don't have that much of any. Greener Pastures is always accepting horses."
         )
         return
 

@@ -191,6 +191,7 @@ class RoundLog:
     damage: dict[str, float] = field(default_factory=lambda: {ATTACKER: 0.0, DEFENDER: 0.0})
     rallies: list[tuple[str, str]] = field(default_factory=list)  # (side, unit name)
     knockouts: list[tuple[str, str]] = field(default_factory=list)  # (side the KO'd unit was on, name)
+    ghosts_laid_down: list[tuple[str, str]] = field(default_factory=list)  # same shape, for raised ghosts
 
 
 @dataclass
@@ -339,7 +340,8 @@ def _strike(side: str, army: Army, enemy: Army, behind: bool, log: RoundLog):
             target.hp -= dealt
             damage -= dealt
             if not target.alive:
-                log.knockouts.append((DEFENDER if side == ATTACKER else ATTACKER, target.name))
+                ko = (DEFENDER if side == ATTACKER else ATTACKER, target.name)
+                (log.ghosts_laid_down if target.ghost else log.knockouts).append(ko)
 
 
 def simulate_battle(attacker: Army, defender: Army) -> BattleResult:

@@ -252,6 +252,7 @@ def _round_lines(index: int, log: war.RoundLog, names: dict[str, str]) -> str:
     lines += [f"💥 {unit} ({names[side]}) is knocked out!" for side, unit in log.knockouts[:MAX_EVENTS_PER_KIND]]
     if len(log.knockouts) > MAX_EVENTS_PER_KIND:
         lines.append(f"💥 ...and {len(log.knockouts) - MAX_EVENTS_PER_KIND} more are knocked out!")
+    lines += [f"🪦 {unit} ({names[side]}) goes back in the ground." for side, unit in log.ghosts_laid_down]
     return "\n".join(lines)
 
 
