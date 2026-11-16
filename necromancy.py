@@ -48,7 +48,7 @@ SEND_OFF = {
     ),
     "ectoglue": ("The smokestacks cough a fresh plume of green fog.", "It's still warm."),
     "potent_ectoglue": (
-        "All three smokestacks belch thick green fog, and somewhere in the back, something cheers.",
+        "Thick green fog pours out of the smokestacks and rolls downhill toward the Ranch.",
         "The jar hums in your hands.",
     ),
     "ancient_ectoglue": (
