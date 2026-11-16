@@ -128,17 +128,17 @@ class Operation:
 
 OPERATIONS: dict[str, Operation] = {op.id: op for op in (
     Operation("spy", "Spy", "🕵️", "Case their stable. Speed vs Spirit.",
-              "horse", "speed", "spirit", 0.60, 0.30, 0.85, 12 * 3600),
+              "horse", "speed", "spirit", 0.60, 0.30, 0.85, 4 * 3600),
     Operation("thief", "Horse Thief", "🥷", "Steal a horse. Speed vs Endurance.",
-              "horse", "speed", "endurance", 0.30, 0.10, 0.50, 7 * 24 * 3600, immunity=True),
+              "horse", "speed", "endurance", 0.30, 0.10, 0.50, 24 * 3600, immunity=True),
     Operation("hitman", "Hitman", "🔪", "Your character injures one of their horses. ATK/Magic vs Endurance.",
-              "character", "power", "endurance", 0.35, 0.15, 0.60, 3 * 24 * 3600, immunity=True),
+              "character", "power", "endurance", 0.35, 0.15, 0.60, 18 * 3600, immunity=True),
     Operation("smuggler", "Smuggler", "💰", "Lift some of their flakes. Speed vs Spirit.",
-              "horse", "speed", "spirit", 0.40, 0.15, 0.65, 2 * 24 * 3600, immunity=True),
+              "horse", "speed", "spirit", 0.40, 0.15, 0.65, 12 * 3600, immunity=True),
     Operation("arsonist", "Arsonist", "🔥", "Your character torches their fortress. ATK vs Endurance + facility.",
-              "character", "atk", "endurance", 0.30, 0.10, 0.55, 5 * 24 * 3600, immunity=True),
+              "character", "atk", "endurance", 0.30, 0.10, 0.55, 24 * 3600, immunity=True),
     Operation("propaganda", "Propaganda", "🪧", "Your character sours their army's Spirit. Magic vs Spirit.",
-              "character", "spatk", "spirit", 0.40, 0.15, 0.65, 2 * 24 * 3600),
+              "character", "spatk", "spirit", 0.40, 0.15, 0.65, 12 * 3600),
     Operation("rescue", "Rescue", "🛟", "Take back a horse stolen from you this week. Speed vs Endurance.",
               "horse", "speed", "endurance", 0.50, 0.25, 0.80, 0),
 )}
