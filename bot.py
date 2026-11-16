@@ -2265,9 +2265,9 @@ async def _raid_choose_op(ctx, member: discord.Member | None):
     flags = await asyncio.to_thread(
         db.get_flags, guild_id, user_id, [db.RAID_LOCKOUT_FLAG] + [op.last_flag for op in war.OPERATIONS.values()],
     )
-    if flags[db.RAID_LOCKOUT_FLAG] > now:
-        await ctx.send(_LYING_LOW.format(when=_in_seconds(flags[db.RAID_LOCKOUT_FLAG] - now)))
-        return
+    # Lying low shuts every job but Rescue: taking back your own horse is never off the table.
+    lockout_until = flags[db.RAID_LOCKOUT_FLAG]
+    lying_low = lockout_until > now
     stolen = await asyncio.to_thread(db.get_stolen_horses, guild_id, user_id, now - war.RESCUE_WINDOW_SECONDS)
     ready, waiting = [], []
     for op in war.OPERATIONS.values():
@@ -2275,11 +2275,18 @@ async def _raid_choose_op(ctx, member: discord.Member | None):
             if any(member is None or h["owner_id"] == member.id for h in stolen):
                 ready.append(op)
             continue
+        if lying_low:
+            continue
         last = flags[op.last_flag]
         if last and now - last < op.cooldown_seconds:
             waiting.append(f"{op.emoji} {op.name}: back {_in_seconds(op.cooldown_seconds - (now - last))}")
         else:
             ready.append(op)
+    if lying_low:
+        waiting.insert(0, _LYING_LOW.format(when=_in_seconds(lockout_until - now)) + " Only a rescue is on the table.")
+        if not ready:
+            await ctx.send(_LYING_LOW.format(when=_in_seconds(lockout_until - now)))
+            return
     if not ready:
         await ctx.send("⏳ Every crew you know is laying low right now.\n" + "\n".join(waiting))
         return
@@ -2424,34 +2431,34 @@ async def _raid_resolve(
     if problem := await _op_blocker(guild_id, user_id, op, member, rescue_index):
         await ctx.send(problem)
         return
-    clothes = await asyncio.to_thread(db.get_guild_horse_clothes, guild_id)
+    _owned, guards, sentry = await _stable_state(guild_id, member.id)
     operative = None
+    operative_stat = guard = 0.0
     if op.operative == "horse":
         operative = next((h for h in await _available_horses(guild_id, user_id) if h["horse_index"] == operative_index), None)
         if operative is None:
             await ctx.send("That horse isn't yours or isn't fit to ride anymore. Try `!raid` again.")
             return
+        clothes = await asyncio.to_thread(db.get_guild_horse_clothes, guild_id)
         operative_stat = war.horse_stat(operative, clothes.get(operative_index, {}), op.op_stat)
-    else:
-        operative_stat = war.character_stat(await _war_general(guild_id, user_id), op.op_stat)
-    _owned, guards, sentry = await _stable_state(guild_id, member.id)
+        guard = war.guard_stat(
+            op, (sentry["horse_index"], sentry) if sentry else None,
+            [(h["horse_index"], h) for h in guards], clothes,
+        )
     facility_tier = await asyncio.to_thread(db.get_facility_tier, guild_id, member.id) if op.id == "arsonist" else 0
-    guard = war.guard_stat(
-        op, (sentry["horse_index"], sentry) if sentry else None,
-        [(h["horse_index"], h) for h in guards], clothes, facility_tier,
-    )
     now = int(time.time())
     job_intel_key = db.job_intel_flag(member.id)
     job_intel = op.id != "spy" and await asyncio.to_thread(db.get_flag, guild_id, user_id, job_intel_key) > now
     chance = war.op_chance(
         op, operative_stat, guard, await _heat(guild_id, user_id, now), sentry is not None,
-        war.JOB_INTEL_BONUS if job_intel else 0.0,
+        war.JOB_INTEL_BONUS if job_intel else 0.0, facility_tier,
     )
 
     status, remaining = await asyncio.to_thread(
         db.claim_op, guild_id, user_id, member.id, op.last_flag, op.cooldown_seconds,
         op.immune_flag if op.immunity else None, now,
         None if op.id in war.PILE_ON_EXEMPT else war.PILE_ON_WINDOW_SECONDS,
+        check_lockout=op.id != "rescue",
     )
     if status == "lockout":
         await ctx.send(_LYING_LOW.format(when=_in_seconds(remaining)))

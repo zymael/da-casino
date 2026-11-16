@@ -1652,7 +1652,7 @@ def train_horse(
 WAR_LAST_ATTACK_FLAG = "war:last_attack"
 WAR_SHIELD_UNTIL_FLAG = "war:shield_until"
 # !raid ops: each op's own cooldown/immunity keys live on war.Operation (last_flag/immune_flag).
-RAID_LOCKOUT_FLAG = "raid:lockout_until"  # a caught hitman: no !war and no ops until then
+RAID_LOCKOUT_FLAG = "raid:lockout_until"  # a caught hitman: no !war and no ops but Rescue until then
 WAR_SENTRY_FLAG = "war:sentry"  # horse_index + 1 of the stationed sentry, 0 = none
 WAR_FORTRESS_OFF_FLAG = "war:fortress_off_until"  # an arsonist's work
 WAR_PROPAGANDA_FLAG = "war:propaganda_until"  # consumed by this player's next war
@@ -1766,18 +1766,19 @@ def apply_war_result(
 
 def claim_op(
     guild_id: int, user_id: int, target_id: int, last_flag: str, cooldown: int, immune_flag: str | None, now: int,
-    pile_on_window: int | None = None,
+    pile_on_window: int | None = None, check_lockout: bool = True,
 ) -> tuple[str, int]:
     """Atomically checks and claims one !raid op's window (a war.Operation's last_flag/immune_flag),
     same shape as claim_war_attack minus the shield (shields only stop wars). Returns (status,
     seconds_remaining): "ok" (0), "lockout" (user is lying low), "cooldown" (this op's own
     window), "immune" (the target was just hit by this op), or "alert" (the target was hit by
-    two jobs within pile_on_window; None skips that check, for the exempt ops)."""
+    two jobs within pile_on_window; None skips that check, for the exempt ops). check_lockout=False
+    lets the op run while the user is lying low (Rescue)."""
     conn = _connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
         lockout_until = _flag_value(conn, guild_id, user_id, RAID_LOCKOUT_FLAG)
-        if lockout_until > now:
+        if check_lockout and lockout_until > now:
             conn.rollback()
             return "lockout", lockout_until - now
         last = _flag_value(conn, guild_id, user_id, last_flag)

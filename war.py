@@ -14,10 +14,12 @@ Reuses what players already own instead of inventing a new resource:
 
 Knocked-out horses are injured (horserace.is_injured), never stolen -- stealing is !raid's job.
 
-!raid is a menu of covert operations (OPERATIONS below), each its own stat matchup, cooldown and
-payoff. Every op's odds share one shape (op_chance): a base shifted by the operative's stat vs the
-target's guard stat, minus the operative's Heat (ops run recently) and the target's sentry. A
-sentry is one horse a player stations on watch: it guards against ops but sits out wars.
+!raid is a menu of covert operations (OPERATIONS below), each its own odds, cooldown and payoff.
+Every op's odds share one shape (op_chance): a base, minus the operative's Heat (ops run recently)
+and the target's sentry. Horse ops also shift with the operative horse's stat vs the target's
+guard horse; character ops don't look at stats at all, since a character's ATK/Magic and a horse's
+Endurance aren't on the same scale. A sentry is one horse a player stations on watch: it guards
+against ops but sits out wars.
 """
 
 import copy
@@ -77,11 +79,11 @@ SENTRY_PENALTY = 0.10
 OP_IMMUNITY_SECONDS = 48 * 3600
 
 HITMAN_INJURY_HOURS = 48
-HITMAN_LOCKOUT_SECONDS = 24 * 3600  # a caught hitman lies low: no !war and no ops
+HITMAN_LOCKOUT_SECONDS = 24 * 3600  # a caught hitman lies low: no !war and no ops but Rescue
 SMUGGLER_INJURY_HOURS = 24
 SMUGGLE_FRACTION, SMUGGLE_CAP = 0.05, 500
 ARSON_SECONDS = 48 * 3600
-ARSON_GUARD_PER_TIER = 10  # each facility tier adds this much to the arsonist's Endurance check
+ARSON_PENALTY_PER_TIER = 0.05  # each facility tier takes this much off an arsonist's chance
 BAIL_FRACTION, BAIL_CAP = 0.05, 300
 PROPAGANDA_SECONDS = 48 * 3600
 PROPAGANDA_SPIRIT_PENALTY = 20
@@ -103,8 +105,10 @@ class Operation:
     emoji: str
     blurb: str  # the op picker's one-line summary
     operative: str  # "horse" or "character"
-    op_stat: str  # horse: speed/endurance/spirit; character: atk/spatk, or "power" (the better of the two)
-    guard_stat: str  # the target's guard horse stat it's checked against
+    # Horse ops only: the operative's speed/endurance/spirit vs the target's guard horse stat.
+    # Character ops leave both None and run on flat odds.
+    op_stat: str | None
+    guard_stat: str | None
     base: float
     min_chance: float
     max_chance: float
@@ -131,14 +135,14 @@ OPERATIONS: dict[str, Operation] = {op.id: op for op in (
               "horse", "speed", "spirit", 0.60, 0.30, 0.85, 4 * 3600),
     Operation("thief", "Horse Thief", "🥷", "Steal a horse. Speed vs Endurance.",
               "horse", "speed", "endurance", 0.30, 0.10, 0.50, 24 * 3600, immunity=True),
-    Operation("hitman", "Hitman", "🔪", "Your character injures one of their horses. ATK/Magic vs Endurance.",
-              "character", "power", "endurance", 0.35, 0.15, 0.60, 18 * 3600, immunity=True),
+    Operation("hitman", "Hitman", "🔪", "Your character injures one of their horses.",
+              "character", None, None, 0.40, 0.15, 0.60, 18 * 3600, immunity=True),
     Operation("smuggler", "Smuggler", "💰", "Lift some of their flakes. Speed vs Spirit.",
               "horse", "speed", "spirit", 0.40, 0.15, 0.65, 12 * 3600, immunity=True),
-    Operation("arsonist", "Arsonist", "🔥", "Your character torches their fortress. ATK vs Endurance + facility.",
-              "character", "atk", "endurance", 0.30, 0.10, 0.55, 24 * 3600, immunity=True),
-    Operation("propaganda", "Propaganda", "🪧", "Your character sours their army's Spirit. Magic vs Spirit.",
-              "character", "spatk", "spirit", 0.40, 0.15, 0.65, 12 * 3600),
+    Operation("arsonist", "Arsonist", "🔥", "Your character torches their fortress. Facilities fight back.",
+              "character", None, None, 0.35, 0.10, 0.55, 24 * 3600, immunity=True),
+    Operation("propaganda", "Propaganda", "🪧", "Your character sours their army's Spirit.",
+              "character", None, None, 0.45, 0.15, 0.65, 12 * 3600),
     Operation("rescue", "Rescue", "🛟", "Take back a horse stolen from you this week. Speed vs Endurance.",
               "horse", "speed", "endurance", 0.50, 0.25, 0.80, 0),
 )}
@@ -473,26 +477,15 @@ def horse_stat(horse: dict, worn: dict[str, str], stat: str) -> float:
     return horse[stat] + barding_bonuses(worn)[stat]
 
 
-def character_stat(effective: dict, stat: str) -> float:
-    """An op's character stat off dungeon.compute_effective_stats' output. "power" is the better
-    of ATK and Magic, same as general_bonuses' charge."""
-    return max(effective["atk"], effective["spatk"]) if stat == "power" else effective[stat]
-
-
 def guard_stat(
     op: Operation, sentry: tuple[int, dict] | None, guards: list[tuple[int, dict]],
-    clothes: dict[int, dict[str, str]], facility_tier: int = 0,
+    clothes: dict[int, dict[str, str]],
 ) -> float:
-    """What `op` is checked against: the sentry's stat if one is on duty, otherwise the target's
-    single best healthy horse at that stat (0 with nobody home). An arsonist also has to get past
-    the facility itself."""
+    """What a horse op is checked against: the sentry's stat if one is on duty, otherwise the
+    target's single best healthy horse at that stat (0 with nobody home)."""
     if sentry is not None:
-        best = horse_stat(sentry[1], clothes.get(sentry[0], {}), op.guard_stat)
-    else:
-        best = max((horse_stat(h, clothes.get(i, {}), op.guard_stat) for i, h in guards), default=0.0)
-    if op.id == "arsonist":
-        best += facility_tier * ARSON_GUARD_PER_TIER
-    return best
+        return horse_stat(sentry[1], clothes.get(sentry[0], {}), op.guard_stat)
+    return max((horse_stat(h, clothes.get(i, {}), op.guard_stat) for i, h in guards), default=0.0)
 
 
 def heat(last_caught: dict[str, int], now: int) -> int:
@@ -504,10 +497,16 @@ def heat(last_caught: dict[str, int], now: int) -> int:
 
 def op_chance(
     op: Operation, operative_stat: float, guard: float, heat_level: int, sentry_on_duty: bool, bonus: float = 0.0,
+    facility_tier: int = 0,
 ) -> float:
     """bonus is JOB_INTEL_BONUS when the operative holds a spy's intel; it still can't push past
-    the op's own max_chance."""
-    chance = op.base + bonus + (operative_stat - guard) * OP_STAT_SWING - heat_level * HEAT_PENALTY
+    the op's own max_chance. operative_stat/guard only count for horse ops (op.op_stat set);
+    facility_tier only counts for the arsonist."""
+    chance = op.base + bonus - heat_level * HEAT_PENALTY
+    if op.op_stat is not None:
+        chance += (operative_stat - guard) * OP_STAT_SWING
+    if op.id == "arsonist":
+        chance -= facility_tier * ARSON_PENALTY_PER_TIER
     if sentry_on_duty:
         chance -= SENTRY_PENALTY
     return max(op.min_chance, min(op.max_chance, chance))
