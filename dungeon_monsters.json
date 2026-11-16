@@ -1551,7 +1551,8 @@
         "flavor": "It takes its cut. It has always taken its cut. Half of whatever it just took off you bubbles back up somewhere across the room unpleasantly."
       }
     ],
-    "sprite_path": "assets/dungeon/monsters/old_god_pizza.png"
+    "sprite_path": "assets/dungeon/monsters/old_god_pizza.png",
+    "sprite_scale": 1.6
   },
   {
     "id": "da_alpha",
