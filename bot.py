@@ -702,7 +702,6 @@ async def tip_cmd(ctx, member: discord.Member = None):
     )
 
 
-RUB_LUCKY_TARGET_ID = 272816170749526027  # fallback only, if no active user is found
 RUB_LUCK_RANGE = (1, 5)  # permanent -- stolen luck stays stolen
 TURRON_TARGET_ID = 319966284848693250  # rubbing luck away from this specific user drops a Delicious Turron
 TURRON_GIF = "https://media1.tenor.com/m/oDMzfUQF1IwAAAAd/ena-joel-g.gif"
@@ -717,7 +716,9 @@ async def rub_cmd(ctx):
     """Rub your belly for good luck (once every 12 hours) -- permanently makes you luckier, and someone else less lucky."""
     target_id = await asyncio.to_thread(housing.pick_rub_target, ctx.guild.id)
     if target_id is None:
-        target_id = RUB_LUCKY_TARGET_ID  # nobody's logged a bet in this guild yet -- still land the joke
+        # Everyone's at or below 0 luck (or nobody's played yet): nobody to rub, and no cooldown spent.
+        await ctx.send(f"{ctx.author.display_name} rubs their belly 🍀... but nobody around here has any luck left to take.")
+        return
 
     amount = random.randint(*RUB_LUCK_RANGE)
     status, value = await asyncio.to_thread(db.apply_rub, ctx.guild.id, ctx.author.id, target_id, amount)

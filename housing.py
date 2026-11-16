@@ -163,14 +163,18 @@ def get_luck_leaderboard(guild_id: int, limit: int = 10) -> list[tuple[int, int]
 def pick_rub_target(guild_id: int) -> int | None:
     """db.get_active_users_luck's rows, weighted by effective (housing-inclusive) luck instead of
     the raw column -- !rub's target-weighting sibling of get_luck_leaderboard above, same reason
-    it lives here instead of db.py. None if nobody in this guild has logged a bet yet."""
-    rows = db.get_active_users_luck(guild_id)
-    if not rows:
-        return None
-    weights = [
-        db.RUB_TARGET_WEIGHT_MULTIPLIER
-        if luck + get_house_bonuses(guild_id, user_id).get("luck_bonus", 0) >= db.RUB_TARGET_LUCK_THRESHOLD
-        else 1
-        for user_id, luck in rows
+    it lives here instead of db.py. Weight is effective luck ** RUB_TARGET_WEIGHT_POWER; anyone at
+    or below 0 is skipped. None if nobody in this guild has logged a bet yet, or nobody has any
+    luck left to lose."""
+    effective = [
+        (user_id, luck + get_house_bonuses(guild_id, user_id).get("luck_bonus", 0))
+        for user_id, luck in db.get_active_users_luck(guild_id)
     ]
-    return random.choices([user_id for user_id, _ in rows], weights=weights, k=1)[0]
+    candidates = [(user_id, luck) for user_id, luck in effective if luck > 0]
+    if not candidates:
+        return None
+    return random.choices(
+        [user_id for user_id, _ in candidates],
+        weights=[luck ** db.RUB_TARGET_WEIGHT_POWER for _, luck in candidates],
+        k=1,
+    )[0]

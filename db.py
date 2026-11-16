@@ -11,10 +11,11 @@ ENERGY_REST_GAIN = 3  # base energy granted per !rest (added to current energy, 
 # meant to stay in lockstep; give a function its own constant instead if one of them ever needs to
 # diverge from the others.
 REFRESH_HOURS = 12
-# !rub target weighting -- players at/above this luck are RUB_TARGET_WEIGHT_MULTIPLIER times as
-# likely to get picked as the rub target, so the leaderboard's top can't just hoard forever.
-RUB_TARGET_LUCK_THRESHOLD = 70
-RUB_TARGET_WEIGHT_MULTIPLIER = 3
+# !rub target weighting -- a player's chance of being the rub target is proportional to their
+# (effective) luck raised to this power, so the leaderboard's top can't just hoard forever. Squared
+# means twice the luck is four times as likely to get rubbed. Anyone at or below 0 luck is never
+# picked, so nobody gets rubbed deeper into the negatives.
+RUB_TARGET_WEIGHT_POWER = 2
 
 
 def init_db():
@@ -699,8 +700,8 @@ def get_active_users_luck(guild_id: int) -> list[tuple[int, int]]:
 
     Raw rows only, no weighting/random choice -- housing.pick_rub_target is what turns this into
     an actual !rub target pick, since it needs to fold in each user's housing luck_bonus first
-    (RUB_TARGET_LUCK_THRESHOLD/RUB_TARGET_WEIGHT_MULTIPLIER live here as data those weights are
-    computed against, not applied here)."""
+    (RUB_TARGET_WEIGHT_POWER lives here as data those weights are computed against, not applied
+    here)."""
     conn = _connect()
     try:
         rows = conn.execute(

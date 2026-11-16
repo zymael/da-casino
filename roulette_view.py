@@ -21,7 +21,7 @@ STEAL_NAMES = ["Lady of the evening", "Classy Escort"]
 ROY_GIF = "https://media.giphy.com/media/ywGp4PMJdeLyuRq7vJ/giphy.gif"
 
 # The Sickly Victorian Daughters gag -- purely cosmetic, no game-state hook, same running joke
-# target as bot.py's RUB_LUCKY_TARGET_ID. Rolled once per round (not per losing/winning bet)
+# target that !rub used to fall back on. Rolled once per round (not per losing/winning bet)
 # against this one user's aggregate net for the round, not any single bet -- a loss and a win each
 # have their own independent chance/flavor text, sharing the same image and dismiss button.
 DAUGHTERS_TARGET_ID = 272816170749526027
