@@ -459,6 +459,14 @@ ACHIEVEMENTS = [
         "description": "Light a candle at a grave in the Horse Graveyard. It's the least you could do. Literally.",
         "reward": 10,
     },
+    {
+        "kind": "won_the_game",
+        "scope": "personal",
+        "emoji": "🏁",
+        "name": "Won the Game",
+        "description": "You dominated Luck so much the developers had to change the balance to try to make it fun again",
+        "reward": 1,
+    },
 ]
 
 # Maps each game bucket to its emoji/title and the db.log_bet() `game` string(s) that feed it

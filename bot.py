@@ -258,22 +258,23 @@ async def setup_hook():
         traceback.print_exc()
 
 
-# One-off manual grant for the "illiterate" achievement (see achievements.py -- deliberately not
-# wired to any real trigger, per the request that earned it). Safe to leave in place indefinitely:
-# award_first_achievement is idempotent, so this is a no-op on every on_ready after the first one
-# that finds the member and successfully claims it. Delete this block (and the on_ready call below)
-# once it's confirmed to have fired.
-_ILLITERATE_GRANT_USER_ID = 319966284848693250
+# One-off manual grants for the "illiterate" and "won_the_game" achievements (see achievements.py --
+# deliberately not wired to any real trigger, per the requests that earned them). Safe to leave in
+# place indefinitely: awarding is idempotent, so this is a no-op on every on_ready after the first
+# one that finds the member and successfully claims them. Delete this block (and the on_ready call
+# below) once it's confirmed to have fired.
+_MANUAL_GRANT_USER_ID = 319966284848693250
+_MANUAL_GRANT_KINDS = ["illiterate", "won_the_game"]
 
 
-async def _grant_illiterate_achievement():
+async def _grant_manual_achievements():
     for guild in bot.guilds:
         # get_member() only checks the local member cache, which bot.py's Intents.default() never
         # populates with the full member list (that needs the privileged Members intent) -- this
         # silently found nobody and skipped every guild the first time. fetch_member() is a direct
         # per-user API lookup instead, so it works without that intent.
         try:
-            member = await guild.fetch_member(_ILLITERATE_GRANT_USER_ID)
+            member = await guild.fetch_member(_MANUAL_GRANT_USER_ID)
         except discord.NotFound:
             continue
         channel_id = await asyncio.to_thread(db.get_casino_channel_id, guild.id)
@@ -283,7 +284,7 @@ async def _grant_illiterate_achievement():
         if channel is None:
             continue
         await achievements.try_award_many(
-            channel.send, guild.id, member.id, member.display_name, ["illiterate"],
+            channel.send, guild.id, member.id, member.display_name, _MANUAL_GRANT_KINDS,
         )
 
 
@@ -303,7 +304,7 @@ async def on_ready():
             _SYNCED_GUILD_IDS.add(guild.id)
     if not sync_champions_loop.is_running():
         sync_champions_loop.start()
-    await _grant_illiterate_achievement()
+    await _grant_manual_achievements()
 
 
 @bot.event
