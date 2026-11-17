@@ -147,7 +147,7 @@ HELP_CATEGORIES = [
     ("💰 Economy", ["balance", "stats", "rest", "mine", "tip", "transfer", "pizza", "house", "leaderboard"]),
     ("🎲 Casino Games", ["blackjack", "slots", "roulette", "craps", "holdem", "videopoker", "deuceswild"]),
     ("🤝 Challenges", ["duel", "mancala", "connect4", "icebreak", "uno"]),
-    ("🐎 Horse Racing", ["horserace", "horses", "stable", "buyhorse", "buyfoal", "renamehorse", "train", "facility", "boost", "horseequip", "givehorse"]),
+    ("🐎 Horse Racing", ["horserace", "horses", "stable", "buyhorse", "buyfoal", "renamehorse", "train", "trainall", "facility", "boost", "horseequip", "givehorse"]),
     ("⚔️ War", ["war", "raid", "sentry", "pvp"]),
     ("🪦 Greener Pastures", ["graveyard", "pray", "glue", "cast"]),
     ("🗡️ Dungeon", ["class", "skills", "combathelp", "delve", "inn", "inventory", "equipment", "craft", "smash", "journal"]),
@@ -1689,32 +1689,56 @@ async def renamehorse_cmd(ctx, number: int = None, *, name: str = None):
     await ctx.send(f"🐴 Horse #{number} is now named **{name}**!")
 
 
-async def _train_horse(ctx, horse_index: int):
-    """The actual training logic for one specific horse -- shared by train_cmd's numbered
-    invocation and the horse-picker Select's callback (ranch_view.build_train_horse_picker), so
-    there's exactly one place this logic lives regardless of how the horse index got resolved."""
-    # Fetched up front (rather than after training) so the facility bonus and any queued !boost
-    # item can be folded into the gains *before* calling db.train_horse -- it applies whatever
-    # gains it's given and unconditionally clears pending_boost_stat, so the bonus has to already
-    # be baked in by this point.
-    horses = await asyncio.to_thread(db.get_guild_horses, ctx.guild.id)
-    horse = horses.get(horse_index)
-    pending_stat = horse["pending_boost_stat"] if horse else None
-
-    tier = await asyncio.to_thread(db.get_facility_tier, ctx.guild.id, ctx.author.id)
-    housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, ctx.guild.id, ctx.author.id)
+async def _training_bonuses(guild_id: int, user_id: int) -> tuple[float, bool]:
+    """(facility_bonus, in_fallout) for one owner's training -- the same for every horse they
+    own, so !trainall fetches it once instead of once per horse."""
+    tier = await asyncio.to_thread(db.get_facility_tier, guild_id, user_id)
+    housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, guild_id, user_id)
     facility_bonus = horserace.facility_bonus_for_tier(tier) + housing_bonuses.get("ranch_training_bonus", 0) / 100
+    in_fallout = await asyncio.to_thread(manhattan.fallout_active, guild_id)
+    return facility_bonus, in_fallout
+
+
+async def _apply_training(
+    guild_id: int, user_id: int, horse_index: int, pending_stat: str | None,
+    facility_bonus: float, in_fallout: bool,
+) -> tuple[str, tuple | float | None]:
+    """Rolls and applies one horse's training -- the single place the gain math lives, shared by
+    _train_horse and _train_all_horses. Returns db.train_horse's (status, payload)."""
+    # The facility bonus and any queued !boost item get folded into the gains *before* calling
+    # db.train_horse -- it applies whatever gains it's given and unconditionally clears
+    # pending_boost_stat, so the bonus has to already be baked in by this point.
     speed_gain, endurance_gain, spirit_gain = horserace.compute_training_gains(facility_bonus, pending_stat)
-    in_fallout = await asyncio.to_thread(manhattan.fallout_active, ctx.guild.id)
     if in_fallout:
         speed_gain, endurance_gain, spirit_gain = (
             gain * manhattan.FALLOUT_TRAINING_MULT for gain in (speed_gain, endurance_gain, spirit_gain)
         )
-    stat_cap = await asyncio.to_thread(manhattan.stat_cap_for, ctx.guild.id, horse_index, horserace.STAT_CAP)
-
-    status, payload = await asyncio.to_thread(
-        db.train_horse, ctx.guild.id, horse_index, ctx.author.id,
+    stat_cap = await asyncio.to_thread(manhattan.stat_cap_for, guild_id, horse_index, horserace.STAT_CAP)
+    return await asyncio.to_thread(
+        db.train_horse, guild_id, horse_index, user_id,
         speed_gain, endurance_gain, spirit_gain, stat_cap,
+    )
+
+
+def _training_extras(facility_bonus: float, in_fallout: bool) -> list[str]:
+    extras = []
+    if facility_bonus:
+        extras.append(f"+{int(facility_bonus * 100)}% from your ranch facility")
+    if in_fallout:
+        extras.append(f"☢️ +{int((manhattan.FALLOUT_TRAINING_MULT - 1) * 100)}% from the Fallout")
+    return extras
+
+
+async def _train_horse(ctx, horse_index: int):
+    """The actual training logic for one specific horse -- shared by train_cmd's numbered
+    invocation and the horse-picker Select's callback (ranch_view.build_horse_picker), so
+    there's exactly one place this logic lives regardless of how the horse index got resolved."""
+    horses = await asyncio.to_thread(db.get_guild_horses, ctx.guild.id)
+    horse = horses.get(horse_index)
+    pending_stat = horse["pending_boost_stat"] if horse else None
+    facility_bonus, in_fallout = await _training_bonuses(ctx.guild.id, ctx.author.id)
+    status, payload = await _apply_training(
+        ctx.guild.id, ctx.author.id, horse_index, pending_stat, facility_bonus, in_fallout,
     )
     if status == "not_owner":
         await ctx.send("You don't own that horse — check `!horses` to see who does.")
@@ -1729,13 +1753,9 @@ async def _train_horse(ctx, horse_index: int):
     new_speed, new_endurance, new_spirit, new_age = payload
     name = horse["name"]
     lines = [f"🏋️ **{name}** trained! SPD {new_speed:.0f} / END {new_endurance:.0f} / SPI {new_spirit:.0f} — Age {new_age}"]
-    extras = []
-    if facility_bonus:
-        extras.append(f"+{int(facility_bonus * 100)}% from your ranch facility")
+    extras = _training_extras(facility_bonus, in_fallout)
     if pending_stat:
-        extras.append(f"🧪 used your queued {pending_stat} boost")
-    if in_fallout:
-        extras.append(f"☢️ +{int((manhattan.FALLOUT_TRAINING_MULT - 1) * 100)}% from the Fallout")
+        extras.insert(1 if facility_bonus else 0, f"🧪 used your queued {pending_stat} boost")
     if extras:
         lines.append(" — ".join(extras))
     if new_age < horserace.MIN_RACING_AGE:
@@ -1754,13 +1774,85 @@ async def train_cmd(ctx, number: int = None):
         if not owned:
             await ctx.send("You don't own any horses yet — try `!buyhorse` or `!buyfoal`.")
             return
-        view = ranch_view.build_horse_picker(owned, _train_horse, placeholder="Choose a horse to train...")
+        view = ranch_view.build_horse_picker(
+            owned, _train_horse, placeholder="Choose a horse to train...",
+            all_option=("🏋️ Train all ready horses", _train_all_horses),
+        )
         await ctx.send("Pick a horse to train:", view=view)
         return
     if number < 1:
         await ctx.send("Usage: `!train <number>` — see `!horses` for numbers.")
         return
     await _train_horse(ctx, number - 1)
+
+
+async def _train_all_horses(ctx):
+    """Trains every horse the caller owns that's off cooldown and uninjured, in one message --
+    shared by !trainall and !train's dropdown "Train all" option."""
+    owned = await asyncio.to_thread(db.get_ranch_horses, ctx.guild.id, ctx.author.id)
+    if not owned:
+        await ctx.send("You don't own any horses yet — try `!buyhorse` or `!buyfoal`.")
+        return
+    facility_bonus, in_fallout = await _training_bonuses(ctx.guild.id, ctx.author.id)
+
+    trained, injured, resting = [], 0, []
+    for horse in owned:
+        status, payload = await _apply_training(
+            ctx.guild.id, ctx.author.id, horse["horse_index"], horse["pending_boost_stat"],
+            facility_bonus, in_fallout,
+        )
+        if status == "injured":
+            injured += 1
+        elif status == "cooldown":
+            resting.append(payload)
+        elif status == "ok":
+            new_speed, new_endurance, new_spirit, new_age = payload
+            line = (
+                f"🏋️ **{horse['name']}** SPD {new_speed:.0f} / END {new_endurance:.0f} / "
+                f"SPI {new_spirit:.0f} — Age {new_age}"
+            )
+            if horse["pending_boost_stat"]:
+                line += f" 🧪 {horse['pending_boost_stat']} boost"
+            if new_age == horserace.MIN_RACING_AGE:
+                line += " 🎉 old enough to race!"
+            trained.append(line)
+
+    if not trained:
+        parts = ["None of your horses are ready to train."]
+        if resting:
+            parts.append(f"The next one is ready {_in_seconds(min(resting))}.")
+        if injured:
+            parts.append(f"🤕 {injured} injured.")
+        await ctx.send(" ".join(parts))
+        return
+
+    lines = [f"Trained **{len(trained)}** horse{'s' if len(trained) != 1 else ''}:"] + trained
+    extras = _training_extras(facility_bonus, in_fallout)
+    if extras:
+        lines.append(" — ".join(extras))
+    skipped = []
+    if resting:
+        skipped.append(f"{len(resting)} still resting")
+    if injured:
+        skipped.append(f"🤕 {injured} injured")
+    if skipped:
+        lines.append("Skipped: " + ", ".join(skipped) + ".")
+
+    # Chunked under Discord's 2000-char message cap -- a big stable could overflow one message.
+    chunk = ""
+    for line in lines:
+        if len(chunk) + len(line) + 1 > 1900:
+            await ctx.send(chunk)
+            chunk = ""
+        chunk += line + "\n"
+    if chunk:
+        await ctx.send(chunk)
+
+
+@bot.command(name="trainall", brief="Train every horse of yours that's ready.")
+async def trainall_cmd(ctx):
+    """Train every horse you own that's off its 12-hour cooldown and not injured: !trainall"""
+    await _train_all_horses(ctx)
 
 
 @bot.command(name="facility", brief="Check or upgrade your ranch's training facility.")
@@ -3621,6 +3713,7 @@ room_commands.COMMANDS.update({
     "uno": uno_cmd.callback,
     "craft": craft_cmd.callback,
     "train": train_cmd.callback,
+    "trainall": trainall_cmd.callback,
     "boost": boost_cmd.callback,
     "facility": facility_cmd.callback,
     "horseequip": horseequip_cmd.callback,

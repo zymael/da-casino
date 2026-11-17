@@ -22,26 +22,40 @@ class HorsePickerSelect(discord.ui.Select):
     option here calls `on_pick` (a caller-supplied async (ctx, horse_index) callback) -- this
     class only collects the argument, it doesn't contain any command logic itself."""
 
-    def __init__(self, owned: list[dict], on_pick, placeholder: str):
-        options = [
+    _ALL_VALUE = "all"
+
+    def __init__(self, owned: list[dict], on_pick, placeholder: str, all_option=None):
+        # all_option: optional (label, on_pick_all) -- an extra first entry whose async (ctx)
+        # callback acts on every horse at once (e.g. !train's "Train all"). Takes one of the 25 slots.
+        options = []
+        if all_option:
+            options.append(discord.SelectOption(label=all_option[0][:100], value=self._ALL_VALUE))
+        options += [
             discord.SelectOption(label=f"{h['horse_index'] + 1}. {h['name']}"[:100], value=str(h["horse_index"]))
-            for h in owned[:MAX_SELECT_OPTIONS]
+            for h in owned[:MAX_SELECT_OPTIONS - len(options)]
         ]
         super().__init__(placeholder=placeholder, options=options)
         self.on_pick = on_pick
+        self.on_pick_all = all_option[1] if all_option else None
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        await self.on_pick(hub_ui.InteractionContext(interaction), int(self.values[0]))
+        ctx = hub_ui.InteractionContext(interaction)
+        if self.values[0] == self._ALL_VALUE:
+            await self.on_pick_all(ctx)
+        else:
+            await self.on_pick(ctx, int(self.values[0]))
 
 
-def build_horse_picker(owned: list[dict], on_pick, placeholder: str = "Choose a horse...") -> discord.ui.View:
+def build_horse_picker(
+    owned: list[dict], on_pick, placeholder: str = "Choose a horse...", all_option=None,
+) -> discord.ui.View:
     """A one-off View wrapping HorsePickerSelect -- what a horse command sends back when called
     with no number. Lives here (not in bot.py) because bot.py never constructs UI components
     directly, only invokes commands that view modules wrap; the command just asks for this and
     attaches it to its own response."""
     view = discord.ui.View(timeout=300)
-    view.add_item(HorsePickerSelect(owned, on_pick, placeholder))
+    view.add_item(HorsePickerSelect(owned, on_pick, placeholder, all_option))
     return view
 
 
