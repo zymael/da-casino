@@ -73,122 +73,135 @@
     "start_room": "room1",
     "background_path": "assets/dungeon/backgrounds/goblin_disco.jpg"
   },
-  "gnome_bathhouse": {
-    "id": "gnome_bathhouse",
-    "name": "The Gnomish Bathhouse",
-    "active": false,
-    "hidden_until_discovered": true,
-    "unlock_trigger": {
-      "type": "quest_complete",
-      "quest_id": "goo_bathhouse_flier"
-    },
-    "flavor": "The baths",
+  "goblin_disco": {
+    "id": "goblin_disco",
+    "name": "Goblin Discoth\u00e8que",
+    "active": true,
+    "hidden_until_discovered": false,
+    "flavor": "A wild goblin party that you were not invited to.   Not that that's going to stop you, of course.",
     "rooms": [
       {
-        "id": "The Sewer",
-        "type": "combat",
-        "monster_groups": [
-          {
-            "monsters": [
-              "bad_rat",
-              "bad_rat"
-            ],
-            "x": 230.0,
-            "y": 40.0
-          },
-          {
-            "monsters": [
-              "feral_goo",
-              "feral_goo"
-            ],
-            "x": 230.0,
-            "y": 114.0
-          }
-        ],
-        "next": "The Doorman",
-        "background_path": "assets/dungeon/backgrounds/gnome_bathhouse_room_The Sewer.jpg"
-      },
-      {
-        "id": "The Doorman",
+        "id": "Coat Check",
         "type": "choice",
-        "prompt": "A locked door with a small sliding panel",
+        "prompt": "This nerdy looking goblin at the door is trying to tell you that you're not allowed to enter with your weapons and armor that you are clearly brandishing.",
         "actions": [
           {
-            "label": "Flex",
+            "label": "Kick their ass",
             "check": {
               "stat": "atk",
-              "dc": 15
+              "dc": 20
             },
             "on_success": {
-              "next": "The Bathhouse",
-              "message": "He is impressed"
+              "next": "Dance Floor",
+              "message": "They don't even try to fight, and curls into a ball.  You feel a bit bad, but not bad enough to not take their lunch money before moving on.",
+              "currency_delta": 75
             },
             "on_fail": {
-              "next": "Fight the Doorman",
-              "message": "He is not impressed and atatcks!"
+              "next": "Fight the Doorman"
             },
-            "x": 336.0,
-            "y": 188.0
+            "x": 194.0,
+            "y": 57.0
           },
           {
-            "label": "Bribe",
+            "label": "Bribe them",
             "cost": {
-              "currency": 100
+              "currency": 10
             },
             "on_success": {
-              "next": "The Bathhouse",
-              "message": "He pockets the bribe and lets you through"
+              "next": "Dance Floor",
+              "message": "They look the other way and you pass on through"
             },
-            "x": 336.0,
-            "y": 262.0
-          },
-          {
-            "label": "Break down the door",
-            "on_success": {
-              "next": "Fight the Doorman",
-              "message": "You just break down the door, you don't have time for this.  The Gnome Doorman Attacks!"
-            },
-            "x": 336.0,
-            "y": 336.0
+            "x": 200.0,
+            "y": 364.0
           }
-        ]
+        ],
+        "background_path": "assets/dungeon/backgrounds/goblin_disco_copy_room_Coat Check.jpg"
       },
       {
-        "id": "The Bathhouse",
+        "id": "Dance Floor",
         "type": "combat",
         "monster_groups": [
           {
             "monsters": [
-              "enchanted_comb",
-              "enchanted_soap",
-              "enchanted_towel"
+              "goblin_grunt",
+              "goblin_grunt"
             ],
-            "x": 960.0,
-            "y": 75.0
+            "fork": false
           },
           {
             "monsters": [
-              "enchanted_comb",
-              "enchanted_soap",
-              "enchanted_soap",
-              "enchanted_towel"
+              "goblin_scavenger",
+              "goblin_scavenger"
             ],
-            "x": 1004.0,
-            "y": 139.0
-          },
-          {
-            "monsters": [
-              "enchanted_comb",
-              "enchanted_soap",
-              "enchanted_towel",
-              "enchanted_towel"
-            ],
-            "x": 1009.0,
-            "y": 199.0
+            "fork": false
           }
         ],
-        "next": "A Private Bath",
-        "prompt": "As you enter the Bathhouse proper, the furniture awakens to attack you.\r\nDefend yourself!"
+        "next": "DANCE FEVER"
+      },
+      {
+        "id": "DANCE FEVER",
+        "type": "choice",
+        "prompt": "That last fight really got you moving!  Something is off though... are the beats being played most ungroovy, or are you just not drunk enough for this shit?",
+        "actions": [
+          {
+            "label": "This music sucks!",
+            "on_success": {
+              "next": "The DJ Booth"
+            },
+            "x": 806.0,
+            "y": 86.0
+          },
+          {
+            "label": "I am too sober for this",
+            "on_success": {
+              "next": "The Bar"
+            },
+            "x": 781.0,
+            "y": 327.0
+          }
+        ],
+        "background_path": "assets/dungeon/backgrounds/goblin_disco_copy_room_DANCE FEVER.jpg"
+      },
+      {
+        "id": "The DJ Booth",
+        "type": "combat",
+        "monster_groups": [
+          {
+            "monsters": [
+              "goblin_dj"
+            ],
+            "fork": false
+          }
+        ],
+        "next": "The Back Office"
+      },
+      {
+        "id": "The Bar",
+        "type": "combat",
+        "monster_groups": [
+          {
+            "monsters": [
+              "goblin_bartender"
+            ],
+            "fork": false
+          }
+        ],
+        "next": "The Back Office"
+      },
+      {
+        "id": "The Back Office",
+        "type": "combat",
+        "monster_groups": [
+          {
+            "monsters": [
+              "goblin_scavenger",
+              "goblin_mob_boss",
+              "goblin_grunt"
+            ],
+            "fork": false
+          }
+        ],
+        "background_path": "assets/dungeon/backgrounds/goblin_disco_copy_room_The Back Office.jpg"
       },
       {
         "id": "Fight the Doorman",
@@ -196,124 +209,268 @@
         "monster_groups": [
           {
             "monsters": [
-              "goblin_grunt"
+              "gnome_doorman"
             ],
-            "x": 884.0,
-            "y": 424.0
+            "fork": false
           }
         ],
-        "next": "The Bathhouse"
+        "next": "Dance Floor"
+      }
+    ],
+    "layout": {
+      "Coat Check": {
+        "x": -21.0,
+        "y": 224.0
       },
+      "Dance Floor": {
+        "x": 470.0,
+        "y": 180.0
+      },
+      "DANCE FEVER": {
+        "x": 728.0,
+        "y": 181.0
+      },
+      "The DJ Booth": {
+        "x": 1145.0,
+        "y": 79.0
+      },
+      "The Bar": {
+        "x": 1144.0,
+        "y": 255.0
+      },
+      "The Back Office": {
+        "x": 1398.0,
+        "y": 185.0
+      },
+      "Fight the Doorman": {
+        "x": 200.0,
+        "y": 176.0
+      }
+    },
+    "start_room": "Coat Check",
+    "background_path": "assets/dungeon/backgrounds/goblin_disco_copy.jpg"
+  },
+  "beneath_the_buffet": {
+    "id": "beneath_the_buffet",
+    "name": "Beneath the Buffet",
+    "active": false,
+    "max_party_size": 8,
+    "raid": true,
+    "hidden_until_discovered": false,
+    "flavor": "Somewhere under a jungle-swallowed casino, the vault still waits.",
+    "rooms": [
       {
-        "id": "A desperate choice!",
+        "id": "The Overgrown Facade",
         "type": "choice",
-        "prompt": "You can go pipe or curtain",
+        "prompt": "Vines have swallowed the stone archway, but you can still make out gilded letters beneath the moss: THE KING'S CABANA. A door, propped open with a bar stool, leads down into the dark.",
         "actions": [
           {
-            "label": "Pipe",
+            "label": "Descend into the catacombs",
             "on_success": {
-              "next": "The Bog of Z'Goolok"
+              "next": "The Root-Choked Cellar"
             },
-            "x": 1473.0,
-            "y": 385.0
-          },
+            "x": 230.0,
+            "y": 40.0
+          }
+        ]
+      },
+      {
+        "id": "The Root-Choked Cellar",
+        "type": "choice",
+        "prompt": "Roots as thick as a man's torso have broken through the tiled floor, pulsing faintly with a sickly green light. Something in here is very much alive, and it is not happy you're here. (placeholder room -- plant monsters TBD)",
+        "actions": [
           {
-            "label": "Curtain",
+            "label": "Push deeper",
             "on_success": {
-              "next": "The Leather Daddy's Private Room"
+              "next": "The Flooded Storage Tunnels"
             },
-            "x": 1471.0,
+            "x": 450.0,
+            "y": 40.0
+          }
+        ]
+      },
+      {
+        "id": "The Flooded Storage Tunnels",
+        "type": "choice",
+        "prompt": "Ankle-deep water reflects a ceiling choked in hanging vines. Dozens of rotted crates, once labeled SWIZZLE STICKS -- DO NOT OPEN, have sprouted something with teeth. (placeholder room -- plant monsters TBD)",
+        "actions": [
+          {
+            "label": "Wade onward",
+            "on_success": {
+              "next": "The Long Straightaway"
+            },
+            "x": 670.0,
+            "y": 40.0
+          }
+        ]
+      },
+      {
+        "id": "The Long Straightaway",
+        "type": "choice",
+        "prompt": "The tunnel behind you ruptures. A low, wet rumble builds into a roar, and the air fills with a smell like a tiki bar that's been closed for thirty years. Something enormous is barreling down the corridor, and it is very much a pineapple.",
+        "actions": [
+          {
+            "label": "RUN",
+            "check": {
+              "stat": "speed",
+              "dc": 20
+            },
+            "on_success": {
+              "next": "The Wheel",
+              "message": "The party clears the straightaway with room to spare."
+            },
+            "on_fail": {
+              "next": "The Wheel",
+              "hp_delta": -15,
+              "message": "It clips the stragglers on the way through."
+            },
+            "x": 890.0,
+            "y": 40.0
+          }
+        ]
+      },
+      {
+        "id": "The Wheel",
+        "type": "roulette",
+        "next": "The Big Kahuna",
+        "prompt": "The pineapple crashes through the wall ahead and wedges itself, spinning, into a massive roulette wheel embedded in the temple floor -- gilded, ancient, and somehow still perfectly balanced. It's still rolling. Somebody has to call it.",
+        "hit_hp_delta": -10
+      },
+      {
+        "id": "The Big Kahuna",
+        "type": "choice",
+        "prompt": "Past the wheel, the tunnel opens into a wide chamber -- and at its center, wreathed in thirty years of reclaiming vines, stands a carved tiki idol easily three times the height of a person. Its shipping tag still flutters from one wrist. As you approach, its carved grimace creaks... and turns to face you. (placeholder room -- The Big Kahuna mini-boss TBD)",
+        "actions": [
+          {
+            "label": "Fight the Big Kahuna",
+            "on_success": {
+              "next": "The Kitchen"
+            },
+            "x": 727.0,
+            "y": 301.0
+          }
+        ]
+      },
+      {
+        "id": "The Kitchen",
+        "type": "choice",
+        "prompt": "A commercial kitchen, decades cold. The staff never actually left -- they're just still clocked in, spatulas in hand, eyes milk-white, technically still on shift. (placeholder room -- Zombie Staff TBD)",
+        "actions": [
+          {
+            "label": "Push through the kitchen",
+            "on_success": {
+              "next": "The Offices"
+            },
+            "x": 330.0,
+            "y": 245.0
+          }
+        ]
+      },
+      {
+        "id": "The Offices",
+        "type": "choice",
+        "prompt": "Cubicles stretch into the dark, every desk still occupied. A motivational poster reads TEAMWORK MAKES THE DREAM WORK in a font that is, somehow, also rotting. (placeholder room -- Zombie Staff TBD)",
+        "actions": [
+          {
+            "label": "Push through the offices",
+            "on_success": {
+              "next": "The Security Room"
+            },
+            "x": 305.0,
             "y": 478.0
           }
         ]
       },
       {
-        "id": "The Bog of Z'Goolok",
-        "type": "combat",
-        "monster_groups": [
+        "id": "The Security Room",
+        "type": "choice",
+        "prompt": "A wall of dead monitors flickers with security footage from a shift that ended a very long time ago. The guards are still watching. They never blinked. (placeholder room -- Zombie Staff TBD)",
+        "actions": [
           {
-            "monsters": [
-              "goblin_grunt"
-            ],
-            "x": 1903.0,
-            "y": 377.0
+            "label": "Push past security",
+            "on_success": {
+              "next": "The Boiler Room"
+            },
+            "x": 157.0,
+            "y": 673.0
           }
         ]
       },
       {
-        "id": "The Leather Daddy's Private Room",
-        "type": "combat",
-        "monster_groups": [
+        "id": "The Boiler Room",
+        "type": "choice",
+        "prompt": "The heat down here never really left, and neither did whoever used to maintain it. Something big shifts in the dark between the pipes. (placeholder room -- tougher Zombie Staff TBD)",
+        "actions": [
           {
-            "monsters": [
-              "goblin_grunt"
-            ],
-            "x": 1902.0,
-            "y": 470.0
+            "label": "Push toward the vault",
+            "on_success": {
+              "next": "The Vault"
+            },
+            "x": 661.0,
+            "y": 447.0
           }
         ]
       },
       {
-        "id": "A Private Bath",
-        "type": "combat",
-        "monster_groups": [
+        "id": "The Vault",
+        "type": "choice",
+        "prompt": "The vault door -- three feet of rusted steel -- hangs wide open. Sitting cross-legged on a mountain of chips, sequined jumpsuit somehow still gleaming under all this dust, is a figure who can only be described as Hellvis.\r\n\r\n\"Well, well. Look what crawled outta the buffet line.\" He snaps his fingers. Something enormous rises from the coins behind him. \"Y'all have fun now.\" He's gone before the last coin stops spinning. (placeholder room -- this becomes the raid boss's summoned monster once designed)",
+        "actions": [
           {
-            "monsters": [
-              "nakedgnome_1",
-              "nakedgnome_3",
-              "nakedgnome_2"
-            ],
-            "x": 1294.0,
-            "y": 282.0
-          },
-          {
-            "monsters": [
-              "enchanted_towel",
-              "enchanted_comb",
-              "bath_witch"
-            ],
-            "x": 1294.0,
-            "y": 356.0
+            "label": "Fight whatever he left behind",
+            "on_success": {},
+            "x": 876.0,
+            "y": 423.0
           }
-        ],
-        "next": "A desperate choice!",
-        "prompt": "As you remove the curtains to enter in what you think is the main room, it turns out you stumble into a private bath!"
+        ]
       }
     ],
     "layout": {
-      "The Sewer": {
+      "The Overgrown Facade": {
         "x": 40.0,
         "y": 40.0
       },
-      "The Doorman": {
-        "x": 81.0,
-        "y": 239.0
+      "The Root-Choked Cellar": {
+        "x": 249.0,
+        "y": 91.0
       },
-      "The Bathhouse": {
-        "x": 670.0,
-        "y": 70.0
+      "The Flooded Storage Tunnels": {
+        "x": 501.0,
+        "y": 96.0
       },
-      "Fight the Doorman": {
-        "x": 694.0,
-        "y": 424.0
+      "The Long Straightaway": {
+        "x": 806.0,
+        "y": 123.0
       },
-      "A desperate choice!": {
-        "x": 1238.0,
-        "y": 414.0
+      "The Wheel": {
+        "x": 968.0,
+        "y": 220.0
       },
-      "The Bog of Z'Goolok": {
-        "x": 1713.0,
-        "y": 377.0
+      "The Big Kahuna": {
+        "x": 914.0,
+        "y": 339.0
       },
-      "The Leather Daddy's Private Room": {
-        "x": 1712.0,
-        "y": 470.0
+      "The Kitchen": {
+        "x": 590.0,
+        "y": 357.0
       },
-      "A Private Bath": {
-        "x": 913.0,
-        "y": 289.0
+      "The Offices": {
+        "x": 49.0,
+        "y": 281.0
+      },
+      "The Security Room": {
+        "x": 109.0,
+        "y": 543.0
+      },
+      "The Boiler Room": {
+        "x": 418.0,
+        "y": 623.0
+      },
+      "The Vault": {
+        "x": 785.0,
+        "y": 699.0
       }
     },
-    "start_room": "The Sewer"
+    "start_room": "The Overgrown Facade"
   }
 }
