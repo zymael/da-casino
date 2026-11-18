@@ -12,6 +12,7 @@ import asyncio
 
 import discord
 
+import all_in
 import db
 import dungeon
 import effect_text
@@ -102,7 +103,10 @@ def _equipment_summary(item: dict) -> str:
     no constant effects at all (pure on_use/on_hit) just omits the stat segment rather than
     leaving a dangling '· rare' separator."""
     stat_text = stat_bonus_text(item)
-    return f"{stat_text} · {item['rarity']}" if stat_text else item["rarity"]
+    summary = f"{stat_text} · {item['rarity']}" if stat_text else item["rarity"]
+    if item.get("all_in"):
+        summary = f"iLvl {item['all_in']['level']} · {summary}"
+    return summary[:100]  # Discord's SelectOption description limit
 
 
 def _effect_phrase(effect: dict) -> str:
@@ -137,6 +141,9 @@ def _equipment_line(item_id: str, qty: int | None = None) -> str:
     stat_suffix = f" — {stat_text}" if stat_text else ""
     rarity_dot = dungeon.RARITY_EMOJI[item["rarity"]]
     lines = [f"{rarity_dot} **{item['name']}**{qty_suffix}{stat_suffix} · *{item['rarity']}*"]
+    tag = all_in.item_tag_line(item)
+    if tag:
+        lines.append(tag)
     lines.extend(dynamic_effect_lines(item))
     lines.append(f"> {item['flavor']}")
     return "\n".join(lines)
@@ -368,6 +375,9 @@ def _equipped_lines(equipped: dict[str, str]) -> str:
         entry_lines = [
             f"**{slot.title()}**: {rarity_dot} {item['name']} — {stat_bonus_text(item)} · *{item['rarity']}*"
         ]
+        tag = all_in.item_tag_line(item)
+        if tag:
+            entry_lines.append(tag)
         entry_lines.extend(dynamic_effect_lines(item))
         entry_lines.append(f"> {item['flavor']}")
         lines.append("\n".join(entry_lines))

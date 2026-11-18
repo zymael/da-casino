@@ -1,0 +1,22 @@
+[
+  {
+    "id": "global",
+    "max_tier": 5,
+    "monster_stat_per_tier": 0.12,
+    "monster_scaling_exponent": 0.85,
+    "monster_speed_max": 30,
+    "gold_per_tier": 0.25,
+    "gold_scaling_exponent": 0.5,
+    "gear_value_per_tier": 0.2,
+    "affixes_per_tier": 1,
+    "affix_budget_fraction": 0.12,
+    "affix_roll_min": 0.5,
+    "affix_roll_max": 1.0,
+    "affix_weight_hp": 3,
+    "affix_weight_atk": 3,
+    "affix_weight_def": 3,
+    "affix_weight_spatk": 3,
+    "affix_weight_speed": 1,
+    "speed_affix_max": 3
+  }
+]

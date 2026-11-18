@@ -210,6 +210,7 @@ from this editor.
 """
 
 import achievements
+import all_in
 import necromancy
 import dreams
 import dungeon
@@ -742,6 +743,82 @@ CONTENT_TYPES = {
             {
                 "name": "subclass_change_max_cost", "type": "int", "required": False, "min": 0, "group": "Subclasses",
                 "hint": "the doubling stops here -- every change past the cap costs exactly this",
+            },
+        ],
+    },
+    "all_in": {
+        "label": "All In Mode",
+        "category": DUNGEON_CONTENT,
+        "icon": "♠️",
+        "json_path": "dungeon_all_in.json",
+        "module": all_in,
+        "registry_attr": "SETTINGS",
+        "loader": all_in._load_all_in,
+        "list_columns": ["id", "max_tier", "monster_stat_per_tier", "gold_per_tier", "affixes_per_tier"],
+        "fields": [
+            {
+                "name": "id", "type": "str", "required": True, "group": "Identity",
+                "hint": "must stay exactly \"global\" -- one shared setting. All In always scales to the "
+                        "Leveling page's subclass_max_level, so raising the cap there moves All In with it",
+            },
+            {
+                "name": "max_tier", "type": "int", "required": True, "min": 1, "group": "Tiers",
+                "hint": "highest All In tier. Clearing a delve normally unlocks tier 1; clearing tier N unlocks N+1",
+            },
+            {
+                "name": "monster_stat_per_tier", "type": "float", "required": True, "group": "Monsters",
+                "hint": "extra HP/ATK/DEF/Magic per tier on top of scaling to the cap (0.12 = +12% per tier). "
+                        "Never applies to speed",
+            },
+            {
+                "name": "monster_scaling_exponent", "type": "float", "required": True, "group": "Monsters",
+                "hint": "damps how hard low-level monsters are lifted to the cap (1.0 = straight up the stat curve, "
+                        "lower = gentler). Early content is authored stronger for its level than late content",
+            },
+            {
+                "name": "monster_speed_max", "type": "int", "required": True, "min": 1, "group": "Monsters",
+                "hint": "ceiling on a scaled monster's speed. Monster speed only rises by a small flat amount "
+                        "when scaled; a monster already faster than this keeps its own speed",
+            },
+            {
+                "name": "gold_per_tier", "type": "float", "required": True, "group": "Rewards",
+                "hint": "extra gold per tier, on top of gold scaling up with the monster's level (0.25 = +25% per tier)",
+            },
+            {
+                "name": "gold_scaling_exponent", "type": "float", "required": True, "group": "Rewards",
+                "hint": "damps how much a low-level monster's gold grows when lifted to the cap (0.5 = square root "
+                        "of the stat lift), so early delves don't out-earn late ones",
+            },
+            {
+                "name": "gear_value_per_tier", "type": "float", "required": True, "group": "Rewards",
+                "hint": "extra sell value per tier for All In gear (0.2 = +20% per tier)",
+            },
+            {
+                "name": "affixes_per_tier", "type": "int", "required": True, "min": 0, "group": "Gear Rolls",
+                "hint": "random bonus stat rolls an All In drop gets per tier (1 = tier 3 gear has 3 rolls)",
+            },
+            {
+                "name": "affix_budget_fraction", "type": "float", "required": True, "group": "Gear Rolls",
+                "hint": "size of one bonus roll, as a fraction of the item level's stat budget (rarity-scaled)",
+            },
+            {
+                "name": "affix_roll_min", "type": "float", "required": True, "group": "Gear Rolls",
+                "hint": "low end of a roll, as a fraction of the size above (0.5 = a roll lands between half and full)",
+            },
+            {"name": "affix_roll_max", "type": "float", "required": True, "group": "Gear Rolls",
+             "hint": "high end of a roll (1.0 = full size)"},
+            {"name": "affix_weight_hp", "type": "float", "required": True, "group": "Gear Rolls",
+             "hint": "relative chance a roll is HP"},
+            {"name": "affix_weight_atk", "type": "float", "required": True, "group": "Gear Rolls"},
+            {"name": "affix_weight_def", "type": "float", "required": True, "group": "Gear Rolls"},
+            {"name": "affix_weight_spatk", "type": "float", "required": True, "group": "Gear Rolls"},
+            {
+                "name": "affix_weight_speed", "type": "float", "required": True, "group": "Gear Rolls",
+                "hint": "keep this low -- speed compounds. At most one speed roll per item, capped below",
+            },
+            {
+                "name": "speed_affix_max", "type": "int", "required": True, "min": 0, "group": "Gear Rolls",
+                "hint": "largest speed bonus a single item can roll",
             },
         ],
     },

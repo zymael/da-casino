@@ -5,6 +5,7 @@ import re
 import discord
 
 import achievements
+import all_in
 import db
 import dungeon
 import dungeon_render
@@ -157,7 +158,9 @@ def _apply_vs_monster_debuffs(instance: "MonsterInstance", equipped_item_ids) ->
     instance.speed_debuff = _capped_speed_debuff(instance, debuffs.get("speed", 0))
 
 
-def _roll_monster_instances(room: dict, equipped_item_ids=()) -> tuple[list[MonsterInstance], str | None]:
+def _roll_monster_instances(
+    room: dict, equipped_item_ids=(), all_in_tier: int = 0,
+) -> tuple[list[MonsterInstance], str | None]:
     """Rolls a fresh monster group for this combat room and returns (instances, group_next) --
     group_next is that group's own optional "next" override (dungeon.pick_monster_group), which the
     caller stores on the session so it can win over the room's own "next" once combat ends (see
@@ -178,9 +181,14 @@ def _roll_monster_instances(room: dict, equipped_item_ids=()) -> tuple[list[Mons
     still gets extra turns over a long fight, it just never gets a free hit before the player's
     first move). Party has no equivalent -- multiple players already blunt a single ambush hit's
     impact the way one squishy solo player can't, and see PARTY_EXTRA_MONSTER_MIN_SIZE for the
-    party-specific balance lever instead."""
+    party-specific balance lever instead.
+
+    `all_in_tier` > 0 spawns All In scaled copies (all_in.scale_monster) instead of the authored
+    monsters."""
     group = dungeon.pick_monster_group(room)
-    instances = [MonsterInstance(m, slot) for slot, m in enumerate(group["monsters"])]
+    instances = [
+        MonsterInstance(all_in.scale_monster(m, all_in_tier), slot) for slot, m in enumerate(group["monsters"])
+    ]
     for instance in instances:
         _apply_vs_monster_debuffs(instance, equipped_item_ids)
         instance.turn_clock = dungeon.turn_interval(max(1, instance.speed - instance.speed_debuff))
@@ -190,10 +198,12 @@ def _roll_monster_instances(room: dict, equipped_item_ids=()) -> tuple[list[Mons
 class DelveSession:
     def __init__(
         self, guild_id: int, user_id: int, character: dict, equipped: dict[str, str], delve: dict,
-        housing_stat_bonuses: dict | None = None,
+        housing_stat_bonuses: dict | None = None, all_in_tier: int = 0,
     ):
         self.guild_id = guild_id
         self.user_id = user_id
+        # 0 for a normal run, otherwise the All In tier every monster spawn and gear drop scales to.
+        self.all_in_tier = all_in_tier
         self.main_class = character["main_class"]
         self.subclass = character["subclass"]
         self.level = character["level"]
@@ -249,7 +259,9 @@ class DelveSession:
         self.monsters: list[MonsterInstance] = []
         self.group_next_override: str | None = None
         if start_room["type"] == "combat":
-            self.monsters, self.group_next_override = _roll_monster_instances(start_room, self.equipped.values())
+            self.monsters, self.group_next_override = _roll_monster_instances(
+                start_room, self.equipped.values(), self.all_in_tier,
+            )
         self.current_target_slot = 0
         self.max_chips = dungeon.compute_stats(self.main_class, self.subclass)["chips"]
         self.chips = self.max_chips
@@ -357,9 +369,13 @@ class PartyLobby:
     started flag on one combined class) so combat-only fields (monster, turn_clock, ...) never
     exist in a half-initialized state during the join phase."""
 
-    def __init__(self, guild_id: int, leader_id: int, leader_name: str, leader_character: dict, delve: dict):
+    def __init__(
+        self, guild_id: int, leader_id: int, leader_name: str, leader_character: dict, delve: dict,
+        all_in_tier: int = 0,
+    ):
         self.guild_id = guild_id
         self.leader_id = leader_id
+        self.all_in_tier = all_in_tier
         self.leader_character = leader_character
         self.delve = delve
         self.member_ids: list[int] = [leader_id]  # join order, leader always first
@@ -375,9 +391,10 @@ class PartyDelveSession:
     """Combat state for a party delve, built the moment the leader clicks Start Delve. members[0]
     is always the leader; turn order otherwise follows join order."""
 
-    def __init__(self, guild_id: int, delve: dict, members: list[PartyMember]):
+    def __init__(self, guild_id: int, delve: dict, members: list[PartyMember], all_in_tier: int = 0):
         self.guild_id = guild_id
         self.delve = delve
+        self.all_in_tier = all_in_tier  # see DelveSession.all_in_tier
         self.rooms_by_id = dungeon.rooms_by_id(delve)
         self.members = members
         self.members_by_id = {m.user_id: m for m in members}
@@ -484,6 +501,7 @@ class PartyDelveSession:
             extra_monster_id = group.get("party_extra_monster")
             if extra_monster_id and living_count >= dungeon.PARTY_EXTRA_MONSTER_MIN_SIZE:
                 spawn_monsters.append(dungeon.MONSTERS[extra_monster_id])
+            spawn_monsters = [all_in.scale_monster(m, self.all_in_tier) for m in spawn_monsters]
             self.monsters = []
             for slot, monster in enumerate(spawn_monsters):
                 instance = MonsterInstance(monster, slot)
@@ -576,7 +594,7 @@ def _solo_turn_order_cards(session: DelveSession) -> list[dict]:
     ]
 
 
-def _apply_room_header(embed: discord.Embed, room: dict) -> None:
+def _apply_room_header(embed: discord.Embed, room: dict, all_in_tier: int = 0) -> None:
     """Stamps a combat embed with which room this fight is in -- just the room id, in the footer,
     on every _combat_embed/_party_combat_embed rebuild. Does NOT also repeat the room's own
     "prompt" here: that's shown once, up top, by _combat_intro_text at room-entry (ahead of monster
@@ -584,8 +602,10 @@ def _apply_room_header(embed: discord.Embed, room: dict) -> None:
     description, so stashing the prompt in a field here would either duplicate it on entry or
     require suppressing it there, and either way it'd render below monster flavor instead of
     before it). The prompt scrolling out of the log after the first action (same as monster flavor
-    already does) is the accepted tradeoff for that ordering."""
-    embed.set_footer(text=f"📍 {room['id']}")
+    already does) is the accepted tradeoff for that ordering. An All In run also names its tier
+    here, so it's on screen for the whole fight."""
+    tier_suffix = f" · ♠️ All In {all_in_tier}" if all_in_tier else ""
+    embed.set_footer(text=f"📍 {room['id']}{tier_suffix}")
 
 
 def _room_image_file(render_result: tuple, basename: str = "room") -> tuple[discord.File, str]:
@@ -618,9 +638,11 @@ async def _combat_embed(
 ) -> tuple[discord.Embed, discord.File]:
     living = session.living_monsters()
     title = f"🗡️ {living[0].monster['name']}" if len(living) == 1 else "🗡️ Combat"
+    if session.all_in_tier:
+        title = f"♠️ All In {session.all_in_tier} · {title}"
     embed = discord.Embed(title=title, description=log_text, color=discord.Color.dark_red())
     room = session.rooms_by_id[session.current_room_id]
-    _apply_room_header(embed, room)
+    _apply_room_header(embed, room, session.all_in_tier)
     embed.add_field(
         name=f"{session.display_name} (You)",
         value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(session.hp, 0)}/{session.max_hp}\n🪙 Chips {session.chips}/{session.max_chips}",
@@ -703,6 +725,7 @@ def _cost_item_registry(item_kind: str) -> dict:
 
 async def _apply_outcome_rewards(
     guild_id: int, user_id: int, actor, outcome: dict, log_lines: list[str], *, label: str | None = None,
+    all_in_tier: int = 0,
 ) -> None:
     """Applies an outcome's optional currency_delta and item give/take -- hp_delta is handled by
     each caller itself, alongside the knockout/HP-cap logic that differs between solo and party.
@@ -731,9 +754,19 @@ async def _apply_outcome_rewards(
             # Equipment has its own table rather than the generic inventory, so it can't go through
             # add_inventory_item -- same store-don't-equip call _award_kill uses for a dropped item,
             # leaving the actual swap to !equipment. Loader guarantees a positive qty here.
-            await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, item_id, item_qty)
-            qty_prefix = f"{item_qty}x " if item_qty > 1 else ""
-            log_lines.append(f"⚔️ {subject} {'get' + s} **{qty_prefix}{item_name}**, stored in `!equipment`.")
+            if all_in_tier:
+                # Every All In copy rolls its own bonuses, so each one is its own item id.
+                for _ in range(item_qty):
+                    rolled_id = all_in.roll_item_id(item_id, all_in_tier)
+                    await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, rolled_id)
+                    log_lines.append(
+                        f"⚔️ {subject} {'get' + s} **{dungeon.EQUIPMENT[rolled_id]['name']}** "
+                        f"(item level {all_in.all_in_level()}), stored in `!equipment`."
+                    )
+            else:
+                await asyncio.to_thread(db.store_equipment_item, guild_id, user_id, item_id, item_qty)
+                qty_prefix = f"{item_qty}x " if item_qty > 1 else ""
+                log_lines.append(f"⚔️ {subject} {'get' + s} **{qty_prefix}{item_name}**, stored in `!equipment`.")
         elif item_qty > 0:
             await asyncio.to_thread(db.add_inventory_item, guild_id, user_id, item_id, item_qty)
             log_lines.append(f"{subject} {'find' + s} **{item_qty}x {item_name}**.")
@@ -973,7 +1006,9 @@ async def _goto_room(interaction: discord.Interaction, session: DelveSession, ro
     session.rooms_visited += 1
     room = session.rooms_by_id[room_id]
     if room["type"] == "combat":
-        session.monsters, session.group_next_override = _roll_monster_instances(room, session.equipped.values())
+        session.monsters, session.group_next_override = _roll_monster_instances(
+            room, session.equipped.values(), session.all_in_tier,
+        )
         session.current_target_slot = 0
         session.used_item_effects = set()
         session.turn_clock = 0.0  # fresh fight -- chips are delve-scoped, not reset here (see __init__)
@@ -1039,7 +1074,9 @@ async def _handle_choice_action(
         verb = "recover" if hp_delta > 0 else "take"
         log_lines.append(f"You {verb} **{abs(hp_delta)}** HP.")
 
-    await _apply_outcome_rewards(session.guild_id, session.user_id, session, outcome, log_lines)
+    await _apply_outcome_rewards(
+        session.guild_id, session.user_id, session, outcome, log_lines, all_in_tier=session.all_in_tier,
+    )
 
     if session.hp <= 0:
         currency = db.get_currency_name(session.guild_id)
@@ -1060,6 +1097,9 @@ async def _handle_choice_action(
         balance = await asyncio.to_thread(db.update_balance, session.guild_id, session.user_id, session.loot_total)
         await asyncio.to_thread(db.set_current_hp, session.guild_id, session.user_id, session.hp)
         _cleanup(session)
+        log_lines.extend(await _record_delve_clear(session.guild_id, session.delve, session.all_in_tier, [
+            (session.user_id, session.display_name, session.level),
+        ]))
         embed = discord.Embed(
             title="🏆 Victory!",
             description="\n".join(log_lines) + f"\n\nYou've cleared the dungeon! Balance: **{balance}** {currency}.",
@@ -1687,9 +1727,38 @@ _LEGENDARY_PIECE_OF_SHIT_USER_ID = 319966284848693250
 _LEGENDARY_PIECE_OF_SHIT_FLAG = "legendary_piece_of_shit_dropped"
 
 
+async def _record_delve_clear(
+    guild_id: int, delve: dict, all_in_tier: int, clearers: list[tuple[int, str, int]],
+) -> list[str]:
+    """Advances each clearer's All In progress flag for this delve (all_in.progress_after_clear --
+    a normal clear unlocks All In 1, clearing tier N unlocks N+1 for anyone who had N unlocked
+    themselves) and returns the unlock announcement lines. `clearers` is
+    [(user_id, display_name, level)]. Called at every "cleared the dungeon" ending, solo and party."""
+    key = all_in.progress_flag_key(delve["id"])
+    lines = []
+    for user_id, name, level in clearers:
+        old = await asyncio.to_thread(db.get_flag, guild_id, user_id, key)
+        new = all_in.progress_after_clear(old, all_in_tier)
+        if new != old:
+            await asyncio.to_thread(db.set_flag, guild_id, user_id, key, new)
+        line = all_in.unlock_line(name, old, new, level)
+        if line:
+            lines.append(line)
+    return lines
+
+
+async def _record_party_delve_clear(session: "PartyDelveSession") -> list[str]:
+    """Party sibling of _record_delve_clear -- every member counts, knocked out or not, the same
+    way every member is paid out at a party clear."""
+    return await _record_delve_clear(
+        session.guild_id, session.delve, session.all_in_tier,
+        [(m.user_id, m.label, m.level) for m in session.members],
+    )
+
+
 async def _award_kill(
     guild_id: int, monster: dict, actor, room_id: str, log_lines: list[str],
-    *, loot_mult: float, chance_mult: float,
+    *, loot_mult: float, chance_mult: float, all_in_tier: int = 0,
 ):
     """Shared kill-reward logic for a solo delve (actor=the DelveSession itself) or a party delve
     (actor=one PartyMember): credits, XP (applying any level-up's stat growth to `actor`
@@ -1742,7 +1811,14 @@ async def _award_kill(
     gated_monster = {**monster, "drops": eligible_drops}
     for dropped in dungeon.roll_drops(gated_monster, chance_mult):
         kind = dropped["_drop_kind"]
-        if kind == "equipment":
+        if kind == "equipment" and all_in_tier:
+            rolled_id = all_in.roll_item_id(dropped["id"], all_in_tier)
+            await asyncio.to_thread(db.store_equipment_item, guild_id, actor.user_id, rolled_id)
+            log_lines.append(
+                f"⚔️ Found **{dungeon.EQUIPMENT[rolled_id]['name']}** (item level {all_in.all_in_level()}) "
+                f"— stored in `!equipment`."
+            )
+        elif kind == "equipment":
             await asyncio.to_thread(db.store_equipment_item, guild_id, actor.user_id, dropped["id"])
             log_lines.append(f"⚔️ Found **{dropped['name']}** — stored in `!equipment`.")
         elif kind == "material":
@@ -2748,6 +2824,7 @@ async def _advance_solo_turns(
             await _award_kill(
                 session.guild_id, monster.monster, session, session.current_room_id, log_lines,
                 loot_mult=session.loot_mult * player_moon_mult, chance_mult=1.0,
+                all_in_tier=session.all_in_tier,
             )
             continue  # never got to act this turn -- loop re-checks living_monsters() at the top
         if monster_cc_type is not None:
@@ -2825,6 +2902,7 @@ async def _resolve_combat_turn(
             await _award_kill(
                 session.guild_id, target.monster, session, session.current_room_id, log_lines,
                 loot_mult=session.loot_mult * player_moon_mult, chance_mult=1.0,
+                all_in_tier=session.all_in_tier,
             )
     if hit_monsters and not session.living_monsters():
         await _present_room_result(interaction, session, log_lines)
@@ -2901,6 +2979,11 @@ async def _present_room_result(interaction: discord.Interaction, session: DelveS
         balance = await asyncio.to_thread(db.update_balance, session.guild_id, session.user_id, session.loot_total)
         await asyncio.to_thread(db.set_current_hp, session.guild_id, session.user_id, session.hp)
         _cleanup(session)
+        unlocks = await _record_delve_clear(session.guild_id, session.delve, session.all_in_tier, [
+            (session.user_id, session.display_name, session.level),
+        ])
+        if unlocks:
+            embed.description += "\n" + "\n".join(unlocks)
         embed.description += f"\n\nYou've cleared the dungeon! Balance: **{balance}** {currency}."
         await _edit_response(interaction, embed=embed, attachments=[], view=None)
         return
@@ -2944,8 +3027,10 @@ async def _party_combat_embed(
 ) -> tuple[discord.Embed, discord.File]:
     living_monsters = session.living_monsters()
     title = f"🗡️ {living_monsters[0].monster['name']}" if len(living_monsters) == 1 else "🗡️ Combat"
+    if session.all_in_tier:
+        title = f"♠️ All In {session.all_in_tier} · {title}"
     embed = discord.Embed(title=title, description=log_text, color=discord.Color.dark_red())
-    _apply_room_header(embed, session.rooms_by_id[session.current_room_id])
+    _apply_room_header(embed, session.rooms_by_id[session.current_room_id], session.all_in_tier)
     for m in session.members:
         if m.knocked_out:
             status = "💀 Knocked out"
@@ -3134,7 +3219,7 @@ async def _advance_party_turns(
                 loot_mult = m.loot_mult * share_mult * player_moon_mult
                 await _award_kill(
                     session.guild_id, monster.monster, m, session.current_room_id, member_log,
-                    loot_mult=loot_mult, chance_mult=chance_mult,
+                    loot_mult=loot_mult, chance_mult=chance_mult, all_in_tier=session.all_in_tier,
                 )
                 log_lines.append(f"**{m.label}**")
                 log_lines.extend(f"> {line}" for line in member_log)
@@ -3255,7 +3340,7 @@ async def _resolve_party_turn(
                 loot_mult = m.loot_mult * share_mult * player_moon_mult
                 await _award_kill(
                     session.guild_id, target.monster, m, session.current_room_id, member_log,
-                    loot_mult=loot_mult, chance_mult=chance_mult,
+                    loot_mult=loot_mult, chance_mult=chance_mult, all_in_tier=session.all_in_tier,
                 )
                 log_lines.append(f"**{m.label}**")
                 log_lines.extend(f"> {line}" for line in member_log)
@@ -3750,7 +3835,10 @@ async def _resolve_party_choice_action(
             if loot_mult != 1.0:
                 # max(1, ...) so a 1-unit payout never reads as "you won and got nothing".
                 share = {**outcome, "item_qty": max(1, round(outcome["item_qty"] * loot_mult))}
-        await _apply_outcome_rewards(session.guild_id, target.user_id, target, share, log_lines, label=target.label)
+        await _apply_outcome_rewards(
+            session.guild_id, target.user_id, target, share, log_lines, label=target.label,
+            all_in_tier=session.all_in_tier,
+        )
 
     for target in hp_targets:
         if target.hp <= 0 and not target.knocked_out:
@@ -3780,6 +3868,7 @@ async def _resolve_party_choice_action(
             await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
             payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
         _cleanup(session)
+        log_lines.extend(await _record_party_delve_clear(session))
         embed = discord.Embed(
             title="🏆 Victory!",
             description="\n".join(log_lines) + "\n\nThe party has cleared the dungeon!\n" + "\n".join(payouts),
@@ -4087,6 +4176,7 @@ async def _resolve_roulette(
             await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
             payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
         _cleanup(session)
+        log_lines.extend(await _record_party_delve_clear(session))
         embed = discord.Embed(
             title="🏆 Victory!",
             description="\n".join(log_lines) + "\n\nThe party has cleared the dungeon!\n" + "\n".join(payouts),
@@ -4196,6 +4286,9 @@ async def _present_party_room_result(
             await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
             payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
         _cleanup(session)
+        unlocks = await _record_party_delve_clear(session)
+        if unlocks:
+            embed.description += "\n" + "\n".join(unlocks)
         embed.description += "\n\nThe party has cleared the dungeon!\n" + "\n".join(payouts)
         await _send_party_update(interaction, session, embed, None, None)
         return
@@ -4225,10 +4318,12 @@ def _build_lobby_embed(lobby: PartyLobby) -> discord.Embed:
             f"Anyone can **Join** for free (no energy cost) — only {lobby.member_names[lobby.leader_id]} "
             f"spends energy, and only once they click Start Delve."
         )
+    tier_note = f"\n\n{all_in.tier_summary(lobby.all_in_tier)}" if lobby.all_in_tier else ""
+    tier_title = f" · ♠️ All In {lobby.all_in_tier}" if lobby.all_in_tier else ""
     embed = discord.Embed(
-        title=f"👥 Party Forming — {delve['name']}",
-        description=f"*{delve['flavor']}*\n\n{len(delve['rooms'])} rooms.\n\n{energy_note}",
-        color=discord.Color.blurple(),
+        title=f"👥 Party Forming — {delve['name']}{tier_title}",
+        description=f"*{delve['flavor']}*\n\n{len(delve['rooms'])} rooms.{tier_note}\n\n{energy_note}",
+        color=discord.Color.dark_purple() if lobby.all_in_tier else discord.Color.blurple(),
     )
     embed.add_field(name=f"Party ({len(lobby.member_ids)}/{_party_size_cap(delve)})", value="\n".join(roster_lines), inline=False)
     return embed
@@ -4376,8 +4471,8 @@ class PartyLobbyView(discord.ui.View):
                 housing_bonuses.get("stat_bonus", {}),
             ))
 
-        delve = await _full_moon_ambush(lobby.guild_id, lobby.leader_id, lobby.delve)
-        session = PartyDelveSession(lobby.guild_id, delve, members)
+        delve = await _full_moon_ambush(lobby.guild_id, lobby.leader_id, lobby.delve, lobby.all_in_tier)
+        session = PartyDelveSession(lobby.guild_id, delve, members, lobby.all_in_tier)
         for uid in lobby.member_ids:
             active_delves[uid] = session  # swap PartyLobby -> PartyDelveSession in place, ids stay registered throughout
         await _build_party_room_display(interaction, session)
@@ -5023,14 +5118,39 @@ class DelveModeChoiceView(discord.ui.View):
     are built around a real multi-person party and degrade to nonsense alone, so there's no solo
     path into one at all rather than a solo path that quietly plays worse."""
 
-    def __init__(self, guild_id: int, user_id: int, character: dict, delve: dict):
+    def __init__(
+        self, guild_id: int, user_id: int, character: dict, delve: dict,
+        all_in_max: int = 0, all_in_note: str | None = None,
+    ):
         super().__init__(timeout=120)
         self.guild_id = guild_id
         self.user_id = user_id
         self.character = character
         self.delve = delve
+        # All In: the chosen tier (0 = Normal) and the highest tier this player may pick here. The
+        # Mode select only exists once something is actually unlocked.
+        self.all_in_tier = 0
+        self.all_in_max = all_in_max
+        self.all_in_note = all_in_note
         if delve.get("raid"):
             self.remove_item(self.solo_button)
+        if all_in_max > 0:
+            self.add_item(AllInTierSelect(self))
+
+    def build_embed(self) -> discord.Embed:
+        delve = self.delve
+        lines = [f"*{delve['flavor']}*", f"{len(delve['rooms'])} rooms."]
+        if self.all_in_tier:
+            lines.append(all_in.tier_summary(self.all_in_tier))
+        elif self.all_in_note:
+            lines.append(self.all_in_note)
+        lines.append("Delve alone, or start a party others can join for free (no energy cost to join).")
+        title_suffix = f" · ♠️ All In {self.all_in_tier}" if self.all_in_tier else ""
+        return discord.Embed(
+            title=f"🗡️ {delve['name']}{title_suffix}",
+            description="\n\n".join(lines),
+            color=discord.Color.dark_purple() if self.all_in_tier else discord.Color.blurple(),
+        )
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -5047,8 +5167,8 @@ class DelveModeChoiceView(discord.ui.View):
         if not has_energy:
             await interaction.response.send_message("You're out of energy — run `!rest` to refill it.", ephemeral=True)
             return
-        delve = await _full_moon_ambush(self.guild_id, self.user_id, self.delve)
-        session = await _new_delve_session(self.guild_id, self.user_id, self.character, delve)
+        delve = await _full_moon_ambush(self.guild_id, self.user_id, self.delve, self.all_in_tier)
+        session = await _new_delve_session(self.guild_id, self.user_id, self.character, delve, self.all_in_tier)
         try:
             await _build_room_display(interaction, session)
         except Exception:
@@ -5065,7 +5185,10 @@ class DelveModeChoiceView(discord.ui.View):
         if self.user_id in active_delves:
             await interaction.response.send_message("You're already tied up in a delve — finish or leave it first.", ephemeral=True)
             return
-        lobby = PartyLobby(self.guild_id, self.user_id, interaction.user.display_name, self.character, self.delve)
+        lobby = PartyLobby(
+            self.guild_id, self.user_id, interaction.user.display_name, self.character, self.delve,
+            self.all_in_tier,
+        )
         active_delves[self.user_id] = lobby
         busy_players.add(self.user_id)
         view = PartyLobbyView(lobby)
@@ -5078,24 +5201,53 @@ class DelveModeChoiceView(discord.ui.View):
         self.stop()
 
 
+class AllInTierSelect(discord.ui.Select):
+    """The Mode dropdown on DelveModeChoiceView: Normal, or any All In tier this player has
+    unlocked for this delve. Part of !delve's own flow (not a room), so it's the command presenting
+    its own picker, per CLAUDE.md's rooms rule."""
+
+    def __init__(self, choice_view: "DelveModeChoiceView"):
+        options = [discord.SelectOption(label="Normal", value="0", default=True)]
+        for tier in range(1, choice_view.all_in_max + 1):
+            options.append(discord.SelectOption(
+                label=f"All In {tier}", value=str(tier), emoji="♠️",
+                description=f"Level {all_in.all_in_level()} monsters, harder each tier, better loot",
+            ))
+        super().__init__(placeholder="Mode...", options=options, row=1)
+        self.choice_view = choice_view
+
+    async def callback(self, interaction: discord.Interaction):
+        self.choice_view.all_in_tier = int(self.values[0])
+        for option in self.options:
+            option.default = option.value == self.values[0]
+        await interaction.response.edit_message(embed=self.choice_view.build_embed(), view=self.choice_view)
+
+
 async def build_mode_choice_display(
     guild_id: int, user_id: int, character: dict, delve: dict,
 ) -> tuple[discord.Embed, DelveModeChoiceView]:
-    embed = discord.Embed(
-        title=f"🗡️ {delve['name']}",
-        description=f"*{delve['flavor']}*\n\n{len(delve['rooms'])} rooms.\n\n"
-        f"Delve alone, or start a party others can join for free (no energy cost to join).",
-        color=discord.Color.blurple(),
-    )
-    return embed, DelveModeChoiceView(guild_id, user_id, character, delve)
+    progress = await asyncio.to_thread(db.get_flag, guild_id, user_id, all_in.progress_flag_key(delve["id"]))
+    all_in_max = all_in.available_tier(character["level"], progress)
+    cap = all_in.all_in_level()
+    if all_in_max:
+        note = f"♠️ **All In** unlocked up to tier {all_in_max}. Pick a Mode below."
+    elif progress and character["level"] < cap:
+        note = f"♠️ **All In** is unlocked for this delve. Enter it once you reach level {cap}."
+    elif character["level"] >= cap:
+        note = "♠️ Clear this delve once to unlock **All In**."
+    else:
+        note = None
+    view = DelveModeChoiceView(guild_id, user_id, character, delve, all_in_max, note)
+    return view.build_embed(), view
 
 
-async def _full_moon_ambush(guild_id: int, user_id: int, delve: dict) -> dict:
+async def _full_moon_ambush(guild_id: int, user_id: int, delve: dict, all_in_tier: int = 0) -> dict:
     """The delve that actually starts: usually `delve`, but on a full moon an Abomination (Curse at
     necromancy.ALPHA_CURSE) has necromancy.ALPHA_CHANCE of getting Da Alpha's delve instead. Called
-    after energy is spent, so the swap costs what the original would have. Raids are never swapped."""
+    after energy is spent, so the swap costs what the original would have. Raids and All In runs
+    are never swapped."""
     alpha = dungeon.DELVES.get(necromancy.ALPHA_DELVE_ID)
-    if alpha is None or delve.get("raid") or delve is alpha:
+    if alpha is None or delve.get("raid") or delve is alpha or all_in_tier:
         return delve
     if moon.current_phase()[0] != "full_moon" or random.random() >= necromancy.ALPHA_CHANCE:
         return delve
@@ -5103,14 +5255,18 @@ async def _full_moon_ambush(guild_id: int, user_id: int, delve: dict) -> dict:
     return alpha if curse >= necromancy.ALPHA_CURSE else delve
 
 
-async def _new_delve_session(guild_id: int, user_id: int, character: dict, delve: dict) -> DelveSession:
+async def _new_delve_session(
+    guild_id: int, user_id: int, character: dict, delve: dict, all_in_tier: int = 0,
+) -> DelveSession:
     """Session construction + active_delves/busy_players registration for a solo delve -- shared
     by DelveModeChoiceView's Solo Delve button regardless of whether it's editing the mode-choice
     message in place or (via DelvePickerView -> DelveConfirmButton -> this same choice) a message
     that started life as the multi-delve picker."""
     equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
     housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, guild_id, user_id)
-    session = DelveSession(guild_id, user_id, character, equipped, delve, housing_bonuses.get("stat_bonus", {}))
+    session = DelveSession(
+        guild_id, user_id, character, equipped, delve, housing_bonuses.get("stat_bonus", {}), all_in_tier,
+    )
     active_delves[session.user_id] = session
     busy_players.add(session.user_id)
     return session

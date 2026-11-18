@@ -1746,10 +1746,45 @@ def vs_monster_debuffs(equipped_item_ids, monster_id: str) -> dict[str, int]:
     return totals
 
 
+class EquipmentRegistry(dict):
+    """dungeon.EQUIPMENT's type: a plain {id: entry} dict of the authored items, which additionally
+    resolves All In item ids (all_in.py -- `<base_id>@ai<tier>...`) on lookup without ever storing
+    them. Indexing, .get() and `in` all see an All In id; iteration, len() and .items() only ever
+    see authored items, so shops, admin lists, drop tables and validators are unaffected. That is
+    what lets every existing `EQUIPMENT[item_id]` call site (inventory, sell, combat, character
+    sheet) handle All In gear with no change. Derived items are cached per registry instance, and
+    an admin-panel hot reload builds a fresh instance (via _load_equipment), so a base item edit is
+    picked up immediately."""
+
+    def _derived(self, key):
+        if not isinstance(key, str) or "@" not in key:
+            return None
+        cache = self.__dict__.setdefault("_derived_cache", {})
+        if key not in cache:
+            import all_in  # deferred: all_in imports dungeon at module level
+            cache[key] = all_in.derive_item(key, self)
+        return cache[key]
+
+    def __missing__(self, key):
+        derived = self._derived(key)
+        if derived is None:
+            raise KeyError(key)
+        return derived
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def __contains__(self, key):
+        return dict.__contains__(self, key) or self._derived(key) is not None
+
+
 def _load_equipment(path: str = _EQUIPMENT_PATH) -> dict[str, dict]:
     with open(path) as f:
         raw = json.load(f)
-    equipment: dict[str, dict] = {}
+    equipment: dict[str, dict] = EquipmentRegistry()
     for entry in raw:
         entry_id = entry.get("id", "?")
         missing = _REQUIRED_EQUIPMENT_FIELDS - entry.keys()
@@ -1757,6 +1792,8 @@ def _load_equipment(path: str = _EQUIPMENT_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} missing field(s): {sorted(missing)}")
         if entry_id in equipment:
             raise ValueError(f"dungeon_equipment.json: duplicate item id {entry_id!r}")
+        if "@" in entry_id:
+            raise ValueError(f"dungeon_equipment.json: item id {entry_id!r} can't contain '@' (reserved for All In gear)")
         if entry["slot"] not in EQUIPMENT_SLOTS:
             raise ValueError(f"dungeon_equipment.json: item {entry_id!r} has unknown slot {entry['slot']!r}")
         if entry["rarity"] not in EQUIPMENT_RARITIES:

@@ -130,6 +130,23 @@ argument-collection UI; `GameSelect` still only ever invokes an existing command
 as every plain room button. Don't add a third use of this hook without a similarly hard reason —
 it's meant to stay rare.
 
+## All In mode (`all_in.py`/`dungeon_all_in.json`)
+
+Any delve can be replayed at an "All In" tier: monsters scaled to the level cap and harder per
+tier, more gold, and gear stamped with an item level plus random bonus rolls. Nothing is baked into
+delve/monster/equipment JSON. Everything derives live from the base content, the tier, and the cap
+(`all_in.all_in_level()` = Leveling's `subclass_max_level`), so raising the cap needs no code change.
+
+- **Gear is encoded in its item id**, not a new table: `<base>@ai<tier>.L<level>.<stat><n>-...`.
+  `dungeon.EQUIPMENT` is a `dungeon.EquipmentRegistry` (a dict subclass) that resolves those ids on
+  `[]`/`.get()`/`in` but never stores them, so iteration still only sees authored items. Keep using
+  `dungeon.EQUIPMENT[item_id]` everywhere and never assume an equipped/stored id is a key in
+  `dungeon_equipment.json`. Authored ids may not contain `@`.
+- **Progress** is the flag `allin:<delve_id>` = highest tier cleared + 1 (normal clear = tier 0).
+  Entering needs the level cap. Party carries get loot but not keys.
+- **Speed is never multiplied**: monsters get a small flat lift with a ceiling, base gear speed
+  isn't scaled, and gear rolls at most one small speed bonus.
+
 ## Operational
 
 - The bot runs under systemd as `da-casino-bot.service`. Restart via `sudo systemctl restart
