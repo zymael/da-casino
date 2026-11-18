@@ -2075,6 +2075,12 @@ DODGE_CAP = 0.5
 SPEED_DODGE_WEIGHT = 1.0
 SPEED_DODGE_CAP = 20
 
+# Monster-only scale on the dodge/resist curve above (players are unaffected). The shared curve
+# made late-game monsters (DEF/Magic 50-60 plus capped Speed) whiff ~20-25% of player hits and
+# debuffs, which read as too much; 0.6 brings the Pizza Palace's ~18-22% down to ~11-13% while
+# early monsters barely move. Applies before any dodge_buff/resist_buff bonus, which stays flat.
+MONSTER_AVOID_MULTIPLIER = 0.6
+
 # A heal_fraction effect's own authored "value" is its floor, not its final number -- the caster's
 # own SpAtk scales it up from there (dungeon_view._effect_heal_fraction), capped at
 # HEAL_FRACTION_CAP (1.0 -- a literal full heal). Gives healing an actual progression curve tied to
@@ -2086,13 +2092,17 @@ HEAL_SPATK_WEIGHT = 0.007
 HEAL_FRACTION_CAP = 1.0
 
 
-def dodge_chance(defense: int, speed: int = 0) -> float:
+def dodge_chance(defense: int, speed: int = 0, *, monster: bool = False) -> float:
     """Chance to completely avoid an attack, given the defender's own DEF (Dodge) or Magic/spatk
     (Resist) -- same formula either way, just fed a different stat by the caller -- plus a smaller,
     separately-capped bonus from their Speed (see SPEED_DODGE_WEIGHT/SPEED_DODGE_CAP). `speed`
-    defaults to 0 (no bonus) for a caller that only wants the pure DEF/Magic number."""
+    defaults to 0 (no bonus) for a caller that only wants the pure DEF/Magic number. `monster`
+    scales the result by MONSTER_AVOID_MULTIPLIER."""
     effective = defense + min(SPEED_DODGE_CAP, max(0, speed) * SPEED_DODGE_WEIGHT)
-    return min(DODGE_CAP, effective / (effective + DODGE_K))
+    chance = effective / (effective + DODGE_K)
+    if monster:
+        chance *= MONSTER_AVOID_MULTIPLIER
+    return min(DODGE_CAP, chance)
 
 
 def roll_loot(monster: dict, loot_mult: float = 1.0) -> int:

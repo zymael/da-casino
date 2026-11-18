@@ -313,14 +313,14 @@ def _take_turn(state: dict, ranked: list[dict], hp_fraction: float | None = None
     affordable = [s for s in ranked if s["chip_cost"] <= state["chips"]]
     skill = affordable[0] if affordable else None
     if skill is None:
-        if random.random() < dungeon.dodge_chance(state["def_"]):
+        if random.random() < dungeon.dodge_chance(state["def_"], monster=True):
             return damage
         return damage + dungeon.roll_damage(state["atk"], state["def_"], 1.0)
 
     state["chips"] -= skill["chip_cost"]
     is_special = skill.get("special", False)
-    dodged = random.random() < dungeon.dodge_chance(state["def_"])
-    resisted = random.random() < dungeon.dodge_chance(state["target_spatk"])
+    dodged = random.random() < dungeon.dodge_chance(state["def_"], monster=True)
+    resisted = random.random() < dungeon.dodge_chance(state["target_spatk"], monster=True)
 
     multiplier, extras, is_dmg = 1.0, [], False
     for effect in dungeon.resolve_cast_effects(skill):

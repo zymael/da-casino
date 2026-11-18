@@ -2397,7 +2397,8 @@ def _defended_dodge_chance(defender, use_resist: bool) -> float:
     buff_type = "resist_buff" if use_resist else "dodge_buff"
     bonus = next((e["value"] for e in defender.timed_effects if e["type"] == buff_type), 0)
     speed = max(0, defender.speed - defender.speed_debuff)
-    return min(dungeon.DODGE_CAP, dungeon.dodge_chance(defense, speed) + bonus)
+    is_monster = isinstance(defender, MonsterInstance)
+    return min(dungeon.DODGE_CAP, dungeon.dodge_chance(defense, speed, monster=is_monster) + bonus)
 
 
 def _resist_line(entity) -> str:
