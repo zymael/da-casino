@@ -1176,10 +1176,10 @@
   {
     "id": "pizza_cultist",
     "name": "Pizza Cultist",
-    "hp": 70,
-    "atk": 42,
+    "hp": 60,
+    "atk": 36,
     "def": 34,
-    "spatk": 30,
+    "spatk": 26,
     "spd": 20,
     "intended_level": 28,
     "shape": "triangle",
@@ -1231,9 +1231,9 @@
   {
     "id": "dough_thrall",
     "name": "Dough Thrall",
-    "hp": 110,
-    "atk": 34,
-    "def": 50,
+    "hp": 95,
+    "atk": 29,
+    "def": 44,
     "spatk": 26,
     "spd": 10,
     "intended_level": 30,
@@ -1285,10 +1285,10 @@
   {
     "id": "shift_manager",
     "name": "The Shift Manager",
-    "hp": 90,
-    "atk": 56,
+    "hp": 78,
+    "atk": 48,
     "def": 38,
-    "spatk": 48,
+    "spatk": 41,
     "spd": 22,
     "intended_level": 32,
     "shape": "pentagon",
@@ -1333,7 +1333,7 @@
         "effects": [
           {
             "type": "damage_multiplier",
-            "value": 1.6
+            "value": 1.4
           }
         ],
         "flavor": "\"That's not something we do here.\" The ancient building groans in agrees with him as you are beset on all sides by eldrich tendrils of mozzarella cheese."
@@ -1356,10 +1356,10 @@
   {
     "id": "da_big_cheese",
     "name": "Da Big Cheeze",
-    "hp": 200,
-    "atk": 62,
+    "hp": 170,
+    "atk": 54,
     "def": 48,
-    "spatk": 42,
+    "spatk": 36,
     "spd": 28,
     "intended_level": 36,
     "shape": "rectangle",
@@ -1408,7 +1408,7 @@
     "skills": [
       {
         "name": "The Birthday Song",
-        "chance": 0.3,
+        "chance": 0.2,
         "special": true,
         "effects": [
           {
@@ -1448,10 +1448,10 @@
   {
     "id": "old_god_pizza",
     "name": "The Number 5 at the Threshold",
-    "hp": 300,
-    "atk": 78,
-    "def": 58,
-    "spatk": 70,
+    "hp": 250,
+    "atk": 66,
+    "def": 50,
+    "spatk": 60,
     "spd": 24,
     "intended_level": 40,
     "shape": "circle",
@@ -1529,7 +1529,7 @@
         "effects": [
           {
             "type": "def_shred",
-            "value": 7
+            "value": 5
           },
           {
             "type": "speed_debuff",
@@ -1540,12 +1540,12 @@
       },
       {
         "name": "The House Always Eats",
-        "chance": 0.8,
+        "chance": 0.5,
         "special": true,
         "effects": [
           {
             "type": "lifesteal_fraction",
-            "value": 0.5
+            "value": 0.35
           }
         ],
         "flavor": "It takes its cut. It has always taken its cut. Half of whatever it just took off you bubbles back up somewhere across the room unpleasantly."
