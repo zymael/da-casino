@@ -167,6 +167,8 @@
       }
     },
     "start_room": "Coat Check",
+    "boss_room": "The Back Office",
+    "all_in_difficulty": 1.15,
     "background_path": "assets/dungeon/backgrounds/goblin_disco_copy.jpg"
   },
   {
@@ -545,6 +547,8 @@
       }
     },
     "start_room": "The Sewer",
+    "boss_room": "The Bog of Z'Goolok",
+    "all_in_difficulty": 0.95,
     "background_path": "assets/dungeon/backgrounds/gnome_bathhouse.jpg"
   },
   {
@@ -1372,6 +1376,7 @@
       }
     },
     "start_room": "The Host Stand",
+    "boss_room": "Old God Pizza",
     "hidden_until_discovered": true,
     "unlock_trigger": {
       "type": "achievement",

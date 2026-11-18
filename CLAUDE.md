@@ -143,11 +143,21 @@ delve/monster/equipment JSON. Everything derives live from the base content, the
   `dungeon.EQUIPMENT[item_id]` everywhere and never assume an equipped/stored id is a key in
   `dungeon_equipment.json`. Authored ids may not contain `@`.
 - **Progress** is the flag `allin:<delve_id>` = highest tier cleared + 1 (normal clear = tier 0).
+  A "clear" is winning the delve's optional `boss_room` fight (so alternate endings that skip the
+  real boss don't count), or reaching any ending if the delve has no `boss_room`
+  (`dungeon_view._counts_as_clear`).
   Entering needs the level cap. You can only join a party at a tier you've unlocked, and every
   member who clears it unlocks the next one. The high tiers are tuned around parties: All In
-  parties get a per-member drop-chance bonus (and every party, All In or not, pays every member a
+  party monsters get +`party_monster_power_per_member` HP and ATK/Magic per extra living member
+  (on top of the usual party HP scaling), and All In parties get a per-member drop-chance bonus (and every party, All In or not, pays every member a
   full share -- `dungeon_view._party_share_mults`).
-- **Speed is never multiplied**: monsters get a small flat lift with a ceiling, base gear speed
+- **Every delve is evened out**: `all_in.delve_factor` scales each delve so its boss fight is as
+  tough as the benchmark delve's (`benchmark_delve`, Pizza), measured by toughness x offense x
+  speed, times the delve's own optional `all_in_difficulty` (hand-tuned via the party sim:
+  Disco 1.15, Bathhouse 0.95). From `extra_monster_start_tier` every fight gets extra monsters
+  (`all_in.extra_monsters`): bosses get the delve's trash, never a second boss.
+- **Speed is never scaled**: player speed doesn't grow with level, so All In monsters keep their
+  authored speed (only ceilinged by `monster_speed_max`), base gear speed
   isn't scaled, and gear rolls at most one small speed bonus.
 
 ## Operational

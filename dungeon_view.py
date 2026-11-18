@@ -158,8 +158,24 @@ def _apply_vs_monster_debuffs(instance: "MonsterInstance", equipped_item_ids) ->
     instance.speed_debuff = _capped_speed_debuff(instance, debuffs.get("speed", 0))
 
 
+def _all_in_spawn(
+    delve: dict | None, room: dict, group_monsters: list[dict], all_in_tier: int, party_extras: list[dict] = (),
+) -> list[dict]:
+    """The monster dicts one fight actually spawns: `group_monsters` (+ a party's `party_extras`)
+    as-is for a normal run, or for All In, plus that tier's extra monsters (all_in.extra_monsters,
+    picked from the authored group only, so a party extra never makes a lone boss look like a
+    trash pack) and all of them scaled (all_in.scale_monster, with this delve's evening-out
+    factor). Shared by solo and party."""
+    base = list(group_monsters) + list(party_extras)
+    if not all_in_tier or delve is None:
+        return base
+    monsters = base + all_in.extra_monsters(delve, room, list(group_monsters), all_in_tier)
+    factor = all_in.delve_factor(delve)
+    return [all_in.scale_monster(m, all_in_tier, factor) for m in monsters]
+
+
 def _roll_monster_instances(
-    room: dict, equipped_item_ids=(), all_in_tier: int = 0,
+    room: dict, equipped_item_ids=(), all_in_tier: int = 0, delve: dict | None = None,
 ) -> tuple[list[MonsterInstance], str | None]:
     """Rolls a fresh monster group for this combat room and returns (instances, group_next) --
     group_next is that group's own optional "next" override (dungeon.pick_monster_group), which the
@@ -183,11 +199,12 @@ def _roll_monster_instances(
     impact the way one squishy solo player can't, and see PARTY_EXTRA_MONSTER_MIN_SIZE for the
     party-specific balance lever instead.
 
-    `all_in_tier` > 0 spawns All In scaled copies (all_in.scale_monster) instead of the authored
-    monsters."""
+    `all_in_tier` > 0 (with `delve`) spawns All In's scaled monsters plus its extra ones instead of
+    the authored group (_all_in_spawn)."""
     group = dungeon.pick_monster_group(room)
     instances = [
-        MonsterInstance(all_in.scale_monster(m, all_in_tier), slot) for slot, m in enumerate(group["monsters"])
+        MonsterInstance(m, slot)
+        for slot, m in enumerate(_all_in_spawn(delve, room, group["monsters"], all_in_tier))
     ]
     for instance in instances:
         _apply_vs_monster_debuffs(instance, equipped_item_ids)
@@ -260,7 +277,7 @@ class DelveSession:
         self.group_next_override: str | None = None
         if start_room["type"] == "combat":
             self.monsters, self.group_next_override = _roll_monster_instances(
-                start_room, self.equipped.values(), self.all_in_tier,
+                start_room, self.equipped.values(), self.all_in_tier, self.delve,
             )
         self.current_target_slot = 0
         self.max_chips = dungeon.compute_stats(self.main_class, self.subclass)["chips"]
@@ -479,6 +496,7 @@ class PartyDelveSession:
         if room["type"] == "combat":
             living_count = len(self.living_members())
             mult = dungeon.party_hp_multiplier(living_count)
+            power = all_in.party_monster_mult(living_count) if self.all_in_tier else 1.0
             # Precomputed once per member, not per monster -- a member's constant-trigger taunt/
             # lower_threat gear doesn't depend on which monster it's seeding, just summed across
             # whatever they have equipped right now (dungeon.constant_threat_bonus). This is what
@@ -497,16 +515,18 @@ class PartyDelveSession:
             party_equipped_ids = [iid for m in self.members for iid in m.equipped.values()]
             group = dungeon.pick_monster_group(room)
             self.group_next_override = group.get("next")
-            spawn_monsters = list(group["monsters"])
+            party_extras = []
             extra_monster_id = group.get("party_extra_monster")
             if extra_monster_id and living_count >= dungeon.PARTY_EXTRA_MONSTER_MIN_SIZE:
-                spawn_monsters.append(dungeon.MONSTERS[extra_monster_id])
-            spawn_monsters = [all_in.scale_monster(m, self.all_in_tier) for m in spawn_monsters]
+                party_extras.append(dungeon.MONSTERS[extra_monster_id])
+            spawn_monsters = _all_in_spawn(self.delve, room, group["monsters"], self.all_in_tier, party_extras)
             self.monsters = []
             for slot, monster in enumerate(spawn_monsters):
                 instance = MonsterInstance(monster, slot)
-                instance.max_hp = round(monster["hp"] * mult)
+                instance.max_hp = round(monster["hp"] * mult * power)
                 instance.hp = instance.max_hp
+                instance.atk = round(instance.atk * power)
+                instance.spatk = round(instance.spatk * power)
                 for user_id, bonus in member_threat_bonuses.items():
                     if bonus:
                         instance.threat[user_id] = bonus
@@ -1007,7 +1027,7 @@ async def _goto_room(interaction: discord.Interaction, session: DelveSession, ro
     room = session.rooms_by_id[room_id]
     if room["type"] == "combat":
         session.monsters, session.group_next_override = _roll_monster_instances(
-            room, session.equipped.values(), session.all_in_tier,
+            room, session.equipped.values(), session.all_in_tier, session.delve,
         )
         session.current_target_slot = 0
         session.used_item_effects = set()
@@ -1097,9 +1117,11 @@ async def _handle_choice_action(
         balance = await asyncio.to_thread(db.update_balance, session.guild_id, session.user_id, session.loot_total)
         await asyncio.to_thread(db.set_current_hp, session.guild_id, session.user_id, session.hp)
         _cleanup(session)
-        log_lines.extend(await _record_delve_clear(session.guild_id, session.delve, session.all_in_tier, [
-            (session.user_id, session.display_name, session.level),
-        ]))
+        log_lines.extend(await _record_delve_clear(
+            session.guild_id, session.delve, session.all_in_tier,
+            [(session.user_id, session.display_name, session.level)],
+            room_id=session.current_room_id, is_ending=True,
+        ))
         embed = discord.Embed(
             title="🏆 Victory!",
             description="\n".join(log_lines) + f"\n\nYou've cleared the dungeon! Balance: **{balance}** {currency}.",
@@ -1727,13 +1749,27 @@ _LEGENDARY_PIECE_OF_SHIT_USER_ID = 319966284848693250
 _LEGENDARY_PIECE_OF_SHIT_FLAG = "legendary_piece_of_shit_dropped"
 
 
+def _counts_as_clear(delve: dict, room_id: str, is_ending: bool) -> bool:
+    """What "clearing" a delve means for All In unlocks. A delve with a `boss_room` (dungeon_delves
+    .json, set in the admin panel) only counts once that room's fight is won -- so an alternate
+    ending that skips the real boss (Pizza's Ritual Interrupted, the Bathhouse's Leather Daddy)
+    doesn't unlock anything, and beating the boss counts even if a choice room still follows it.
+    A delve without one counts any ending."""
+    boss_room = delve.get("boss_room")
+    return room_id == boss_room if boss_room else is_ending
+
+
 async def _record_delve_clear(
     guild_id: int, delve: dict, all_in_tier: int, clearers: list[tuple[int, str, int]],
+    *, room_id: str, is_ending: bool,
 ) -> list[str]:
-    """Advances each clearer's All In progress flag for this delve (all_in.progress_after_clear --
-    a normal clear unlocks All In 1, clearing tier N unlocks N+1 for everyone who cleared it,
-    carried party members included) and returns the unlock announcement lines. `clearers` is
-    [(user_id, display_name, level)]. Called at every "cleared the dungeon" ending, solo and party."""
+    """If finishing `room_id` counts as clearing this delve (_counts_as_clear), advances each
+    clearer's All In progress flag (all_in.progress_after_clear -- a normal clear unlocks All In 1,
+    clearing tier N unlocks N+1 for everyone who cleared it) and returns the unlock announcement
+    lines; otherwise returns []. `clearers` is [(user_id, display_name, level)]. Called at every
+    room-cleared screen and every delve ending, solo and party -- `is_ending` says which."""
+    if not _counts_as_clear(delve, room_id, is_ending):
+        return []
     key = all_in.progress_flag_key(delve["id"])
     lines = []
     for user_id, name, level in clearers:
@@ -1747,12 +1783,13 @@ async def _record_delve_clear(
     return lines
 
 
-async def _record_party_delve_clear(session: "PartyDelveSession") -> list[str]:
+async def _record_party_delve_clear(session: "PartyDelveSession", *, is_ending: bool) -> list[str]:
     """Party sibling of _record_delve_clear -- every member counts, knocked out or not, the same
     way every member is paid out at a party clear."""
     return await _record_delve_clear(
         session.guild_id, session.delve, session.all_in_tier,
         [(m.user_id, m.label, m.level) for m in session.members],
+        room_id=session.current_room_id, is_ending=is_ending,
     )
 
 
@@ -1805,8 +1842,13 @@ async def _award_kill(
 
     eligible_drops = [
         drop for drop in monster.get("drops", [])
-        if drop.get("requires") is None
-        or await quests.trigger_satisfied(guild_id, actor.user_id, drop["requires"])
+        # All In drops gear only: materials/consumables/housing/quest-item drops are noise at the
+        # level cap, and gear is the whole point of the mode.
+        if (not all_in_tier or drop["kind"] == "equipment")
+        and (
+            drop.get("requires") is None
+            or await quests.trigger_satisfied(guild_id, actor.user_id, drop["requires"])
+        )
     ]
     gated_monster = {**monster, "drops": eligible_drops}
     for dropped in dungeon.roll_drops(gated_monster, chance_mult):
@@ -2975,15 +3017,18 @@ async def _present_room_result(interaction: discord.Interaction, session: DelveS
     embed.add_field(name="Loot this delve", value=f"{session.loot_total} {currency}", inline=True)
     embed.add_field(name=dungeon.stat_label("hp"), value=f"{session.hp}/{session.max_hp}", inline=True)
 
+    unlocks = await _record_delve_clear(
+        session.guild_id, session.delve, session.all_in_tier,
+        [(session.user_id, session.display_name, session.level)],
+        room_id=session.current_room_id, is_ending=next_room is None,
+    )
+    if unlocks:
+        embed.description += "\n" + "\n".join(unlocks)
+
     if next_room is None:
         balance = await asyncio.to_thread(db.update_balance, session.guild_id, session.user_id, session.loot_total)
         await asyncio.to_thread(db.set_current_hp, session.guild_id, session.user_id, session.hp)
         _cleanup(session)
-        unlocks = await _record_delve_clear(session.guild_id, session.delve, session.all_in_tier, [
-            (session.user_id, session.display_name, session.level),
-        ])
-        if unlocks:
-            embed.description += "\n" + "\n".join(unlocks)
         embed.description += f"\n\nYou've cleared the dungeon! Balance: **{balance}** {currency}."
         await _edit_response(interaction, embed=embed, attachments=[], view=None)
         return
@@ -3868,7 +3913,7 @@ async def _resolve_party_choice_action(
             await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
             payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
         _cleanup(session)
-        log_lines.extend(await _record_party_delve_clear(session))
+        log_lines.extend(await _record_party_delve_clear(session, is_ending=True))
         embed = discord.Embed(
             title="🏆 Victory!",
             description="\n".join(log_lines) + "\n\nThe party has cleared the dungeon!\n" + "\n".join(payouts),
@@ -4176,7 +4221,7 @@ async def _resolve_roulette(
             await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
             payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
         _cleanup(session)
-        log_lines.extend(await _record_party_delve_clear(session))
+        log_lines.extend(await _record_party_delve_clear(session, is_ending=True))
         embed = discord.Embed(
             title="🏆 Victory!",
             description="\n".join(log_lines) + "\n\nThe party has cleared the dungeon!\n" + "\n".join(payouts),
@@ -4279,6 +4324,10 @@ async def _present_party_room_result(
         status = "💀 Knocked out" if m.knocked_out else f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}"
         embed.add_field(name=m.label, value=f"{status} — {m.loot_total} {currency} so far", inline=True)
 
+    unlocks = await _record_party_delve_clear(session, is_ending=next_room is None)
+    if unlocks:
+        embed.description += "\n" + "\n".join(unlocks)
+
     if next_room is None:
         payouts = []
         for m in session.members:
@@ -4286,9 +4335,6 @@ async def _present_party_room_result(
             await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
             payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
         _cleanup(session)
-        unlocks = await _record_party_delve_clear(session)
-        if unlocks:
-            embed.description += "\n" + "\n".join(unlocks)
         embed.description += "\n\nThe party has cleared the dungeon!\n" + "\n".join(payouts)
         await _send_party_update(interaction, session, embed, None, None)
         return

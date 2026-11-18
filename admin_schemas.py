@@ -766,6 +766,22 @@ CONTENT_TYPES = {
                 "hint": "highest All In tier. Clearing a delve normally unlocks tier 1; clearing tier N unlocks N+1",
             },
             {
+                "name": "benchmark_delve", "type": "str", "required": False, "group": "Tiers",
+                "hint": "delve id whose boss fight every other delve's All In is evened out to (each delve's "
+                        "monsters get scaled so its boss fight is as tough as this one's). Blank = no evening-out. "
+                        "Fine-tune a single delve with its own all_in_difficulty on the Delves page",
+            },
+            {
+                "name": "extra_monster_start_tier", "type": "int", "required": True, "min": 0, "group": "Monsters",
+                "hint": "first tier where every fight gets an extra monster (bosses get trash minions, never "
+                        "a second boss). Solo and party alike, which is what pushes the top tiers toward parties",
+            },
+            {
+                "name": "extra_monster_every_tiers", "type": "int", "required": True, "min": 1, "group": "Monsters",
+                "hint": "one more extra monster every this many tiers after the start (start 3, every 2 = "
+                        "tiers 3-4 get 1, tier 5 gets 2)",
+            },
+            {
                 "name": "monster_stat_per_tier", "type": "float", "required": True, "group": "Monsters",
                 "hint": "extra HP/ATK/DEF/Magic per tier on top of scaling to the cap (0.4 = +40% per tier). "
                         "Never applies to speed",
@@ -777,8 +793,8 @@ CONTENT_TYPES = {
             },
             {
                 "name": "monster_speed_max", "type": "int", "required": True, "min": 1, "group": "Monsters",
-                "hint": "ceiling on a scaled monster's speed. Monster speed only rises by a small flat amount "
-                        "when scaled; a monster already faster than this keeps its own speed",
+                "hint": "ceiling on any monster's speed in All In. Monster speed is otherwise never scaled "
+                        "(player speed doesn't grow with level), so this only slows down monsters above it",
             },
             {
                 "name": "gold_per_tier", "type": "float", "required": True, "group": "Rewards",
@@ -793,6 +809,12 @@ CONTENT_TYPES = {
                 "name": "party_drop_bonus_per_member", "type": "float", "required": True, "group": "Rewards",
                 "hint": "extra drop chance for everyone in an All In party, per member beyond the first "
                         "(0.15 = a party of 4 gets +45%). The high tiers are tuned around groups",
+            },
+            {
+                "name": "party_monster_power_per_member", "type": "float", "required": True, "group": "Monsters",
+                "hint": "makes All In party fights harder: monster HP and ATK/Magic go up this much per living "
+                        "member beyond the first (0.1 = a party of 3 faces +20%), on top of the normal party HP "
+                        "scaling",
             },
             {
                 "name": "gear_value_per_tier", "type": "float", "required": True, "group": "Rewards",
@@ -956,10 +978,20 @@ CONTENT_TYPES = {
             {
                 "name": "raid", "type": "bool", "required": False, "default": False, "group": "Identity",
                 "hint": "every party member pays their own energy when the leader clicks Start Delve "
-                        "(instead of only the leader paying), and kill loot splits evenly across every "
-                        "member (instead of leader 1.0x / everyone else 0.5x). Meant for a "
+                        "(instead of only the leader paying). Meant for a "
                         "max_party_size-raised raid delve, but independent of it -- a small raid stays "
                         "possible.",
+            },
+            {
+                "name": "boss_room", "type": "str", "required": False, "group": "Identity",
+                "hint": "room id of this delve's real final boss fight. Winning that fight is what counts "
+                        "as clearing the delve for All In unlocks, so endings that skip the boss don't "
+                        "count. Blank = reaching any ending counts. Must be a combat room in this delve.",
+            },
+            {
+                "name": "all_in_difficulty", "type": "float", "required": False, "group": "Identity",
+                "hint": "All In only: extra multiplier on this delve's monster stats and gold, on top of the "
+                        "automatic evening-out to the benchmark delve (All In Mode page). Blank = 1.0",
             },
             {
                 "name": "hidden_until_discovered", "type": "bool", "required": False, "default": False,
