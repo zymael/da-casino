@@ -143,6 +143,9 @@ delve/monster/equipment JSON. Everything derives live from the base content, the
   `dungeon.EQUIPMENT[item_id]` everywhere and never assume an equipped/stored id is a key in
   `dungeon_equipment.json`. Authored ids may not contain `@`.
 - **Progress** is the flag `allin:<delve_id>` = highest tier cleared + 1 (normal clear = tier 0).
+  A "clear" is winning the delve's optional `boss_room` fight (so alternate endings that skip the
+  real boss don't count), or reaching any ending if the delve has no `boss_room`
+  (`dungeon_view._counts_as_clear`).
   Entering needs the level cap. You can only join a party at a tier you've unlocked, and every
   member who clears it unlocks the next one. The high tiers are tuned around parties: All In
   parties get a per-member drop-chance bonus (and every party, All In or not, pays every member a

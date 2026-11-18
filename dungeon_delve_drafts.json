@@ -314,6 +314,7 @@
         "y": 289.0
       }
     },
-    "start_room": "The Sewer"
+    "start_room": "The Sewer",
+    "boss_room": "The Bog of Z'Goolok"
   }
 }

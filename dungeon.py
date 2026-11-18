@@ -622,6 +622,16 @@ def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
                 f"dungeon_delves.json: delve {entry_id!r} start_room {entry['start_room']!r} is not a room here"
             )
 
+        # Optional: the room whose fight counts as "clearing" this delve for All In unlocks (see
+        # dungeon_view._counts_as_clear). Must be a real combat room here.
+        boss_room = entry.get("boss_room")
+        if boss_room is not None:
+            boss = next((r for r in entry["rooms"] if r.get("id") == boss_room), None)
+            if boss is None or boss.get("type") != "combat":
+                raise ValueError(
+                    f"dungeon_delves.json: delve {entry_id!r} boss_room {boss_room!r} must be a combat room here"
+                )
+
         if "active" in entry and not isinstance(entry["active"], bool):
             raise ValueError(f"dungeon_delves.json: delve {entry_id!r} active must be true/false")
 
@@ -2557,6 +2567,11 @@ def check_delve_problems(entry: dict, other_ids: set[str]) -> list[dict]:
     start_room = entry.get("start_room")
     if start_room and start_room not in room_ids:
         add(f"start_room {start_room!r} is not a room here")
+    boss_room = entry.get("boss_room")
+    if boss_room:
+        boss = next((r for r in rooms if r.get("id") == boss_room), None)
+        if boss is None or boss.get("type") != "combat":
+            add(f"boss_room {boss_room!r} must be a combat room here")
 
     for room in rooms:
         room_id = room.get("id")

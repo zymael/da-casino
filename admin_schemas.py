@@ -956,10 +956,15 @@ CONTENT_TYPES = {
             {
                 "name": "raid", "type": "bool", "required": False, "default": False, "group": "Identity",
                 "hint": "every party member pays their own energy when the leader clicks Start Delve "
-                        "(instead of only the leader paying), and kill loot splits evenly across every "
-                        "member (instead of leader 1.0x / everyone else 0.5x). Meant for a "
+                        "(instead of only the leader paying). Meant for a "
                         "max_party_size-raised raid delve, but independent of it -- a small raid stays "
                         "possible.",
+            },
+            {
+                "name": "boss_room", "type": "str", "required": False, "group": "Identity",
+                "hint": "room id of this delve's real final boss fight. Winning that fight is what counts "
+                        "as clearing the delve for All In unlocks, so endings that skip the boss don't "
+                        "count. Blank = reaching any ending counts. Must be a combat room in this delve.",
             },
             {
                 "name": "hidden_until_discovered", "type": "bool", "required": False, "default": False,

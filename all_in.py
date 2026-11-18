@@ -157,7 +157,7 @@ def tier_summary(tier: int) -> str:
     return (
         f"♠️ **All In {tier}**: monsters scaled to level {level}, "
         f"+{round(s['monster_stat_per_tier'] * tier * 100)}% monster stats, "
-        f"+{round(s['gold_per_tier'] * tier * 100)}% gold. Gear drops at item level {level} "
+        f"+{round(s['gold_per_tier'] * tier * 100)}% gold. Monsters drop gear only, at item level {level} "
         f"with {rolls} random bonus roll{'s' if rolls != 1 else ''}. "
         f"Parties get +{round(s['party_drop_bonus_per_member'] * 100)}% drop chance per extra member."
     )

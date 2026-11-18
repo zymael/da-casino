@@ -1097,9 +1097,11 @@ async def _handle_choice_action(
         balance = await asyncio.to_thread(db.update_balance, session.guild_id, session.user_id, session.loot_total)
         await asyncio.to_thread(db.set_current_hp, session.guild_id, session.user_id, session.hp)
         _cleanup(session)
-        log_lines.extend(await _record_delve_clear(session.guild_id, session.delve, session.all_in_tier, [
-            (session.user_id, session.display_name, session.level),
-        ]))
+        log_lines.extend(await _record_delve_clear(
+            session.guild_id, session.delve, session.all_in_tier,
+            [(session.user_id, session.display_name, session.level)],
+            room_id=session.current_room_id, is_ending=True,
+        ))
         embed = discord.Embed(
             title="🏆 Victory!",
             description="\n".join(log_lines) + f"\n\nYou've cleared the dungeon! Balance: **{balance}** {currency}.",
@@ -1727,13 +1729,27 @@ _LEGENDARY_PIECE_OF_SHIT_USER_ID = 319966284848693250
 _LEGENDARY_PIECE_OF_SHIT_FLAG = "legendary_piece_of_shit_dropped"
 
 
+def _counts_as_clear(delve: dict, room_id: str, is_ending: bool) -> bool:
+    """What "clearing" a delve means for All In unlocks. A delve with a `boss_room` (dungeon_delves
+    .json, set in the admin panel) only counts once that room's fight is won -- so an alternate
+    ending that skips the real boss (Pizza's Ritual Interrupted, the Bathhouse's Leather Daddy)
+    doesn't unlock anything, and beating the boss counts even if a choice room still follows it.
+    A delve without one counts any ending."""
+    boss_room = delve.get("boss_room")
+    return room_id == boss_room if boss_room else is_ending
+
+
 async def _record_delve_clear(
     guild_id: int, delve: dict, all_in_tier: int, clearers: list[tuple[int, str, int]],
+    *, room_id: str, is_ending: bool,
 ) -> list[str]:
-    """Advances each clearer's All In progress flag for this delve (all_in.progress_after_clear --
-    a normal clear unlocks All In 1, clearing tier N unlocks N+1 for everyone who cleared it,
-    carried party members included) and returns the unlock announcement lines. `clearers` is
-    [(user_id, display_name, level)]. Called at every "cleared the dungeon" ending, solo and party."""
+    """If finishing `room_id` counts as clearing this delve (_counts_as_clear), advances each
+    clearer's All In progress flag (all_in.progress_after_clear -- a normal clear unlocks All In 1,
+    clearing tier N unlocks N+1 for everyone who cleared it) and returns the unlock announcement
+    lines; otherwise returns []. `clearers` is [(user_id, display_name, level)]. Called at every
+    room-cleared screen and every delve ending, solo and party -- `is_ending` says which."""
+    if not _counts_as_clear(delve, room_id, is_ending):
+        return []
     key = all_in.progress_flag_key(delve["id"])
     lines = []
     for user_id, name, level in clearers:
@@ -1747,12 +1763,13 @@ async def _record_delve_clear(
     return lines
 
 
-async def _record_party_delve_clear(session: "PartyDelveSession") -> list[str]:
+async def _record_party_delve_clear(session: "PartyDelveSession", *, is_ending: bool) -> list[str]:
     """Party sibling of _record_delve_clear -- every member counts, knocked out or not, the same
     way every member is paid out at a party clear."""
     return await _record_delve_clear(
         session.guild_id, session.delve, session.all_in_tier,
         [(m.user_id, m.label, m.level) for m in session.members],
+        room_id=session.current_room_id, is_ending=is_ending,
     )
 
 
@@ -1805,8 +1822,13 @@ async def _award_kill(
 
     eligible_drops = [
         drop for drop in monster.get("drops", [])
-        if drop.get("requires") is None
-        or await quests.trigger_satisfied(guild_id, actor.user_id, drop["requires"])
+        # All In drops gear only: materials/consumables/housing/quest-item drops are noise at the
+        # level cap, and gear is the whole point of the mode.
+        if (not all_in_tier or drop["kind"] == "equipment")
+        and (
+            drop.get("requires") is None
+            or await quests.trigger_satisfied(guild_id, actor.user_id, drop["requires"])
+        )
     ]
     gated_monster = {**monster, "drops": eligible_drops}
     for dropped in dungeon.roll_drops(gated_monster, chance_mult):
@@ -2975,15 +2997,18 @@ async def _present_room_result(interaction: discord.Interaction, session: DelveS
     embed.add_field(name="Loot this delve", value=f"{session.loot_total} {currency}", inline=True)
     embed.add_field(name=dungeon.stat_label("hp"), value=f"{session.hp}/{session.max_hp}", inline=True)
 
+    unlocks = await _record_delve_clear(
+        session.guild_id, session.delve, session.all_in_tier,
+        [(session.user_id, session.display_name, session.level)],
+        room_id=session.current_room_id, is_ending=next_room is None,
+    )
+    if unlocks:
+        embed.description += "\n" + "\n".join(unlocks)
+
     if next_room is None:
         balance = await asyncio.to_thread(db.update_balance, session.guild_id, session.user_id, session.loot_total)
         await asyncio.to_thread(db.set_current_hp, session.guild_id, session.user_id, session.hp)
         _cleanup(session)
-        unlocks = await _record_delve_clear(session.guild_id, session.delve, session.all_in_tier, [
-            (session.user_id, session.display_name, session.level),
-        ])
-        if unlocks:
-            embed.description += "\n" + "\n".join(unlocks)
         embed.description += f"\n\nYou've cleared the dungeon! Balance: **{balance}** {currency}."
         await _edit_response(interaction, embed=embed, attachments=[], view=None)
         return
@@ -3868,7 +3893,7 @@ async def _resolve_party_choice_action(
             await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
             payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
         _cleanup(session)
-        log_lines.extend(await _record_party_delve_clear(session))
+        log_lines.extend(await _record_party_delve_clear(session, is_ending=True))
         embed = discord.Embed(
             title="🏆 Victory!",
             description="\n".join(log_lines) + "\n\nThe party has cleared the dungeon!\n" + "\n".join(payouts),
@@ -4176,7 +4201,7 @@ async def _resolve_roulette(
             await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
             payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
         _cleanup(session)
-        log_lines.extend(await _record_party_delve_clear(session))
+        log_lines.extend(await _record_party_delve_clear(session, is_ending=True))
         embed = discord.Embed(
             title="🏆 Victory!",
             description="\n".join(log_lines) + "\n\nThe party has cleared the dungeon!\n" + "\n".join(payouts),
@@ -4279,6 +4304,10 @@ async def _present_party_room_result(
         status = "💀 Knocked out" if m.knocked_out else f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}"
         embed.add_field(name=m.label, value=f"{status} — {m.loot_total} {currency} so far", inline=True)
 
+    unlocks = await _record_party_delve_clear(session, is_ending=next_room is None)
+    if unlocks:
+        embed.description += "\n" + "\n".join(unlocks)
+
     if next_room is None:
         payouts = []
         for m in session.members:
@@ -4286,9 +4315,6 @@ async def _present_party_room_result(
             await asyncio.to_thread(db.set_current_hp, session.guild_id, m.user_id, m.hp)
             payouts.append(f"{m.label}: **{m.loot_total}** {currency} (balance **{balance}**)")
         _cleanup(session)
-        unlocks = await _record_party_delve_clear(session)
-        if unlocks:
-            embed.description += "\n" + "\n".join(unlocks)
         embed.description += "\n\nThe party has cleared the dungeon!\n" + "\n".join(payouts)
         await _send_party_update(interaction, session, embed, None, None)
         return
