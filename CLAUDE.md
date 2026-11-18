@@ -150,7 +150,13 @@ delve/monster/equipment JSON. Everything derives live from the base content, the
   member who clears it unlocks the next one. The high tiers are tuned around parties: All In
   parties get a per-member drop-chance bonus (and every party, All In or not, pays every member a
   full share -- `dungeon_view._party_share_mults`).
-- **Speed is never multiplied**: monsters get a small flat lift with a ceiling, base gear speed
+- **Every delve is evened out**: `all_in.delve_factor` scales each delve so its boss fight is as
+  tough as the benchmark delve's (`benchmark_delve`, Pizza), measured by toughness x offense x
+  speed, times the delve's own optional `all_in_difficulty` (hand-tuned via the party sim:
+  Disco 1.15, Bathhouse 0.95). From `extra_monster_start_tier` every fight gets extra monsters
+  (`all_in.extra_monsters`): bosses get the delve's trash, never a second boss.
+- **Speed is never scaled**: player speed doesn't grow with level, so All In monsters keep their
+  authored speed (only ceilinged by `monster_speed_max`), base gear speed
   isn't scaled, and gear rolls at most one small speed bonus.
 
 ## Operational

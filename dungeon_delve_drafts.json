@@ -315,6 +315,7 @@
       }
     },
     "start_room": "The Sewer",
-    "boss_room": "The Bog of Z'Goolok"
+    "boss_room": "The Bog of Z'Goolok",
+    "all_in_difficulty": 0.95
   }
 }

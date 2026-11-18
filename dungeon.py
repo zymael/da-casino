@@ -631,6 +631,10 @@ def _load_delves(path: str = _DELVES_PATH) -> dict[str, dict]:
                 raise ValueError(
                     f"dungeon_delves.json: delve {entry_id!r} boss_room {boss_room!r} must be a combat room here"
                 )
+        if "all_in_difficulty" in entry:
+            value = entry["all_in_difficulty"]
+            if not isinstance(value, (int, float)) or value <= 0:
+                raise ValueError(f"dungeon_delves.json: delve {entry_id!r} all_in_difficulty must be a number > 0")
 
         if "active" in entry and not isinstance(entry["active"], bool):
             raise ValueError(f"dungeon_delves.json: delve {entry_id!r} active must be true/false")

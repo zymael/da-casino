@@ -24,7 +24,7 @@ the base item's own authored stats (scaled from its intended level up to the sta
 are read live from dungeon_equipment.json.
 
 **Speed** is handled conservatively everywhere because it compounds (turn frequency is linear in
-speed): monster speed rises by a small flat amount instead of a multiplier, never per tier, and is
+speed): monster speed never scales at all (player speed doesn't grow with level either), only
 ceilinged at monster_speed_max; a base item's own speed_buff is never scaled up; a speed bonus roll
 is low-weight, capped at speed_affix_max, and at most one per item.
 """
@@ -57,14 +57,17 @@ _SCALED_ITEM_EFFECT_TYPES = {"hp_buff", "atk_buff", "def_buff", "spatk_buff"}
 # which are already level-independent.
 _SCALED_MONSTER_EFFECT_TYPES = {"def_shred", "atk_debuff", "spatk_debuff", "atk_buff", "def_buff", "spatk_buff", "dot"}
 
-_INT_FIELDS = {"max_tier", "monster_speed_max", "affixes_per_tier", "speed_affix_max"}
+_INT_FIELDS = {
+    "max_tier", "monster_speed_max", "affixes_per_tier", "speed_affix_max",
+    "extra_monster_start_tier", "extra_monster_every_tiers",
+}
 _FLOAT_FIELDS = {
     "monster_stat_per_tier", "monster_scaling_exponent", "gold_per_tier", "gold_scaling_exponent",
     "party_drop_bonus_per_member", "gear_value_per_tier", "affix_budget_fraction",
     "affix_roll_min", "affix_roll_max",
     "affix_weight_hp", "affix_weight_atk", "affix_weight_def", "affix_weight_spatk", "affix_weight_speed",
 }
-_REQUIRED_FIELDS = {"id"} | _INT_FIELDS | _FLOAT_FIELDS
+_REQUIRED_FIELDS = {"id"} | _INT_FIELDS | _FLOAT_FIELDS  # benchmark_delve is optional (blank = off)
 
 
 def _load_all_in(path: str = _ALL_IN_PATH) -> dict[str, dict]:
@@ -88,6 +91,10 @@ def _load_all_in(path: str = _ALL_IN_PATH) -> dict[str, dict]:
             raise ValueError("dungeon_all_in.json: affix_roll_min must be <= affix_roll_max")
         if not any(entry[f"affix_weight_{s}"] for s in AFFIX_STATS):
             raise ValueError("dungeon_all_in.json: at least one affix_weight_* must be > 0")
+        if entry["extra_monster_every_tiers"] < 1:
+            raise ValueError("dungeon_all_in.json: extra_monster_every_tiers must be >= 1")
+        if not isinstance(entry.get("benchmark_delve", ""), str):
+            raise ValueError("dungeon_all_in.json: benchmark_delve must be a delve id (or blank)")
         settings[entry_id] = entry
     if "global" not in settings:
         raise ValueError('dungeon_all_in.json: must contain an entry with id "global"')
@@ -154,23 +161,26 @@ def tier_summary(tier: int) -> str:
     s = settings()
     level = all_in_level()
     rolls = s["affixes_per_tier"] * tier
+    extra = extra_monster_count(tier)
+    extra_text = f"Every fight brings {extra} extra monster{'s' if extra != 1 else ''}. " if extra else ""
     return (
         f"♠️ **All In {tier}**: monsters scaled to level {level}, "
         f"+{round(s['monster_stat_per_tier'] * tier * 100)}% monster stats, "
-        f"+{round(s['gold_per_tier'] * tier * 100)}% gold. Monsters drop gear only, at item level {level} "
-        f"with {rolls} random bonus roll{'s' if rolls != 1 else ''}. "
+        f"+{round(s['gold_per_tier'] * tier * 100)}% gold. {extra_text}Monsters drop gear only, at item "
+        f"level {level} with {rolls} random bonus roll{'s' if rolls != 1 else ''}. "
         f"Parties get +{round(s['party_drop_bonus_per_member'] * 100)}% drop chance per extra member."
     )
 
 
 # --- Monsters ---------------------------------------------------------------------------------
 
-def scale_monster(monster: dict, tier: int) -> dict:
+def scale_monster(monster: dict, tier: int, delve_factor: float = 1.0) -> dict:
     """A scaled copy of `monster` for All In `tier` -- the shared content dict is never mutated.
     Stats are first lifted from the monster's own level to the cap along the same budget curves the
     admin panel's "Generate stats for level" uses (so a goblin keeps its goblin proportions, just
-    at level 40), then the per-tier multiplier goes on top. A monster already above the cap is never
-    scaled down."""
+    at level 40), then the per-tier multiplier goes on top, then `delve_factor` (delve_factor(),
+    which evens every delve's boss fight out to the benchmark's). A monster already above the cap
+    is never lifted down."""
     if tier <= 0:
         return monster
     s = settings()
@@ -184,13 +194,15 @@ def scale_monster(monster: dict, tier: int) -> dict:
     raw_special = dungeon._monster_special_budget(target) / dungeon._monster_special_budget(base_level)
     power = raw_power ** s["monster_scaling_exponent"]
     special = raw_special ** s["monster_scaling_exponent"]
-    tier_mult = 1 + s["monster_stat_per_tier"] * tier
-    gold_mult = raw_power ** s["gold_scaling_exponent"] * (1 + s["gold_per_tier"] * tier)
+    tier_mult = (1 + s["monster_stat_per_tier"] * tier) * delve_factor
+    # The delve factor scales gold too: a delve evened up to the benchmark's difficulty pays like it.
+    gold_mult = raw_power ** s["gold_scaling_exponent"] * (1 + s["gold_per_tier"] * tier) * delve_factor
 
-    # Speed: flat additive lift (never a multiplier, never per tier), ceilinged -- but a monster
-    # that was already faster than the ceiling keeps its own authored speed rather than slowing.
-    lifted = monster["spd"] + (dungeon._monster_speed_budget(target) - dungeon._monster_speed_budget(base_level))
-    speed = max(monster["spd"], min(round(lifted), s["monster_speed_max"]))
+    # Speed is NOT scaled to the cap at all: player speed is flat (class + gear, no level growth --
+    # see dungeon.compute_stats_at_level), so lifting a monster's speed with its level just hands it
+    # extra turns over the same player. An earlier flat lift tripled every goblin's speed (6 -> 22)
+    # against speed-5-to-18 players. Monsters keep their authored speed, only ceilinged.
+    speed = min(monster["spd"], s["monster_speed_max"])
 
     # Flat skill values grow by the square root of the stat lift: authored skill numbers don't
     # track the budget curve linearly (a level 5 shred of 2 vs a level 30 shred of 5), so the full
@@ -225,6 +237,125 @@ def scale_monster(monster: dict, tier: int) -> dict:
         "intended_level": round(target),
         "skills": skills,
     }
+
+
+# --- Per-delve evening-out and extra monsters --------------------------------------------------
+
+def _combat_rooms(delve: dict) -> list[dict]:
+    return [r for r in delve["rooms"] if r["type"] == "combat"]
+
+
+def _group_monsters(group: dict) -> list[dict]:
+    return [dungeon.MONSTERS[m] for m in group["monsters"]]
+
+
+def _fight_strength(monsters: list[dict], factor: float = 1.0) -> float:
+    """One fight's overall threat at All In 1 under `factor`: sqrt(how long it takes to chew
+    through the monsters x how hard they hit per unit time). Toughness is HP stretched by DEF's
+    damage mitigation (dungeon.DEF_MITIGATION_K, the same curve roll_damage uses); pressure is
+    each monster's offense (higher of ATK/Magic) times its speed, since a speed-24 boss acts four
+    times as often as a speed-6 goblin. Speed matters here -- a pure stat budget rates a pack of
+    slow goblins above the Old God, when they play far easier."""
+    k = dungeon.DEF_MITIGATION_K
+    toughness = pressure = 0.0
+    for m in monsters:
+        s = scale_monster(m, 1, factor)
+        toughness += s["hp"] * (k + s["def"]) / k
+        pressure += _offense(s) * max(1, s["spd"])
+    return math.sqrt(toughness * pressure)
+
+
+def _offense(monster: dict) -> float:
+    """A monster's average offense per action: ATK for its plain attack and non-special skills,
+    Magic for its "special" skills, weighted by how often dungeon.pick_monster_action picks each.
+    (Taking the higher of the two would rate a goblin by a Magic stat it never attacks with.)"""
+    attack_weight = monster.get("attack_chance", dungeon.DEFAULT_MONSTER_ATTACK_CHANCE)
+    skills = monster.get("skills", [])
+    total = attack_weight + sum(s["chance"] for s in skills)
+    if total <= 0:
+        return monster["atk"]
+    special = sum(s["chance"] for s in skills if s.get("special")) / total
+    return monster["atk"] * (1 - special) + monster["spatk"] * special
+
+
+def _room_strength(room: dict, factor: float = 1.0) -> float:
+    groups = room["monster_groups"]
+    return sum(_fight_strength(_group_monsters(g), factor) for g in groups) / len(groups)
+
+
+def boss_room_id(delve: dict) -> str | None:
+    """The delve's boss fight: its authored boss_room, else its strongest combat room."""
+    if delve.get("boss_room"):
+        return delve["boss_room"]
+    rooms = _combat_rooms(delve)
+    return max(rooms, key=_room_strength)["id"] if rooms else None
+
+
+def delve_factor(delve: dict) -> float:
+    """The stat (and gold) multiplier that evens this delve's All In difficulty out: its boss fight
+    is scaled to match the benchmark delve's boss fight (dungeon_all_in.json's benchmark_delve), so
+    every delve's All In N is about as hard as every other's, instead of each landing wherever its
+    own boss happened to be authored. Times the delve's own optional all_in_difficulty knob (admin
+    panel) for anything the automatic evening-out gets wrong. 1.0 if there's no usable benchmark."""
+    factor = 1.0
+    bench = dungeon.DELVES.get(settings().get("benchmark_delve", ""))
+    bench_room = boss_room_id(bench) if bench else None
+    own_room = boss_room_id(delve)
+    if bench_room and own_room and bench is not delve:
+        target = _room_strength(dungeon.rooms_by_id(bench)[bench_room])
+        room = dungeon.rooms_by_id(delve)[own_room]
+        # Strength rises monotonically with the factor (it scales HP/DEF/offense, never speed), but
+        # not linearly (DEF's mitigation curve), so solve for it rather than divide.
+        lo, hi = 0.1, 10.0
+        for _ in range(40):
+            mid = (lo + hi) / 2
+            if _room_strength(room, mid) < target:
+                lo = mid
+            else:
+                hi = mid
+        factor = (lo + hi) / 2
+    return factor * delve.get("all_in_difficulty", 1.0)
+
+
+def extra_monster_count(tier: int) -> int:
+    """How many extra monsters every All In fight gets at `tier` (0 below extra_monster_start_tier,
+    then one more every extra_monster_every_tiers tiers). Same for solo and party -- a solo player
+    eats every extra turn alone, which is the point."""
+    s = settings()
+    if tier < s["extra_monster_start_tier"]:
+        return 0
+    return 1 + (tier - s["extra_monster_start_tier"]) // s["extra_monster_every_tiers"]
+
+
+def trash_pool(delve: dict) -> list[dict]:
+    """This delve's trash monsters: anything that fights in a group of 2+ somewhere outside the boss
+    room. Single-monster groups are treated as (mini-)bosses, and the boss itself only ever fights
+    in the boss room, so neither ends up here -- but trash that also escorts the boss (Disco's
+    grunts and scavengers) does."""
+    boss_id = boss_room_id(delve)
+    pool: dict[str, dict] = {}
+    for room in _combat_rooms(delve):
+        if room["id"] == boss_id:
+            continue
+        for g in room["monster_groups"]:
+            if len(g["monsters"]) >= 2:
+                for m in g["monsters"]:
+                    pool[m] = dungeon.MONSTERS[m]
+    return list(pool.values())
+
+
+def extra_monsters(delve: dict, room: dict, group_monsters: list[dict], tier: int, rng=random) -> list[dict]:
+    """The extra (unscaled) monsters to add to one All In fight. A normal multi-monster fight
+    draws from its own monster mix; the boss fight and single-monster fights draw from the delve's
+    trash (trash_pool), so a boss gets minions, never a second boss."""
+    count = extra_monster_count(tier)
+    if not count:
+        return []
+    if room["id"] == boss_room_id(delve) or len(group_monsters) < 2:
+        pool = trash_pool(delve)
+    else:
+        pool = group_monsters
+    return [rng.choice(pool) for _ in range(count)] if pool else []
 
 
 # --- Gear -------------------------------------------------------------------------------------

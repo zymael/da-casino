@@ -158,8 +158,24 @@ def _apply_vs_monster_debuffs(instance: "MonsterInstance", equipped_item_ids) ->
     instance.speed_debuff = _capped_speed_debuff(instance, debuffs.get("speed", 0))
 
 
+def _all_in_spawn(
+    delve: dict | None, room: dict, group_monsters: list[dict], all_in_tier: int, party_extras: list[dict] = (),
+) -> list[dict]:
+    """The monster dicts one fight actually spawns: `group_monsters` (+ a party's `party_extras`)
+    as-is for a normal run, or for All In, plus that tier's extra monsters (all_in.extra_monsters,
+    picked from the authored group only, so a party extra never makes a lone boss look like a
+    trash pack) and all of them scaled (all_in.scale_monster, with this delve's evening-out
+    factor). Shared by solo and party."""
+    base = list(group_monsters) + list(party_extras)
+    if not all_in_tier or delve is None:
+        return base
+    monsters = base + all_in.extra_monsters(delve, room, list(group_monsters), all_in_tier)
+    factor = all_in.delve_factor(delve)
+    return [all_in.scale_monster(m, all_in_tier, factor) for m in monsters]
+
+
 def _roll_monster_instances(
-    room: dict, equipped_item_ids=(), all_in_tier: int = 0,
+    room: dict, equipped_item_ids=(), all_in_tier: int = 0, delve: dict | None = None,
 ) -> tuple[list[MonsterInstance], str | None]:
     """Rolls a fresh monster group for this combat room and returns (instances, group_next) --
     group_next is that group's own optional "next" override (dungeon.pick_monster_group), which the
@@ -183,11 +199,12 @@ def _roll_monster_instances(
     impact the way one squishy solo player can't, and see PARTY_EXTRA_MONSTER_MIN_SIZE for the
     party-specific balance lever instead.
 
-    `all_in_tier` > 0 spawns All In scaled copies (all_in.scale_monster) instead of the authored
-    monsters."""
+    `all_in_tier` > 0 (with `delve`) spawns All In's scaled monsters plus its extra ones instead of
+    the authored group (_all_in_spawn)."""
     group = dungeon.pick_monster_group(room)
     instances = [
-        MonsterInstance(all_in.scale_monster(m, all_in_tier), slot) for slot, m in enumerate(group["monsters"])
+        MonsterInstance(m, slot)
+        for slot, m in enumerate(_all_in_spawn(delve, room, group["monsters"], all_in_tier))
     ]
     for instance in instances:
         _apply_vs_monster_debuffs(instance, equipped_item_ids)
@@ -260,7 +277,7 @@ class DelveSession:
         self.group_next_override: str | None = None
         if start_room["type"] == "combat":
             self.monsters, self.group_next_override = _roll_monster_instances(
-                start_room, self.equipped.values(), self.all_in_tier,
+                start_room, self.equipped.values(), self.all_in_tier, self.delve,
             )
         self.current_target_slot = 0
         self.max_chips = dungeon.compute_stats(self.main_class, self.subclass)["chips"]
@@ -497,11 +514,11 @@ class PartyDelveSession:
             party_equipped_ids = [iid for m in self.members for iid in m.equipped.values()]
             group = dungeon.pick_monster_group(room)
             self.group_next_override = group.get("next")
-            spawn_monsters = list(group["monsters"])
+            party_extras = []
             extra_monster_id = group.get("party_extra_monster")
             if extra_monster_id and living_count >= dungeon.PARTY_EXTRA_MONSTER_MIN_SIZE:
-                spawn_monsters.append(dungeon.MONSTERS[extra_monster_id])
-            spawn_monsters = [all_in.scale_monster(m, self.all_in_tier) for m in spawn_monsters]
+                party_extras.append(dungeon.MONSTERS[extra_monster_id])
+            spawn_monsters = _all_in_spawn(self.delve, room, group["monsters"], self.all_in_tier, party_extras)
             self.monsters = []
             for slot, monster in enumerate(spawn_monsters):
                 instance = MonsterInstance(monster, slot)
@@ -1007,7 +1024,7 @@ async def _goto_room(interaction: discord.Interaction, session: DelveSession, ro
     room = session.rooms_by_id[room_id]
     if room["type"] == "combat":
         session.monsters, session.group_next_override = _roll_monster_instances(
-            room, session.equipped.values(), session.all_in_tier,
+            room, session.equipped.values(), session.all_in_tier, session.delve,
         )
         session.current_target_slot = 0
         session.used_item_effects = set()

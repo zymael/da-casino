@@ -167,6 +167,8 @@
       }
     },
     "start_room": "Coat Check",
+    "boss_room": "The Back Office",
+    "all_in_difficulty": 1.15,
     "background_path": "assets/dungeon/backgrounds/goblin_disco_copy.jpg"
   },
   {
@@ -546,6 +548,7 @@
     },
     "start_room": "The Sewer",
     "boss_room": "The Bog of Z'Goolok",
+    "all_in_difficulty": 0.95,
     "background_path": "assets/dungeon/backgrounds/gnome_bathhouse.jpg"
   },
   {

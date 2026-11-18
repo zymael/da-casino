@@ -2,6 +2,9 @@
   {
     "id": "global",
     "max_tier": 5,
+    "benchmark_delve": "pizza_parlor",
+    "extra_monster_start_tier": 3,
+    "extra_monster_every_tiers": 2,
     "monster_stat_per_tier": 0.4,
     "monster_scaling_exponent": 0.85,
     "monster_speed_max": 30,

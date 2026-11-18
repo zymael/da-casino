@@ -207,11 +207,16 @@ _GROUP_X_OFFSETS = {
     2: [-90, 90],
     3: [-150, 0, 150],
     4: [-180, -60, 60, 180],
+    # 5-6 only happen with All In's extra monsters on top of a party's own extra monster.
+    5: [-200, -100, 0, 100, 200],
+    6: [-210, -126, -42, 42, 126, 210],
 }
 
 
 def _sprite_height_for(count: int) -> int:
-    return SPRITE_HEIGHT if count <= 2 else round(SPRITE_HEIGHT * 0.75)
+    if count <= 2:
+        return SPRITE_HEIGHT
+    return round(SPRITE_HEIGHT * (0.75 if count <= 4 else 0.6))
 
 
 # --- Enemy attack animations ---------------------------------------------------------------------
