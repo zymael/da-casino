@@ -570,8 +570,7 @@ def _validate_action(action: dict, context: str) -> None:
             raise ValueError(f"{context}: {key} references unknown achievement {outcome['achievement_kind']!r}")
         # reward_all (optional bool): in a PARTY delve, hand this outcome's item/currency reward to
         # every living member rather than only whoever attempted the action -- each share scaled by
-        # dungeon_view._party_share_mults, so a raid splits evenly and a small party gives the
-        # leader full and joiners half. hp_delta is deliberately NOT spread: an arcade cabinet can
+        # dungeon_view._party_share_mults (currently a full share for every member). hp_delta is deliberately NOT spread: an arcade cabinet can
         # pay the whole group while a failed gamble still only hurts the member who took it. No
         # effect on a solo delve, which has one actor by definition.
         if "reward_all" in outcome and not isinstance(outcome["reward_all"], bool):

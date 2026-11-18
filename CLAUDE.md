@@ -143,7 +143,10 @@ delve/monster/equipment JSON. Everything derives live from the base content, the
   `dungeon.EQUIPMENT[item_id]` everywhere and never assume an equipped/stored id is a key in
   `dungeon_equipment.json`. Authored ids may not contain `@`.
 - **Progress** is the flag `allin:<delve_id>` = highest tier cleared + 1 (normal clear = tier 0).
-  Entering needs the level cap. Party carries get loot but not keys.
+  Entering needs the level cap. You can only join a party at a tier you've unlocked, and every
+  member who clears it unlocks the next one. The high tiers are tuned around parties: All In
+  parties get a per-member drop-chance bonus (and every party, All In or not, pays every member a
+  full share -- `dungeon_view._party_share_mults`).
 - **Speed is never multiplied**: monsters get a small flat lift with a ceiling, base gear speed
   isn't scaled, and gear rolls at most one small speed bonus.
 

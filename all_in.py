@@ -59,7 +59,8 @@ _SCALED_MONSTER_EFFECT_TYPES = {"def_shred", "atk_debuff", "spatk_debuff", "atk_
 
 _INT_FIELDS = {"max_tier", "monster_speed_max", "affixes_per_tier", "speed_affix_max"}
 _FLOAT_FIELDS = {
-    "monster_stat_per_tier", "monster_scaling_exponent", "gold_per_tier", "gold_scaling_exponent", "gear_value_per_tier", "affix_budget_fraction",
+    "monster_stat_per_tier", "monster_scaling_exponent", "gold_per_tier", "gold_scaling_exponent",
+    "party_drop_bonus_per_member", "gear_value_per_tier", "affix_budget_fraction",
     "affix_roll_min", "affix_roll_max",
     "affix_weight_hp", "affix_weight_atk", "affix_weight_def", "affix_weight_spatk", "affix_weight_speed",
 }
@@ -125,12 +126,10 @@ def available_tier(character_level: int, progress: int) -> int:
 
 
 def progress_after_clear(progress: int, tier: int) -> int:
-    """The progress flag's new value after clearing `tier` (0 = a normal clear). Only advances if
-    the player had that tier unlocked themselves -- a party carry hands out gear and gold, not
-    keys -- so keys are always earned by clearing your own previous tier."""
-    if tier == 0 or min(progress, max_tier()) >= tier:
-        return max(progress, tier + 1)
-    return progress
+    """The progress flag's new value after clearing `tier` (0 = a normal clear). Everyone who
+    clears a tier unlocks the next one, including party members who hadn't unlocked it themselves
+    (a carry earns the key too). Never moves progress backwards."""
+    return max(progress, tier + 1)
 
 
 def unlock_line(name: str, old: int, new: int, character_level: int) -> str | None:
@@ -145,6 +144,12 @@ def unlock_line(name: str, old: int, new: int, character_level: int) -> str | No
     return f"♠️ {name} unlocked **All In {new}** for this delve."
 
 
+def party_drop_mult(party_size: int) -> float:
+    """Drop-chance multiplier for every member of an All In party: +party_drop_bonus_per_member
+    for each member beyond the first, so the group-tuned high tiers reward grouping up."""
+    return 1 + settings()["party_drop_bonus_per_member"] * max(0, party_size - 1)
+
+
 def tier_summary(tier: int) -> str:
     s = settings()
     level = all_in_level()
@@ -153,7 +158,8 @@ def tier_summary(tier: int) -> str:
         f"♠️ **All In {tier}**: monsters scaled to level {level}, "
         f"+{round(s['monster_stat_per_tier'] * tier * 100)}% monster stats, "
         f"+{round(s['gold_per_tier'] * tier * 100)}% gold. Gear drops at item level {level} "
-        f"with {rolls} random bonus roll{'s' if rolls != 1 else ''}."
+        f"with {rolls} random bonus roll{'s' if rolls != 1 else ''}. "
+        f"Parties get +{round(s['party_drop_bonus_per_member'] * 100)}% drop chance per extra member."
     )
 
 

@@ -767,7 +767,7 @@ CONTENT_TYPES = {
             },
             {
                 "name": "monster_stat_per_tier", "type": "float", "required": True, "group": "Monsters",
-                "hint": "extra HP/ATK/DEF/Magic per tier on top of scaling to the cap (0.12 = +12% per tier). "
+                "hint": "extra HP/ATK/DEF/Magic per tier on top of scaling to the cap (0.4 = +40% per tier). "
                         "Never applies to speed",
             },
             {
@@ -788,6 +788,11 @@ CONTENT_TYPES = {
                 "name": "gold_scaling_exponent", "type": "float", "required": True, "group": "Rewards",
                 "hint": "damps how much a low-level monster's gold grows when lifted to the cap (0.5 = square root "
                         "of the stat lift), so early delves don't out-earn late ones",
+            },
+            {
+                "name": "party_drop_bonus_per_member", "type": "float", "required": True, "group": "Rewards",
+                "hint": "extra drop chance for everyone in an All In party, per member beyond the first "
+                        "(0.15 = a party of 4 gets +45%). The high tiers are tuned around groups",
             },
             {
                 "name": "gear_value_per_tier", "type": "float", "required": True, "group": "Rewards",

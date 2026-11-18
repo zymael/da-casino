@@ -1731,8 +1731,8 @@ async def _record_delve_clear(
     guild_id: int, delve: dict, all_in_tier: int, clearers: list[tuple[int, str, int]],
 ) -> list[str]:
     """Advances each clearer's All In progress flag for this delve (all_in.progress_after_clear --
-    a normal clear unlocks All In 1, clearing tier N unlocks N+1 for anyone who had N unlocked
-    themselves) and returns the unlock announcement lines. `clearers` is
+    a normal clear unlocks All In 1, clearing tier N unlocks N+1 for everyone who cleared it,
+    carried party members included) and returns the unlock announcement lines. `clearers` is
     [(user_id, display_name, level)]. Called at every "cleared the dungeon" ending, solo and party."""
     key = all_in.progress_flag_key(delve["id"])
     lines = []
@@ -1766,7 +1766,7 @@ async def _award_kill(
     survive deeper right then), drops (auto-equipping an upgrade, storing otherwise), quest
     kill-progress, and a quest-item roll. `loot_mult` scales the credit roll (as it always has --
     subclass loot bonus folded in by the caller); `chance_mult` separately scales drop chances --
-    both 1.0 for solo/a party leader, halved for a party joiner. Mutates `actor` in place and
+    both from _party_share_mults for a party member (1.0 for solo). Mutates `actor` in place and
     appends result lines to log_lines -- does NOT log "<monster> is defeated!" itself, since a
     party kill only says that once while every living member still gets their own reward lines;
     callers log that line themselves before calling this (once per kill, not once per actor)."""
@@ -3114,13 +3114,14 @@ async def _send_party_update(
 def _party_share_mults(session: PartyDelveSession, member: PartyMember) -> tuple[float, float]:
     """A party member's own (loot_mult, chance_mult) *party-share* factor for one kill's rewards --
     doesn't touch `member.loot_mult` (gear/buff-driven) or the moon event multiplier, both applied
-    by the caller on top of this. Equal shares for everyone in a raid delve (session.delve["raid"],
-    dungeon_delves.json) -- raid loot is meant to be split evenly across a whole organized group,
-    not skewed toward whoever happened to be leader. Leader 1.0x / everyone else 0.5x otherwise,
-    the original small-party convention."""
-    if session.delve.get("raid"):
-        return 1.0, 1.0
-    return (1.0, 1.0) if member.is_leader else (0.5, 0.5)
+    by the caller on top of this. Every member gets a full share of gold and full drop chances,
+    leader or not, so partying up never costs anyone loot (it used to be leader 1.0x / joiners
+    0.5x outside raids). All In parties go further: drop chances rise with party size
+    (all_in.party_drop_mult), since the high tiers are tuned around groups. `member` is unused now
+    but kept so a per-member rule can come back without touching every caller."""
+    if session.all_in_tier:
+        return 1.0, all_in.party_drop_mult(len(session.members))
+    return 1.0, 1.0
 
 
 async def _advance_party_turns(
@@ -3302,8 +3303,8 @@ async def _resolve_party_turn(
     `session.living_members()`, enemy-aoe expands to `session.living_monsters()`; a non-aoe
     ally-shaped effect lands on whichever living ally `member` currently has selected --
     session.ally_target_for, defaulting to themselves -- rather than always themselves), and on
-    each kill runs the party's independent-per-member reward loop (leader at full rate, joiners
-    halved -- see _award_kill). Advances `member`'s own turn_clock, then hands off to
+    each kill runs the party's independent-per-member reward loop (every member at a full share --
+    see _party_share_mults). Advances `member`'s own turn_clock, then hands off to
     _advance_party_turns for whatever happens next (automatic member/monster turns, in speed order,
     until some living member's own turn comes back around). `special` picks ATK vs. Magic for the
     damage roll's own output, same as _resolve_combat_turn; `is_plain_attack` forwards the same way
@@ -3826,10 +3827,9 @@ async def _resolve_party_choice_action(
 
     for target in reward_targets:
         share = outcome
-        # Scale a spread reward by the same party-share convention kills already use -- even
-        # across a raid, leader-full/joiner-half otherwise -- so bringing more people multiplies a
-        # payout without multiplying it by the full head count. Only when reward_all is what's
-        # spreading it: party_wide's existing "everyone gets the identical outcome" is untouched.
+        # Scale a spread reward by the same party-share convention kills use (currently a full
+        # share for everyone, see _party_share_mults). Only when reward_all is what's spreading
+        # it: party_wide's existing "everyone gets the identical outcome" is untouched.
         if outcome.get("reward_all") and not party_wide and outcome.get("item_qty"):
             loot_mult, _chance_mult = _party_share_mults(session, target)
             if loot_mult != 1.0:
@@ -4416,6 +4416,19 @@ class PartyLobbyView(discord.ui.View):
                 "You're too beat up to delve — run `!rest` to heal first.", ephemeral=True
             )
             return
+        if lobby.all_in_tier:
+            # You can only join an All In tier you've unlocked yourself (and can enter), so a carry
+            # moves someone up at most one tier per clear instead of skipping straight to the top.
+            progress = await asyncio.to_thread(
+                db.get_flag, lobby.guild_id, user_id, all_in.progress_flag_key(lobby.delve["id"]),
+            )
+            if all_in.available_tier(character["level"], progress) < lobby.all_in_tier:
+                await interaction.response.send_message(
+                    f"This party is running **All In {lobby.all_in_tier}**, which you haven't unlocked for "
+                    f"this delve (you need level {all_in.all_in_level()} and a clear of the tier below it).",
+                    ephemeral=True,
+                )
+                return
         lobby.member_ids.append(user_id)
         lobby.member_names[user_id] = interaction.user.display_name
         active_delves[user_id] = lobby
