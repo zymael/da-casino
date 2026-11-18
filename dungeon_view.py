@@ -496,6 +496,7 @@ class PartyDelveSession:
         if room["type"] == "combat":
             living_count = len(self.living_members())
             mult = dungeon.party_hp_multiplier(living_count)
+            power = all_in.party_monster_mult(living_count) if self.all_in_tier else 1.0
             # Precomputed once per member, not per monster -- a member's constant-trigger taunt/
             # lower_threat gear doesn't depend on which monster it's seeding, just summed across
             # whatever they have equipped right now (dungeon.constant_threat_bonus). This is what
@@ -522,8 +523,10 @@ class PartyDelveSession:
             self.monsters = []
             for slot, monster in enumerate(spawn_monsters):
                 instance = MonsterInstance(monster, slot)
-                instance.max_hp = round(monster["hp"] * mult)
+                instance.max_hp = round(monster["hp"] * mult * power)
                 instance.hp = instance.max_hp
+                instance.atk = round(instance.atk * power)
+                instance.spatk = round(instance.spatk * power)
                 for user_id, bonus in member_threat_bonuses.items():
                     if bonus:
                         instance.threat[user_id] = bonus

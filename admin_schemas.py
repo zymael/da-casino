@@ -811,6 +811,12 @@ CONTENT_TYPES = {
                         "(0.15 = a party of 4 gets +45%). The high tiers are tuned around groups",
             },
             {
+                "name": "party_monster_power_per_member", "type": "float", "required": True, "group": "Monsters",
+                "hint": "makes All In party fights harder: monster HP and ATK/Magic go up this much per living "
+                        "member beyond the first (0.1 = a party of 3 faces +20%), on top of the normal party HP "
+                        "scaling",
+            },
+            {
                 "name": "gear_value_per_tier", "type": "float", "required": True, "group": "Rewards",
                 "hint": "extra sell value per tier for All In gear (0.2 = +20% per tier)",
             },

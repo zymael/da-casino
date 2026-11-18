@@ -63,7 +63,7 @@ _INT_FIELDS = {
 }
 _FLOAT_FIELDS = {
     "monster_stat_per_tier", "monster_scaling_exponent", "gold_per_tier", "gold_scaling_exponent",
-    "party_drop_bonus_per_member", "gear_value_per_tier", "affix_budget_fraction",
+    "party_drop_bonus_per_member", "party_monster_power_per_member", "gear_value_per_tier", "affix_budget_fraction",
     "affix_roll_min", "affix_roll_max",
     "affix_weight_hp", "affix_weight_atk", "affix_weight_def", "affix_weight_spatk", "affix_weight_speed",
 }
@@ -155,6 +155,14 @@ def party_drop_mult(party_size: int) -> float:
     """Drop-chance multiplier for every member of an All In party: +party_drop_bonus_per_member
     for each member beyond the first, so the group-tuned high tiers reward grouping up."""
     return 1 + settings()["party_drop_bonus_per_member"] * max(0, party_size - 1)
+
+
+def party_monster_mult(party_size: int) -> float:
+    """HP and ATK/Magic multiplier for every monster in an All In party fight: +party_monster_
+    power_per_member for each living member beyond the first. Stacks on top of the HP scaling
+    every party fight already gets (dungeon.party_hp_multiplier), so groups stay favored at the
+    high tiers without walking through them."""
+    return 1 + settings()["party_monster_power_per_member"] * max(0, party_size - 1)
 
 
 def tier_summary(tier: int) -> str:

@@ -148,7 +148,8 @@ delve/monster/equipment JSON. Everything derives live from the base content, the
   (`dungeon_view._counts_as_clear`).
   Entering needs the level cap. You can only join a party at a tier you've unlocked, and every
   member who clears it unlocks the next one. The high tiers are tuned around parties: All In
-  parties get a per-member drop-chance bonus (and every party, All In or not, pays every member a
+  party monsters get +`party_monster_power_per_member` HP and ATK/Magic per extra living member
+  (on top of the usual party HP scaling), and All In parties get a per-member drop-chance bonus (and every party, All In or not, pays every member a
   full share -- `dungeon_view._party_share_mults`).
 - **Every delve is evened out**: `all_in.delve_factor` scales each delve so its boss fight is as
   tough as the benchmark delve's (`benchmark_delve`, Pizza), measured by toughness x offense x

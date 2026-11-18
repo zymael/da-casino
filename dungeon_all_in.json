@@ -11,6 +11,7 @@
     "gold_per_tier": 0.25,
     "gold_scaling_exponent": 0.5,
     "party_drop_bonus_per_member": 0.15,
+    "party_monster_power_per_member": 0.1,
     "gear_value_per_tier": 0.2,
     "affixes_per_tier": 1,
     "affix_budget_fraction": 0.3,
