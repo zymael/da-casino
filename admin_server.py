@@ -4361,6 +4361,29 @@ def _auto_commit_content_save(path: str, spec: dict) -> None:
         pass  # best-effort checkpoint only -- see docstring
 
 
+_DRAFT_COMMIT_DELAY = 30
+_draft_commit_tasks: dict[str, asyncio.Task] = {}
+
+
+def _schedule_draft_commit(spec: dict) -> None:
+    """Commits+pushes this draft/publish content type's drafts file once draft edits have gone
+    quiet for _DRAFT_COMMIT_DELAY seconds. Drafts are written by autosave (every ~2s of editing)
+    and by Publish's draft cleanup, neither of which goes through _write_and_validate's own
+    commit -- left alone they sat uncommitted in the working tree until a `git pull` refused to
+    overwrite them and blocked a deploy. Debounced so an editing session becomes one commit, not
+    one per autosave tick, and run off the event loop so a slow push never stalls a request."""
+    path = spec["draft_publish"]["drafts_path"]
+    pending = _draft_commit_tasks.get(path)
+    if pending is not None and not pending.done():
+        pending.cancel()
+
+    async def _commit_later() -> None:
+        await asyncio.sleep(_DRAFT_COMMIT_DELAY)
+        await asyncio.to_thread(_auto_commit_content_save, path, spec)
+
+    _draft_commit_tasks[path] = asyncio.create_task(_commit_later())
+
+
 def _write_and_validate(spec: dict, entries: list[dict]) -> str | None:
     """Writes `entries` to a temp file, validates by calling the real dungeon.py loader against
     it (plus any of this content type's own "extra_validators" -- see admin_schemas.py's "rooms"
@@ -5434,6 +5457,7 @@ async def flowchart_autosave_view(request: web.Request) -> web.Response:
         # The entry's own id was renamed mid-draft -- drop the stale draft filed under its old id
         # so it doesn't linger as an orphan now that everything's keyed by the new one.
         draft_publish["delete_draft"](item_id)
+    _schedule_draft_commit(spec)
 
     problems = draft_publish["check_problems"](new_entry, set(registry.keys()) - {new_id})
     return web.json_response({"ok": True, "id": new_id, "problems": problems})
@@ -5463,6 +5487,7 @@ async def flowchart_publish_view(request: web.Request) -> web.Response:
         if fatal_errors:
             raise web.HTTPFound(f"/edit/{content_type}/{item_id}?publish_error=1")
         draft_publish["save_draft"](draft)
+        _schedule_draft_commit(spec)
 
     new_id = draft.get("id", "").strip() or item_id
     entries = _load_raw_entries(spec)
@@ -5480,6 +5505,7 @@ async def flowchart_publish_view(request: web.Request) -> web.Response:
         draft_publish["delete_draft"](new_id)
         if new_id != item_id:
             draft_publish["delete_draft"](item_id)
+        _schedule_draft_commit(spec)
         raise web.HTTPFound(f"/edit/{content_type}/{new_id}?published=1")
     raise web.HTTPFound(f"/edit/{content_type}/{new_id}?publish_error=1")
 

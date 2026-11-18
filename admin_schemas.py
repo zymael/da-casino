@@ -956,6 +956,7 @@ CONTENT_TYPES = {
         "draft_publish": {
             "save_draft": dungeon.save_delve_draft, "load_drafts": dungeon.load_delve_drafts,
             "delete_draft": dungeon.delete_delve_draft, "check_problems": dungeon.check_delve_problems,
+            "drafts_path": dungeon._DELVE_DRAFTS_PATH,
         },
         "list_columns": ["id", "name", "active", "rooms"],
         "fields": [
@@ -1278,6 +1279,7 @@ CONTENT_TYPES = {
         "draft_publish": {
             "save_draft": quests.save_quest_draft, "load_drafts": quests.load_quest_drafts,
             "delete_draft": quests.delete_quest_draft, "check_problems": quests.check_quest_problems,
+            "drafts_path": quests._QUEST_DRAFTS_PATH,
         },
         # quests._load_quests only checks an "equipment"-kind reward_item at load time (see
         # REWARD_REGISTRIES' own comment for why the other kinds -- material, consumable,
