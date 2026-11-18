@@ -912,18 +912,114 @@ def _scaled_action(action: dict, qty: int) -> dict:
     return {**action, "cost": cost, "on_success": on_success}
 
 
-class BulkBuyModal(discord.ui.Modal):
-    """`on_confirm` is an async (interaction, scaled_action) callback -- the solo/party button
-    passes its own choice-action handler, so this class only collects the quantity."""
+# A "repeatable play" (a cost, a check, and BOTH outcomes leave you in the same room -- an arcade
+# cabinet) gets the same quantity modal: the action rolls `plays` times in a row, each play paying
+# its own cost (_spend_action_cost) and rolling its own check, and the log shows one tally instead
+# of `plays` separate screens. Plays after the first stop early if another bad roll could knock
+# someone out, so a bulk run never ends a delve the player didn't explicitly risk.
 
-    def __init__(self, action: dict, max_qty: int, on_confirm):
-        prize = action["on_success"]
-        name = _cost_item_registry(prize["item_kind"]).get(prize["item_id"], {}).get("name", prize["item_id"])
-        super().__init__(title=f"Buy {name}"[:45])
+
+def _is_repeatable_play(room: dict, action: dict) -> bool:
+    return (
+        bool(action.get("cost")) and "check" in action
+        and all((action.get(key) or {}).get("next") == room["id"] for key in ("on_success", "on_fail"))
+    )
+
+
+async def _spend_action_cost(guild_id: int, user_id: int, cost: dict) -> str:
+    """Pays one use of an action's cost atomically. Returns db.craft_item's status ("ok" on success)."""
+    materials = {cost["item_id"]: cost.get("item_qty", 1)} if cost.get("item_id") else {}
+    status, _balance = await asyncio.to_thread(db.craft_item, guild_id, user_id, materials, cost.get("currency", 0))
+    return status
+
+
+def _roll_action_check(check: dict, stat_value: int | None) -> tuple[bool, str]:
+    """Rolls a choice action's check -> (success, the roll as display text). `stat_value` is
+    ignored for a chance check."""
+    if "chance" in check:
+        success, rolled = dungeon.roll_chance_check(check["chance"])
+        return success, f"rolled **{rolled:.0%}** vs **{check['chance']:.0%}**"
+    success, rolled = dungeon.roll_check(stat_value, check["dc"])
+    return success, f"rolled **{rolled}** vs DC **{check['dc']}**"
+
+
+async def _repeat_plays(
+    guild_id: int, payer_id: int, action: dict, plays: int, roll_once, hp_targets: list, names: list[str],
+    log_lines: list[str],
+) -> list[tuple[dict, int]]:
+    """Plays a repeatable action `plays` times (the caller has already paid for the first play).
+    `roll_once()` -> bool rolls one check; hp_delta lands on every one of `hp_targets` (objects with
+    .hp/.max_hp, labelled by the matching `names` entry) after each play. Appends the tally and HP
+    lines to log_lines and returns [(outcome, times it happened)] for the caller to pay out --
+    rewards are applied once per outcome, scaled by its count (_times_outcome)."""
+    on_success, on_fail = action["on_success"], action["on_fail"]
+    worst_hit = min(on_success.get("hp_delta", 0), on_fail.get("hp_delta", 0))
+    wins = losses = 0
+    hp_before = [t.hp for t in hp_targets]
+    stop_note = None
+    for n in range(plays):
+        if n:
+            if worst_hit < 0 and any(t.hp + worst_hit <= 0 for t in hp_targets):
+                who = "you" if names == ["You"] else "someone"
+                stop_note = f"You stop there: one more bad round could knock {who} out."
+                break
+            if await _spend_action_cost(guild_id, payer_id, action["cost"]) != "ok":
+                stop_note = "You stop there: you can't afford another round."
+                break
+        success = roll_once()
+        outcome = on_success if success else on_fail
+        wins += success
+        losses += not success
+        hp_delta = outcome.get("hp_delta", 0)
+        if hp_delta:
+            for t in hp_targets:
+                t.hp = min(t.max_hp, t.hp + hp_delta)
+
+    played = wins + losses
+    log_lines.append(f"🎲 **{action['label']}** x{played}: **{wins}** win{'s' * (wins != 1)}, **{losses}** loss{'es' * (losses != 1)}.")
+    if stop_note:
+        log_lines.append(stop_note)
+    for outcome, count in ((on_success, wins), (on_fail, losses)):
+        if count and outcome.get("message"):
+            log_lines.append(f"({count}x) {outcome['message']}")
+    for t, name, before in zip(hp_targets, names, hp_before):
+        change = t.hp - before
+        if change:
+            verb = "recover" if change > 0 else "take"
+            if name != "You":
+                verb += "s"
+            log_lines.append(f"{name} {verb} **{abs(change)}** HP.")
+    return [(o, c) for o, c in ((on_success, wins), (on_fail, losses)) if c]
+
+
+def _times_outcome(outcome: dict, count: int) -> dict:
+    """An outcome's item/currency reward multiplied by `count` (hp_delta is applied per play by
+    _repeat_plays itself, so it's not scaled here)."""
+    scaled = dict(outcome)
+    if scaled.get("item_qty"):
+        scaled["item_qty"] *= count
+    if scaled.get("currency_delta"):
+        scaled["currency_delta"] *= count
+    return scaled
+
+
+class BulkBuyModal(discord.ui.Modal):
+    """`on_confirm` is an async (interaction, qty) callback -- the solo/party button passes its own
+    choice-action handler, so this class only collects the quantity. `plays` switches the wording
+    from buying a prize to playing a game."""
+
+    def __init__(self, action: dict, max_qty: int, on_confirm, plays: bool = False):
+        if plays:
+            title, label = f"Play {action['label']}", f"How many plays? (you can afford {max_qty})"
+        else:
+            prize = action["on_success"]
+            name = _cost_item_registry(prize["item_kind"]).get(prize["item_id"], {}).get("name", prize["item_id"])
+            title, label = f"Buy {name}", f"How many? (you can afford {max_qty})"
+        super().__init__(title=title[:45])
         self.action = action
         self.max_qty = max_qty
         self.on_confirm = on_confirm
-        self.quantity = discord.ui.TextInput(label=f"How many? (you can afford {max_qty})"[:45], default="1", max_length=3)
+        self.quantity = discord.ui.TextInput(label=label[:45], default="1", max_length=3)
         self.add_item(self.quantity)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -935,27 +1031,30 @@ class BulkBuyModal(discord.ui.Modal):
         if not 1 <= qty <= self.max_qty:
             await interaction.response.send_message(f"Pick a number from 1 to {self.max_qty}.", ephemeral=True)
             return
-        await self.on_confirm(interaction, _scaled_action(self.action, qty))
+        await self.on_confirm(interaction, qty)
 
 
 async def _maybe_open_bulk_buy(interaction: discord.Interaction, view, payer_id: int, action: dict, handler) -> bool:
-    """If `action` is a bulk purchase the payer can afford more than one of, opens BulkBuyModal and
-    returns True; `handler` is the (interaction, action) -> bool choice-action resolver, and `view`
-    is stopped once it resolves. False means "not a bulk buy, resolve it the normal way"."""
-    if not _is_bulk_purchase(view.room, action):
+    """If `action` is a bulk purchase or a repeatable play the payer can afford more than one of,
+    opens BulkBuyModal and returns True; `handler` is the (interaction, action, plays) -> bool
+    choice-action resolver, and `view` is stopped once it resolves. False means "not bulkable,
+    resolve it the normal way"."""
+    is_play = _is_repeatable_play(view.room, action)
+    if not is_play and not _is_bulk_purchase(view.room, action):
         return False
     max_qty = await _max_affordable(view.session.guild_id, payer_id, action["cost"])
     if max_qty <= 1:
         return False
 
-    async def on_confirm(modal_interaction: discord.Interaction, scaled: dict):
+    async def on_confirm(modal_interaction: discord.Interaction, qty: int):
         if view.session.current_view is not view or view.is_finished():  # resolved, or timed out into a retreat
             await modal_interaction.response.send_message("That menu has moved on already.", ephemeral=True)
             return
-        if await handler(modal_interaction, scaled):
+        resolved = await (handler(modal_interaction, action, qty) if is_play else handler(modal_interaction, _scaled_action(action, qty), 1))
+        if resolved:
             view.stop()
 
-    await interaction.response.send_modal(BulkBuyModal(action, max_qty, on_confirm))
+    await interaction.response.send_modal(BulkBuyModal(action, max_qty, on_confirm, plays=is_play))
     return True
 
 
@@ -1039,12 +1138,13 @@ async def _goto_room(interaction: discord.Interaction, session: DelveSession, ro
 
 
 async def _handle_choice_action(
-    interaction: discord.Interaction, session: DelveSession, room: dict, action: dict,
+    interaction: discord.Interaction, session: DelveSession, room: dict, action: dict, plays: int = 1,
 ) -> bool:
     """Resolves one choice-room action: requires gate -> cost spend (atomic) -> skill check (if
     any) -> apply the chosen outcome (hp_delta, then a room transition, victory, or death). Same
     bool contract as _handle_action (False = rejected, view stays live and un-stopped; True =
-    resolved, caller stop()s the view)."""
+    resolved, caller stop()s the view). `plays` > 1 (a repeatable play only, see
+    _is_repeatable_play) rolls it that many times via _repeat_plays."""
     requires = action.get("requires")
     if requires is not None:
         character = {"main_class": session.main_class, "subclass": session.subclass}
@@ -1055,10 +1155,7 @@ async def _handle_choice_action(
 
     cost = action.get("cost")
     if cost is not None:
-        materials = {cost["item_id"]: cost.get("item_qty", 1)} if cost.get("item_id") else {}
-        status, _balance = await asyncio.to_thread(
-            db.craft_item, session.guild_id, session.user_id, materials, cost.get("currency", 0)
-        )
+        status = await _spend_action_cost(session.guild_id, session.user_id, cost)
         if status != "ok":
             reason = "You can't afford that." if status == "broke" else "You don't have what that requires."
             await interaction.response.send_message(reason, ephemeral=True)
@@ -1066,37 +1163,43 @@ async def _handle_choice_action(
 
     log_lines = []
     check = action.get("check")
-    if check is not None:
-        if "chance" in check:
-            success, rolled = dungeon.roll_chance_check(check["chance"])
-            log_lines.append(
-                f"🎲 Chance check: rolled **{rolled:.0%}** vs **{check['chance']:.0%}** — "
-                f"{'success!' if success else 'failure!'}"
+    if plays > 1:
+        def roll_once() -> bool:
+            stat_value = None if "chance" in check else _stat_value_for_check(session, check["stat"])
+            return _roll_action_check(check, stat_value)[0]
+
+        outcomes = await _repeat_plays(
+            session.guild_id, session.user_id, action, plays, roll_once, [session], ["You"], log_lines,
+        )
+        for played_outcome, count in outcomes:
+            await _apply_outcome_rewards(
+                session.guild_id, session.user_id, session, _times_outcome(played_outcome, count), log_lines,
+                all_in_tier=session.all_in_tier,
             )
-        else:
-            stat_value = _stat_value_for_check(session, check["stat"])
-            success, rolled = dungeon.roll_check(stat_value, check["dc"])
-            stat_label = dungeon.stat_label(check["stat"])
-            log_lines.append(
-                f"🎲 {stat_label} check: rolled **{rolled}** vs DC **{check['dc']}** — "
-                f"{'success!' if success else 'failure!'}"
-            )
-        outcome = action["on_success"] if success else action["on_fail"]
+        outcome = outcomes[-1][0]  # both outcomes lead back to this room, so either one routes the same
     else:
-        outcome = action["on_success"]
+        if check is not None:
+            stat_value = None if "chance" in check else _stat_value_for_check(session, check["stat"])
+            success, roll_text = _roll_action_check(check, stat_value)
+            check_name = "Chance" if "chance" in check else dungeon.stat_label(check["stat"])
+            log_lines.append(f"🎲 {check_name} check: {roll_text} — {'success!' if success else 'failure!'}")
+            outcome = action["on_success"] if success else action["on_fail"]
+        else:
+            outcome = action["on_success"]
 
-    if outcome.get("message"):
-        log_lines.append(outcome["message"])
+        if outcome.get("message"):
+            log_lines.append(outcome["message"])
 
-    hp_delta = outcome.get("hp_delta", 0)
-    if hp_delta:
-        session.hp = min(session.max_hp, session.hp + hp_delta)
-        verb = "recover" if hp_delta > 0 else "take"
-        log_lines.append(f"You {verb} **{abs(hp_delta)}** HP.")
+        hp_delta = outcome.get("hp_delta", 0)
+        if hp_delta:
+            session.hp = min(session.max_hp, session.hp + hp_delta)
+            verb = "recover" if hp_delta > 0 else "take"
+            log_lines.append(f"You {verb} **{abs(hp_delta)}** HP.")
 
-    await _apply_outcome_rewards(
-        session.guild_id, session.user_id, session, outcome, log_lines, all_in_tier=session.all_in_tier,
-    )
+        await _apply_outcome_rewards(
+            session.guild_id, session.user_id, session, outcome, log_lines, all_in_tier=session.all_in_tier,
+        )
+        outcomes = [(outcome, 1)]
 
     if session.hp <= 0:
         currency = db.get_currency_name(session.guild_id)
@@ -1108,7 +1211,8 @@ async def _handle_choice_action(
             color=discord.Color.dark_red(),
         )
         await interaction.response.edit_message(embed=embed, attachments=[], view=None)
-        await _award_choice_achievement(interaction, session.guild_id, session.user_id, session.display_name, outcome)
+        for played_outcome, _count in outcomes:
+            await _award_choice_achievement(interaction, session.guild_id, session.user_id, session.display_name, played_outcome)
         return True
 
     next_room = outcome.get("next")
@@ -1128,11 +1232,13 @@ async def _handle_choice_action(
             color=discord.Color.gold(),
         )
         await interaction.response.edit_message(embed=embed, attachments=[], view=None)
-        await _award_choice_achievement(interaction, session.guild_id, session.user_id, session.display_name, outcome)
+        for played_outcome, _count in outcomes:
+            await _award_choice_achievement(interaction, session.guild_id, session.user_id, session.display_name, played_outcome)
         return True
 
     await _present_choice_outcome(interaction, session, next_room, log_lines)
-    await _award_choice_achievement(interaction, session.guild_id, session.user_id, session.display_name, outcome)
+    for played_outcome, _count in outcomes:
+        await _award_choice_achievement(interaction, session.guild_id, session.user_id, session.display_name, played_outcome)
     return True
 
 
@@ -1144,8 +1250,8 @@ class ChoiceActionButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         view = self.view
 
-        async def handler(i, action):
-            return await _handle_choice_action(i, view.session, view.room, action)
+        async def handler(i, action, plays=1):
+            return await _handle_choice_action(i, view.session, view.room, action, plays)
 
         if await _maybe_open_bulk_buy(interaction, view, view.session.user_id, self.action, handler):
             return
@@ -3749,6 +3855,7 @@ async def _goto_party_room(interaction: discord.Interaction, session: PartyDelve
 
 async def _handle_party_choice_action(
     interaction: discord.Interaction, session: PartyDelveSession, leader: PartyMember, room: dict, action: dict,
+    plays: int = 1,
 ) -> bool:
     """Party sibling of _handle_choice_action -- requires/cost still always gate against the
     leader's own class/inventory/currency (the leader is the one deciding to spend the party's
@@ -3784,7 +3891,7 @@ async def _handle_party_choice_action(
     living = session.living_members()
     check = action.get("check")
     if check is not None and "stat" in check and session.delve.get("raid"):
-        await _resolve_party_choice_action(interaction, session, leader, leader, room, action, party_wide=True)
+        await _resolve_party_choice_action(interaction, session, leader, leader, room, action, party_wide=True, plays=plays)
         return True
     if check is not None and "stat" in check and len(living) > 1:
         embed = discord.Embed(
@@ -3792,18 +3899,18 @@ async def _handle_party_choice_action(
             description=f"Who in the party will attempt **{action['label']}**?",
             color=discord.Color.blurple(),
         )
-        view = PartyCheckActorPickerView(session, leader, room, action)
+        view = PartyCheckActorPickerView(session, leader, room, action, plays)
         await interaction.response.edit_message(embed=embed, attachments=[], view=view)
         return True
 
     actor = living[0] if living else leader
-    await _resolve_party_choice_action(interaction, session, leader, actor, room, action)
+    await _resolve_party_choice_action(interaction, session, leader, actor, room, action, plays=plays)
     return True
 
 
 async def _resolve_party_choice_action(
     interaction: discord.Interaction, session: PartyDelveSession, leader: PartyMember, actor: PartyMember,
-    room: dict, action: dict, party_wide: bool = False,
+    room: dict, action: dict, party_wide: bool = False, plays: int = 1,
 ):
     """The rest of a party choice action once requires/cost have already passed and (for a check)
     the party has settled on who's attempting it -- `actor` is that member (same as `leader` for a
@@ -3821,69 +3928,78 @@ async def _resolve_party_choice_action(
     uses) instead of just to `actor` -- `actor` is ignored entirely in this mode (still passed in as
     `leader` by the caller, since the check itself doesn't need a single attempter to roll against).
     A knockout still only wipes the party if EVERY living member goes down from it, not any one of
-    them."""
+    them.
+
+    `plays` > 1 (a repeatable play only, see _is_repeatable_play) rolls the same check that many
+    times via _repeat_plays, with the same actor/party_wide/reward rules applied to every play."""
     log_lines = []
     check = action.get("check")
-    if check is not None:
-        if "chance" in check:
-            success, rolled = dungeon.roll_chance_check(check["chance"])
-            log_lines.append(
-                f"🎲 {actor.label}'s chance check: rolled **{rolled:.0%}** vs **{check['chance']:.0%}** — "
-                f"{'success!' if success else 'failure!'}"
-            )
-        elif party_wide:
-            stat_value = _party_average_stat(session, check["stat"])
-            success, rolled = dungeon.roll_check(stat_value, check["dc"])
-            stat_label = dungeon.stat_label(check["stat"])
-            log_lines.append(
-                f"🎲 The party's average {stat_label} check (avg **{stat_value}**): rolled **{rolled}** "
-                f"vs DC **{check['dc']}** — {'success!' if success else 'failure!'}"
-            )
-        else:
-            stat_value = _stat_value_for_check(actor, check["stat"])
-            success, rolled = dungeon.roll_check(stat_value, check["dc"])
-            stat_label = dungeon.stat_label(check["stat"])
-            log_lines.append(
-                f"🎲 {actor.label}'s {stat_label} check: rolled **{rolled}** vs DC **{check['dc']}** — "
-                f"{'success!' if success else 'failure!'}"
-            )
-        outcome = action["on_success"] if success else action["on_fail"]
-    else:
-        outcome = action["on_success"]
 
-    if outcome.get("message"):
-        log_lines.append(outcome["message"])
+    def stat_for_check() -> int | None:
+        if check is None or "chance" in check:
+            return None
+        if party_wide:
+            return _party_average_stat(session, check["stat"])
+        return _stat_value_for_check(actor, check["stat"])
 
-    hp_delta = outcome.get("hp_delta", 0)
     hp_targets = session.living_members() if party_wide else [actor]
 
-    # Who collects the item/currency reward. `party_wide` already means "everyone shares the
-    # consequence", so it spreads both. `reward_all` spreads ONLY the reward: an arcade cabinet
-    # pays the whole group while a failed gamble still only hurts whoever pulled the lever, which
-    # a single shared `targets` list couldn't express (see this function's own docstring).
-    spread_reward = party_wide or bool(outcome.get("reward_all"))
-    reward_targets = session.living_members() if spread_reward else [actor]
-
-    for target in hp_targets:
-        if hp_delta:
-            target.hp = min(target.max_hp, target.hp + hp_delta)
-            verb = "recovers" if hp_delta > 0 else "takes"
-            log_lines.append(f"{target.label} {verb} **{abs(hp_delta)}** HP.")
-
-    for target in reward_targets:
-        share = outcome
-        # Scale a spread reward by the same party-share convention kills use (currently a full
-        # share for everyone, see _party_share_mults). Only when reward_all is what's spreading
-        # it: party_wide's existing "everyone gets the identical outcome" is untouched.
-        if outcome.get("reward_all") and not party_wide and outcome.get("item_qty"):
-            loot_mult, _chance_mult = _party_share_mults(session, target)
-            if loot_mult != 1.0:
-                # max(1, ...) so a 1-unit payout never reads as "you won and got nothing".
-                share = {**outcome, "item_qty": max(1, round(outcome["item_qty"] * loot_mult))}
-        await _apply_outcome_rewards(
-            session.guild_id, target.user_id, target, share, log_lines, label=target.label,
-            all_in_tier=session.all_in_tier,
+    if plays > 1:
+        outcomes = await _repeat_plays(
+            session.guild_id, leader.user_id, action, plays,
+            lambda: _roll_action_check(check, stat_for_check())[0],
+            hp_targets, [t.label for t in hp_targets], log_lines,
         )
+    else:
+        if check is not None:
+            success, roll_text = _roll_action_check(check, stat_for_check())
+            verdict = "success!" if success else "failure!"
+            if "chance" in check:
+                log_lines.append(f"🎲 {actor.label}'s chance check: {roll_text} — {verdict}")
+            elif party_wide:
+                log_lines.append(
+                    f"🎲 The party's average {dungeon.stat_label(check['stat'])} check (avg **{stat_for_check()}**): "
+                    f"{roll_text} — {verdict}"
+                )
+            else:
+                log_lines.append(f"🎲 {actor.label}'s {dungeon.stat_label(check['stat'])} check: {roll_text} — {verdict}")
+            outcome = action["on_success"] if success else action["on_fail"]
+        else:
+            outcome = action["on_success"]
+
+        if outcome.get("message"):
+            log_lines.append(outcome["message"])
+
+        hp_delta = outcome.get("hp_delta", 0)
+        for target in hp_targets:
+            if hp_delta:
+                target.hp = min(target.max_hp, target.hp + hp_delta)
+                verb = "recovers" if hp_delta > 0 else "takes"
+                log_lines.append(f"{target.label} {verb} **{abs(hp_delta)}** HP.")
+        outcomes = [(outcome, 1)]
+
+    for played_outcome, count in outcomes:
+        # Who collects the item/currency reward. `party_wide` already means "everyone shares the
+        # consequence", so it spreads both. `reward_all` spreads ONLY the reward: an arcade cabinet
+        # pays the whole group while a failed gamble still only hurts whoever pulled the lever,
+        # which a single shared `targets` list couldn't express (see this function's own docstring).
+        spread_reward = party_wide or bool(played_outcome.get("reward_all"))
+        reward_targets = session.living_members() if spread_reward else [actor]
+        for target in reward_targets:
+            share = played_outcome
+            # Scale a spread reward by the same party-share convention kills use (currently a full
+            # share for everyone, see _party_share_mults). Only when reward_all is what's spreading
+            # it: party_wide's existing "everyone gets the identical outcome" is untouched.
+            if played_outcome.get("reward_all") and not party_wide and played_outcome.get("item_qty"):
+                loot_mult, _chance_mult = _party_share_mults(session, target)
+                if loot_mult != 1.0:
+                    # max(1, ...) so a 1-unit payout never reads as "you won and got nothing".
+                    share = {**played_outcome, "item_qty": max(1, round(played_outcome["item_qty"] * loot_mult))}
+            await _apply_outcome_rewards(
+                session.guild_id, target.user_id, target, _times_outcome(share, count), log_lines,
+                label=target.label, all_in_tier=session.all_in_tier,
+            )
+    outcome = outcomes[-1][0]  # with several plays, both outcomes lead back to this room anyway
 
     for target in hp_targets:
         if target.hp <= 0 and not target.knocked_out:
@@ -3901,7 +4017,8 @@ async def _resolve_party_choice_action(
             color=discord.Color.dark_red(),
         )
         await interaction.response.edit_message(embed=embed, attachments=[], view=None)
-        await _award_party_choice_achievement(interaction, session, outcome)
+        for played_outcome, _count in outcomes:
+            await _award_party_choice_achievement(interaction, session, played_outcome)
         return
 
     next_room = outcome.get("next")
@@ -3920,15 +4037,17 @@ async def _resolve_party_choice_action(
             color=discord.Color.gold(),
         )
         await interaction.response.edit_message(embed=embed, attachments=[], view=None)
-        await _award_party_choice_achievement(interaction, session, outcome)
+        for played_outcome, _count in outcomes:
+            await _award_party_choice_achievement(interaction, session, played_outcome)
         return
 
     await _present_party_choice_outcome(interaction, session, next_room, log_lines)
-    await _award_party_choice_achievement(interaction, session, outcome)
+    for played_outcome, _count in outcomes:
+        await _award_party_choice_achievement(interaction, session, played_outcome)
 
 
 class PartyCheckActorSelect(discord.ui.Select):
-    def __init__(self, session: PartyDelveSession, leader: PartyMember, room: dict, action: dict):
+    def __init__(self, session: PartyDelveSession, leader: PartyMember, room: dict, action: dict, plays: int = 1):
         options = [
             discord.SelectOption(label=m.label, value=str(m.user_id)) for m in session.living_members()
         ]
@@ -3936,11 +4055,12 @@ class PartyCheckActorSelect(discord.ui.Select):
         self.leader = leader
         self.room = room
         self.action = action
+        self.plays = plays
 
     async def callback(self, interaction: discord.Interaction):
         session: PartyDelveSession = self.view.session
         actor = session.members_by_id[int(self.values[0])]
-        await _resolve_party_choice_action(interaction, session, self.leader, actor, self.room, self.action)
+        await _resolve_party_choice_action(interaction, session, self.leader, actor, self.room, self.action, plays=self.plays)
         self.view.stop()
 
 
@@ -3952,10 +4072,10 @@ class PartyCheckActorPickerView(discord.ui.View):
     the leader alone, same as every other party room-boundary decision -- picking who else attempts
     something is still the leader's call, not a free-for-all."""
 
-    def __init__(self, session: PartyDelveSession, leader: PartyMember, room: dict, action: dict):
+    def __init__(self, session: PartyDelveSession, leader: PartyMember, room: dict, action: dict, plays: int = 1):
         super().__init__(timeout=PARTY_ACTION_TIMEOUT)
         self.session = session
-        self.add_item(PartyCheckActorSelect(session, leader, room, action))
+        self.add_item(PartyCheckActorSelect(session, leader, room, action, plays))
         session.current_view = self
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -3989,8 +4109,8 @@ class PartyChoiceActionButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         view = self.view
 
-        async def handler(i, action):
-            return await _handle_party_choice_action(i, view.session, view.leader, view.room, action)
+        async def handler(i, action, plays=1):
+            return await _handle_party_choice_action(i, view.session, view.leader, view.room, action, plays)
 
         if await _maybe_open_bulk_buy(interaction, view, view.leader.user_id, self.action, handler):
             return
