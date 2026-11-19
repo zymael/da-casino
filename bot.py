@@ -1207,6 +1207,10 @@ async def combathelp_cmd(ctx):
         await ctx.send(embed=embed)
         return
 
+    resource_help = dungeon.CLASSES[character["main_class"]].get("resource_help")
+    if resource_help:
+        embed.add_field(name="Your Class Resource", value=resource_help[:1024], inline=False)
+
     skills = dungeon.unlocked_skills(character["main_class"], character["subclass"], character["level"])
     skill_lines = [
         f"**{skill['name']}** (Lv {skill['unlock_level']}, {skill['chip_cost']} chips): "

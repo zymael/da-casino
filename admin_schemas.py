@@ -615,6 +615,11 @@ CONTENT_TYPES = {
                 "name": "flavor", "type": "text", "required": True, "group": "Flavor Text",
                 "hint": "longer narrative blurb shown in the !class rundown before a class is picked",
             },
+            {
+                "name": "resource_help", "type": "text", "required": False, "group": "Flavor Text",
+                "hint": "optional: explains this class's combat resource (Charge/Grudge/Comps/Tells) and each "
+                        "suit's twist on it, shown in !combathelp to players of this class",
+            },
             {"name": "hp", "type": "int", "required": True, "min": 1, "group": "Base Stats"},
             {"name": "atk", "type": "int", "required": True, "min": 0, "group": "Base Stats"},
             {"name": "def", "type": "int", "required": True, "min": 0, "group": "Base Stats"},

@@ -14,7 +14,8 @@
     "level_hp_gain": 3,
     "level_atk_gain": 2,
     "level_def_gain": 2,
-    "level_spatk_gain": 1
+    "level_spatk_gain": 1,
+    "resource_help": "😤 **Grudge**: every hit you take is a point of Grudge, and the House Rules line pays it back as bonus damage. Clubs counterpunches, Spades bites slowed and wounded prey, Hearts takes hits for allies, Diamonds runs up a 🧾 Tab on whoever hits you."
   },
   {
     "id": "healer",
@@ -31,7 +32,8 @@
     "level_hp_gain": 2,
     "level_atk_gain": 1,
     "level_def_gain": 1,
-    "level_spatk_gain": 2
+    "level_spatk_gain": 2,
+    "resource_help": "🫧 **Comps**: healing past full HP isn't wasted, part of it becomes a Barrier. Clubs keeps an ally in their corner, Spades passes your party's bad luck to the enemy, Hearts fills a 🍽️ collection plate, Diamonds hooks an enemy so every hit on it heals."
   },
   {
     "id": "mage",
@@ -48,7 +50,8 @@
     "level_hp_gain": 2,
     "level_atk_gain": 1,
     "level_def_gain": 1,
-    "level_spatk_gain": 2
+    "level_spatk_gain": 2,
+    "resource_help": "⚡ **Charge**: Supercharge stores a multiplier your next damaging spell spends on every hit. Diamonds stacks it (risky past 2), Clubs gambles on a reroll, Spades hexes an enemy instead, Hearts builds the whole party's 📣 Hype into The Big Finish."
   },
   {
     "id": "rogue",
@@ -65,6 +68,7 @@
     "level_hp_gain": 2,
     "level_atk_gain": 2,
     "level_def_gain": 1,
-    "level_spatk_gain": 1
+    "level_spatk_gain": 1,
+    "resource_help": "🎯 **Tells**: every hit reads your target, and the All In line cashes the Tells in for bonus damage. Clubs reads stunned marks double, Spades takes contracts, Hearts makes enemies turn on each other, Diamonds lets losing coin tosses build the 💰 Pot."
   }
 ]

@@ -11,8 +11,11 @@ import dungeon
 # so a built-in drawback (a self-stun, shredding your own DEF) can't be misread as a perk.
 _HARMFUL_TYPES = {
     "damage_multiplier", "extra_attack", "execute_multiplier", "def_shred", "atk_debuff",
-    "spatk_debuff", "speed_debuff", "dot", "sap", "stun",
+    "spatk_debuff", "speed_debuff", "dot", "sap", "stun", "hex", "charm", "hook",
 }
+# Effects that scale the damage roll they ride with -- listed alongside the damage, not as a
+# separate status (mirrors dungeon.MODS_ONLY_EFFECT_TYPES + dungeon.TARGET_DAMAGE_SCALER_TYPES).
+_DAMAGE_RIDERS = dungeon.MODS_ONLY_EFFECT_TYPES | dungeon.TARGET_DAMAGE_SCALER_TYPES
 _STAT_BUFFS = {"atk_buff": "atk", "def_buff": "def", "spatk_buff": "spatk", "speed_buff": "speed"}
 _STAT_DEBUFFS = {"atk_debuff": "atk", "spatk_debuff": "spatk", "speed_debuff": "speed", "def_shred": "def"}
 
@@ -55,7 +58,8 @@ def effect_phrase(effect: dict, scales_with_caster: bool = True) -> str:
     if t == "lifesteal_fraction":
         return f"drain {_pct(v)} of the damage as HP"
     if t == "heal_fraction":
-        return f"heal {_pct(v)}+ HP (grows with {dungeon.stat_label('spatk')})" if scales_with_caster else f"heal {_pct(v)} HP"
+        text = f"heal {_pct(v)}+ HP (grows with {dungeon.stat_label('spatk')})" if scales_with_caster else f"heal {_pct(v)} HP"
+        return text + _overheal_note(effect)
     if t == "guard":
         # The next hit is multiplied by `reduction`, so 0.6 means 40% less, not 60%.
         return f"next hit taken −{_pct(1 - effect['reduction'])}"
@@ -78,7 +82,7 @@ def effect_phrase(effect: dict, scales_with_caster: bool = True) -> str:
     if t == "dot":
         return f"{round(v)} dmg/round for {_rounds(effect['duration'])}"
     if t == "hot":
-        return f"regen {_pct(v)} HP/round for {_rounds(effect['duration'])}"
+        return f"regen {_pct(v)} HP/round for {_rounds(effect['duration'])}" + _overheal_note(effect)
     if t == "stun":
         return f"stunned {_turns(effect['duration'])}"
     if t == "sap":
@@ -87,7 +91,71 @@ def effect_phrase(effect: dict, scales_with_caster: bool = True) -> str:
         return "cures damage over time"
     if t == "cleanse_cc":
         return "cures stun/sap"
-    return t
+    return _resource_phrase(effect) or t
+
+
+def _overheal_note(effect: dict) -> str:
+    share = effect.get("overheal_barrier")
+    return f" ({_pct(share)} of any overheal becomes {dungeon.stat_label('barrier')})" if share else ""
+
+
+def _resource_phrase(effect: dict) -> str | None:
+    """The class-resource effect types (see dungeon_view's "Class resources" sections)."""
+    t, v, L = effect["type"], effect.get("value"), dungeon.stat_label
+    if t == "charge":
+        text = f"{L('charge')}: your next damaging {L('spatk')} skill does {v:g}× on every hit"
+        stacks = effect.get("max_stacks", 1)
+        if stacks > 1:
+            top = v + effect.get("step", 0) * (stacks - 1)
+            text += f", recast to stack up to {top:g}×"
+            safe = effect.get("safe_stacks", stacks)
+            if effect.get("short_chance") and safe < stacks:
+                text += (f" (past {safe} stacks: {_pct(effect['short_chance'])} to short out, losing it "
+                         f"and {_pct(effect.get('short_damage', 0))} of your {L('hp')})")
+        return text
+    if t == "overload":
+        return (f"roll {effect['min']:g}×–{effect['max']:g}× for your next damaging {L('spatk')} skill; recasting rerolls, "
+                f"+{_pct(effect.get('bust_chance', 0))} bust risk per roll (bust: lose it, stunned {_turns(effect.get('bust_stun', 2))})")
+    if t == "hex":
+        cap = f", max {_pct(effect['cap'])} of its {L('hp')}" if effect.get("cap") else ""
+        return f"{L('hex')} for {_rounds(effect['duration'])}: {_pct(v)} of all damage it takes meanwhile comes due at the end{cap}"
+    if t in ("hype_spend", "grudge_spend"):
+        meter = "hype" if t == "hype_spend" else "grudge"
+        source = "anyone in your party hitting or dodging" if meter == "hype" else "each hit you take"
+        return f"+{effect['per_point']:g}× per {L(meter)} (built by {source}, max {effect.get('max_points', 10)})"
+    if t == "counter":
+        return f"hit back for {_pct(v)} of every hit taken for {_rounds(effect['duration'])}"
+    if t == "blood_in_water":
+        return f"+1 bite at {effect['multiplier']:g}× each if it's slowed, under half {L('hp')}, or slowed as far as it goes"
+    if t == "intercept":
+        return f"take their next hit for them; {_pct(v)} of it becomes a party {L('barrier')}"
+    if t == "collect_tab":
+        return f"cash in its {L('tab')} (what it's hit you for) as {v:g}× bonus damage; an unpaid {L('tab')} boosts its loot"
+    if t == "corner":
+        return f"gets back up once at {_pct(v)} {L('hp')} if knocked out"
+    if t == "pass_the_buck":
+        return "takes on your whole party's stuns, DoTs and stat drops"
+    if t == "plate_spend":
+        return f"pass the {L('plate')} (filled by your overhealing): heals the party and smites every enemy for {_pct(v)} of it"
+    if t == "hook":
+        grow = f" (+{_pct(effect['growth'])}/round)" if effect.get("growth") else ""
+        return f"{L('hook')} for {_rounds(effect['duration'])}: party hits on it drain {_pct(v)}{grow} as {L('hp')}"
+    if t == "tells_spend":
+        text = f"+{effect['per_point']:g}× per {L('tells')[:-1] if L('tells').endswith('s') else L('tells')} on it (your hits leave them, max {effect.get('max_points', 5)})"
+        if effect.get("stunned_bonus"):
+            text += ", extra on stunned targets"
+        if effect.get("stun_at"):
+            text += f"; at {effect['stun_at']}+ also stunned 2 turns"
+        return text
+    if t == "contract":
+        return f"{L('contract')}: +{_pct(v)} per hit you land (max +{_pct(effect.get('max_bonus', 0.5))}), kill it for an extra turn"
+    if t == "charm":
+        return f"{L('charm').lower()} {_turns(effect['duration'])} (attacks its own ally)"
+    if t == "pot_add":
+        return f"{L('pot')} +{v:g} (max {effect.get('max', 3):g})"
+    if t == "pot_cash":
+        return f"× (1 + {L('pot')}), then it's emptied"
+    return None
 
 
 def _fragment(effect: dict, label: str, scales_with_caster: bool, text: str | None = None) -> str:
@@ -104,7 +172,7 @@ def describe_effects(effects: list[dict], scales_with_caster: bool = True, alway
     **Enemy:** Moxie −5'. A skill that's nothing but damage on one enemy drops the label ('1.3×
     damage'), unless `always_label`. Every damage-shaped mod (extra hits, a second multiplier, lifesteal) sits with the
     primary damage effect, since that's the roll they all feed (dungeon_view._resolve_player_action)."""
-    mods = [e for e in effects if e["type"] in dungeon.MODS_ONLY_EFFECT_TYPES or e["type"] == "execute_multiplier"]
+    mods = [e for e in effects if e["type"] in _DAMAGE_RIDERS]
     primary = next((e for e in mods if e["type"] == "damage_multiplier"), None) or next(
         (e for e in mods if e["type"] == "extra_attack"), None
     )
@@ -166,8 +234,7 @@ def describe_rolls(skill: dict) -> str:
     damage_types = ("damage_multiplier", "extra_attack")
     hits_enemy = any(e["type"] in damage_types and recipient(e) in ("Enemy", "All enemies") for e in effects)
     has_status = any(
-        recipient(e) in ("Enemy", "All enemies") and e["type"] not in dungeon.MODS_ONLY_EFFECT_TYPES
-        and e["type"] != "execute_multiplier"
+        recipient(e) in ("Enemy", "All enemies") and e["type"] not in _DAMAGE_RIDERS
         for e in effects
     )
     L = dungeon.stat_label
