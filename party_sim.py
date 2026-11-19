@@ -20,6 +20,7 @@ credited to any member's "dmg" column, though it still counts toward the win and
     python party_sim.py                               # normal boss + trash fights, level 40
     python party_sim.py --fights allin --gear 1.5     # All In tiers 1-3 with a rough gear bump
     python party_sim.py --compare main --trials 100   # old kit (main) vs working copy
+    python party_sim.py --start-chips 0.2             # start low on Chips, like late in a delve
 """
 
 import argparse
@@ -35,6 +36,9 @@ import dungeon_view as dv
 
 TURN_SLOT_CAP = 400  # safety cap on total turn-slots (both sides) in one fight -> counted as a loss
 CHIP_RESERVE = 20  # below this many chips, only cheap skills -- chips last the whole delve, not one fight
+# The reserve in effect: CHIP_RESERVE normally, 0 with --start-chips below 1 (a late-delve fight,
+# where there's nothing left to save Chips for).
+chip_reserve = CHIP_RESERVE
 
 PARTIES = {
     "A Jinx/Mechanic/Muscle/Chaplain": [("mage", "spades"), ("mage", "diamonds"), ("fighter", "clubs"), ("healer", "hearts")],
@@ -128,6 +132,14 @@ def has(skill: dict, effect_type: str) -> bool:
     return any(e["type"] == effect_type for e in effects_of(skill))
 
 
+def is_refuel_skill(skill: dict) -> bool:
+    """A free skill that gives its caster Chips back (Loose Change, Palm a Chip, Workman's Comp)."""
+    return skill["chip_cost"] == 0 and any(
+        e["type"] == "workmans_comp" or (e["type"] == "chip_gain" and e.get("target") == "self")
+        for e in effects_of(skill)
+    )
+
+
 def is_damage_skill(skill: dict) -> bool:
     return any(e["type"] in dv.DAMAGE_EFFECT_TYPES for e in effects_of(skill))
 
@@ -187,7 +199,7 @@ def turns_left(fight: Fight) -> float:
 def choose(actor, fight: Fight):
     """(skill or None for a plain Attack, ally target, enemy target)."""
     skills = [s for s in actor.unlocked_skills if s["chip_cost"] <= actor.chips]
-    if actor.chips < CHIP_RESERVE:
+    if actor.chips < chip_reserve:
         skills = [s for s in skills if s["chip_cost"] <= 5]
     enemies = fight.living_monsters()
     allies = fight.living_members()
@@ -201,6 +213,14 @@ def choose(actor, fight: Fight):
             return heal, hurt, target
 
     left = turns_left(fight)
+    # Refuel only when broke: no paid skill is affordable, and the fight runs long enough to spend it.
+    paid_costs = [s["chip_cost"] for s in actor.unlocked_skills if s["chip_cost"] > 0]
+    if paid_costs and actor.chips < min(paid_costs) and left >= 2:
+        # Drawing fire for Workman's Comp is for when you can take it.
+        refuel = next((s for s in skills if is_refuel_skill(s)
+                       and (not has(s, "workmans_comp") or actor.hp >= actor.max_hp / 2)), None)
+        if refuel is not None:
+            return refuel, actor, target
     single = len(enemies) == 1
     others = [a for a in allies if a is not actor]
     for s in skills:
@@ -309,9 +329,11 @@ def use_skills(skills: dict) -> None:
     dungeon.SKILLS_BY_COMBO = dungeon._build_skills_by_combo(skills)
 
 
-def run_fight(builds, monster_spec, skills: dict, level: int, gear: float) -> dict:
+def run_fight(builds, monster_spec, skills: dict, level: int, gear: float, start_chips: float = 1.0) -> dict:
     use_skills(skills)
     members = [make_member(mc, sc, i + 1, level, gear) for i, (mc, sc) in enumerate(builds)]
+    for m in members:
+        m.chips = round(m.max_chips * start_chips)
     fight = Fight(members, make_monsters(monster_spec, len(members)))
     for m in fight.monsters:
         m.turn_clock = dungeon.turn_interval(max(1, m.speed))  # no free first hit, same as a real spawn
@@ -345,8 +367,8 @@ def run_fight(builds, monster_spec, skills: dict, level: int, gear: float) -> di
     }
 
 
-def summarize(builds, monster_spec, skills, trials, level, gear) -> dict:
-    runs = [run_fight(builds, monster_spec, skills, level, gear) for _ in range(trials)]
+def summarize(builds, monster_spec, skills, trials, level, gear, start_chips=1.0) -> dict:
+    runs = [run_fight(builds, monster_spec, skills, level, gear, start_chips) for _ in range(trials)]
     won = [r for r in runs if r["won"]]
     names = runs[0]["dealt"].keys()
     return {
@@ -365,7 +387,11 @@ def main() -> None:
     parser.add_argument("--fights", choices=sorted(FIGHT_SETS), default="normal")
     parser.add_argument("--compare", metavar="REF", help="also run the dungeon_skills.json committed at this git ref")
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--start-chips", type=float, default=1.0,
+                        help="fraction of max Chips each member starts with (Chips carry across a delve's fights)")
     args = parser.parse_args()
+    global chip_reserve
+    chip_reserve = CHIP_RESERVE if args.start_chips >= 1 else 0
 
     random.seed(args.seed)
     kits = [("current", dict(dungeon.SKILLS))]
@@ -373,11 +399,11 @@ def main() -> None:
         kits.insert(0, (args.compare, load_skills_at_ref(args.compare)))
     width = max(len(k) for k, _ in kits)
     for fight_name, spec in FIGHT_SETS[args.fights].items():
-        print(f"\n######## {fight_name}  (level {args.level}, gear x{args.gear:g}, {args.trials} trials)")
+        print(f"\n######## {fight_name}  (level {args.level}, gear x{args.gear:g}, chips x{args.start_chips:g}, {args.trials} trials)")
         for party_name, builds in PARTIES.items():
             print(f"\n{party_name}")
             for kit_name, skills in kits:
-                s = summarize(builds, spec, skills, args.trials, args.level, args.gear)
+                s = summarize(builds, spec, skills, args.trials, args.level, args.gear, args.start_chips)
                 dealt = "  ".join(f"{n} {v:5.0f}" for n, v in s["dealt"].items())
                 print(f"  {kit_name:<{width}}: win {s['win']:4.0%}  turn-slots {s['slots']:5.1f}  KOs {s['kos']:.2f}  | dmg: {dealt}")
 

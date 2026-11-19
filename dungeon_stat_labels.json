@@ -138,5 +138,10 @@
     "id": "pot",
     "label": "Pot",
     "emoji": "\ud83d\udcb0"
+  },
+  {
+    "id": "workmans_comp",
+    "label": "Workman's Comp",
+    "emoji": "\ud83e\uddba"
   }
 ]

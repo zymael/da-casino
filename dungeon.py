@@ -943,7 +943,7 @@ _REQUIRED_STAT_LABEL_IDS = {
     "hp", "atk", "def", "spatk", "speed", "chips", "dodge", "resist",
     "stun", "sap", "dot", "hot", "guard", "charge", "hex", "hype",
     "barrier", "grudge", "counter", "covered", "tab", "corner", "plate", "hook",
-    "tells", "contract", "charm", "pot",
+    "tells", "contract", "charm", "pot", "workmans_comp",
 }
 
 
@@ -1172,6 +1172,9 @@ EFFECT_PARAM_SCHEMAS = {
     # counter: for `duration` of the caster's own turns, every monster hit they take is punched
     # back at the attacker for `value` (0-1) of the damage. Defaults to target self.
     "counter": ({"value", "duration"}, set(), {"value"}),
+    # workmans_comp: for `duration` of the caster's own turns, every monster hit they take (that lands,
+    # not dodged) refunds `value` Chips, for at most `max_hits` hits (default 3). Defaults to target self.
+    "workmans_comp": ({"value", "duration"}, {"max_hits"}, set()),
     # blood_in_water: one extra hit of `multiplier` for each thing true of the target -- it's
     # slowed at all, it's under half HP, it's slowed as far as it can go. Scales a damage roll like
     # execute_multiplier, so it has the same pairing rules.
@@ -1247,9 +1250,9 @@ TARGET_DAMAGE_SCALER_TYPES = {"execute_multiplier", "blood_in_water", "collect_t
 _DAMAGE_ROLL_EFFECT_TYPES = {"damage_multiplier", "extra_attack"}
 # Resource-building types that default to the caster themselves rather than "ally" (which in a
 # party means whichever ally is selected) -- charging up a teammate by accident would be a trap.
-SELF_DEFAULT_EFFECT_TYPES = {"charge", "overload", "counter", "plate_spend", "pot_add"}
+SELF_DEFAULT_EFFECT_TYPES = {"charge", "overload", "counter", "workmans_comp", "plate_spend", "pot_add"}
 # Params that count turns or stacks -- validated as positive ints, like "duration".
-_INT_EFFECT_PARAMS = {"duration", "max_stacks", "safe_stacks", "bust_stun", "max_points", "stunned_bonus", "stun_at"}
+_INT_EFFECT_PARAMS = {"duration", "max_stacks", "safe_stacks", "bust_stun", "max_points", "stunned_bonus", "stun_at", "max_hits"}
 ENEMY_TARGETED_EFFECT_TYPES = {
     "atk_debuff", "spatk_debuff", "speed_debuff", "def_shred",
     "taunt", "lower_threat", "sap", "stun", "execute_multiplier", "hex", "blood_in_water", "collect_tab",
@@ -1483,7 +1486,7 @@ def resolve_cast_effects(entry: dict) -> list[dict]:
 # a monster to sway on a player's behalf the way taunt/lower_threat sway a monster's own choice.
 _MONSTER_SKILL_EXCLUDED_EFFECT_TYPES = {
     "taunt", "lower_threat", "charge", "overload", "hex", "hype_spend",
-    "grudge_spend", "counter", "blood_in_water", "intercept", "collect_tab",
+    "grudge_spend", "counter", "workmans_comp", "blood_in_water", "intercept", "collect_tab",
     "corner", "pass_the_buck", "plate_spend", "hook",
     "tells_spend", "contract", "charm", "pot_add", "pot_cash",
 }
@@ -1743,7 +1746,7 @@ CONSTANT_EQUIPMENT_EFFECT_TYPES = {
 # EFFECT_HANDLERS with a real target already in hand, so their handlers just work unmodified.
 ON_HIT_EQUIPMENT_EFFECT_TYPES = set(EFFECT_PARAM_SCHEMAS) - {
     "damage_multiplier", "guard", "charge", "overload", "hex", "hype_spend",
-    "grudge_spend", "counter", "blood_in_water", "intercept", "collect_tab",
+    "grudge_spend", "counter", "workmans_comp", "blood_in_water", "intercept", "collect_tab",
     "corner", "pass_the_buck", "plate_spend", "hook",
     "tells_spend", "contract", "charm", "pot_add", "pot_cash",
 }

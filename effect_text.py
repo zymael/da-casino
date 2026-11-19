@@ -125,6 +125,9 @@ def _resource_phrase(effect: dict) -> str | None:
         return f"+{effect['per_point']:g}× per {L(meter)} (built by {source}, max {effect.get('max_points', 10)})"
     if t == "counter":
         return f"hit back for {_pct(v)} of every hit taken for {_rounds(effect['duration'])}"
+    if t == "workmans_comp":
+        hits = effect.get("max_hits", 3)
+        return f"each hit you take for {_rounds(effect['duration'])} refunds {v:g} {L('chips')} (up to {hits} hits)"
     if t == "blood_in_water":
         return f"+1 bite at {effect['multiplier']:g}× each if it's slowed, under half {L('hp')}, or slowed as far as it goes"
     if t == "intercept":

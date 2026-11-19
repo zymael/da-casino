@@ -604,6 +604,27 @@
     "special": false
   },
   {
+    "id": "palm_a_chip",
+    "main_class": "rogue",
+    "subclass": "none",
+    "unlock_level": 2,
+    "name": "Palm a Chip",
+    "flavor": "Nobody counts their stack mid-hand.",
+    "effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 0.6
+      },
+      {
+        "type": "chip_gain",
+        "value": 6,
+        "target": "self"
+      }
+    ],
+    "chip_cost": 0,
+    "special": false
+  },
+  {
     "id": "insurance",
     "main_class": "rogue",
     "subclass": "spades",
@@ -889,6 +910,40 @@
       }
     ],
     "chip_cost": 8,
+    "special": false
+  },
+  {
+    "id": "workmans_comp",
+    "main_class": "fighter",
+    "subclass": "none",
+    "unlock_level": 2,
+    "name": "Workman's Comp",
+    "flavor": "Took one for the house. The house pays for that.",
+    "effects": [
+      {
+        "type": "taunt",
+        "value": 5,
+        "target": "enemy"
+      },
+      {
+        "type": "guard",
+        "reduction": 0.75,
+        "target": "self"
+      },
+      {
+        "type": "chip_gain",
+        "value": 5,
+        "target": "self"
+      },
+      {
+        "type": "workmans_comp",
+        "value": 3,
+        "duration": 1,
+        "max_hits": 3,
+        "target": "self"
+      }
+    ],
+    "chip_cost": 0,
     "special": false
   },
   {

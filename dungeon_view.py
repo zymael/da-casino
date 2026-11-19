@@ -309,6 +309,9 @@ def _status_text(entity) -> str:
         lines.append(f"{E('barrier')} {L('barrier')} {entity.barrier}")
     if "counter" in timed:
         lines.append(f"{E('counter')} {L('counter')} {round(timed['counter']['value'] * 100)}% ({timed['counter']['remaining']})")
+    if "workmans_comp" in timed:
+        pay = timed["workmans_comp"]
+        lines.append(f"{E('workmans_comp')} {L('workmans_comp')} +{pay['value']:g}/hit, {pay['hits_left']} left")
     protector = getattr(entity, "protector", None)
     if protector is not None:
         lines.append(f"{E('covered')} {L('covered')} {getattr(protector, 'player_name', 'an ally')}")
@@ -2983,6 +2986,17 @@ def _effect_counter(actor, caster, effect: dict, log_lines: list[str], mods: dic
     )
 
 
+def _effect_workmans_comp(actor, caster, effect: dict, log_lines: list[str], mods: dict):
+    hits = effect.get("max_hits", 3)
+    _apply_timed_effect(
+        actor, "workmans_comp", effect["value"], effect["duration"], log_lines,
+        f"🦺 {_actor_label(actor)} {_verb(actor, 'step')} into the line of fire: the next **{hits}** hit(s) taken "
+        f"pay **{effect['value']:g}** Chips each.",
+    )
+    # Recasting refreshes the hit allowance too, not just the duration _apply_timed_effect resets.
+    next(e for e in actor.timed_effects if e["type"] == "workmans_comp")["hits_left"] = hits
+
+
 def _effect_blood_in_water(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     cap = max(1, monster_state.speed // 2)  # the same floor _capped_speed_debuff stops at
     bites = (monster_state.speed_debuff > 0) + (monster_state.hp < monster_state.max_hp / 2) + (monster_state.speed_debuff >= cap)
@@ -3021,8 +3035,8 @@ def _tab_loot_mult(instance) -> float:
 
 def _after_monster_hit(monster, target, dmg: int, party: list, log_lines: list[str]) -> None:
     """Everything a landed (not dodged) monster hit on a player triggers, after the damage is
-    applied: Grudge, the Collector's Tab, a Counter punching back, and an intercepting Minder's
-    damage turning into a party Barrier."""
+    applied: Grudge, the Collector's Tab, a Counter punching back, Workman's Comp refunding Chips, and
+    an intercepting Minder's damage turning into a party Barrier."""
     if dmg <= 0:
         return
     _gain_meter([target], "grudge")
@@ -3040,6 +3054,13 @@ def _after_monster_hit(monster, target, dmg: int, party: list, log_lines: list[s
         monster.hp -= back
         log_lines.append(f"🥊 {_actor_label(target)} {_verb(target, 'hit')} back for **{back}**!")
         _on_damage_taken(monster, back, log_lines)
+    pay = next((e for e in target.timed_effects if e["type"] == "workmans_comp"), None)
+    if pay is not None and pay["hits_left"] > 0:
+        pay["hits_left"] -= 1
+        gained = max(0, min(round(pay["value"]), target.max_chips - target.chips))
+        target.chips += gained
+        if gained:
+            log_lines.append(f"🦺 Workman's comp: {_possessive_label(target)} Chips rise by **{gained}**.")
     share = getattr(target, "intercepting", None)
     if share:
         target.intercepting = None
@@ -3323,6 +3344,7 @@ EFFECT_HANDLERS = {
     "hype_spend": _effect_meter_spend,
     "grudge_spend": _effect_meter_spend,
     "counter": _effect_counter,
+    "workmans_comp": _effect_workmans_comp,
     "blood_in_water": _effect_blood_in_water,
     "intercept": _effect_intercept,
     "collect_tab": _effect_collect_tab,
