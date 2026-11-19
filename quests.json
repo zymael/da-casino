@@ -280,6 +280,16 @@
             "x": 230,
             "y": 40,
             "next": "stage_1"
+          },
+          {
+            "trigger": {
+              "type": "achievement",
+              "kind": "old_god_slain"
+            },
+            "on_complete_message": "YOU ATE THE OLD GOD. MONDOR IS IMPRESSED. MONDOR IS ALSO SLIGHTLY AFRAID OF YOU NOW. NOW THE BUY-IN. EVEN DESTINY HAS A TABLE MINIMUM. TWENTY-FIVE HUNDRED, ON THE FELT, BEFORE MONDOR DEALS.",
+            "x": 230,
+            "y": 140,
+            "next": "stage_1"
           }
         ]
       },
