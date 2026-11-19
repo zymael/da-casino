@@ -68,5 +68,15 @@
     "id": "charge",
     "label": "Charge",
     "emoji": "\u26a1"
+  },
+  {
+    "id": "hex",
+    "label": "Hex",
+    "emoji": "\ud83d\udd6f\ufe0f"
+  },
+  {
+    "id": "hype",
+    "label": "Hype",
+    "emoji": "\ud83d\udce3"
   }
 ]

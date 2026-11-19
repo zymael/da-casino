@@ -114,6 +114,7 @@ class MonsterInstance:
         self.turn_clock = 0.0
         self.guard_charge: float | None = None
         self.charge: dict | None = None  # class resource, see _effect_charge/_effect_overload
+        self.hype = 0  # class resource, see _gain_hype/_effect_hype_spend
         self.slot = slot
         # Party-only threat table: {user_id: accumulated threat}, this monster's own view of who
         # it's most likely to attack (dungeon.pick_target_by_threat, used by _advance_party_turns).
@@ -286,6 +287,11 @@ def _status_text(entity) -> str:
             lines.append(f"{E('charge')} {L('charge')} ×{charge['mult']:g} {meter}")
         else:
             lines.append(f"{E('charge')} {L('charge')} ×{charge['mult']:g}")
+    hype_max = _hype_max(entity)
+    if hype_max and entity.hype:
+        lines.append(f"{E('hype')} {L('hype')} {entity.hype}/{hype_max}")
+    if "hex" in timed:
+        lines.append(f"{E('hex')} {L('hex')}: {timed['hex'].get('stored', 0)} stored ({timed['hex']['remaining']})")
     # Net stat changes share ONE compact line (emoji + signed number, e.g. "✨+7 🛡️-5") -- a fight
     # with several buffs/debuffs would otherwise push everything else past STATUS_LINE_CAP.
     base = getattr(entity, "base_stats", None) or {}
@@ -321,6 +327,7 @@ def _reset_fight_stats(player) -> None:
     player.timed_effects = []
     player.guard_charge = None
     player.charge = None
+    player.hype = 0
 
 
 class DelveSession:
@@ -353,6 +360,7 @@ class DelveSession:
         self.turn_clock = 0.0
         self.guard_charge: float | None = None
         self.charge: dict | None = None  # class resource, see _effect_charge/_effect_overload
+        self.hype = 0  # class resource, see _gain_hype/_effect_hype_spend
         # Equipped item ids whose on_use effect has already been cast this fight -- reset
         # alongside chips at every combat-room entry (see _goto_room), same "once per fight"
         # reset point.
@@ -490,6 +498,7 @@ class PartyMember:
         self.turn_clock = 0.0
         self.guard_charge: float | None = None
         self.charge: dict | None = None  # class resource, see _effect_charge/_effect_overload
+        self.hype = 0  # class resource, see _gain_hype/_effect_hype_spend
         self.used_item_effects: set[str] = set()
         # Same "start wherever the last delve left off" rule as DelveSession -- see its own hp
         # comment for why.
@@ -1933,6 +1942,9 @@ def _skill_button_label(skill: dict, actor) -> str:
             label += f" ({round(risk * 100)}% ⚠)"
     elif charge and skill.get("special") and any(e["type"] in DAMAGE_EFFECT_TYPES for e in effects):
         label += f" ⚡×{charge['mult']:g}"
+    hype = next((e for e in effects if e["type"] == "hype_spend"), None)
+    if hype is not None and getattr(actor, "hype", 0):
+        label += f" 📣×{1 + hype['per_point'] * actor.hype:g}"
     return label[:80]
 
 
@@ -2715,6 +2727,81 @@ def _effect_overload(actor, caster, effect: dict, log_lines: list[str], mods: di
     log_lines.append(f"🎲 Overload rolls **×{mult:g}** on {_possessive_pronoun(actor)} next spell.")
 
 
+# Mage/Spades: Hex. A timed effect on the enemy that stores every point of damage it takes (fed by
+# _on_damage_taken, so it counts the whole party) and detonates when it expires (_tick_timed_effects).
+
+
+def _effect_hex(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    existing = next((e for e in monster_state.timed_effects if e["type"] == "hex"), None)
+    if existing is not None:  # a recast refreshes the timer and keeps what's stored so far
+        existing.update(value=effect["value"], remaining=effect["duration"], cap=effect.get("cap"))
+    else:
+        monster_state.timed_effects.append({
+            "type": "hex", "value": effect["value"], "remaining": effect["duration"],
+            "cap": effect.get("cap"), "stored": 0,
+        })
+    log_lines.append(
+        f"🕯️ {_combatant_name(monster_state)} is hexed: every hit on them is stored for "
+        f"**{effect['duration']}** turn(s), then it all comes due."
+    )
+
+
+def _detonate_hex(entity, hex_effect: dict, log_lines: list[str]) -> None:
+    dmg = round(hex_effect.get("stored", 0) * hex_effect["value"])
+    if hex_effect.get("cap"):
+        dmg = min(dmg, round(entity.max_hp * hex_effect["cap"]))
+    if dmg <= 0:
+        log_lines.append(f"🕯️ The hex on {_combatant_name(entity)} fizzles out with nothing stored.")
+        return
+    entity.hp -= dmg
+    log_lines.append(f"🕯️💥 The hex on {_combatant_name(entity)} comes due for **{dmg}** damage!")
+    _break_sap(entity, log_lines)
+
+
+def _on_damage_taken(entity, dmg: int, log_lines: list[str]) -> None:
+    """Everything that reacts to `entity` taking damage, from any source -- call right after the
+    hp subtraction wherever damage lands (player hits, on-hit procs, DoT ticks, monster attacks).
+    Breaks Sap, and feeds a running Hex (never the hex's own detonation -- see _detonate_hex)."""
+    _break_sap(entity, log_lines)
+    if dmg > 0:
+        for eff in entity.timed_effects:
+            if eff["type"] == "hex":
+                eff["stored"] = eff.get("stored", 0) + dmg
+
+
+# Mage/Hearts: Hype. A meter on every combatant who has a hype_spend skill unlocked, filled by any
+# party member landing a hit or dodging (_gain_hype) and spent by that skill (_effect_hype_spend).
+
+
+def _hype_max(entity) -> int:
+    """How much Hype `entity` can hold -- 0 if none of their unlocked skills spends it (so the meter
+    only exists for builds that use it)."""
+    for skill in getattr(entity, "unlocked_skills", None) or []:
+        for group in dungeon._effect_lists(skill):
+            for effect in group:
+                if effect["type"] == "hype_spend":
+                    return effect.get("max_points", 10)
+    return 0
+
+
+def _gain_hype(entities: list, amount: int = 1) -> None:
+    for entity in entities:
+        cap = _hype_max(entity)
+        if cap and not getattr(entity, "knocked_out", False):
+            entity.hype = min(cap, entity.hype + amount)
+
+
+def _effect_hype_spend(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    points = actor.hype
+    mods["hype_spent"] = True
+    if not points:
+        return
+    mult = 1 + effect["per_point"] * points
+    mods["multiplier"] *= mult
+    actor.hype = 0
+    log_lines.append(f"📣 The crowd goes wild! **{points}** Hype pumps this up **×{mult:g}**!")
+
+
 def _release_charge(actor, special: bool, mods: dict, log_lines: list[str]) -> None:
     """Spends `actor`'s stored charge on this damaging action, if it's a special (Magic) one --
     multiplies the main hit and every extra hit alike. A plain Attack leaves the charge stored."""
@@ -2769,6 +2856,8 @@ EFFECT_HANDLERS = {
     "dodge_buff": _effect_dodge_buff,
     "charge": _effect_charge,
     "overload": _effect_overload,
+    "hex": _effect_hex,
+    "hype_spend": _effect_hype_spend,
     "resist_buff": _effect_resist_buff,
     "dot": _effect_dot,
     "hot": _effect_hot,
@@ -2971,7 +3060,7 @@ def _resolve_player_action(
             hit_entities.append(entity)
             crit_note = " 💥 Critical hit!" if is_crit else ""
             log_lines.append(f"{subject_label} {verb} {_combatant_name(entity)} for **{dmg}** damage.{crit_note}")
-            _break_sap(entity, log_lines)
+            _on_damage_taken(entity, dmg, log_lines)
             # Threat only exists on a MonsterInstance -- damage that landed on self/an ally instead
             # (now possible with an unrestricted "target") has no threat table to update.
             if threat_gain and isinstance(entity, MonsterInstance):
@@ -2986,6 +3075,9 @@ def _resolve_player_action(
         actor.hp += healed
         if healed:
             log_lines.append(f"{subject_label} {drain_verb} **{healed}** HP from the strike.")
+
+    if hit_entities and damage_is_enemy:
+        _gain_hype([a for a in ally_pool if not (a is actor and mods.get("hype_spent"))])
 
     return hit_entities
 
@@ -3035,7 +3127,7 @@ def _tick_timed_effects(entities: list, log_lines: list[str]) -> None:
                 dmg = round(eff["value"])
                 entity.hp -= dmg
                 log_lines.append(f"{_actor_label(entity)} {_verb(entity, 'take')} **{dmg}** damage from festering wounds.")
-                _break_sap(entity, log_lines)
+                _on_damage_taken(entity, dmg, log_lines)
             elif eff["type"] == "hot":
                 healed = min(entity.max_hp, entity.hp + round(entity.max_hp * eff["value"])) - entity.hp
                 entity.hp += healed
@@ -3043,7 +3135,10 @@ def _tick_timed_effects(entities: list, log_lines: list[str]) -> None:
                     log_lines.append(f"{_actor_label(entity)} {_verb(entity, 'recover')} **{healed}** HP over time.")
         for eff in entity.timed_effects:
             eff["remaining"] -= 1
+        expired_hexes = [e for e in entity.timed_effects if e["type"] == "hex" and e["remaining"] <= 0]
         entity.timed_effects = [e for e in entity.timed_effects if e["remaining"] > 0]
+        for hex_effect in expired_hexes:
+            _detonate_hex(entity, hex_effect, log_lines)
 
 
 def _break_sap(entity, log_lines: list[str]) -> None:
@@ -3113,7 +3208,7 @@ def _roll_on_hit_procs(
                 extra_dmg = _consume_guard_charge(monster_state, extra_dmg, log_lines)
                 monster_state.hp -= extra_dmg
                 log_lines.append(f"{item['name']} strikes again at {_combatant_name(monster_state)} for **{extra_dmg}** damage!")
-                _break_sap(monster_state, log_lines)
+                _on_damage_taken(monster_state, extra_dmg, log_lines)
                 if threat_gain and isinstance(monster_state, MonsterInstance):
                     monster_state.threat[actor.user_id] = (
                         monster_state.threat.get(actor.user_id, 0) + extra_dmg * dungeon.THREAT_PER_DAMAGE
@@ -3375,6 +3470,7 @@ async def _advance_solo_turns(
         verb = f"unleashes **{monster_skill['name']}**" if monster_skill else "strikes back"
         if dodged:
             log_lines.append(f"You dodge **{monster.name}**'s attack!")
+            _gain_hype([session])
         else:
             monster_dmg = _consume_guard_charge(session, monster_dmg, log_lines)
             dmg_clause = f" for **{monster_dmg}**" if is_damage_action else ""
@@ -3382,7 +3478,7 @@ async def _advance_solo_turns(
             if monster_skill and monster_skill.get("flavor"):
                 log_lines.append(f"> {monster_skill['flavor']}")
             session.hp -= monster_dmg
-            _break_sap(session, log_lines)
+            _on_damage_taken(session, monster_dmg, log_lines)
             # Appended last, deliberately after the announcement/flavor above -- see
             # _resolve_monster_attack's own docstring for why this can't just be appended there.
             if lifesteal_line:
@@ -3805,12 +3901,13 @@ async def _advance_party_turns(
             for target, monster_dmg, dodged in results:
                 if dodged:
                     log_lines.append(f"**{target.label}** dodges the blast!")
+                    _gain_hype(session.living_members())
                     continue
                 monster_dmg = _consume_guard_charge(target, monster_dmg, log_lines)
                 if is_damage_action:
                     log_lines.append(f"**{target.label}** takes **{monster_dmg}** damage.")
                 target.hp -= monster_dmg
-                _break_sap(target, log_lines)
+                _on_damage_taken(target, monster_dmg, log_lines)
                 if target.hp <= 0:
                     target.knocked_out = True
                     log_lines.append(f"💀 **{target.label}** is knocked out!")
@@ -3818,6 +3915,7 @@ async def _advance_party_turns(
             target, monster_dmg, dodged = results[0]
             if dodged:
                 log_lines.append(f"**{target.label}** dodges **{monster.name}**'s attack!")
+                _gain_hype(session.living_members())
             else:
                 monster_dmg = _consume_guard_charge(target, monster_dmg, log_lines)
                 verb = f"unleashes **{monster_skill['name']}** on" if monster_skill else "strikes"
@@ -3826,7 +3924,7 @@ async def _advance_party_turns(
                 if flavor:
                     log_lines.append(f"> {flavor}")
                 target.hp -= monster_dmg
-                _break_sap(target, log_lines)
+                _on_damage_taken(target, monster_dmg, log_lines)
                 if target.hp <= 0:
                     target.knocked_out = True
                     log_lines.append(f"💀 **{target.label}** is knocked out!")

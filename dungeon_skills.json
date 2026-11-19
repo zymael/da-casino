@@ -1423,26 +1423,11 @@
     "flavor": "Pushing this much luck into one place is asking for trouble. They're asking anyway.",
     "effects": [
       {
-        "type": "stun",
-        "duration": 1,
-        "target": "self"
-      },
-      {
-        "type": "dodge_buff",
+        "type": "hex",
         "duration": 3,
         "value": 0.5,
-        "target": "self"
-      },
-      {
-        "type": "resist_buff",
-        "duration": 3,
-        "value": 0.5,
-        "target": "self"
-      },
-      {
-        "type": "spatk_buff",
-        "value": 7,
-        "target": "self"
+        "cap": 0.25,
+        "target": "enemy"
       },
       {
         "type": "spatk_debuff",
@@ -1484,25 +1469,19 @@
     "flavor": "Every act builds to one moment. This is theirs.",
     "effects": [
       {
-        "type": "dodge_buff",
-        "duration": 3,
-        "value": 0.3,
-        "target": "self"
+        "type": "damage_multiplier",
+        "value": 0.8,
+        "aoe": true,
+        "target": "enemy"
       },
       {
-        "type": "resist_buff",
-        "duration": 3,
-        "value": 0.3,
-        "target": "self"
-      },
-      {
-        "type": "spatk_buff",
-        "value": 7,
-        "target": "self"
+        "type": "hype_spend",
+        "per_point": 0.2,
+        "max_points": 10
       },
       {
         "type": "dodge_buff",
-        "duration": 3,
+        "duration": 2,
         "value": 0.2,
         "target": "ally",
         "aoe": true

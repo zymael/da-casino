@@ -5049,6 +5049,8 @@ def format_effect(effect: dict) -> str:
     # compact fragment has no room for the scale/missing-HP formula too.
     if etype == "overload":
         return f"{label} ×{effect['min']:g}-{effect['max']:g}"
+    if etype == "hype_spend":
+        return f"{label} +{effect['per_point']:g}/pt"
     param = next((p for p in ("value", "reduction", "multiplier", "base") if p in effect), None)
     if param is None:
         return label

@@ -941,7 +941,7 @@ _REQUIRED_STAT_LABEL_FIELDS = {"id", "label"}
 # so "Stunned"/"Festering"/... reflavor the same way the stats do.
 _REQUIRED_STAT_LABEL_IDS = {
     "hp", "atk", "def", "spatk", "speed", "chips", "dodge", "resist",
-    "stun", "sap", "dot", "hot", "guard", "charge",
+    "stun", "sap", "dot", "hot", "guard", "charge", "hex", "hype",
 }
 
 
@@ -1154,6 +1154,14 @@ EFFECT_PARAM_SCHEMAS = {
     # bust_chance (0-1) per roll already made -- busting loses the charge and stuns the caster
     # for bust_stun turns (default 2).
     "overload": ({"min", "max"}, {"bust_chance", "bust_stun"}, {"bust_chance"}),
+    # hex: marks an enemy for `duration` of its own turns. Every point of damage it takes meanwhile,
+    # from anyone in the party (hits, on-hit procs, DoT ticks), is stored; when the hex runs out it
+    # detonates for `value` (0-1) of the stored total, capped at `cap` (0-1) of its max HP if set.
+    "hex": ({"duration", "value"}, {"cap"}, {"value", "cap"}),
+    # hype_spend: spends the caster's Hype (built by every party hit and dodge, up to max_points,
+    # default 10, while they have a hype_spend skill unlocked) on this cast's damage: x(1 +
+    # per_point x Hype). Must share its effects list with a damage_multiplier/extra_attack.
+    "hype_spend": ({"per_point"}, {"max_points"}, set()),
 }
 
 # Which handler-calling-convention an effect type uses, for dungeon_view.py's dispatch -- three
@@ -1176,15 +1184,17 @@ EFFECT_PARAM_SCHEMAS = {
 # "enemy" is dodge-gated (matching every enemy-shaped effect's existing behavior); "self"/"ally"
 # never are (a self-heal, or now a self-inflicted stun, was never really "the attack" that could be
 # dodged) -- see dungeon_view._resolve_player_action.
-MODS_ONLY_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "lifesteal_fraction"}
+MODS_ONLY_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "lifesteal_fraction", "hype_spend"}
+# The MODS_ONLY types that actually establish a damage roll (mirrors dungeon_view.DAMAGE_EFFECT_TYPES).
+_DAMAGE_ROLL_EFFECT_TYPES = {"damage_multiplier", "extra_attack"}
 # Resource-building types that default to the caster themselves rather than "ally" (which in a
 # party means whichever ally is selected) -- charging up a teammate by accident would be a trap.
 SELF_DEFAULT_EFFECT_TYPES = {"charge", "overload"}
 # Params that count turns or stacks -- validated as positive ints, like "duration".
-_INT_EFFECT_PARAMS = {"duration", "max_stacks", "safe_stacks", "bust_stun"}
+_INT_EFFECT_PARAMS = {"duration", "max_stacks", "safe_stacks", "bust_stun", "max_points"}
 ENEMY_TARGETED_EFFECT_TYPES = {
     "atk_debuff", "spatk_debuff", "speed_debuff", "def_shred",
-    "taunt", "lower_threat", "sap", "stun", "execute_multiplier",
+    "taunt", "lower_threat", "sap", "stun", "execute_multiplier", "hex",
     # dot used to be ally-shaped (left over from when it sat next to hot), so an effect with no
     # explicit "target" -- curse_the_table, every on_hit weapon proc -- festered on the caster.
     "dot",
@@ -1289,8 +1299,12 @@ def _validate_effects(effects, context: str):
     # is one shared scalar applied to every AOE target, but execute_multiplier's value is computed
     # against exactly the one enemy its own target/aoe resolved to -- mixing the two would silently
     # apply one target's execute bonus to every other AOE target too.
+    if any(e.get("type") == "hype_spend" for e in effects) and not any(
+        e.get("type") in _DAMAGE_ROLL_EFFECT_TYPES for e in effects
+    ):
+        raise ValueError(f"{context} has a hype_spend with no damage_multiplier/extra_attack to boost")
     if any(e.get("type") == "execute_multiplier" for e in effects):
-        damage_effects = [e for e in effects if e.get("type") in MODS_ONLY_EFFECT_TYPES and e["type"] != "lifesteal_fraction"]
+        damage_effects = [e for e in effects if e.get("type") in _DAMAGE_ROLL_EFFECT_TYPES]
         if not damage_effects:
             raise ValueError(
                 f"{context} has an execute_multiplier with no damage_multiplier/extra_attack in "
@@ -1400,7 +1414,7 @@ def resolve_cast_effects(entry: dict) -> list[dict]:
 # (_MONSTER_SKILL_EXCLUDED_EFFECT_TYPES below), which are meaningless for a monster's own skill: a
 # player already picks their own attack target directly, so there's no "who do I attack" choice for
 # a monster to sway on a player's behalf the way taunt/lower_threat sway a monster's own choice.
-_MONSTER_SKILL_EXCLUDED_EFFECT_TYPES = {"taunt", "lower_threat", "charge", "overload"}
+_MONSTER_SKILL_EXCLUDED_EFFECT_TYPES = {"taunt", "lower_threat", "charge", "overload", "hex", "hype_spend"}
 
 
 
@@ -1655,7 +1669,9 @@ CONSTANT_EQUIPMENT_EFFECT_TYPES = {
 # `actor`, same as the other *_buff types already allowed on_hit), no reason to special-case it out.
 # taunt/lower_threat are allowed too -- _roll_on_hit_procs dispatches any type through
 # EFFECT_HANDLERS with a real target already in hand, so their handlers just work unmodified.
-ON_HIT_EQUIPMENT_EFFECT_TYPES = set(EFFECT_PARAM_SCHEMAS) - {"damage_multiplier", "guard", "charge", "overload"}
+ON_HIT_EQUIPMENT_EFFECT_TYPES = set(EFFECT_PARAM_SCHEMAS) - {
+    "damage_multiplier", "guard", "charge", "overload", "hex", "hype_spend",
+}
 # type -> which stat constant_stat_bonuses folds it into -- the inverse of generate_item_constant_effects'
 # own mapping below.
 _CONSTANT_EFFECT_STAT = {
