@@ -173,6 +173,11 @@ Each class has a signature resource, each suit a twist on it, all built from eff
   hit on a player also through `_after_monster_hit` (Grudge, Tab, Counter, intercept barrier). A new
   damage source must call these, not just subtract HP.
 - **Barrier** is eaten inside `_consume_guard_charge`, so anything that skips that (DoT ticks) skips it.
+- **Timed effects count down on the holder's own turns**, except a window the *party* cashes in on
+  (Hex, Hook): those carry an `owner` and count the caster's turns (`_tick_timed_effects`'
+  `owned_on`), else a fast boss burns through them before anyone swings. Stun/Sap/Charm/DoT stay
+  on the target's clock on purpose ("skip N of its turns"). A tick on a player's turn can now kill
+  a monster, so those call sites settle deaths.
 - **Kills always go through `_solo_award`/`_party_award`.** A monster can now die on a MONSTER's
   turn (Counter, a charmed ally); `_settle_monster_turn_deaths` rewards those.
 - Meters (Hype, Grudge) only exist for a combatant whose unlocked skills spend them (`_meter_max`).

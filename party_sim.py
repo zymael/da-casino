@@ -353,10 +353,12 @@ def run_fight(builds, monster_spec, skills: dict, level: int, gear: float, start
             continue
         actor = next(m for m in members if m.user_id == cid)
         cc = dv._active_cc_type(actor)
-        dv._tick_timed_effects([actor], [])
+        dv._tick_timed_effects([actor], [], owned_on=fight.living_monsters())
         dv._try_corner(actor, [])
         if actor.hp <= 0:
             actor.knocked_out = True
+        elif not fight.living_monsters():
+            continue
         elif cc:
             actor.turn_clock += dungeon.turn_interval(max(1, actor.speed - actor.speed_debuff))
         else:

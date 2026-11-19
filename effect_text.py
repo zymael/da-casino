@@ -118,7 +118,7 @@ def _resource_phrase(effect: dict) -> str | None:
                 f"+{_pct(effect.get('bust_chance', 0))} bust risk per roll (bust: lose it, stunned {_turns(effect.get('bust_stun', 2))})")
     if t == "hex":
         cap = f", max {_pct(effect['cap'])} of its {L('hp')}" if effect.get("cap") else ""
-        return f"{L('hex')} for {_rounds(effect['duration'])}: {_pct(v)} of all damage it takes meanwhile comes due at the end (less in bigger parties){cap}"
+        return f"{L('hex')} for your next {_turns(effect['duration'])}: {_pct(v)} of all damage it takes meanwhile comes due at the end (less in bigger parties){cap}"
     if t in ("hype_spend", "grudge_spend"):
         meter = "hype" if t == "hype_spend" else "grudge"
         source = "anyone in your party hitting or dodging" if meter == "hype" else "each hit you take"
@@ -141,8 +141,8 @@ def _resource_phrase(effect: dict) -> str | None:
     if t == "plate_spend":
         return f"pass the {L('plate')} (filled by your overhealing): heals the party and smites every enemy for {_pct(v)} of it"
     if t == "hook":
-        grow = f" (+{_pct(effect['growth'])}/round)" if effect.get("growth") else ""
-        return f"{L('hook')} for {_rounds(effect['duration'])}: party hits on it drain {_pct(v)}{grow} as {L('hp')}"
+        grow = f" (+{_pct(effect['growth'])} each of your turns)" if effect.get("growth") else ""
+        return f"{L('hook')} for your next {_turns(effect['duration'])}: party hits on it drain {_pct(v)}{grow} as {L('hp')}"
     if t == "tells_spend":
         text = f"+{effect['per_point']:g}× per {L('tells')[:-1] if L('tells').endswith('s') else L('tells')} on it (your hits leave them, max {effect.get('max_points', 5)})"
         if effect.get("stunned_bonus"):

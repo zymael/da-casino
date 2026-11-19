@@ -2881,15 +2881,17 @@ def _effect_hex(actor, monster_state, effect: dict, log_lines: list[str], mods: 
     party_scale = 1 / dungeon.party_hp_multiplier(len(mods.get("ally_pool") or [actor]))
     existing = next((e for e in monster_state.timed_effects if e["type"] == "hex"), None)
     if existing is not None:  # a recast refreshes the timer and keeps what's stored so far
-        existing.update(value=effect["value"], remaining=effect["duration"], cap=effect.get("cap"), scale=party_scale)
+        existing.update(
+            value=effect["value"], remaining=effect["duration"], cap=effect.get("cap"), scale=party_scale, owner=actor,
+        )
     else:
         monster_state.timed_effects.append({
             "type": "hex", "value": effect["value"], "remaining": effect["duration"],
-            "cap": effect.get("cap"), "stored": 0, "scale": party_scale,
+            "cap": effect.get("cap"), "stored": 0, "scale": party_scale, "owner": actor,
         })
     log_lines.append(
         f"🕯️ {_combatant_name(monster_state)} is hexed: every hit on them is stored for "
-        f"**{effect['duration']}** turn(s), then it all comes due."
+        f"{_possessive_pronoun(actor)} next **{effect['duration']}** turn(s), then it all comes due."
     )
 
 
@@ -3155,10 +3157,14 @@ def _effect_plate_spend(actor, caster, effect: dict, log_lines: list[str], mods:
 def _effect_hook(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     existing = next((e for e in monster_state.timed_effects if e["type"] == "hook"), None)
     if existing is not None:
-        existing.update(value=max(existing["value"], effect["value"]), remaining=effect["duration"], growth=effect.get("growth", 0))
+        existing.update(
+            value=max(existing["value"], effect["value"]), remaining=effect["duration"],
+            growth=effect.get("growth", 0), owner=actor,
+        )
     else:
         monster_state.timed_effects.append({
-            "type": "hook", "value": effect["value"], "remaining": effect["duration"], "growth": effect.get("growth", 0),
+            "type": "hook", "value": effect["value"], "remaining": effect["duration"],
+            "growth": effect.get("growth", 0), "owner": actor,
         })
     log_lines.append(f"🪝 {_combatant_name(monster_state)} is hooked: every hit on them feeds the crew.")
 
@@ -3617,43 +3623,73 @@ def _resist_line(entity) -> str:
     return f"{_actor_label(entity)} {_verb(entity, 'call')} the bluff, and none of it sticks."
 
 
-def _tick_timed_effects(entities: list, log_lines: list[str]) -> None:
+def _tick_timed_effects(entities: list, log_lines: list[str], owned_on: list = ()) -> None:
     """One round's worth of DoT/HoT ticks + duration countdown, for every entity still in the
     fight (players and monsters alike -- both now carry timed_effects). A freshly-applied effect
     doesn't tick the round it's applied (that round's "hit" was the skill's own visible effect, if
     any) -- this is only ever called once per round, after that round's actions/counter-attacks
     are already resolved, so the first tick naturally lands the following round. Doesn't handle
-    death/knockout itself from a DoT tick -- callers already check hp<=0 right after this runs."""
+    death/knockout itself from a DoT tick -- callers already check hp<=0 right after this runs.
+
+    Caster-clock effects (Hex, Hook: an entry with an "owner") sit on an enemy but count down on
+    the OWNER's turns, not the target's -- their payoff is the party's hits during the window, so a
+    fast boss mustn't burn through it. `owned_on` is who the ticking entity's own such effects may
+    sit on (the living enemies); a hex that expires there can kill one, so callers settle deaths. If
+    the owner is down (KO'd/dead), the effect falls back to the target's own turns."""
     for entity in entities:
         for eff in entity.timed_effects:
-            if eff["type"] == "dot":
-                # round(), not the raw stored value -- "dot" is documented (admin_schemas.py) as flat
-                # damage, but nothing ever enforced that at content-authoring time, and at least one
-                # skill (mage/spades' evolved fireball, now id curse_the_table) got authored with a
-                # hot-style fraction (0.3) by
-                # mistake. A literal float subtraction here doesn't just show a decimal once -- it
-                # permanently turns entity.hp into a float for the rest of the fight (and beyond,
-                # once db.set_current_hp persists it), so every hp/damage display after that ticks
-                # shows decimals too. round() is the floor against that either way, content typo or not.
-                dmg = round(eff["value"])
-                entity.hp -= dmg
-                log_lines.append(f"{_actor_label(entity)} {_verb(entity, 'take')} **{dmg}** damage from festering wounds.")
-                _on_damage_taken(entity, dmg, log_lines)
-            elif eff["type"] == "hot":
-                amount = round(entity.max_hp * eff["value"])
-                healed = min(entity.max_hp, entity.hp + amount) - entity.hp
-                entity.hp += healed
-                if healed:
-                    log_lines.append(f"{_actor_label(entity)} {_verb(entity, 'recover')} **{healed}** HP over time.")
-                _handle_overheal(entity, eff.get("caster"), amount - healed, eff, log_lines)
-            elif eff["type"] == "hook":
-                eff["value"] = min(1.0, eff["value"] + eff.get("growth", 0))
-        for eff in entity.timed_effects:
-            eff["remaining"] -= 1
-        expired_hexes = [e for e in entity.timed_effects if e["type"] == "hex" and e["remaining"] <= 0]
-        entity.timed_effects = [e for e in entity.timed_effects if e["remaining"] > 0]
-        for hex_effect in expired_hexes:
-            _detonate_hex(entity, hex_effect, log_lines)
+            if _on_caster_clock(eff):
+                continue  # counted down on its owner's turn instead (below)
+            _step_timed_effect(entity, eff, log_lines)
+        _expire_timed_effects(entity, log_lines)
+        for target in owned_on:
+            owned = [e for e in target.timed_effects if e.get("owner") is entity and _on_caster_clock(e)]
+            for eff in owned:
+                _step_timed_effect(target, eff, log_lines)
+            if owned:
+                _expire_timed_effects(target, log_lines)
+
+
+def _on_caster_clock(eff: dict) -> bool:
+    """Whether a timed effect counts down on its owner's turns (Hex/Hook while their caster is
+    still up) rather than on the turns of the entity it sits on -- see _tick_timed_effects."""
+    owner = eff.get("owner")
+    return owner is not None and owner.hp > 0 and not getattr(owner, "knocked_out", False)
+
+
+def _step_timed_effect(entity, eff: dict, log_lines: list[str]) -> None:
+    """One tick of one timed effect sitting on `entity`: its per-tick payload, then -1 remaining."""
+    if eff["type"] == "dot":
+        # round(), not the raw stored value -- "dot" is documented (admin_schemas.py) as flat
+        # damage, but nothing ever enforced that at content-authoring time, and at least one
+        # skill (mage/spades' evolved fireball, now id curse_the_table) got authored with a
+        # hot-style fraction (0.3) by
+        # mistake. A literal float subtraction here doesn't just show a decimal once -- it
+        # permanently turns entity.hp into a float for the rest of the fight (and beyond,
+        # once db.set_current_hp persists it), so every hp/damage display after that ticks
+        # shows decimals too. round() is the floor against that either way, content typo or not.
+        dmg = round(eff["value"])
+        entity.hp -= dmg
+        log_lines.append(f"{_actor_label(entity)} {_verb(entity, 'take')} **{dmg}** damage from festering wounds.")
+        _on_damage_taken(entity, dmg, log_lines)
+    elif eff["type"] == "hot":
+        amount = round(entity.max_hp * eff["value"])
+        healed = min(entity.max_hp, entity.hp + amount) - entity.hp
+        entity.hp += healed
+        if healed:
+            log_lines.append(f"{_actor_label(entity)} {_verb(entity, 'recover')} **{healed}** HP over time.")
+        _handle_overheal(entity, eff.get("caster"), amount - healed, eff, log_lines)
+    elif eff["type"] == "hook":
+        eff["value"] = min(1.0, eff["value"] + eff.get("growth", 0))
+    eff["remaining"] -= 1
+
+
+def _expire_timed_effects(entity, log_lines: list[str]) -> None:
+    """Drop `entity`'s run-out timed effects; an expiring Hex detonates."""
+    expired_hexes = [e for e in entity.timed_effects if e["type"] == "hex" and e["remaining"] <= 0]
+    entity.timed_effects = [e for e in entity.timed_effects if e["remaining"] > 0]
+    for hex_effect in expired_hexes:
+        _detonate_hex(entity, hex_effect, log_lines)
 
 
 def _break_sap(entity, log_lines: list[str]) -> None:
@@ -3944,11 +3980,15 @@ async def _advance_solo_turns(
             # can end the fight here, before they ever get to act) then render and hand control
             # back. cc_type is read BEFORE the tick (see _active_cc_type's own docstring).
             cc_type = _active_cc_type(session)
-            _tick_timed_effects([session], log_lines)
+            monsters_before = session.living_monsters()
+            _tick_timed_effects([session], log_lines, owned_on=monsters_before)
+            await _settle_monster_turn_deaths(session, monsters_before, log_lines, player_moon_mult)
             _try_corner(session, log_lines)
             if session.hp <= 0:
                 await _solo_death_embed(interaction, session, log_lines)
                 return
+            if not session.living_monsters():
+                continue  # their hex just finished the fight -- the top of the loop wraps it up
             if cc_type is not None:
                 log_lines.append(_crowd_control_skip_line(session, cc_type))
                 session.turn_clock += dungeon.turn_interval(max(1, session.speed - session.speed_debuff))
@@ -4348,12 +4388,16 @@ async def _advance_party_turns(
             # tick (see _active_cc_type's own docstring).
             member = session.members_by_id[next_id]
             cc_type = _active_cc_type(member)
-            _tick_timed_effects([member], log_lines)
+            monsters_before = session.living_monsters()
+            _tick_timed_effects([member], log_lines, owned_on=monsters_before)
+            await _settle_monster_turn_deaths(session, monsters_before, log_lines, player_moon_mult)
             _try_corner(member, log_lines)
             if member.hp <= 0:
                 member.knocked_out = True
                 log_lines.append(f"💀 **{member.label}** is knocked out!")
                 continue
+            if not session.living_monsters():
+                continue  # their hex just finished the fight -- the top of the loop wraps it up
             if cc_type is not None:
                 log_lines.append(_crowd_control_skip_line(member, cc_type))
                 member.turn_clock += dungeon.turn_interval(max(1, member.speed - member.speed_debuff))
@@ -6015,12 +6059,15 @@ async def _advance_duel_turns(interaction: discord.Interaction | None, session: 
     # ticks a member's/monster's own timed_effects. cc_type is read BEFORE the tick (see
     # _active_cc_type's own docstring).
     cc_type = _active_cc_type(actor)
-    _tick_timed_effects([actor], log_lines)
+    _tick_timed_effects([actor], log_lines, owned_on=[opponent])
     if actor.hp <= 0 and opponent.hp <= 0:
         await _end_duel(interaction, session, None, log_lines)
         return
     if actor.hp <= 0:
         await _end_duel(interaction, session, opponent, log_lines)
+        return
+    if opponent.hp <= 0:  # their hex came due on the opponent
+        await _end_duel(interaction, session, actor, log_lines)
         return
     if cc_type is not None:
         log_lines.append(_crowd_control_skip_line(actor, cc_type))

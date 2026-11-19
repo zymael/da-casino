@@ -273,9 +273,11 @@ def run_combat_room(session: dungeon_view.DelveSession, log_lines: list[str]) ->
 
         if next_id is None:
             cc_type = dungeon_view._active_cc_type(session)
-            dungeon_view._tick_timed_effects([session], log_lines)
+            dungeon_view._tick_timed_effects([session], log_lines, owned_on=session.living_monsters())
             if session.hp <= 0:
                 return "died", turns
+            if not session.living_monsters():
+                continue
             if cc_type is not None:
                 session.turn_clock += dungeon.turn_interval(max(1, session.speed - session.speed_debuff))
                 turns += 1
