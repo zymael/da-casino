@@ -9,6 +9,7 @@ import all_in
 import db
 import dungeon
 import dungeon_render
+import effect_text
 import housing
 import hub_ui
 import moon
@@ -1457,6 +1458,37 @@ async def _solo_heal_items(session: DelveSession) -> list[tuple[dict, int]]:
     return await _held_healing_items(session.guild_id, session.user_id)
 
 
+def _battle_item_description(item: dict, solo: bool) -> str:
+    """What a battle item does, for a use-item Select's 100-char description: 'heal 30% HP',
+    'Hustle +5 · Enemy: Tempo −2', 'One of: ... / ...' for effect_groups items. Same wording as
+    !skills (effect_text). `solo` (solo delve / duel) says "You" where a party says "Ally", since
+    there the ally pick is always yourself. Falls back to flavor for an item with no effects."""
+    def describe(effects: list[dict]) -> str:
+        text = effect_text.describe_effects(effects, scales_with_caster=False).replace("**", "")
+        if solo:
+            text = text.replace("Ally:", "You:")
+        if " — " not in text:  # one recipient: the label adds nothing for self/ally-only items
+            for label in ("You: ", "Ally: "):
+                if text.startswith(label):
+                    text = text[len(label):]
+        return text.replace(" — ", " · ")
+
+    if item.get("effects"):
+        text = describe(item["effects"])
+    elif item.get("effect_groups"):
+        text = "One of: " + " / ".join(describe(g["effects"]) for g in item["effect_groups"])
+    else:
+        text = item.get("flavor", "")
+    return text if len(text) <= 100 else text[:99] + "…"
+
+
+def _battle_item_options(items: list[dict], solo: bool) -> list[discord.SelectOption]:
+    return [
+        discord.SelectOption(label=item["name"][:100], value=item["id"], description=_battle_item_description(item, solo) or None)
+        for item in items[:MAX_SELECT_OPTIONS]
+    ]
+
+
 def _heal_item_options(items: list[tuple[dict, int]]) -> list[discord.SelectOption]:
     return [
         discord.SelectOption(
@@ -1722,10 +1754,7 @@ class UseItemButton(discord.ui.Button):
 
 class UseItemSelect(discord.ui.Select):
     def __init__(self, items: list[dict]):
-        options = [
-            discord.SelectOption(label=item["name"], value=item["id"], description=item["flavor"][:100])
-            for item in items[:MAX_SELECT_OPTIONS]
-        ]
+        options = _battle_item_options(items, solo=True)
         super().__init__(placeholder="🧪 Use an item...", options=options, row=1)
 
     async def callback(self, interaction: discord.Interaction):
@@ -3663,10 +3692,7 @@ class PartyUseItemButton(discord.ui.Button):
 
 class PartyUseItemSelect(discord.ui.Select):
     def __init__(self, items: list[dict]):
-        options = [
-            discord.SelectOption(label=item["name"], value=item["id"], description=item["flavor"][:100])
-            for item in items[:MAX_SELECT_OPTIONS]
-        ]
+        options = _battle_item_options(items, solo=False)
         super().__init__(placeholder="🧪 Use an item...", options=options, row=1)
 
     async def callback(self, interaction: discord.Interaction):
@@ -5194,10 +5220,7 @@ class DuelUseItemButton(discord.ui.Button):
 
 class DuelUseItemSelect(discord.ui.Select):
     def __init__(self, items: list[dict]):
-        options = [
-            discord.SelectOption(label=item["name"], value=item["id"], description=item["flavor"][:100])
-            for item in items[:MAX_SELECT_OPTIONS]
-        ]
+        options = _battle_item_options(items, solo=True)
         super().__init__(placeholder="🧪 Use an item...", options=options, row=1)
 
     async def callback(self, interaction: discord.Interaction):

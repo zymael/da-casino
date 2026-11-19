@@ -22,7 +22,7 @@ import sell
 _TABS = (
     ("equipment", "⚔️", "Gear"),
     ("material", "⛏️", "Materials"),
-    ("consumable", "🧪", "Potions"),
+    ("consumable", "🧪", "Consumables"),
     ("horse_clothes", "👒", "Horse Clothes"),
     ("housing_item", "🛋️", "Furniture"),
 )
