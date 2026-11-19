@@ -2872,13 +2872,17 @@ def _effect_overload(actor, caster, effect: dict, log_lines: list[str], mods: di
 
 
 def _effect_hex(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    # The whole party feeds a hex, so its payout is scaled down by sqrt(party size) -- the same
+    # curve party monster HP uses (dungeon.party_hp_multiplier). Solo is unchanged; a party of 4
+    # gets half. Without this a full party's hex paid out ~4x a normal turn (party sim, All In 2).
+    party_scale = 1 / dungeon.party_hp_multiplier(len(mods.get("ally_pool") or [actor]))
     existing = next((e for e in monster_state.timed_effects if e["type"] == "hex"), None)
     if existing is not None:  # a recast refreshes the timer and keeps what's stored so far
-        existing.update(value=effect["value"], remaining=effect["duration"], cap=effect.get("cap"))
+        existing.update(value=effect["value"], remaining=effect["duration"], cap=effect.get("cap"), scale=party_scale)
     else:
         monster_state.timed_effects.append({
             "type": "hex", "value": effect["value"], "remaining": effect["duration"],
-            "cap": effect.get("cap"), "stored": 0,
+            "cap": effect.get("cap"), "stored": 0, "scale": party_scale,
         })
     log_lines.append(
         f"🕯️ {_combatant_name(monster_state)} is hexed: every hit on them is stored for "
@@ -2887,7 +2891,7 @@ def _effect_hex(actor, monster_state, effect: dict, log_lines: list[str], mods: 
 
 
 def _detonate_hex(entity, hex_effect: dict, log_lines: list[str]) -> None:
-    dmg = round(hex_effect.get("stored", 0) * hex_effect["value"])
+    dmg = round(hex_effect.get("stored", 0) * hex_effect["value"] * hex_effect.get("scale", 1.0))
     if hex_effect.get("cap"):
         dmg = min(dmg, round(entity.max_hp * hex_effect["cap"]))
     if dmg <= 0:

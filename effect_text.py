@@ -118,7 +118,7 @@ def _resource_phrase(effect: dict) -> str | None:
                 f"+{_pct(effect.get('bust_chance', 0))} bust risk per roll (bust: lose it, stunned {_turns(effect.get('bust_stun', 2))})")
     if t == "hex":
         cap = f", max {_pct(effect['cap'])} of its {L('hp')}" if effect.get("cap") else ""
-        return f"{L('hex')} for {_rounds(effect['duration'])}: {_pct(v)} of all damage it takes meanwhile comes due at the end{cap}"
+        return f"{L('hex')} for {_rounds(effect['duration'])}: {_pct(v)} of all damage it takes meanwhile comes due at the end (less in bigger parties){cap}"
     if t in ("hype_spend", "grudge_spend"):
         meter = "hype" if t == "hype_spend" else "grudge"
         source = "anyone in your party hitting or dodging" if meter == "hype" else "each hit you take"
