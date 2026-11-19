@@ -12,9 +12,9 @@ import asyncio
 
 import discord
 
-import all_in
 import db
 import dungeon
+import inventory_view
 import npcs
 import sell
 
@@ -29,6 +29,8 @@ _TABS = (
 _KIND_EMOJI = {kind: emoji for kind, emoji, _ in _TABS}
 _KIND_LABEL = {kind: label for kind, _, label in _TABS}
 PAGE_SIZE = 25  # Discord's Select option cap
+GEAR_PAGE_SIZE = 10  # gear lines carry stats + proc lines, so fewer per page keeps the embed readable
+MAX_CONFIRM_LINES = 30
 MAX_STACKS_PER_PICK = 5  # Discord's per-modal component cap -- one quantity dropdown per stack
 
 
@@ -58,26 +60,49 @@ def _emoji(entry: dict) -> str:
     return _KIND_EMOJI[entry["kind"]]
 
 
-def _gear_detail(item: dict) -> str:
-    """Short 'Weapon · iL40 · +8 ATK' tag for gear so look-alike All In rolls can be told apart."""
-    parts = [item["slot"].capitalize()]
-    info = item.get("all_in")
-    if info:
-        parts.append(f"iL{info['level']}")
-        parts += [f"+{v} {dungeon.stat_label(s)}" for s, v in info["affixes"]]
-    return " · ".join(parts)
+def _page_size(kind: str) -> int:
+    return GEAR_PAGE_SIZE if kind == "equipment" else PAGE_SIZE
+
+
+def _gear_summary(item: dict) -> str:
+    """'Weapon · iLvl 40 · ATK +5 / HP +10 · rare' -- same stat text !inventory uses."""
+    return f"{item['slot'].capitalize()} · {inventory_view._equipment_summary(item)}"
+
+
+def _gear_lines(item: dict) -> str:
+    """Stats on the item's own line, then one indented line per on-use/on-hit effect."""
+    procs = inventory_view.dynamic_effect_lines(item)
+    return "".join(f"\n　{p}" for p in procs)
 
 
 def _line(entry: dict, currency: str) -> str:
     item, qty, price = entry["item"], entry["qty"], entry["price"]
     text = f"{_emoji(entry)} **{item['name']}**"
     if entry["kind"] == "equipment":
-        text += f" ({_gear_detail(item)})"
+        text += f" ({_gear_summary(item)})"
     if qty > 1:
         text += f" x{qty} — {price} ea → **{price * qty}** {currency}"
     else:
         text += f" — **{price}** {currency}"
-    return text[:160]
+    if entry["kind"] == "equipment":
+        text += _gear_lines(item)
+    return text[:350]
+
+
+def _equipped_field(equipped: dict[str, str]) -> str:
+    """What's worn right now, so gear for sale can be compared against it."""
+    lines = []
+    for slot in dungeon.EQUIPMENT_SLOTS:
+        item = dungeon.EQUIPMENT.get(equipped.get(slot)) if equipped.get(slot) else None
+        if item is None:
+            lines.append(f"**{slot.capitalize()}**: *empty*")
+        else:
+            stats = inventory_view.stat_bonus_text(item)
+            lines.append(
+                f"**{slot.capitalize()}**: {dungeon.RARITY_EMOJI[item['rarity']]} {item['name']}"
+                + (f" — {stats}" if stats else "")
+            )
+    return "\n".join(lines)
 
 
 async def build_sell_display(
@@ -104,9 +129,10 @@ async def build_sell_display(
         embed.set_footer(text=f"You have {balance} {currency}.")
     else:
         entries = by_kind[kind]
-        pages = (len(entries) + PAGE_SIZE - 1) // PAGE_SIZE
+        size = _page_size(kind)
+        pages = (len(entries) + size - 1) // size
         page = max(0, min(page, pages - 1))
-        page_entries = entries[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
+        page_entries = entries[page * size:(page + 1) * size]
         heading = f"**{_KIND_EMOJI[kind]} {_KIND_LABEL[kind]}**"
         if pages > 1:
             heading += f" — page {page + 1}/{pages}"
@@ -116,6 +142,9 @@ async def build_sell_display(
         embed.set_footer(
             text=f"This tab: {tab_total} {currency} · Everything: {all_total} {currency} · You have {balance} {currency}"
         )
+        if kind == "equipment":
+            equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, user_id)
+            embed.add_field(name="Currently equipped", value=_equipped_field(equipped), inline=False)
     if note:
         embed.add_field(name=note[0], value=note[1][:1024], inline=False)
 
@@ -141,6 +170,8 @@ class SellView(discord.ui.View):
         if pages > 1:
             self.add_item(_PageButton("◀ Prev", page - 1, disabled=page == 0))
             self.add_item(_PageButton("Next ▶", page + 1, disabled=page >= pages - 1))
+        self.tab_entries = by_kind[kind]
+        self.add_item(_SellTabButton(f"Sell All {_KIND_LABEL[kind]}"))
 
     async def redraw(self, interaction: discord.Interaction, kind=None, page=None, note=None):
         embed, view = await build_sell_display(
@@ -171,6 +202,16 @@ class _PageButton(discord.ui.Button):
         await self.view.redraw(interaction, page=self.target)
 
 
+class _SellTabButton(discord.ui.Button):
+    """Every copy of everything in the current tab (all pages), via the same confirm screen."""
+
+    def __init__(self, label: str):
+        super().__init__(label=label, style=discord.ButtonStyle.danger, row=2)
+
+    async def callback(self, interaction: discord.Interaction):
+        await _show_confirm(interaction, self.view, [(e, e["qty"]) for e in self.view.tab_entries])
+
+
 class SellSelect(discord.ui.Select):
     def __init__(self, entries: list[dict], currency: str):
         self.entries = entries
@@ -178,7 +219,7 @@ class SellSelect(discord.ui.Select):
         for i, e in enumerate(entries):
             item = e["item"]
             label = f"{item['name']}" + (f" x{e['qty']}" if e["qty"] > 1 else "") + f" — {e['price']} {currency}"
-            detail = _gear_detail(item) if e["kind"] == "equipment" else _item_blurb(item)
+            detail = _gear_summary(item) if e["kind"] == "equipment" else _item_blurb(item)
             options.append(discord.SelectOption(
                 label=label[:100], value=str(i), description=detail[:100] or None, emoji=_emoji(e),
             ))
@@ -233,13 +274,16 @@ async def _show_confirm(interaction: discord.Interaction, parent: SellView, pick
     currency = parent.currency
     total = sum(e["price"] * n for e, n in picks)
     lines = []
-    for e, n in picks:
+    for e, n in picks[:MAX_CONFIRM_LINES]:
         line = f"{_emoji(e)} **{e['item']['name']}**"
         line += f" x{n} → {e['price'] * n} {currency}" if n > 1 else f" → {e['price']} {currency}"
-        lines.append(line[:160])
+        lines.append(line[:120])
+    if len(picks) > MAX_CONFIRM_LINES:
+        lines.append(f"*...and {len(picks) - MAX_CONFIRM_LINES} more*")
+    count = sum(n for _, n in picks)
     embed = discord.Embed(
         title="💰 Sell these?",
-        description="\n".join(lines)[:4000] + f"\n\n**Total: {total} {currency}**",
+        description="\n".join(lines) + f"\n\n**{count} item{'s' if count != 1 else ''} · Total: {total} {currency}**",
         color=discord.Color.dark_gold(),
     )
     await interaction.response.edit_message(embed=embed, view=ConfirmSellView(parent, picks))
