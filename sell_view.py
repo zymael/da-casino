@@ -115,7 +115,7 @@ async def build_sell_display(
     held = await asyncio.to_thread(db.get_inventory, guild_id, user_id)
     stored_equipment = await asyncio.to_thread(db.get_equipment_inventory, guild_id, user_id)
     clothes_in_use = await asyncio.to_thread(sell.horse_clothes_in_use, guild_id, user_id)
-    by_kind = _entries(sell.sellable_holdings(held, stored_equipment, clothes_in_use))
+    by_kind = _entries(sell.for_sale_holdings(held, stored_equipment, clothes_in_use))
     balance = await asyncio.to_thread(db.get_balance, guild_id, user_id)
     currency = db.get_currency_name(guild_id)
 
@@ -178,7 +178,10 @@ class SellView(discord.ui.View):
             self.guild_id, self.user_id, self.npc_id,
             self.kind if kind is None else kind, self.page if page is None else page, note,
         )
-        await interaction.response.edit_message(embed=embed, view=view)
+        if interaction.response.is_done():  # already deferred (see ConfirmSellView.confirm_button)
+            await interaction.edit_original_response(embed=embed, view=view)
+        else:
+            await interaction.response.edit_message(embed=embed, view=view)
 
 
 class _TabButton(discord.ui.Button):
@@ -302,6 +305,9 @@ class ConfirmSellView(discord.ui.View):
             return  # double-click guard -- the second click must not sell a second batch
         self.done = True
         self.stop()
+        # Acknowledge first: Discord drops an interaction not answered within 3s, and a big batch
+        # can take longer than that -- before this, the sale went through but the reply was lost.
+        await interaction.response.defer()
         p = self.parent
         result = await sell.sell_many(
             p.guild_id, p.user_id, [(e["kind"], e["item_id"], n) for e, n in self.picks],

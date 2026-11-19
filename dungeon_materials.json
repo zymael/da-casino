@@ -207,6 +207,7 @@
     "name": "Arcade Token",
     "rarity": "common",
     "base_value": 4,
+    "unsellable": true,
     "flavor": "Brass, sticky, and stamped NO CASH VALUE on both sides. ",
     "unsmashable_message": "Vic turns it over twice. \"This is too important to smash.\""
   },
@@ -215,6 +216,7 @@
     "name": "Prize Ticket",
     "rarity": "common",
     "base_value": 1,
+    "unsellable": true,
     "flavor": "The house pays out in paper. One is worth nothing, which is the trick: it takes a whole fistful to clear the bottom shelf behind the counter.",
     "unsmashable_message": "Vic squints at the little paper strip. \"You want me to break THAT? It's already nothin'.\""
   }

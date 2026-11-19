@@ -93,6 +93,18 @@ def sellable_holdings(
     return result
 
 
+def for_sale_holdings(
+    held: dict[str, int], stored_equipment: dict[str, int], horse_clothes_in_use: dict[str, int] | None = None,
+) -> list[tuple[str, str, int]]:
+    """sellable_holdings minus anything flagged "unsellable": true (e.g. arcade tokens/tickets).
+    Kept out of sellable_holdings itself because smash.py builds on that list, and an unsellable
+    item can still have its own unsmashable_message to show there."""
+    return [
+        (kind, item_id, qty) for kind, item_id, qty in sellable_holdings(held, stored_equipment, horse_clothes_in_use)
+        if not SELLABLE_REGISTRIES[kind]()[item_id].get("unsellable")
+    ]
+
+
 async def sell(guild_id: int, user_id: int, kind: str, item_id: str) -> dict:
     """Attempts to sell one copy of item_id (of the given kind) for this player. Returns
     {"success", "item", "kind", "price", "balance"}. On failure (they don't actually hold a free
@@ -101,6 +113,8 @@ async def sell(guild_id: int, user_id: int, kind: str, item_id: str) -> dict:
     False and nothing was touched."""
     item = SELLABLE_REGISTRIES[kind]()[item_id]
     price = sell_price(item)
+    if item.get("unsellable"):
+        return {"success": False, "item": item, "kind": kind, "price": price, "balance": None}
     if kind == "equipment":
         removed = await asyncio.to_thread(db.sell_equipment_item, guild_id, user_id, item_id, 1)
     elif kind == "horse_clothes":
@@ -121,19 +135,40 @@ async def sell_many(guild_id: int, user_id: int, picks: list[tuple[str, str, int
     enough of (sold/used/dressed onto a horse since the popup opened); whatever was still there sold."""
     sold, short, total = [], [], 0
     for kind, item_id, qty in picks:
-        count, earned, item = 0, 0, SELLABLE_REGISTRIES[kind]()[item_id]
-        for _ in range(qty):
-            result = await sell(guild_id, user_id, kind, item_id)
-            if not result["success"]:
-                break
-            count += 1
-            earned += result["price"]
+        item = SELLABLE_REGISTRIES[kind]()[item_id]
+        count = 0
+        if not item.get("unsellable"):
+            count = await asyncio.to_thread(_remove_up_to, guild_id, user_id, kind, item_id, qty)
         if count:
+            earned = sell_price(item) * count
             sold.append((item, count, earned))
             total += earned
         if count < qty:
             short.append((item, qty, count))
+    if total:
+        await asyncio.to_thread(db.update_balance, guild_id, user_id, total)
     return {"sold": sold, "short": short, "total": total}
+
+
+def _remove_up_to(guild_id: int, user_id: int, kind: str, item_id: str, qty: int) -> int:
+    """Removes up to qty free copies, returning how many actually went. Tries the whole amount in
+    one call first (the normal case); only if that fails (fewer left than asked) does it fall back
+    to one at a time so whatever is still there sells. horse_clothes always goes one at a time,
+    since each copy needs consume_free_horse_clothes' in-use re-check."""
+    if kind == "equipment":
+        if db.sell_equipment_item(guild_id, user_id, item_id, qty):
+            return qty
+        remove_one = lambda: db.sell_equipment_item(guild_id, user_id, item_id, 1)
+    elif kind == "horse_clothes":
+        remove_one = lambda: consume_free_horse_clothes(guild_id, user_id, item_id)
+    else:
+        if db.consume_inventory_item(guild_id, user_id, item_id, qty):
+            return qty
+        remove_one = lambda: db.consume_inventory_item(guild_id, user_id, item_id, 1)
+    count = 0
+    while count < qty and remove_one():
+        count += 1
+    return count
 
 
 def consume_free_horse_clothes(guild_id: int, user_id: int, item_id: str) -> bool:

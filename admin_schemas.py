@@ -407,6 +407,10 @@ CONTENT_TYPES = {
             },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
             {
+                "name": "unsellable", "type": "bool", "required": False, "default": False, "group": "Drop Info",
+                "hint": "if checked, no NPC will buy this item (it never shows up in the sell popup)",
+            },
+            {
                 "name": "unsmashable_message", "type": "text", "required": False, "group": "Flavor Text",
                 "hint": "optional -- if set, !smash refuses to destroy this item and shows this message "
                         "instead of removing it",
@@ -453,6 +457,10 @@ CONTENT_TYPES = {
             },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
             {
+                "name": "unsellable", "type": "bool", "required": False, "default": False, "group": "Drop Info",
+                "hint": "if checked, no NPC will buy this item (it never shows up in the sell popup)",
+            },
+            {
                 "name": "unsmashable_message", "type": "text", "required": False, "group": "Flavor Text",
                 "hint": "optional -- if set, !smash refuses to destroy this item and shows this message "
                         "instead of removing it",
@@ -482,6 +490,10 @@ CONTENT_TYPES = {
                         "NPC with \"buys_items\" checked",
             },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
+            {
+                "name": "unsellable", "type": "bool", "required": False, "default": False, "group": "Drop Info",
+                "hint": "if checked, no NPC will buy this item (it never shows up in the sell popup)",
+            },
             {
                 "name": "unsmashable_message", "type": "text", "required": False, "group": "Flavor Text",
                 "hint": "optional -- if set, !smash refuses to destroy this item and shows this message "
@@ -1091,6 +1103,10 @@ CONTENT_TYPES = {
             {"name": "emoji", "type": "str", "required": True, "group": "Identity"},
             {"name": "description", "type": "text", "required": True, "group": "Flavor Text"},
             {
+                "name": "unsellable", "type": "bool", "required": False, "default": False, "group": "Drop Info",
+                "hint": "if checked, no NPC will buy this item (it never shows up in the sell popup)",
+            },
+            {
                 "name": "unsmashable_message", "type": "text", "required": False, "group": "Flavor Text",
                 "hint": "optional -- if set, !smash refuses to destroy this item and shows this message "
                         "instead of removing it",
@@ -1355,6 +1371,10 @@ CONTENT_TYPES = {
                         "NPC with \"buys_items\" checked",
             },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
+            {
+                "name": "unsellable", "type": "bool", "required": False, "default": False, "group": "Drop Info",
+                "hint": "if checked, no NPC will buy this item (it never shows up in the sell popup)",
+            },
             {
                 "name": "unsmashable_message", "type": "text", "required": False, "group": "Flavor Text",
                 "hint": "optional -- if set, !smash refuses to destroy this item and shows this message "
