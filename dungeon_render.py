@@ -17,7 +17,6 @@ _label_font = ImageFont.truetype(_FONT_PATH, 20)
 _card_rank_font = ImageFont.truetype(_FONT_PATH, 17)
 _card_suit_font = ImageFont.truetype(_FONT_PATH, 13)
 _card_strip_label_font = ImageFont.truetype(_FONT_PATH, 14)
-_card_initial_font = ImageFont.truetype(_FONT_PATH, 13)
 
 # The dungeon-entrance banner -- a separate photo banner, not the room background above.
 # Dialogue rendering itself now lives in npc_render.py (shared by every NPC/hub); this module just
@@ -254,7 +253,7 @@ ATTACK_ANIMATIONS = {"tackle": _tackle_offsets}
 
 def _compose_frame(
     base: Image.Image, sprites: list[tuple], room_label: str, strip: Image.Image | None,
-    offset_index: int | None = None, offset: tuple[int, int] = (0, 0),
+    offset_index: int | None = None, offset: tuple[int, int] = (0, 0), tags: list[str | None] | None = None,
 ) -> Image.Image:
     """One fully-composited room frame -- `base` (a background frame) plus every monster
     sprite/placeholder, the room label, and a pre-built turn-order `strip` (see
@@ -264,11 +263,18 @@ def _compose_frame(
     animation's own frames use this to move just the attacking monster, leaving the background and
     every other monster exactly where render_room's normal (no-offset) frames put them. Shared by
     render_room's per-background-frame loop and its attack-animation frame loop so both stay in
-    lockstep with each other -- there's exactly one place that knows how a "room frame" is built."""
+    lockstep with each other -- there's exactly one place that knows how a "room frame" is built.
+    `tags` (parallel to `sprites`, optional) puts each monster's A/B/C plate under it -- drawn at
+    its resting spot, so a lunging attacker's plate stays put rather than flying with it."""
     img = base.copy()
     cx, cy = WIDTH / 2, HEIGHT / 2 - 10
     count = len(sprites)
+    tag_positions = []
     for i, (sprite, monster, x_offset) in enumerate(sprites):
+        tag = tags[i] if tags and i < len(tags) else None
+        if tag and not (sprite and monster.get("sprite_overlay")):
+            feet = cy + 110 if sprite else cy + (60 if count <= 2 else 45)
+            tag_positions.append((cx + x_offset, min(feet + 4, HEIGHT - 52), tag))
         dx, dy = offset if i == offset_index else (0, 0)
         mx, my = cx + x_offset + dx, cy + dy
         if sprite and monster.get("sprite_overlay"):
@@ -280,6 +286,8 @@ def _compose_frame(
             draw = ImageDraw.Draw(img)
             radius = 60 if count <= 2 else 45
             _draw_monster_shape(draw, mx, my, radius, monster["shape"], _parse_color(monster["color"]))
+    if tag_positions:
+        draw_scene_tags(img, tag_positions)
     draw = ImageDraw.Draw(img)
     draw.text((16, HEIGHT - 32), room_label, font=_label_font, fill=(200, 200, 210, 255))
     if strip is not None:
@@ -288,74 +296,191 @@ def _compose_frame(
 
 
 # FFX-style turn-order card strip, composited below the room scene (see dungeon.preview_next_turns
-# for the schedule these cards visualize). Fixed at a size that comfortably fits up to 10 cards --
-# the largest count any call site passes -- within WIDTH, so there's no dynamic per-card resizing
-# to keep in sync with font sizes.
-CARD_WIDTH, CARD_HEIGHT, CARD_GAP = 42, 58, 4
-INITIAL_ROW_HEIGHT = 16  # room below each card for its combatant's name-initial letter
-CARD_STRIP_HEIGHT = CARD_HEIGHT + 28 + INITIAL_ROW_HEIGHT  # "Next up:" label row + card row + initial row
+# for the schedule these cards visualize). The first card is whoever acts NOW, drawn larger so the
+# eye lands there first; the rest are the upcoming schedule. Sized to fit 8 cards (dungeon_view's
+# TURN_ORDER_PREVIEW_COUNT) within WIDTH.
+#
+# Identity is the whole point of this strip, so each card says who it is several ways at once:
+#   - players: their Discord avatar (when the caller fetched one -- party/duel do, solo doesn't need
+#     to), a colored border matching the colored dot in front of their name in the embed, and a
+#     small rank+suit badge so the build is still readable.
+#   - monsters: a thumbnail of their own sprite (or an authored card_icon_path), plus their A/B/C
+#     tag when a fight has more than one -- the same letter drawn under their sprite in the scene
+#     and printed in their embed field name.
+#   - everyone: a short name under the card.
+CARD_WIDTH, CARD_HEIGHT = 46, 62
+NOW_CARD_WIDTH, NOW_CARD_HEIGHT = 58, 78
+CARD_GAP = 5
+CARD_LABEL_ROW = 20  # "Now" / "Next up:" captions above the cards
+CARD_NAME_ROW = 15  # short name under each card
+CARD_STRIP_HEIGHT = CARD_LABEL_ROW + NOW_CARD_HEIGHT + CARD_NAME_ROW + 8
 
 _RED_SUITS = {"♥", "♦"}
+_CARD_FACE = (245, 242, 230, 255)
+_MONSTER_CARD_FACE = (35, 18, 18, 255)
+_TAG_FACE = (250, 214, 90, 255)
 
 
-def _draw_player_card(draw: ImageDraw.ImageDraw, x: float, y: float, rank: str, suit: str) -> None:
-    """A player/party-member card: existing rank letter (A/K/Q/J, dungeon.CLASSES[...]["rank"]) +
-    suit symbol (♠♥♦♣, dungeon.subclass_entry(...)["symbol"]), suit-colored red/black per standard
-    card convention -- zero new art, reuses the exact pairing that already names every build."""
-    color = (190, 25, 25, 255) if suit in _RED_SUITS else (20, 20, 20, 255)
-    draw.rounded_rectangle(
-        [x, y, x + CARD_WIDTH, y + CARD_HEIGHT], radius=5, fill=(245, 242, 230, 255), outline=(0, 0, 0, 255), width=2
-    )
-    draw.text((x + 5, y + 3), rank, font=_card_rank_font, fill=color)
-    suit_box = draw.textbbox((0, 0), suit, font=_card_suit_font)
-    sw, sh = suit_box[2] - suit_box[0], suit_box[3] - suit_box[1]
-    draw.text((x + CARD_WIDTH - sw - 6, y + CARD_HEIGHT - sh - 7), suit, font=_card_suit_font, fill=color)
+@lru_cache(maxsize=16)
+def _font(size: int) -> ImageFont.FreeTypeFont:
+    return ImageFont.truetype(_FONT_PATH, size)
 
 
-def _draw_monster_card(draw: ImageDraw.ImageDraw, x: float, y: float, shape: str, color_hex: str) -> None:
-    """A monster card: reuses _draw_monster_shape's own shape/color, drawn small and centered on a
-    dark card outline -- the same placeholder identity already used for the room scene itself."""
-    draw.rounded_rectangle(
-        [x, y, x + CARD_WIDTH, y + CARD_HEIGHT], radius=5, fill=(35, 18, 18, 255), outline=(0, 0, 0, 255), width=2
-    )
-    cx, cy = x + CARD_WIDTH / 2, y + CARD_HEIGHT / 2 + 2
-    _draw_monster_shape(draw, cx, cy, CARD_WIDTH * 0.34, shape, _parse_color(color_hex))
+@lru_cache(maxsize=32)
+def _decode_avatar(avatar_bytes: bytes) -> Image.Image | None:
+    """A party member's Discord avatar, decoded once per distinct image (the same bytes object is
+    handed in on every turn of a delve). Any decode failure just means "no avatar" -- the card
+    falls back to its plain face, never crashes a render."""
+    try:
+        return Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
+    except Exception:
+        return None
+
+
+@lru_cache(maxsize=128)
+def _load_card_icon(path: str) -> Image.Image | None:
+    """A monster's card art: its sprite (or authored card_icon_path), trimmed of transparent margin
+    like _load_monster_sprite does, at native size -- _fit_into scales it per card size."""
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        icon = Image.open(path).convert("RGBA")
+    except Exception:
+        return None
+    bbox = icon.getbbox()
+    return icon.crop(bbox) if bbox else icon
+
+
+def _fit_into(img: Image.Image, w: int, h: int, cover: bool) -> Image.Image:
+    """Scales `img` to fit (cover=False, whole image visible) or fill (cover=True, center-cropped)
+    a w x h box. NEAREST when enlarging keeps pixel art crisp, LANCZOS when shrinking keeps it clean."""
+    scale = (max if cover else min)(w / img.width, h / img.height)
+    size = (max(1, round(img.width * scale)), max(1, round(img.height * scale)))
+    resized = img.resize(size, Image.NEAREST if scale > 1 else Image.LANCZOS)
+    if cover:
+        left, top = (resized.width - w) // 2, (resized.height - h) // 2
+        resized = resized.crop((left, top, left + w, top + h))
+    return resized
+
+
+def _paste_rounded(dest: Image.Image, img: Image.Image, x: int, y: int, radius: int) -> None:
+    mask = Image.new("L", img.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, img.width - 1, img.height - 1], radius=radius, fill=255)
+    mask = Image.composite(img.getchannel("A"), Image.new("L", img.size, 0), mask)
+    dest.paste(img, (x, y), mask)
+
+
+def _draw_badge(draw: ImageDraw.ImageDraw, x: float, y: float, text: str, size: int, fg: tuple, bg: tuple) -> None:
+    """A small rounded label (rank+suit on an avatar card, A/B/C on a monster card or under a
+    sprite) anchored at its top-left corner."""
+    font = _font(size)
+    box = draw.textbbox((0, 0), text, font=font)
+    tw, th = box[2] - box[0], box[3] - box[1]
+    draw.rounded_rectangle([x, y, x + tw + 6, y + th + 6], radius=3, fill=bg, outline=(0, 0, 0, 255), width=1)
+    draw.text((x + 3 - box[0], y + 3 - box[1]), text, font=font, fill=fg)
+
+
+def _draw_player_card(strip: Image.Image, x: int, y: int, w: int, h: int, card: dict) -> None:
+    """A player/party-member card. With an avatar: the avatar fills the card, with a small rank+suit
+    badge in the corner. Without one: the classic face -- rank letter (A/K/Q/J) and suit symbol,
+    suit-colored red/black. Either way the border is the member's own color (party/duel), or plain
+    black when the caller didn't assign one (solo)."""
+    draw = ImageDraw.Draw(strip)
+    rank, suit = card["rank"], card["suit"]
+    suit_color = (190, 25, 25, 255) if suit in _RED_SUITS else (20, 20, 20, 255)
+    border = tuple(card["color"]) + (255,) if card.get("color") else (0, 0, 0, 255)
+    border_w = 3 if card.get("color") else 2
+    draw.rounded_rectangle([x, y, x + w, y + h], radius=6, fill=_CARD_FACE, outline=border, width=border_w)
+    big = w >= NOW_CARD_WIDTH
+    avatar = _decode_avatar(card["avatar"]) if card.get("avatar") else None
+    if avatar is not None:
+        inset = border_w
+        _paste_rounded(strip, _fit_into(avatar, w - 2 * inset + 1, h - 2 * inset + 1, cover=True), x + inset, y + inset, 4)
+        _draw_badge(ImageDraw.Draw(strip), x + 2, y + 2, f"{rank}{suit}", 11 if big else 10, suit_color, _CARD_FACE)
+        return
+    draw.text((x + 6, y + 4), rank, font=_font(21 if big else 17), fill=suit_color)
+    suit_font = _font(17 if big else 13)
+    sb = draw.textbbox((0, 0), suit, font=suit_font)
+    draw.text((x + w - (sb[2] - sb[0]) - 7, y + h - (sb[3] - sb[1]) - 8), suit, font=suit_font, fill=suit_color)
+
+
+def _draw_monster_card(strip: Image.Image, x: int, y: int, w: int, h: int, card: dict) -> None:
+    """A monster card: a thumbnail of the monster's own art on a dark face, so the card looks like
+    the thing standing in the scene above it. A sprite_overlay monster's art is a whole painted
+    frame, useless shrunk to a card, so it uses only an authored card_icon_path; anything without
+    usable art falls back to the old shape/color placeholder. A tag (A/B/C) badge goes top-right."""
+    draw = ImageDraw.Draw(strip)
+    draw.rounded_rectangle([x, y, x + w, y + h], radius=6, fill=_MONSTER_CARD_FACE, outline=(0, 0, 0, 255), width=2)
+    path = card.get("card_icon_path") or (None if card.get("sprite_overlay") else card.get("sprite_path"))
+    icon = _load_card_icon(path) if path else None
+    if icon is not None:
+        thumb = _fit_into(icon, w - 8, h - 8, cover=False)
+        strip.alpha_composite(thumb, (x + (w - thumb.width) // 2, y + (h - thumb.height) // 2))
+        draw = ImageDraw.Draw(strip)
+    else:
+        _draw_monster_shape(draw, x + w / 2, y + h / 2 + 2, w * 0.34, card["shape"], _parse_color(card["color"]))
+    if card.get("tag"):
+        size = 12 if w >= NOW_CARD_WIDTH else 11
+        tb = draw.textbbox((0, 0), card["tag"], font=_font(size))
+        _draw_badge(draw, x + w - (tb[2] - tb[0]) - 8, y + 2, card["tag"], size, (20, 20, 20, 255), _TAG_FACE)
+
+
+def _short_name(draw: ImageDraw.ImageDraw, name: str, max_width: int, font: ImageFont.FreeTypeFont) -> str:
+    """`name` cut down (with an ellipsis) until it fits `max_width` pixels."""
+    if draw.textlength(name, font=font) <= max_width:
+        return name
+    while name and draw.textlength(name + "…", font=font) > max_width:
+        name = name[:-1]
+    return (name.rstrip() + "…") if name else "?"
 
 
 def _build_turn_order_strip(turn_order: list[dict]) -> Image.Image:
     """Builds the horizontal strip of playing-card-style icons for the next several turns
-    (dungeon.preview_next_turns) -- purely cosmetic FFX flavor. Each entry is `{"kind": "player",
-    "rank": ..., "suit": ..., "initial": ...}` or `{"kind": "monster", "shape": ..., "color": ...,
-    "initial": ...}`; the same combatant can (and does) appear on multiple cards when they're fast
-    enough to act again before others get a turn -- intended, matches FFX's own UI. `initial` (first
-    letter of the combatant's own name) is printed under each card so same-rank party members or
-    same-species monsters stay distinguishable at a glance.
+    (dungeon.preview_next_turns) -- FFX flavor, and the main way a party tells whose turn is
+    coming. Each entry is `{"kind": "player", "rank", "suit", "name", "avatar"?, "color"?}` or
+    `{"kind": "monster", "shape", "color", "name", "sprite_path"?, "sprite_overlay"?,
+    "card_icon_path"?, "tag"?}` (see dungeon_view._player_card/_monster_card). The same combatant
+    can (and does) appear on multiple cards when they're fast enough to act again before others get
+    a turn -- intended, matches FFX's own UI. Card 0 is drawn larger under a "Now" caption.
 
     Deliberately its own function, built ONCE per render_room call and reused across every frame
     (see _append_strip) rather than redrawn per frame -- the turn_order content is identical for
-    every frame of a single render, so redrawing it per frame (the old shape of this code) was pure
-    wasted work, multiplied by however many frames a fight_intro/attack animation adds."""
+    every frame of a single render."""
     strip = Image.new("RGBA", (WIDTH, CARD_STRIP_HEIGHT), (15, 15, 20, 255))
     draw = ImageDraw.Draw(strip)
-    draw.text((8, 3), "Next up:", font=_card_strip_label_font, fill=(190, 190, 200, 255))
     n = len(turn_order)
-    total_width = n * CARD_WIDTH + max(0, n - 1) * CARD_GAP
-    start_x = max(6, (WIDTH - total_width) // 2)
-    y = CARD_STRIP_HEIGHT - CARD_HEIGHT - 5 - INITIAL_ROW_HEIGHT
+    total_width = NOW_CARD_WIDTH + max(0, n - 1) * (CARD_WIDTH + CARD_GAP)
+    x = max(6, (WIDTH - total_width) // 2)
+    bottom = CARD_LABEL_ROW + NOW_CARD_HEIGHT  # every card's bottom edge lines up here
+    name_font = _font(11)
     for i, card in enumerate(turn_order):
-        x = start_x + i * (CARD_WIDTH + CARD_GAP)
+        w, h = (NOW_CARD_WIDTH, NOW_CARD_HEIGHT) if i == 0 else (CARD_WIDTH, CARD_HEIGHT)
+        y = bottom - h
+        if i == 0:
+            draw.text((x, 2), "Now", font=_card_strip_label_font, fill=_TAG_FACE)
+        elif i == 1:
+            draw.text((x, y - 18), "Next up:", font=_card_strip_label_font, fill=(190, 190, 200, 255))
         if card["kind"] == "player":
-            _draw_player_card(draw, x, y, card["rank"], card["suit"])
+            _draw_player_card(strip, x, y, w, h, card)
         else:
-            _draw_monster_card(draw, x, y, card["shape"], card["color"])
-        initial = card.get("initial", "?")
-        ibox = draw.textbbox((0, 0), initial, font=_card_initial_font)
-        iw = ibox[2] - ibox[0]
-        draw.text(
-            (x + CARD_WIDTH / 2 - iw / 2, y + CARD_HEIGHT + 2), initial,
-            font=_card_initial_font, fill=(220, 220, 230, 255),
-        )
+            _draw_monster_card(strip, x, y, w, h, card)
+        draw = ImageDraw.Draw(strip)
+        label = _short_name(draw, card.get("name") or "?", w + CARD_GAP - 1, name_font)
+        lw = draw.textlength(label, font=name_font)
+        colored = card["kind"] == "player" and card.get("color")
+        name_color = tuple(card["color"]) + (255,) if colored else (220, 220, 230, 255)
+        draw.text((x + w / 2 - lw / 2, bottom + 3), label, font=name_font, fill=name_color)
+        x += w + CARD_GAP
     return strip
+
+
+def draw_scene_tags(img: Image.Image, positions: list[tuple[float, float, str]]) -> None:
+    """Draws each monster's A/B/C tag as a small plate just under its sprite in the room scene --
+    `positions` is [(center_x, top_y, tag)], see _compose_frame."""
+    draw = ImageDraw.Draw(img)
+    for cx, top, tag in positions:
+        tb = draw.textbbox((0, 0), tag, font=_font(14))
+        _draw_badge(draw, cx - (tb[2] - tb[0]) / 2 - 3, top, tag, 14, (20, 20, 20, 255), _TAG_FACE)
 
 
 def _append_strip(img: Image.Image, strip: Image.Image) -> Image.Image:
@@ -370,7 +495,7 @@ def _append_strip(img: Image.Image, strip: Image.Image) -> Image.Image:
 def render_room(
     visited_count: int, monsters: list[dict], background_path: str | None = None,
     turn_order: list[dict] | None = None, label: str | None = None, fight_intro: bool = False,
-    attack: dict | None = None,
+    attack: dict | None = None, tags: list[str | None] | None = None,
 ) -> tuple[io.BytesIO, str]:
     """Renders the corridor view for one dungeon room -- with its living monster(s) standing at the
     far end if there are any (combat rooms), or just the empty scene if not (choice rooms, or a
@@ -402,7 +527,10 @@ def render_room(
     positional index since render_room has no notion of slots) instead moves that one monster
     sprite through ATTACK_ANIMATIONS[kind]'s offsets, everything else held still. The two aren't
     combined (a caller passing both gets the fight_intro) -- chaining "banner, then the ambushing
-    monster's attack, then settle" is a reasonable future extension, not needed for a first cut."""
+    monster's attack, then settle" is a reasonable future extension, not needed for a first cut.
+
+    `tags` (optional, parallel to `monsters`) labels each monster with its A/B/C tag in the scene,
+    matching its turn-order card and embed field -- see _compose_frame."""
     frames, durations, loop = _load_background_frames(background_path)
 
     count = len(monsters)
@@ -417,7 +545,7 @@ def render_room(
     room_label = label or f"Room {visited_count}"
     strip = _build_turn_order_strip(turn_order) if turn_order else None
 
-    out_frames = [_compose_frame(base, sprites, room_label, strip) for base in frames]
+    out_frames = [_compose_frame(base, sprites, room_label, strip, tags=tags) for base in frames]
 
     animate_once = False
     if fight_intro and (banner := _load_fight_banner()) is not None:
@@ -436,7 +564,7 @@ def render_room(
             attacker_height = attacker_sprite.height if attacker_sprite and not overlay else sprite_height
             keyframes = keyframes_fn(attacker_height)
             attack_frames = [
-                _compose_frame(frames[0], sprites, room_label, strip, offset_index=idx, offset=(dx, dy))
+                _compose_frame(frames[0], sprites, room_label, strip, offset_index=idx, offset=(dx, dy), tags=tags)
                 for dx, dy, _ in keyframes
             ]
             out_frames = attack_frames + out_frames

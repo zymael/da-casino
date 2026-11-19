@@ -359,6 +359,16 @@ CONTENT_TYPES = {
                         "art painted at the background's own size lines up perfectly. Meant for a boss "
                         "fought alone. sprite_scale is ignored.",
             },
+            {
+                # Own subdir: uploads are saved as <subdir>/<entry_id><ext>, so sharing
+                # dungeon/monsters with sprite_path would overwrite the sprite itself.
+                "name": "card_icon_path", "type": "image", "required": False, "subdir": "dungeon/monster_cards",
+                "group": "Appearance",
+                "hint": "optional art for this monster's turn-order card. Without it the card shows a "
+                        "shrunk copy of sprite_path, which suits a normal cutout sprite; set this for a "
+                        "sprite_overlay monster (its full-frame art can't shrink to a card) or any "
+                        "sprite that reads poorly that small.",
+            },
         ],
     },
     "equipment": {

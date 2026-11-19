@@ -84,6 +84,10 @@ class MonsterInstance:
 
     def __init__(self, monster: dict, slot: int):
         self.monster = monster
+        # A/B/C letter shown on this monster's turn-order card, under its sprite, in its embed field
+        # and in log lines -- only set (by _assign_monster_tags) when its group has 2+ monsters, so a
+        # lone monster's name reads exactly as authored.
+        self.tag: str | None = None
         self.hp = monster["hp"]
         self.max_hp = monster["hp"]
         # Real per-instance mutable combat stats, snapshotted from `monster` -- unlike hp/max_hp
@@ -124,6 +128,22 @@ class MonsterInstance:
         # pulls attention for at least a moment, on top of the lasting threat it adds. Latest
         # taunt wins. Cleared unused if the taunter is knocked out first.
         self.forced_target_id: int | None = None
+
+    @property
+    def name(self) -> str:
+        """This monster's on-screen name: its authored name, plus its A/B/C tag when it shares the
+        fight with others ("Belly Gnome B") -- what every embed field, target picker and log line
+        shows, so duplicates stay tell-apart-able everywhere at once."""
+        return f"{self.monster['name']} {self.tag}" if self.tag else self.monster["name"]
+
+
+def _assign_monster_tags(instances: list["MonsterInstance"]) -> None:
+    """Gives each monster in a freshly rolled group its A/B/C tag (by slot, so a tag never changes
+    mid-fight as others die) -- or none at all for a lone monster. Called wherever a group spawns."""
+    if len(instances) < 2:
+        return
+    for inst in instances:
+        inst.tag = chr(ord("A") + inst.slot) if inst.slot < 26 else str(inst.slot + 1)
 
 
 def _capped_speed_debuff(combatant, added: int) -> int:
@@ -207,6 +227,7 @@ def _roll_monster_instances(
         MonsterInstance(m, slot)
         for slot, m in enumerate(_all_in_spawn(delve, room, group["monsters"], all_in_tier))
     ]
+    _assign_monster_tags(instances)
     for instance in instances:
         _apply_vs_monster_debuffs(instance, equipped_item_ids)
         instance.turn_clock = dungeon.turn_interval(max(1, instance.speed - instance.speed_debuff))
@@ -343,6 +364,20 @@ class DelveSession:
 # monster gets its single counter-attack, rather than solo's "monster hits back after every
 # action." See PARTY_LOBBY_TIMEOUT/PARTY_ACTION_TIMEOUT below and PartyLobby/PartyDelveSession.
 
+# One (embed emoji, card border RGB) pair per party member, in join order -- the RGB values match
+# Discord's own rendering of each dot emoji so the embed and the turn-order card read as the same
+# color. A raid bigger than this list wraps around (see PartyMember.marker).
+MEMBER_COLORS = [
+    ("🔴", (221, 46, 68)),
+    ("🔵", (85, 172, 238)),
+    ("🟢", (120, 177, 89)),
+    ("🟡", (253, 203, 88)),
+    ("🟣", (170, 142, 214)),
+    ("🟠", (244, 144, 12)),
+    ("🟤", (193, 105, 79)),
+    ("⚪", (230, 231, 232)),
+]
+
 PARTY_SIZE_CAP = 4  # default lobby cap (see _party_size_cap) -- a delve's own max_party_size overrides this, e.g. for a raid
 PARTY_LOBBY_TIMEOUT = 300  # 5 minutes to gather a party -- longer than DelvePickerView's 120s since it needs multiple humans, not just one player picking a dropdown
 PARTY_ACTION_TIMEOUT = 150  # 2.5 minutes -- solo's 20-minute DELVE_ACTION_TIMEOUT only ever blocks the one player waiting on themselves; a party turn blocks everyone else too, so it has to be much tighter
@@ -398,10 +433,50 @@ class PartyMember:
         self.chips = self.max_chips
         self.knocked_out = False
         self.loot_total = 0
+        # Battle-screen identity (see _player_card): the member's Discord avatar bytes, fetched once
+        # when the party/duel starts (_fetch_avatars -- None if that failed, the card just falls
+        # back to its plain face), and their index into MEMBER_COLORS, assigned in join order.
+        self.avatar: bytes | None = None
+        self.color_index: int | None = None
 
     @property
     def label(self) -> str:
         return f"{self.player_name} ({self.build_name})"
+
+    @property
+    def marker(self) -> str:
+        """The colored dot in front of this member's name in the embed -- same color as their
+        turn-order card's border. Empty if no color was assigned."""
+        return MEMBER_COLORS[self.color_index % len(MEMBER_COLORS)][0] if self.color_index is not None else ""
+
+    @property
+    def color_rgb(self) -> tuple[int, int, int] | None:
+        return MEMBER_COLORS[self.color_index % len(MEMBER_COLORS)][1] if self.color_index is not None else None
+
+
+AVATAR_FETCH_TIMEOUT = 5  # seconds per avatar -- a slow CDN must never hold up a party's first turn
+
+
+async def _fetch_avatar(guild: discord.Guild | None, user_id: int) -> bytes | None:
+    """One member's Discord avatar as small PNG/GIF bytes for their turn-order card, or None on any
+    failure (no guild, member left, CDN error, timeout) -- the card then just shows its plain face."""
+    if guild is None:
+        return None
+    try:
+        member = guild.get_member(user_id) or await guild.fetch_member(user_id)
+        asset = member.display_avatar.replace(size=64, static_format="png")
+        return await asyncio.wait_for(asset.read(), AVATAR_FETCH_TIMEOUT)
+    except Exception:
+        return None
+
+
+async def _setup_member_identity(guild: discord.Guild | None, members: list["PartyMember"]) -> None:
+    """Gives each party/duel member their battle-screen identity once, at start: a color from
+    MEMBER_COLORS in join order, and their avatar (all fetched concurrently). Never raises."""
+    avatars = await asyncio.gather(*(_fetch_avatar(guild, m.user_id) for m in members))
+    for i, (member, avatar) in enumerate(zip(members, avatars)):
+        member.color_index = i
+        member.avatar = avatar
 
 
 class PartyLobby:
@@ -558,6 +633,7 @@ class PartyDelveSession:
                         instance.threat[user_id] = bonus
                 _apply_vs_monster_debuffs(instance, party_equipped_ids)
                 self.monsters.append(instance)
+            _assign_monster_tags(self.monsters)
             for m in self.members:
                 m.used_item_effects = set()
                 m.turn_clock = 0.0  # fresh fight -- chips are delve-scoped, not reset here (see __init__)
@@ -578,28 +654,44 @@ def _room_background_path(delve: dict, room: dict) -> str | None:
 TURN_ORDER_PREVIEW_COUNT = 8
 
 
-def _player_card(name: str, main_class: str, subclass: str) -> dict:
-    """A player/party-member's card descriptor -- reuses the existing rank letter (A/K/Q/J) and
-    suit symbol (♠♥♦♣) that already name every build, zero new content needed. `initial` is the
-    first letter of the player's own name, printed under the card in the turn-order strip so
-    party members (who share ranks/suits across builds) stay distinguishable at a glance."""
-    return {
+def _player_card(name: str, main_class: str, subclass: str, member: "PartyMember | None" = None) -> dict:
+    """A player/party-member's card descriptor -- the rank letter (A/K/Q/J) and suit symbol (♠♥♦♣)
+    that already name every build, plus the player's name under the card. A party/duel `member`
+    also contributes their Discord avatar (fetched once at party start, see _fetch_avatars) and
+    their assigned color, the same color as the dot in front of their name in the embed -- that
+    pairing is what tells same-build party members apart at a glance."""
+    card = {
         "kind": "player",
         "rank": dungeon.CLASSES[main_class]["rank"],
         "suit": dungeon.subclass_entry(subclass)["symbol"],
-        "initial": name[0].upper() if name else "?",
+        "name": name or "?",
     }
+    if member is not None:
+        card["avatar"] = member.avatar
+        card["color"] = member.color_rgb
+    return card
 
 
-def _monster_card(monster: dict) -> dict:
-    """A monster's card descriptor -- reuses its existing shape/color fields, the same placeholder
-    identity already used to draw it in the room scene."""
+def _monster_card(instance: "MonsterInstance") -> dict:
+    """A monster's card descriptor -- its own sprite (or authored card_icon_path) as the card art,
+    its A/B/C tag when it shares the fight, and its shape/color as the no-art fallback."""
+    monster = instance.monster
     return {
         "kind": "monster",
         "shape": monster["shape"],
         "color": monster["color"],
-        "initial": monster["name"][0].upper() if monster.get("name") else "?",
+        "name": monster.get("name") or "?",
+        "sprite_path": monster.get("sprite_path"),
+        "sprite_overlay": monster.get("sprite_overlay", False),
+        "card_icon_path": monster.get("card_icon_path"),
+        "tag": instance.tag,
     }
+
+
+def _scene_tags(living: list["MonsterInstance"]) -> list[str | None]:
+    """render_room's `tags` param -- each living monster's A/B/C plate, parallel to the monster
+    list it's handed."""
+    return [m.tag for m in living]
 
 
 def _combat_intro_text(room: dict, monsters: list[dict]) -> str:
@@ -635,7 +727,7 @@ def _solo_turn_order_cards(session: DelveSession) -> list[dict]:
     order = dungeon.preview_next_turns(combatants, TURN_ORDER_PREVIEW_COUNT)
     return [
         _player_card(session.display_name, session.main_class, session.subclass)
-        if cid is None else _monster_card(monsters_by_slot[cid].monster)
+        if cid is None else _monster_card(monsters_by_slot[cid])
         for cid in order
     ]
 
@@ -697,12 +789,12 @@ async def _combat_embed(
     target_slot = session.current_target().slot if living else None
     for m in living:
         marker = " ⬅️ target" if len(living) > 1 and m.slot == target_slot else ""
-        embed.add_field(name=m.monster["name"], value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
+        embed.add_field(name=m.name, value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
     attack = _attack_animation(living, attack_slot)
     render_result = await asyncio.to_thread(
         dungeon_render.render_room, session.rooms_visited, [m.monster for m in living],
         _room_background_path(session.delve, room), turn_order=_solo_turn_order_cards(session),
-        fight_intro=fight_intro, attack=attack,
+        fight_intro=fight_intro, attack=attack, tags=_scene_tags(living),
     )
     file, image_url = _room_image_file(render_result)
     embed.set_image(url=image_url)
@@ -1853,7 +1945,7 @@ class TargetSelect(discord.ui.Select):
         target = session.current_target()
         options = [
             discord.SelectOption(
-                label=f"{m.monster['name']} ({m.hp}/{m.max_hp} HP)", value=str(m.slot),
+                label=f"{m.name} ({m.hp}/{m.max_hp} HP)", value=str(m.slot),
                 default=m.slot == target.slot,
             )
             for m in session.living_monsters()
@@ -2172,7 +2264,7 @@ def _actor_label(entity) -> str:
     ever precedes a base-form verb ('You attack') or a third-person one ('**Goblin** attacks' /
     '**Bob** attacks') -- see _verb for picking the right form."""
     if isinstance(entity, MonsterInstance):
-        return f"**{entity.monster['name']}**"
+        return f"**{entity.name}**"
     if isinstance(entity, DelveSession):
         return "You"
     return f"**{entity.label}**"
@@ -2184,7 +2276,7 @@ def _possessive_label(entity) -> str:
     conjugation is needed regardless of which label this resolves to. See _actor_label for why a
     PartyMember gets their own bolded label rather than 'Your'."""
     if isinstance(entity, MonsterInstance):
-        return f"**{entity.monster['name']}**'s"
+        return f"**{entity.name}**'s"
     if isinstance(entity, DelveSession):
         return "Your"
     return f"**{entity.label}**'s"
@@ -2222,7 +2314,7 @@ def _combatant_name(entity) -> str:
     caster's own point of view, which reads naturally lowercase mid-sentence even when that
     happens to be the caster themselves ("you attack yourself for 5 damage")."""
     if isinstance(entity, MonsterInstance):
-        return f"**{entity.monster['name']}**"
+        return f"**{entity.name}**"
     if isinstance(entity, DelveSession):
         return "you"
     return f"**{entity.label}**"
@@ -2959,7 +3051,7 @@ def _resolve_monster_attack(
         healed = min(attacker.max_hp, attacker.hp + round(total_dmg * mods["lifesteal_fraction"])) - attacker.hp
         attacker.hp += healed
         if healed:
-            lifesteal_line = f"**{attacker.monster['name']}** drains **{healed}** HP from the strike."
+            lifesteal_line = f"**{attacker.name}** drains **{healed}** HP from the strike."
     return results, skill, lifesteal_line, is_damage_action
 
 
@@ -3095,7 +3187,7 @@ async def _advance_solo_turns(
         _tick_timed_effects([monster], log_lines)
         monster.turn_clock += dungeon.turn_interval(max(1, monster.speed - monster.speed_debuff))
         if monster.hp <= 0:
-            log_lines.append(f"**{monster.monster['name']}** succumbs to its wounds!")
+            log_lines.append(f"**{monster.name}** succumbs to its wounds!")
             await _award_kill(
                 session.guild_id, monster.monster, session, session.current_room_id, log_lines,
                 loot_mult=session.loot_mult * player_moon_mult, chance_mult=1.0,
@@ -3114,11 +3206,11 @@ async def _advance_solo_turns(
         _, monster_dmg, dodged = results[0]
         verb = f"unleashes **{monster_skill['name']}**" if monster_skill else "strikes back"
         if dodged:
-            log_lines.append(f"You dodge **{monster.monster['name']}**'s attack!")
+            log_lines.append(f"You dodge **{monster.name}**'s attack!")
         else:
             monster_dmg = _consume_guard_charge(session, monster_dmg, log_lines)
             dmg_clause = f" for **{monster_dmg}**" if is_damage_action else ""
-            log_lines.append(f"**{monster.monster['name']}** {verb}{dmg_clause}.")
+            log_lines.append(f"**{monster.name}** {verb}{dmg_clause}.")
             if monster_skill and monster_skill.get("flavor"):
                 log_lines.append(f"> {monster_skill['flavor']}")
             session.hp -= monster_dmg
@@ -3173,7 +3265,7 @@ async def _resolve_combat_turn(
     hit_monsters = [target for target in hit if isinstance(target, MonsterInstance)]
     for target in hit_monsters:
         if target.hp <= 0:
-            log_lines.append(f"**{target.monster['name']} is defeated!**")
+            log_lines.append(f"**{target.name} is defeated!**")
             await _award_kill(
                 session.guild_id, target.monster, session, session.current_room_id, log_lines,
                 loot_mult=session.loot_mult * player_moon_mult, chance_mult=1.0,
@@ -3293,9 +3385,9 @@ def _party_turn_order_cards(session: PartyDelveSession) -> list[dict]:
     for cid in order:
         if cid in member_ids:
             member = members_by_id[cid]
-            cards.append(_player_card(member.player_name, member.main_class, member.subclass))
+            cards.append(_player_card(member.player_name, member.main_class, member.subclass, member))
         else:
-            cards.append(_monster_card(monsters_by_slot[cid].monster))
+            cards.append(_monster_card(monsters_by_slot[cid]))
     return cards
 
 
@@ -3316,19 +3408,19 @@ async def _party_combat_embed(
             status = f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}\n🪙 Chips {m.chips}/{m.max_chips} ⬅️ acting now"
         else:
             status = f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}\n🪙 Chips {m.chips}/{m.max_chips}"
-        embed.add_field(name=m.label, value=status, inline=True)
+        embed.add_field(name=f"{m.marker} {m.label}".strip(), value=status, inline=True)
     # Only the currently-acting member's target is shown -- every other member's independent
     # target choice isn't relevant to the embed until it's their own turn.
     target_slot = session.target_for(current_actor).slot if living_monsters else None
     for m in living_monsters:
         marker = " ⬅️ target" if len(living_monsters) > 1 and m.slot == target_slot else ""
-        embed.add_field(name=m.monster["name"], value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
+        embed.add_field(name=m.name, value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
     room = session.rooms_by_id[session.current_room_id]
     attack = _attack_animation(living_monsters, attack_slot)
     render_result = await asyncio.to_thread(
         dungeon_render.render_room, session.rooms_visited, [m.monster for m in living_monsters],
         _room_background_path(session.delve, room), turn_order=_party_turn_order_cards(session),
-        fight_intro=fight_intro, attack=attack,
+        fight_intro=fight_intro, attack=attack, tags=_scene_tags(living_monsters),
     )
     file, image_url = _room_image_file(render_result)
     embed.set_image(url=image_url)
@@ -3494,7 +3586,7 @@ async def _advance_party_turns(
         _tick_timed_effects([monster], log_lines)
         monster.turn_clock += dungeon.turn_interval(max(1, monster.speed - monster.speed_debuff))
         if monster.hp <= 0:
-            log_lines.append(f"**{monster.monster['name']}** succumbs to its wounds!")
+            log_lines.append(f"**{monster.name}** succumbs to its wounds!")
             for m in session.members:
                 member_log: list[str] = []
                 share_mult, chance_mult = _party_share_mults(session, m)
@@ -3537,7 +3629,7 @@ async def _advance_party_turns(
         flavor = monster_skill.get("flavor") if monster_skill else None
         if len(results) > 1:
             verb = f"unleashes **{monster_skill['name']}** on the whole party!"
-            log_lines.append(f"**{monster.monster['name']}** {verb}")
+            log_lines.append(f"**{monster.name}** {verb}")
             if flavor:
                 log_lines.append(f"> {flavor}")
             for target, monster_dmg, dodged in results:
@@ -3555,12 +3647,12 @@ async def _advance_party_turns(
         else:
             target, monster_dmg, dodged = results[0]
             if dodged:
-                log_lines.append(f"**{target.label}** dodges **{monster.monster['name']}**'s attack!")
+                log_lines.append(f"**{target.label}** dodges **{monster.name}**'s attack!")
             else:
                 monster_dmg = _consume_guard_charge(target, monster_dmg, log_lines)
                 verb = f"unleashes **{monster_skill['name']}** on" if monster_skill else "strikes"
                 dmg_clause = f" for **{monster_dmg}**" if is_damage_action else ""
-                log_lines.append(f"**{monster.monster['name']}** {verb} **{target.label}**{dmg_clause}.")
+                log_lines.append(f"**{monster.name}** {verb} **{target.label}**{dmg_clause}.")
                 if flavor:
                     log_lines.append(f"> {flavor}")
                 target.hp -= monster_dmg
@@ -3615,7 +3707,7 @@ async def _resolve_party_turn(
     hit_monsters = [target for target in hit if isinstance(target, MonsterInstance)]
     for target in hit_monsters:
         if target.hp <= 0:
-            log_lines.append(f"**{target.monster['name']} is defeated!**")
+            log_lines.append(f"**{target.name} is defeated!**")
             for m in session.members:
                 member_log: list[str] = []
                 share_mult, chance_mult = _party_share_mults(session, m)
@@ -3789,7 +3881,7 @@ class PartyTargetSelect(discord.ui.Select):
         target = session.target_for(actor)
         options = [
             discord.SelectOption(
-                label=f"{m.monster['name']} ({m.hp}/{m.max_hp} HP)", value=str(m.slot),
+                label=f"{m.name} ({m.hp}/{m.max_hp} HP)", value=str(m.slot),
                 default=m.slot == target.slot,
             )
             for m in session.living_monsters()
@@ -4176,7 +4268,7 @@ async def _resolve_party_choice_action(
 class PartyCheckActorSelect(discord.ui.Select):
     def __init__(self, session: PartyDelveSession, leader: PartyMember, room: dict, action: dict, plays: int = 1):
         options = [
-            discord.SelectOption(label=m.label, value=str(m.user_id)) for m in session.living_members()
+            discord.SelectOption(label=f"{m.marker} {m.label}".strip(), value=str(m.user_id)) for m in session.living_members()
         ]
         super().__init__(placeholder="Choose who attempts this...", options=options, row=0)
         self.leader = leader
@@ -4765,6 +4857,8 @@ class PartyLobbyView(discord.ui.View):
                 housing_bonuses.get("stat_bonus", {}),
             ))
 
+        await _defer_if_needed(interaction)
+        await _setup_member_identity(interaction.guild, members)
         delve = await _full_moon_ambush(lobby.guild_id, lobby.leader_id, lobby.delve, lobby.all_in_tier)
         session = PartyDelveSession(lobby.guild_id, delve, members, lobby.all_in_tier)
         for uid in lobby.member_ids:
@@ -4957,6 +5051,8 @@ class DuelChallengeView(discord.ui.View):
         # this module's own "Dueling" design comment above.
         challenger.hp = challenger.max_hp
         opponent.hp = opponent.max_hp
+        await _defer_if_needed(interaction)
+        await _setup_member_identity(interaction.guild, [challenger, opponent])
 
         session = DuelSession(guild_id, challenger, opponent, wager)
         for uid in session.all_user_ids():
@@ -5012,7 +5108,7 @@ def _duel_turn_order_cards(session: DuelSession) -> list[dict]:
     duelists_by_id = {d.user_id: d for d in duelists}
     order = dungeon.preview_next_turns(combatants, TURN_ORDER_PREVIEW_COUNT)
     return [
-        _player_card(duelists_by_id[cid].player_name, duelists_by_id[cid].main_class, duelists_by_id[cid].subclass)
+        _player_card(duelists_by_id[cid].player_name, duelists_by_id[cid].main_class, duelists_by_id[cid].subclass, duelists_by_id[cid])
         for cid in order
     ]
 
@@ -5026,7 +5122,7 @@ async def _duel_combat_embed(
     for d in (session.challenger, session.opponent):
         marker = " ⬅️ acting now" if d.user_id == current_actor.user_id else ""
         embed.add_field(
-            name=d.label, value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(d.hp, 0)}/{d.max_hp}\n🪙 Chips {d.chips}/{d.max_chips}{marker}", inline=True,
+            name=f"{d.marker} {d.label}".strip(), value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(d.hp, 0)}/{d.max_hp}\n🪙 Chips {d.chips}/{d.max_chips}{marker}", inline=True,
         )
     render_result = await asyncio.to_thread(
         dungeon_render.render_room, 1, [], DUEL_ARENA_BACKGROUND, label="Duel", turn_order=_duel_turn_order_cards(session)
