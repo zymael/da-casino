@@ -117,6 +117,9 @@ class MonsterInstance:
         self.meters: dict[str, int] = {}  # class resources (Hype, Grudge...), see _gain_meter
         self.barrier = 0  # absorbs damage before HP, see _consume_guard_charge/_add_barrier
         self.protector = None  # an ally intercepting this one's next hit, see _effect_intercept
+        self.corner: float | None = None  # In Your Corner's revive fraction, see _try_corner
+        self.corner_spent = False
+        self.plate = 0  # the Chaplain's Collection Plate, see _fill_plate
         self.slot = slot
         # Party-only threat table: {user_id: accumulated threat}, this monster's own view of who
         # it's most likely to attack (dungeon.pick_target_by_threat, used by _advance_party_turns).
@@ -305,6 +308,12 @@ def _status_text(entity) -> str:
         lines.append(f"{E('covered')} {L('covered')} {getattr(protector, 'player_name', 'an ally')}")
     if getattr(entity, "tab", 0):
         lines.append(f"{E('tab')} {L('tab')}: {entity.tab} owed")
+    if getattr(entity, "corner", None):
+        lines.append(f"{E('corner')} {L('corner')}")
+    if getattr(entity, "plate", 0):
+        lines.append(f"{E('plate')} {L('plate')} {entity.plate}/{entity.max_hp}")
+    if "hook" in timed:
+        lines.append(f"{E('hook')} {L('hook')} {round(timed['hook']['value'] * 100)}% ({timed['hook']['remaining']})")
     if "hex" in timed:
         lines.append(f"{E('hex')} {L('hex')}: {timed['hex'].get('stored', 0)} stored ({timed['hex']['remaining']})")
     # Net stat changes share ONE compact line (emoji + signed number, e.g. "✨+7 🛡️-5") -- a fight
@@ -346,6 +355,9 @@ def _reset_fight_stats(player) -> None:
     player.barrier = 0
     player.protector = None
     player.intercepting = None
+    player.corner = None
+    player.corner_spent = False
+    player.plate = 0
 
 
 class DelveSession:
@@ -381,6 +393,9 @@ class DelveSession:
         self.meters: dict[str, int] = {}  # class resources (Hype, Grudge...), see _gain_meter
         self.barrier = 0  # absorbs damage before HP, see _consume_guard_charge/_add_barrier
         self.protector = None  # an ally intercepting this one's next hit, see _effect_intercept
+        self.corner: float | None = None  # In Your Corner's revive fraction, see _try_corner
+        self.corner_spent = False
+        self.plate = 0  # the Chaplain's Collection Plate, see _fill_plate
         # Equipped item ids whose on_use effect has already been cast this fight -- reset
         # alongside chips at every combat-room entry (see _goto_room), same "once per fight"
         # reset point.
@@ -521,6 +536,9 @@ class PartyMember:
         self.meters: dict[str, int] = {}  # class resources (Hype, Grudge...), see _gain_meter
         self.barrier = 0  # absorbs damage before HP, see _consume_guard_charge/_add_barrier
         self.protector = None  # an ally intercepting this one's next hit, see _effect_intercept
+        self.corner: float | None = None  # In Your Corner's revive fraction, see _try_corner
+        self.corner_spent = False
+        self.plate = 0  # the Chaplain's Collection Plate, see _fill_plate
         self.used_item_effects: set[str] = set()
         # Same "start wherever the last delve left off" rule as DelveSession -- see its own hp
         # comment for why.
@@ -2537,9 +2555,22 @@ def _effect_heal_fraction(target, caster, effect: dict, log_lines: list[str], mo
         fraction = min(dungeon.HEAL_FRACTION_CAP, effect["value"] + caster_spatk * dungeon.HEAL_SPATK_WEIGHT)
     else:
         fraction = effect["value"]
-    healed = min(target.max_hp, target.hp + round(target.max_hp * fraction)) - target.hp
+    amount = round(target.max_hp * fraction)
+    healed = min(target.max_hp, target.hp + amount) - target.hp
     target.hp += healed
     log_lines.append(f"{_actor_label(target)} {_verb(target, 'recover')} **{healed}** HP.")
+    _handle_overheal(target, caster, amount - healed, effect, log_lines)
+
+
+def _handle_overheal(target, caster, overheal: int, effect: dict, log_lines: list[str]) -> None:
+    """Healing past full HP: Comps turns `effect`'s overheal_barrier share of it into a Barrier on
+    the healed ally, and a Chaplain caster banks it on their Collection Plate."""
+    if overheal <= 0:
+        return
+    if effect.get("overheal_barrier"):
+        _add_barrier(target, round(overheal * effect["overheal_barrier"]), log_lines)
+    if caster is not None:
+        _fill_plate(caster, overheal)
 
 
 def _effect_guard(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
@@ -2708,6 +2739,10 @@ def _effect_hot(actor, monster_state, effect: dict, log_lines: list[str], mods: 
         actor, "hot", effect["value"], effect["duration"], log_lines,
         f"{_possessive_label(actor)} wounds will mend for **{effect['duration']}** more round(s).",
     )
+    # Remember who cast it and its Comps share, so each tick's overheal can be routed (_tick_timed_effects).
+    entry = next(e for e in actor.timed_effects if e["type"] == "hot")
+    entry["caster"] = monster_state  # first-arg-shaped handlers get the caster in the second slot
+    entry["overheal_barrier"] = effect.get("overheal_barrier")
 
 
 def _effect_sap(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
@@ -2970,6 +3005,114 @@ def _after_monster_hit(monster, target, dmg: int, party: list, log_lines: list[s
                 _add_barrier(member, round(dmg * share), log_lines)
 
 
+# --- Healer resources ----------------------------------------------------------------------------
+
+
+def _effect_corner(actor, caster, effect: dict, log_lines: list[str], mods: dict):
+    if actor.corner_spent:
+        log_lines.append(f"🥅 {_actor_label(actor)} already got back up once this fight.")
+        return
+    actor.corner = effect["value"]
+    log_lines.append(f"🥅 {_actor_label(caster)} {_verb(caster, 'get')} in {_combatant_name(actor)}'s corner: one knockdown won't keep them down.")
+
+
+def _try_corner(entity, log_lines: list[str]) -> None:
+    """Call right before any in-combat "did this player just drop?" check: a cornered player at 0 HP
+    gets back up instead (once per fight)."""
+    if entity.hp <= 0 and getattr(entity, "corner", None):
+        entity.hp = max(1, round(entity.max_hp * entity.corner))
+        entity.corner = None
+        entity.corner_spent = True
+        log_lines.append(f"🥅 {_actor_label(entity)} {_verb(entity, 'beat')} the count and {_verb(entity, 'get')} back up with **{entity.hp}** HP!")
+
+
+def _effect_pass_the_buck(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    moved = 0
+    for ally in mods.get("ally_pool") or [actor]:
+        keep = []
+        for eff in ally.timed_effects:
+            if eff["type"] in ("stun", "sap", "dot"):
+                _apply_timed_effect(monster_state, eff["type"], eff["value"], eff["remaining"], [], "")
+                moved += 1
+            else:
+                keep.append(eff)
+        ally.timed_effects = keep
+        for stat in ("atk_debuff", "def_debuff", "spatk_debuff"):
+            amount = getattr(ally, stat)
+            if amount:
+                setattr(monster_state, stat, getattr(monster_state, stat) + amount)
+                setattr(ally, stat, 0)
+                moved += 1
+        if ally.speed_debuff:
+            monster_state.speed_debuff = _capped_speed_debuff(monster_state, ally.speed_debuff)
+            ally.speed_debuff = 0
+            moved += 1
+    if moved:
+        log_lines.append(f"🤝 Bad luck has to go somewhere: **{moved}** curse(s) get passed to {_combatant_name(monster_state)}.")
+    else:
+        log_lines.append("🤝 Nobody's carrying any bad luck to pass on.")
+
+
+def _plate_skill(entity) -> dict | None:
+    for skill in getattr(entity, "unlocked_skills", None) or []:
+        for group in dungeon._effect_lists(skill):
+            for effect in group:
+                if effect["type"] == "plate_spend":
+                    return effect
+    return None
+
+
+def _fill_plate(caster, amount: int) -> None:
+    if amount > 0 and _plate_skill(caster) is not None:
+        caster.plate = min(caster.max_hp, caster.plate + amount)
+
+
+def _effect_plate_spend(actor, caster, effect: dict, log_lines: list[str], mods: dict):
+    plate, actor.plate = actor.plate, 0
+    if not plate:
+        log_lines.append("🍽️ The collection plate comes back empty.")
+        return
+    amount = max(1, round(plate * effect["value"]))
+    log_lines.append(f"🍽️ The plate is passed: **{plate}** in donations go to work!")
+    for ally in mods.get("ally_pool") or [actor]:
+        healed = min(ally.max_hp, ally.hp + amount) - ally.hp
+        ally.hp += healed
+        if healed:
+            log_lines.append(f"{_actor_label(ally)} {_verb(ally, 'recover')} **{healed}** HP.")
+    for enemy in mods.get("enemy_pool") or []:
+        if enemy.hp <= 0:
+            continue
+        enemy.hp -= amount
+        log_lines.append(f"✨ {_combatant_name(enemy)} is smitten for **{amount}** damage.")
+        _on_damage_taken(enemy, amount, log_lines)
+        mods.setdefault("extra_hits", []).append(enemy)
+
+
+def _effect_hook(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    existing = next((e for e in monster_state.timed_effects if e["type"] == "hook"), None)
+    if existing is not None:
+        existing.update(value=max(existing["value"], effect["value"]), remaining=effect["duration"], growth=effect.get("growth", 0))
+    else:
+        monster_state.timed_effects.append({
+            "type": "hook", "value": effect["value"], "remaining": effect["duration"], "growth": effect.get("growth", 0),
+        })
+    log_lines.append(f"🪝 {_combatant_name(monster_state)} is hooked: every hit on them feeds the crew.")
+
+
+def _drain_hook(attacker, entity, dmg: int, log_lines: list[str]) -> None:
+    """A hit on a Hooked enemy heals the attacker; overflow past full HP becomes Barrier."""
+    hook = next((e for e in entity.timed_effects if e["type"] == "hook"), None)
+    if hook is None or dmg <= 0 or not hasattr(attacker, "barrier"):
+        return
+    drain = round(dmg * hook["value"])
+    healed = min(attacker.max_hp, attacker.hp + drain) - attacker.hp
+    attacker.hp += healed
+    if healed:
+        log_lines.append(f"🪝 {_actor_label(attacker)} {_verb(attacker, 'drain')} **{healed}** HP off the hook.")
+    if drain - healed > 0:
+        _add_barrier(attacker, drain - healed, log_lines)
+
+
 def _release_charge(actor, special: bool, mods: dict, log_lines: list[str]) -> None:
     """Spends `actor`'s stored charge on this damaging action, if it's a special (Magic) one --
     multiplies the main hit and every extra hit alike. A plain Attack leaves the charge stored."""
@@ -3031,6 +3174,10 @@ EFFECT_HANDLERS = {
     "blood_in_water": _effect_blood_in_water,
     "intercept": _effect_intercept,
     "collect_tab": _effect_collect_tab,
+    "corner": _effect_corner,
+    "pass_the_buck": _effect_pass_the_buck,
+    "plate_spend": _effect_plate_spend,
+    "hook": _effect_hook,
     "resist_buff": _effect_resist_buff,
     "dot": _effect_dot,
     "hot": _effect_hot,
@@ -3168,6 +3315,7 @@ def _resolve_player_action(
 
     mods = _default_mods()
     mods["heal_scales_with_caster"] = scales_with_caster
+    mods["ally_pool"], mods["enemy_pool"] = ally_pool, enemy_pool  # for party-wide handlers (pass_the_buck, plate_spend)
     for e in mods_effects:
         EFFECT_HANDLERS[e["type"]](actor, None, e, log_lines, mods)
 
@@ -3238,6 +3386,7 @@ def _resolve_player_action(
             crit_note = " 💥 Critical hit!" if is_crit else ""
             log_lines.append(f"{subject_label} {verb} {_combatant_name(entity)} for **{dmg}** damage.{crit_note}")
             _on_damage_taken(entity, dmg, log_lines)
+            _drain_hook(actor, entity, dmg, log_lines)
             # Threat only exists on a MonsterInstance -- damage that landed on self/an ally instead
             # (now possible with an unrestricted "target") has no threat table to update.
             if threat_gain and isinstance(entity, MonsterInstance):
@@ -3252,6 +3401,9 @@ def _resolve_player_action(
         actor.hp += healed
         if healed:
             log_lines.append(f"{subject_label} {drain_verb} **{healed}** HP from the strike.")
+
+    # Enemies a handler damaged outside the roll (the Chaplain's smite) still need kill checks.
+    hit_entities += [e for e in mods.get("extra_hits", []) if e not in hit_entities]
 
     if hit_entities and damage_is_enemy:
         _gain_meter([a for a in ally_pool if not (a is actor and "hype" in mods.get("spent_meters", ()))], "hype")
@@ -3306,10 +3458,14 @@ def _tick_timed_effects(entities: list, log_lines: list[str]) -> None:
                 log_lines.append(f"{_actor_label(entity)} {_verb(entity, 'take')} **{dmg}** damage from festering wounds.")
                 _on_damage_taken(entity, dmg, log_lines)
             elif eff["type"] == "hot":
-                healed = min(entity.max_hp, entity.hp + round(entity.max_hp * eff["value"])) - entity.hp
+                amount = round(entity.max_hp * eff["value"])
+                healed = min(entity.max_hp, entity.hp + amount) - entity.hp
                 entity.hp += healed
                 if healed:
                     log_lines.append(f"{_actor_label(entity)} {_verb(entity, 'recover')} **{healed}** HP over time.")
+                _handle_overheal(entity, eff.get("caster"), amount - healed, eff, log_lines)
+            elif eff["type"] == "hook":
+                eff["value"] = min(1.0, eff["value"] + eff.get("growth", 0))
         for eff in entity.timed_effects:
             eff["remaining"] -= 1
         expired_hexes = [e for e in entity.timed_effects if e["type"] == "hex" and e["remaining"] <= 0]
@@ -3607,6 +3763,7 @@ async def _advance_solo_turns(
             # back. cc_type is read BEFORE the tick (see _active_cc_type's own docstring).
             cc_type = _active_cc_type(session)
             _tick_timed_effects([session], log_lines)
+            _try_corner(session, log_lines)
             if session.hp <= 0:
                 await _solo_death_embed(interaction, session, log_lines)
                 return
@@ -3660,6 +3817,7 @@ async def _advance_solo_turns(
                 log_lines.append(lifesteal_line)
 
         await _settle_monster_turn_deaths(session, monsters_before, log_lines, player_moon_mult)
+        _try_corner(session, log_lines)
         if session.hp <= 0:
             await _solo_death_embed(interaction, session, log_lines)
             return
@@ -4003,6 +4161,7 @@ async def _advance_party_turns(
             member = session.members_by_id[next_id]
             cc_type = _active_cc_type(member)
             _tick_timed_effects([member], log_lines)
+            _try_corner(member, log_lines)
             if member.hp <= 0:
                 member.knocked_out = True
                 log_lines.append(f"💀 **{member.label}** is knocked out!")
@@ -4082,6 +4241,7 @@ async def _advance_party_turns(
                 target.hp -= monster_dmg
                 _on_damage_taken(target, monster_dmg, log_lines)
                 _after_monster_hit(monster, target, monster_dmg, session.living_members(), log_lines)
+                _try_corner(target, log_lines)
                 if target.hp <= 0:
                     target.knocked_out = True
                     log_lines.append(f"💀 **{target.label}** is knocked out!")
@@ -4100,6 +4260,7 @@ async def _advance_party_turns(
                 target.hp -= monster_dmg
                 _on_damage_taken(target, monster_dmg, log_lines)
                 _after_monster_hit(monster, target, monster_dmg, session.living_members(), log_lines)
+                _try_corner(target, log_lines)
                 if target.hp <= 0:
                     target.knocked_out = True
                     log_lines.append(f"💀 **{target.label}** is knocked out!")

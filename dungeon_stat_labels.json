@@ -103,5 +103,20 @@
     "id": "tab",
     "label": "Tab",
     "emoji": "\ud83e\uddfe"
+  },
+  {
+    "id": "corner",
+    "label": "In your corner",
+    "emoji": "\ud83e\udd45"
+  },
+  {
+    "id": "plate",
+    "label": "Plate",
+    "emoji": "\ud83c\udf7d\ufe0f"
+  },
+  {
+    "id": "hook",
+    "label": "Hooked",
+    "emoji": "\ud83e\ude9d"
   }
 ]

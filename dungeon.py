@@ -942,7 +942,7 @@ _REQUIRED_STAT_LABEL_FIELDS = {"id", "label"}
 _REQUIRED_STAT_LABEL_IDS = {
     "hp", "atk", "def", "spatk", "speed", "chips", "dodge", "resist",
     "stun", "sap", "dot", "hot", "guard", "charge", "hex", "hype",
-    "barrier", "grudge", "counter", "covered", "tab",
+    "barrier", "grudge", "counter", "covered", "tab", "corner", "plate", "hook",
 }
 
 
@@ -1070,7 +1070,9 @@ EFFECT_PARAM_SCHEMAS = {
     # damage_multiplier/extra_attack in the same effects list (enforced in _validate_effects
     # below) -- alone it's a silent no-op, since it never sets is_damage_action itself.
     "execute_multiplier": ({"base", "scale"}, set(), set()),
-    "heal_fraction": ({"value"}, set(), {"value"}),
+    # overheal_barrier (0-1, optional): Comps -- this fraction of any healing past full HP becomes
+    # a Barrier on the healed ally instead of being wasted (dungeon_view._add_barrier).
+    "heal_fraction": ({"value"}, {"overheal_barrier"}, {"value", "overheal_barrier"}),
     "guard": ({"reduction"}, set(), {"reduction"}),
     "lifesteal_fraction": ({"value"}, set(), {"value"}),
     "def_shred": ({"value"}, set(), set()),
@@ -1117,7 +1119,7 @@ EFFECT_PARAM_SCHEMAS = {
     "dodge_buff": ({"value", "duration"}, set(), {"value"}),
     "resist_buff": ({"value", "duration"}, set(), {"value"}),
     "dot": ({"value", "duration"}, set(), set()),
-    "hot": ({"value", "duration"}, set(), {"value"}),
+    "hot": ({"value", "duration"}, {"overheal_barrier"}, {"value", "overheal_barrier"}),
     # Crowd control -- also genuinely temporary (ticked by dungeon_view._tick_timed_effects) like
     # the four above, but ENEMY_TARGETED (as dot is) rather than ally-shaped (see that set below): they land on
     # current_target/every monster, not the caster. No "value" param -- there's nothing to scale,
@@ -1181,6 +1183,20 @@ EFFECT_PARAM_SCHEMAS = {
     # it. An uncashed Tab instead raises that monster's loot when it dies: +loot_per_point (default
     # 0.01) per point, capped at +loot_cap (default 0.5). Pairs with a damage effect like execute.
     "collect_tab": ({"value"}, {"loot_per_point", "loot_cap"}, {"loot_per_point", "loot_cap"}),
+    # corner: once per fight, the ally this lands on gets back up at `value` (0-1) of max HP the
+    # first time they'd drop to 0 in combat.
+    "corner": ({"value"}, set(), {"value"}),
+    # pass_the_buck: strips every Stun/Sap/DoT and stat debuff off every living ally and puts it on
+    # the target enemy instead. Resisted like any other status aimed at an enemy.
+    "pass_the_buck": (set(), set(), set()),
+    # plate_spend: the Collection Plate -- healing past full HP from the caster's own heals and HoTs
+    # fills it (up to their max HP) while they have this skill. Spending it heals every living ally
+    # for `value` x Plate and deals the same to every enemy, then empties it.
+    "plate_spend": ({"value"}, set(), set()),
+    # hook: the enemy is Hooked for `duration` of its turns -- every hit anyone in the party lands on
+    # it drains `value` (0-1) of the damage back to the attacker as HP (overflow becomes Barrier), and
+    # the drain grows by `growth` (0-1) each of its turns.
+    "hook": ({"value", "duration"}, {"growth"}, {"value", "growth"}),
 }
 
 # Which handler-calling-convention an effect type uses, for dungeon_view.py's dispatch -- three
@@ -1212,12 +1228,13 @@ TARGET_DAMAGE_SCALER_TYPES = {"execute_multiplier", "blood_in_water", "collect_t
 _DAMAGE_ROLL_EFFECT_TYPES = {"damage_multiplier", "extra_attack"}
 # Resource-building types that default to the caster themselves rather than "ally" (which in a
 # party means whichever ally is selected) -- charging up a teammate by accident would be a trap.
-SELF_DEFAULT_EFFECT_TYPES = {"charge", "overload", "counter"}
+SELF_DEFAULT_EFFECT_TYPES = {"charge", "overload", "counter", "plate_spend"}
 # Params that count turns or stacks -- validated as positive ints, like "duration".
 _INT_EFFECT_PARAMS = {"duration", "max_stacks", "safe_stacks", "bust_stun", "max_points"}
 ENEMY_TARGETED_EFFECT_TYPES = {
     "atk_debuff", "spatk_debuff", "speed_debuff", "def_shred",
     "taunt", "lower_threat", "sap", "stun", "execute_multiplier", "hex", "blood_in_water", "collect_tab",
+    "pass_the_buck", "hook",
     # dot used to be ally-shaped (left over from when it sat next to hot), so an effect with no
     # explicit "target" -- curse_the_table, every on_hit weapon proc -- festered on the caster.
     "dot",
@@ -1448,6 +1465,7 @@ def resolve_cast_effects(entry: dict) -> list[dict]:
 _MONSTER_SKILL_EXCLUDED_EFFECT_TYPES = {
     "taunt", "lower_threat", "charge", "overload", "hex", "hype_spend",
     "grudge_spend", "counter", "blood_in_water", "intercept", "collect_tab",
+    "corner", "pass_the_buck", "plate_spend", "hook",
 }
 
 
@@ -1706,6 +1724,7 @@ CONSTANT_EQUIPMENT_EFFECT_TYPES = {
 ON_HIT_EQUIPMENT_EFFECT_TYPES = set(EFFECT_PARAM_SCHEMAS) - {
     "damage_multiplier", "guard", "charge", "overload", "hex", "hype_spend",
     "grudge_spend", "counter", "blood_in_water", "intercept", "collect_tab",
+    "corner", "pass_the_buck", "plate_spend", "hook",
 }
 # type -> which stat constant_stat_bonuses folds it into -- the inverse of generate_item_constant_effects'
 # own mapping below.

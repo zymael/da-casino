@@ -1562,7 +1562,7 @@ EFFECT_PARAMS_BY_TYPE = {
 EFFECT_TYPE_HINTS = {
     "damage_multiplier": "value: your attack's damage this hit is multiplied by this (e.g. 1.5 = +50% damage)",
     "execute_multiplier": "base + scale x the target's missing HP fraction: e.g. base 1.0 / scale 1.7 = x1.0 at full HP, x2.7 against a nearly-dead target. Must be paired with a damage_multiplier/extra_attack in the same effects, and can't share a list with an aoe one.",
-    "heal_fraction": "value: fraction of your max HP restored (0-1, e.g. 0.3 = 30%)",
+    "heal_fraction": "value: fraction of your max HP restored (0-1, e.g. 0.3 = 30%). overheal_barrier (optional, 0-1): that fraction of healing past full HP becomes a Barrier instead of being wasted.",
     "guard": "reduction: the monster's next hit is multiplied by this (0-1, e.g. 0.5 = -50% damage taken)",
     "lifesteal_fraction": "value: fraction of the damage you deal that's restored as HP (0-1)",
     "def_shred": "value: flat amount the monster's DEF is lowered by, for the rest of this fight",
@@ -1581,7 +1581,7 @@ EFFECT_TYPE_HINTS = {
     "dodge_buff": "value: bonus chance (0-1) to fully avoid incoming damage; duration: how many rounds it lasts",
     "resist_buff": "value: bonus chance (0-1) to shake off incoming status effects/debuffs; duration: how many rounds it lasts",
     "dot": "value: flat damage taken each round; duration: how many rounds it lasts",
-    "hot": "value: fraction of max HP restored each round (0-1); duration: how many rounds it lasts",
+    "hot": "value: fraction of max HP restored each round (0-1); duration: how many rounds it lasts. overheal_barrier (optional, 0-1): that fraction of healing past full HP becomes a Barrier.",
     "sap": "duration: how many of the target's own turns it skips -- broken early the instant they take any damage (including from this same hit)",
     "stun": "duration: how many of the target's own turns it skips -- damage does NOT break it",
     "cleanse_dot": "No params -- removes any active damage-over-time from the caster (or the whole party with aoe)",
@@ -1594,6 +1594,10 @@ EFFECT_TYPE_HINTS = {
     "blood_in_water": "multiplier: size of each bonus bite. One bite each if the target is slowed at all, under half HP, and slowed as far as it can go (up to 3). Needs a non-aoe damage effect in the same effects.",
     "intercept": "value (0-1): aim at an ally -- the next single-target monster hit on them lands on you instead, and this fraction of the damage you take becomes a Barrier on every living party member.",
     "collect_tab": "value: monsters that hit you run up a Tab (damage dealt). This cashes the target's Tab as value x Tab bonus damage and clears it. An uncashed Tab raises the monster's loot on death by loot_per_point (default 0.01) per point, up to loot_cap (default 0.5). Needs a non-aoe damage effect in the same effects.",
+    "corner": "value (0-1): once per fight, the ally this lands on gets back up at this fraction of max HP the first time they'd drop to 0 in combat.",
+    "pass_the_buck": "No params -- strips every Stun/Sap/DoT and stat debuff off every living ally and puts it on the target enemy. Resistable.",
+    "plate_spend": "value: the Collection Plate fills with healing past full HP from your own heals/HoTs (up to your max HP) while you have this skill. Spending heals every living ally for value x Plate and deals the same to every enemy.",
+    "hook": "value (0-1): for duration of the enemy's turns, every hit the party lands on it drains this fraction of the damage back to the attacker (overflow becomes Barrier). growth (optional, 0-1): added to the drain each of its turns.",
     "overload": "min/max: each cast rolls a damage multiplier in this range for your next damaging Magic skill, replacing the last roll. bust_chance (0-1) per roll already made: a reroll can bust, losing the charge and stunning you for bust_stun turns (default 2). Defaults to target self.",
 }
 
@@ -1612,7 +1616,8 @@ EFFECT_SHORT_LABELS = {
     "cleanse_dot": "Cleanse DoT", "cleanse_cc": "Cleanse CC",
     "charge": "Charge", "overload": "Overload", "hex": "Hex", "hype_spend": "Hype",
     "grudge_spend": "Grudge", "counter": "Counter", "blood_in_water": "Bites", "intercept": "Cover",
-    "collect_tab": "Tab",
+    "collect_tab": "Tab", "corner": "Corner", "pass_the_buck": "Pass the Buck", "plate_spend": "Plate",
+    "hook": "Hook",
 }
 
 EQUIPMENT_EFFECT_TRIGGERS = list(dungeon.EQUIPMENT_EFFECT_TRIGGERS)

@@ -5025,7 +5025,7 @@ _DEBUFF_EFFECT_TYPES = {
 # adding/subtracting from one.
 _MULTIPLIER_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "execute_multiplier", "charge"}
 # No meaningful value to show at all -- cleanse_* and stun/sap are pure duration/boolean effects.
-_NO_VALUE_EFFECT_TYPES = {"stun", "sap", "cleanse_dot", "cleanse_cc"}
+_NO_VALUE_EFFECT_TYPES = {"stun", "sap", "cleanse_dot", "cleanse_cc", "pass_the_buck"}
 
 
 def format_effect(effect: dict) -> str:
