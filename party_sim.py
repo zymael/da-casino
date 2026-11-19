@@ -302,8 +302,15 @@ def monster_turn(monster, fight: Fight) -> None:
             hit_target.knocked_out = True
 
 
-def run_fight(builds, monster_spec, skills: dict, level: int, gear: float) -> dict:
+def use_skills(skills: dict) -> None:
+    """Points the game at a skill set. Characters read their kit through dungeon.SKILLS_BY_COMBO
+    (dungeon.unlocked_skills), not dungeon.SKILLS, so both have to be swapped together."""
     dungeon.SKILLS = skills
+    dungeon.SKILLS_BY_COMBO = dungeon._build_skills_by_combo(skills)
+
+
+def run_fight(builds, monster_spec, skills: dict, level: int, gear: float) -> dict:
+    use_skills(skills)
     members = [make_member(mc, sc, i + 1, level, gear) for i, (mc, sc) in enumerate(builds)]
     fight = Fight(members, make_monsters(monster_spec, len(members)))
     for m in fight.monsters:
