@@ -1521,9 +1521,15 @@ def _battle_item_description(item: dict, solo: bool) -> str:
     return text if len(text) <= 100 else text[:99] + "…"
 
 
+def _battle_item_label(item: dict) -> str:
+    """'Battle Tonic (x3)' -- held_qty is stamped on by the combat views' item-list builders."""
+    qty = item.get("held_qty")
+    return f"{item['name']} (x{qty})" if qty else item["name"]
+
+
 def _battle_item_options(items: list[dict], solo: bool) -> list[discord.SelectOption]:
     return [
-        discord.SelectOption(label=item["name"][:100], value=item["id"], description=_battle_item_description(item, solo) or None)
+        discord.SelectOption(label=_battle_item_label(item)[:100], value=item["id"], description=_battle_item_description(item, solo) or None)
         for item in items[:MAX_SELECT_OPTIONS]
     ]
 
@@ -1777,7 +1783,7 @@ class UseItemButton(discord.ui.Button):
     than opening a dropdown to pick from a list of one."""
 
     def __init__(self, item: dict):
-        super().__init__(label=f"🧪 {item['name']}", style=discord.ButtonStyle.secondary, row=1)
+        super().__init__(label=f"🧪 {_battle_item_label(item)}"[:80], style=discord.ButtonStyle.secondary, row=1)
         self.item = item
 
     async def callback(self, interaction: discord.Interaction):
@@ -2962,7 +2968,7 @@ async def _build_combat_view(session: DelveSession) -> "CombatView":
     turn as items get crafted/used) and builds a CombatView reflecting them."""
     held = await asyncio.to_thread(db.get_inventory, session.guild_id, session.user_id)
     usable_items = [
-        dungeon.CONSUMABLES[item_id] for item_id, qty in held.items()
+        {**dungeon.CONSUMABLES[item_id], "held_qty": qty} for item_id, qty in held.items()
         if item_id in dungeon.CONSUMABLES and qty > 0 and dungeon.usable_in_combat(dungeon.CONSUMABLES[item_id])
     ]
     return CombatView(session, usable_items)
@@ -3332,7 +3338,7 @@ async def _party_combat_embed(
 async def _usable_items_for(session: PartyDelveSession, actor: PartyMember) -> list[dict]:
     held = await asyncio.to_thread(db.get_inventory, session.guild_id, actor.user_id)
     return [
-        dungeon.CONSUMABLES[item_id] for item_id, qty in held.items()
+        {**dungeon.CONSUMABLES[item_id], "held_qty": qty} for item_id, qty in held.items()
         if item_id in dungeon.CONSUMABLES and qty > 0 and dungeon.usable_in_combat(dungeon.CONSUMABLES[item_id])
     ]
 
@@ -3724,7 +3730,7 @@ class PartySkillButton(discord.ui.Button):
 
 class PartyUseItemButton(discord.ui.Button):
     def __init__(self, item: dict):
-        super().__init__(label=f"🧪 {item['name']}", style=discord.ButtonStyle.secondary, row=1)
+        super().__init__(label=f"🧪 {_battle_item_label(item)}"[:80], style=discord.ButtonStyle.secondary, row=1)
         self.item = item
 
     async def callback(self, interaction: discord.Interaction):
@@ -5258,7 +5264,7 @@ class DuelSkillButton(discord.ui.Button):
 
 class DuelUseItemButton(discord.ui.Button):
     def __init__(self, item: dict):
-        super().__init__(label=f"🧪 {item['name']}", style=discord.ButtonStyle.secondary, row=1)
+        super().__init__(label=f"🧪 {_battle_item_label(item)}"[:80], style=discord.ButtonStyle.secondary, row=1)
         self.item = item
 
     async def callback(self, interaction: discord.Interaction):
