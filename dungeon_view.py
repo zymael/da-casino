@@ -120,6 +120,12 @@ class MonsterInstance:
         self.corner: float | None = None  # In Your Corner's revive fraction, see _try_corner
         self.corner_spent = False
         self.plate = 0  # the Chaplain's Collection Plate, see _fill_plate
+        self.pot = 0.0  # the Mastermind's Pot, see _effect_pot_add
+        # Rogue marks living ON this combatant, keyed by the rogue's user_id: Tells (count) and a
+        # Contract (owner id + bonus so far). Only ever set on monsters in practice.
+        self.tells: dict[int, int] = {}
+        self.tell_names: dict[int, str] = {}
+        self.contract: dict | None = None
         self.slot = slot
         # Party-only threat table: {user_id: accumulated threat}, this monster's own view of who
         # it's most likely to attack (dungeon.pick_target_by_threat, used by _advance_party_turns).
@@ -312,6 +318,17 @@ def _status_text(entity) -> str:
         lines.append(f"{E('corner')} {L('corner')}")
     if getattr(entity, "plate", 0):
         lines.append(f"{E('plate')} {L('plate')} {entity.plate}/{entity.max_hp}")
+    for uid, count in getattr(entity, "tells", {}).items():
+        if count:
+            who = getattr(entity, "tell_names", {}).get(uid)
+            lines.append(f"{E('tells')} {L('tells')} " + "●" * count + (f" ({who})" if who else ""))
+    contract = getattr(entity, "contract", None)
+    if contract:
+        lines.append(f"{E('contract')} {L('contract')} +{round(contract['bonus'] * 100)}% ({contract['name']})")
+    if "charm" in timed:
+        lines.append(f"{E('charm')} {L('charm')} ({timed['charm']['remaining']})")
+    if getattr(entity, "pot", 0):
+        lines.append(f"{E('pot')} {L('pot')} +{entity.pot:g}")
     if "hook" in timed:
         lines.append(f"{E('hook')} {L('hook')} {round(timed['hook']['value'] * 100)}% ({timed['hook']['remaining']})")
     if "hex" in timed:
@@ -358,6 +375,7 @@ def _reset_fight_stats(player) -> None:
     player.corner = None
     player.corner_spent = False
     player.plate = 0
+    player.pot = 0.0
 
 
 class DelveSession:
@@ -396,6 +414,12 @@ class DelveSession:
         self.corner: float | None = None  # In Your Corner's revive fraction, see _try_corner
         self.corner_spent = False
         self.plate = 0  # the Chaplain's Collection Plate, see _fill_plate
+        self.pot = 0.0  # the Mastermind's Pot, see _effect_pot_add
+        # Rogue marks living ON this combatant, keyed by the rogue's user_id: Tells (count) and a
+        # Contract (owner id + bonus so far). Only ever set on monsters in practice.
+        self.tells: dict[int, int] = {}
+        self.tell_names: dict[int, str] = {}
+        self.contract: dict | None = None
         # Equipped item ids whose on_use effect has already been cast this fight -- reset
         # alongside chips at every combat-room entry (see _goto_room), same "once per fight"
         # reset point.
@@ -539,6 +563,12 @@ class PartyMember:
         self.corner: float | None = None  # In Your Corner's revive fraction, see _try_corner
         self.corner_spent = False
         self.plate = 0  # the Chaplain's Collection Plate, see _fill_plate
+        self.pot = 0.0  # the Mastermind's Pot, see _effect_pot_add
+        # Rogue marks living ON this combatant, keyed by the rogue's user_id: Tells (count) and a
+        # Contract (owner id + bonus so far). Only ever set on monsters in practice.
+        self.tells: dict[int, int] = {}
+        self.tell_names: dict[int, str] = {}
+        self.contract: dict | None = None
         self.used_item_effects: set[str] = set()
         # Same "start wherever the last delve left off" rule as DelveSession -- see its own hp
         # comment for why.
@@ -1966,7 +1996,7 @@ class AttackButton(discord.ui.Button):
             session.current_view = self.view  # rejected without consuming the turn -- release the claim
 
 
-def _skill_button_label(skill: dict, actor) -> str:
+def _skill_button_label(skill: dict, actor, target=None) -> str:
     """A skill button's label: its name, plus live charge info -- the multiplier a charged caster's
     next damaging special will release, or the backfire risk of casting a charge/overload skill
     right now (see _charge_risk). Discord caps button labels at 80 characters."""
@@ -1987,6 +2017,12 @@ def _skill_button_label(skill: dict, actor) -> str:
         points = getattr(actor, "meters", {}).get(meter, 0) if meter else 0
         if points:
             label += f" {dungeon.stat_emoji(meter)}×{round(1 + e['per_point'] * points, 2):g}"
+        if e["type"] == "tells_spend" and target is not None:
+            tells = getattr(target, "tells", {}).get(_actor_key(actor), 0)
+            if tells:
+                label += f" 🎯×{round(1 + e['per_point'] * tells, 2):g}"
+        if e["type"] == "pot_cash" and getattr(actor, "pot", 0):
+            label += f" 💰+{actor.pot:g}"
     return label[:80]
 
 
@@ -1998,8 +2034,8 @@ class SkillButton(discord.ui.Button):
     once-per-fight charge -- disabled (not hidden) once its cost exceeds what's left this fight,
     same "show what you can't afford yet" idea an already-used skill used to convey."""
 
-    def __init__(self, skill: dict, disabled: bool, actor=None):
-        super().__init__(label=_skill_button_label(skill, actor), style=discord.ButtonStyle.success, disabled=disabled)
+    def __init__(self, skill: dict, disabled: bool, actor=None, target=None):
+        super().__init__(label=_skill_button_label(skill, actor, target), style=discord.ButtonStyle.success, disabled=disabled)
         self.skill = skill
 
     async def callback(self, interaction: discord.Interaction):
@@ -2129,7 +2165,10 @@ class CombatView(discord.ui.View):
             self.add_item(TargetSelect(session))
         self.add_item(AttackButton())
         for skill in session.unlocked_skills:
-            self.add_item(SkillButton(skill, disabled=skill["chip_cost"] > session.chips, actor=session))
+            self.add_item(SkillButton(
+                skill, disabled=skill["chip_cost"] > session.chips, actor=session,
+                target=session.current_target() if session.living_monsters() else None,
+            ))
         session.current_view = self
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -3113,6 +3152,115 @@ def _drain_hook(attacker, entity, dmg: int, log_lines: list[str]) -> None:
         _add_barrier(attacker, drain - healed, log_lines)
 
 
+# --- Rogue resources -----------------------------------------------------------------------------
+
+
+def _actor_key(actor) -> int:
+    return getattr(actor, "user_id", 0)
+
+
+def _tells_config(actor) -> tuple[int, int]:
+    """(max Tells per target, extra Tells for hitting a stunned target) across `actor`'s unlocked
+    finishers -- (0, 0) if they have none, so non-rogues never mark anything."""
+    cap = bonus = 0
+    for skill in getattr(actor, "unlocked_skills", None) or []:
+        for group in dungeon._effect_lists(skill):
+            for effect in group:
+                if effect["type"] == "tells_spend":
+                    cap = max(cap, effect.get("max_points", 5))
+                    bonus = max(bonus, effect.get("stunned_bonus", 0))
+    return cap, bonus
+
+
+def _gain_tells(actor, entity, mods: dict) -> None:
+    if not hasattr(entity, "tells") or id(entity) in mods.get("tells_spent", ()):
+        return
+    cap, stunned_bonus = _tells_config(actor)
+    if not cap:
+        return
+    key = _actor_key(actor)
+    stunned = any(e["type"] == "stun" for e in entity.timed_effects)
+    entity.tells[key] = min(cap, entity.tells.get(key, 0) + 1 + (stunned_bonus if stunned else 0))
+    if isinstance(actor, PartyMember):
+        entity.tell_names[key] = actor.player_name
+
+
+def _effect_tells_spend(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    key = _actor_key(actor)
+    tells = getattr(monster_state, "tells", {}).get(key, 0)
+    mods.setdefault("tells_spent", set()).add(id(monster_state))
+    if not tells:
+        return
+    monster_state.tells[key] = 0
+    mult = round(1 + effect["per_point"] * tells, 2)
+    mods["multiplier"] *= mult
+    log_lines.append(f"🎯 Read like a book: **{tells}** Tell(s) make this hit **×{mult:g}**!")
+    if effect.get("stun_at") and tells >= effect["stun_at"]:
+        _effect_stun(actor, monster_state, {"duration": 2}, log_lines, mods)
+
+
+def _effect_contract(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    monster_state.contract = {
+        "owner": _actor_key(actor), "name": getattr(actor, "player_name", "you"),
+        "step": effect["value"], "max": effect.get("max_bonus", 0.5), "bonus": 0.0,
+    }
+    log_lines.append(f"📜 There's a contract out on {_combatant_name(monster_state)}.")
+
+
+def _contract_mult(actor, entity) -> float:
+    contract = getattr(entity, "contract", None)
+    return 1 + contract["bonus"] if contract and contract["owner"] == _actor_key(actor) else 1.0
+
+
+def _advance_contract(actor, entity, log_lines: list[str]) -> None:
+    """After `actor` lands a hit on `entity`: raise their contract bonus, or, on the kill, pay out
+    an immediate extra turn (the caller then adds the usual one turn interval, netting zero)."""
+    contract = getattr(entity, "contract", None)
+    if not contract or contract["owner"] != _actor_key(actor):
+        return
+    if entity.hp <= 0:
+        entity.contract = None
+        actor.turn_clock -= dungeon.turn_interval(max(1, actor.speed - actor.speed_debuff))
+        log_lines.append(f"📜 Contract fulfilled. {_actor_label(actor)} {_verb(actor, 'get')} another turn!")
+    else:
+        contract["bonus"] = min(contract["max"], round(contract["bonus"] + contract["step"], 2))
+
+
+def _effect_charm(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    _apply_timed_effect(
+        monster_state, "charm", None, effect["duration"], log_lines,
+        f"💘 {_combatant_name(monster_state)} is smitten for **{effect['duration']}** turn(s).",
+    )
+
+
+def _charmed_turn(monster, living_monsters: list, log_lines: list[str]) -> None:
+    """A Smitten monster's whole turn: it attacks a random one of its own living allies with a
+    plain hit instead of the party, or swoons if it's alone."""
+    others = [m for m in living_monsters if m is not monster and m.hp > 0]
+    if not others:
+        log_lines.append(f"💘 **{monster.name}** is too smitten to fight and just stands there.")
+        return
+    victim = random.choice(others)
+    dmg = dungeon.roll_damage(max(0, monster.atk - monster.atk_debuff), max(0, victim.def_ - victim.def_debuff))
+    dmg = _consume_guard_charge(victim, dmg, log_lines)
+    victim.hp -= dmg
+    log_lines.append(f"💘 **{monster.name}** is smitten and turns on **{victim.name}** for **{dmg}**!")
+    _on_damage_taken(victim, dmg, log_lines)
+
+
+def _effect_pot_add(actor, caster, effect: dict, log_lines: list[str], mods: dict):
+    cap = effect.get("max", 3)
+    actor.pot = min(cap, round(actor.pot + effect["value"], 2))
+    log_lines.append(f"💰 Into the pot. It's riding at **+{actor.pot:g}** now.")
+
+
+def _effect_pot_cash(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    pot, actor.pot = actor.pot, 0.0
+    if pot:
+        mods["multiplier"] *= 1 + pot
+        log_lines.append(f"💰 The pot pays out: **×{1 + pot:g}**!")
+
+
 def _release_charge(actor, special: bool, mods: dict, log_lines: list[str]) -> None:
     """Spends `actor`'s stored charge on this damaging action, if it's a special (Magic) one --
     multiplies the main hit and every extra hit alike. A plain Attack leaves the charge stored."""
@@ -3178,6 +3326,11 @@ EFFECT_HANDLERS = {
     "pass_the_buck": _effect_pass_the_buck,
     "plate_spend": _effect_plate_spend,
     "hook": _effect_hook,
+    "tells_spend": _effect_tells_spend,
+    "contract": _effect_contract,
+    "charm": _effect_charm,
+    "pot_add": _effect_pot_add,
+    "pot_cash": _effect_pot_cash,
     "resist_buff": _effect_resist_buff,
     "dot": _effect_dot,
     "hot": _effect_hot,
@@ -3373,9 +3526,10 @@ def _resolve_player_action(
             eff_def = max(0, entity.def_ - entity.def_debuff)  # damage mitigation is always DEF now
             is_crit = crit_chance > 0 and random.random() < crit_chance
             crit_mult = CRIT_MULTIPLIER if is_crit else 1.0
-            dmg = dungeon.roll_damage(attacker_atk, eff_def, mods["multiplier"] * moon_mult * crit_mult)
+            target_mult = _contract_mult(actor, entity)  # per target: only the contracted one gets it
+            dmg = dungeon.roll_damage(attacker_atk, eff_def, mods["multiplier"] * moon_mult * crit_mult * target_mult)
             for extra_multiplier in mods["extra_attack_multipliers"]:
-                dmg += dungeon.roll_damage(attacker_atk, eff_def, extra_multiplier * moon_mult * crit_mult)
+                dmg += dungeon.roll_damage(attacker_atk, eff_def, extra_multiplier * moon_mult * crit_mult * target_mult)
             dmg += mods.get("flat_bonus", {}).get(id(entity), 0)  # a cashed Tab, see _effect_collect_tab
             # Guard reduction is consumed here (against the TARGET's own charge, if any -- any
             # entity can guard itself, full parity) before lifesteal/on-hit procs read `dmg`.
@@ -3387,6 +3541,8 @@ def _resolve_player_action(
             log_lines.append(f"{subject_label} {verb} {_combatant_name(entity)} for **{dmg}** damage.{crit_note}")
             _on_damage_taken(entity, dmg, log_lines)
             _drain_hook(actor, entity, dmg, log_lines)
+            _gain_tells(actor, entity, mods)
+            _advance_contract(actor, entity, log_lines)
             # Threat only exists on a MonsterInstance -- damage that landed on self/an ally instead
             # (now possible with an unrestricted "target") has no threat table to update.
             if threat_gain and isinstance(entity, MonsterInstance):
@@ -3781,6 +3937,7 @@ async def _advance_solo_turns(
 
         monster = next(m for m in session.living_monsters() if m.slot == next_id)
         monster_cc_type = _active_cc_type(monster)
+        monster_charmed = any(e["type"] == "charm" for e in monster.timed_effects)  # read before the tick, like cc
         _tick_timed_effects([monster], log_lines)
         monster.turn_clock += dungeon.turn_interval(max(1, monster.speed - monster.speed_debuff))
         if monster.hp <= 0:
@@ -3789,6 +3946,11 @@ async def _advance_solo_turns(
             continue  # never got to act this turn -- loop re-checks living_monsters() at the top
         if monster_cc_type is not None:
             log_lines.append(_crowd_control_skip_line(monster, monster_cc_type))
+            continue
+        if monster_charmed:
+            monsters_before = session.living_monsters()
+            _charmed_turn(monster, monsters_before, log_lines)
+            await _settle_monster_turn_deaths(session, monsters_before, log_lines, player_moon_mult)
             continue
 
         last_attacker_slot = monster.slot
@@ -4180,6 +4342,7 @@ async def _advance_party_turns(
 
         monster = next(m for m in session.living_monsters() if m.slot == next_id)
         monster_cc_type = _active_cc_type(monster)
+        monster_charmed = any(e["type"] == "charm" for e in monster.timed_effects)  # read before the tick, like cc
         _tick_timed_effects([monster], log_lines)
         monster.turn_clock += dungeon.turn_interval(max(1, monster.speed - monster.speed_debuff))
         if monster.hp <= 0:
@@ -4188,6 +4351,11 @@ async def _advance_party_turns(
             continue  # never got to act this turn -- loop re-checks living_monsters() at the top
         if monster_cc_type is not None:
             log_lines.append(_crowd_control_skip_line(monster, monster_cc_type))
+            continue
+        if monster_charmed:
+            monsters_before = session.living_monsters()
+            _charmed_turn(monster, monsters_before, log_lines)
+            await _settle_monster_turn_deaths(session, monsters_before, log_lines, player_moon_mult)
             continue
 
         living = session.living_members()
@@ -4401,8 +4569,8 @@ class PartyAttackButton(discord.ui.Button):
 
 
 class PartySkillButton(discord.ui.Button):
-    def __init__(self, skill: dict, disabled: bool, actor=None):
-        super().__init__(label=_skill_button_label(skill, actor), style=discord.ButtonStyle.success, disabled=disabled)
+    def __init__(self, skill: dict, disabled: bool, actor=None, target=None):
+        super().__init__(label=_skill_button_label(skill, actor, target), style=discord.ButtonStyle.success, disabled=disabled)
         self.skill = skill
 
     async def callback(self, interaction: discord.Interaction):
@@ -4552,7 +4720,9 @@ class PartyCombatView(discord.ui.View):
             self.add_item(PartyAllyTargetSelect(session, actor))
         self.add_item(PartyAttackButton())
         for skill in actor.unlocked_skills:
-            self.add_item(PartySkillButton(skill, disabled=skill["chip_cost"] > actor.chips, actor=actor))
+            self.add_item(PartySkillButton(
+                skill, disabled=skill["chip_cost"] > actor.chips, actor=actor, target=session.target_for(actor),
+            ))
         session.current_view = self
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -5947,8 +6117,8 @@ class DuelAttackButton(discord.ui.Button):
 
 
 class DuelSkillButton(discord.ui.Button):
-    def __init__(self, skill: dict, disabled: bool, actor=None):
-        super().__init__(label=_skill_button_label(skill, actor), style=discord.ButtonStyle.success, disabled=disabled)
+    def __init__(self, skill: dict, disabled: bool, actor=None, target=None):
+        super().__init__(label=_skill_button_label(skill, actor, target), style=discord.ButtonStyle.success, disabled=disabled)
         self.skill = skill
 
     async def callback(self, interaction: discord.Interaction):

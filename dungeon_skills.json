@@ -593,6 +593,11 @@
         "value": 0.7,
         "target": "enemy",
         "chance": 0.5
+      },
+      {
+        "type": "tells_spend",
+        "per_point": 0.15,
+        "max_points": 5
       }
     ],
     "chip_cost": 10,
@@ -658,6 +663,11 @@
         "type": "atk_buff",
         "value": 4,
         "target": "self"
+      },
+      {
+        "type": "tells_spend",
+        "per_point": 0.15,
+        "max_points": 5
       }
     ],
     "chip_cost": 10,
@@ -678,6 +688,9 @@
             "type": "damage_multiplier",
             "value": 2.7,
             "target": "enemy"
+          },
+          {
+            "type": "pot_cash"
           }
         ],
         "chance": 1
@@ -688,6 +701,11 @@
             "type": "damage_multiplier",
             "value": 0.3,
             "target": "enemy"
+          },
+          {
+            "type": "pot_add",
+            "value": 1.0,
+            "max": 3
           }
         ],
         "chance": 1
@@ -714,6 +732,11 @@
         "duration": 1,
         "target": "enemy",
         "chance": 0.6
+      },
+      {
+        "type": "contract",
+        "value": 0.1,
+        "max_bonus": 0.5
       }
     ],
     "chip_cost": 12,
@@ -764,12 +787,6 @@
         "target": "enemy"
       },
       {
-        "type": "stun",
-        "duration": 1,
-        "target": "enemy",
-        "chance": 0.5
-      },
-      {
         "type": "def_shred",
         "value": 4,
         "target": "enemy",
@@ -780,6 +797,10 @@
         "value": 2,
         "target": "enemy",
         "chance": 0.5
+      },
+      {
+        "type": "charm",
+        "duration": 1
       }
     ],
     "chip_cost": 10,
@@ -803,6 +824,13 @@
         "duration": 2,
         "target": "enemy",
         "chance": 0.5
+      },
+      {
+        "type": "tells_spend",
+        "per_point": 0.1,
+        "max_points": 5,
+        "stunned_bonus": 1,
+        "stun_at": 3
       }
     ],
     "chip_cost": 13,
@@ -1582,6 +1610,12 @@
         "type": "damage_multiplier",
         "value": 1.85,
         "target": "enemy"
+      },
+      {
+        "type": "tells_spend",
+        "per_point": 0.15,
+        "max_points": 5,
+        "stunned_bonus": 1
       }
     ],
     "chip_cost": 10,
@@ -1606,6 +1640,11 @@
         "reduction": 0.5,
         "target": "ally",
         "chance": 0.5
+      },
+      {
+        "type": "tells_spend",
+        "per_point": 0.15,
+        "max_points": 5
       }
     ],
     "chip_cost": 10,
@@ -1630,6 +1669,11 @@
         "base": 1.0,
         "scale": 1.7,
         "target": "enemy"
+      },
+      {
+        "type": "tells_spend",
+        "per_point": 0.15,
+        "max_points": 5
       }
     ],
     "chip_cost": 10,

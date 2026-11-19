@@ -5025,7 +5025,7 @@ _DEBUFF_EFFECT_TYPES = {
 # adding/subtracting from one.
 _MULTIPLIER_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "execute_multiplier", "charge"}
 # No meaningful value to show at all -- cleanse_* and stun/sap are pure duration/boolean effects.
-_NO_VALUE_EFFECT_TYPES = {"stun", "sap", "cleanse_dot", "cleanse_cc", "pass_the_buck"}
+_NO_VALUE_EFFECT_TYPES = {"stun", "sap", "cleanse_dot", "cleanse_cc", "pass_the_buck", "charm", "pot_cash"}
 
 
 def format_effect(effect: dict) -> str:
@@ -5049,7 +5049,7 @@ def format_effect(effect: dict) -> str:
     # compact fragment has no room for the scale/missing-HP formula too.
     if etype == "overload":
         return f"{label} ×{effect['min']:g}-{effect['max']:g}"
-    if etype in ("hype_spend", "grudge_spend"):
+    if etype in ("hype_spend", "grudge_spend", "tells_spend"):
         return f"{label} +{effect['per_point']:g}/pt"
     param = next((p for p in ("value", "reduction", "multiplier", "base") if p in effect), None)
     if param is None:

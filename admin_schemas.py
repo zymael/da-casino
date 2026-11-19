@@ -1598,6 +1598,11 @@ EFFECT_TYPE_HINTS = {
     "pass_the_buck": "No params -- strips every Stun/Sap/DoT and stat debuff off every living ally and puts it on the target enemy. Resistable.",
     "plate_spend": "value: the Collection Plate fills with healing past full HP from your own heals/HoTs (up to your max HP) while you have this skill. Spending heals every living ally for value x Plate and deals the same to every enemy.",
     "hook": "value (0-1): for duration of the enemy's turns, every hit the party lands on it drains this fraction of the damage back to the attacker (overflow becomes Barrier). growth (optional, 0-1): added to the drain each of its turns.",
+    "tells_spend": "per_point: finisher. Each hit you land adds 1 Tell to that target (+stunned_bonus if it's stunned), up to max_points (default 5), while you have this skill. Spends the target's Tells for x(1 + per_point x Tells); at stun_at+ Tells also stuns it 2 turns, no resist. Needs a non-aoe damage effect.",
+    "contract": "value (0-1): each of your hits on the target does +value more damage than the last, up to max_bonus (default 0.5). Killing it gives you an immediate extra turn.",
+    "charm": "duration: the target is Smitten for this many of its own turns -- it attacks one of its own allies instead (or swoons if it has none).",
+    "pot_add": "value: raises your Pot by this much (up to max, default 3). Pairs with pot_cash on another outcome.",
+    "pot_cash": "No params -- this hit is multiplied by x(1 + Pot), then the Pot empties. Needs a damage effect.",
     "overload": "min/max: each cast rolls a damage multiplier in this range for your next damaging Magic skill, replacing the last roll. bust_chance (0-1) per roll already made: a reroll can bust, losing the charge and stunning you for bust_stun turns (default 2). Defaults to target self.",
 }
 
@@ -1617,7 +1622,8 @@ EFFECT_SHORT_LABELS = {
     "charge": "Charge", "overload": "Overload", "hex": "Hex", "hype_spend": "Hype",
     "grudge_spend": "Grudge", "counter": "Counter", "blood_in_water": "Bites", "intercept": "Cover",
     "collect_tab": "Tab", "corner": "Corner", "pass_the_buck": "Pass the Buck", "plate_spend": "Plate",
-    "hook": "Hook",
+    "hook": "Hook", "tells_spend": "Finisher", "contract": "Contract", "charm": "Charm", "pot_add": "Pot +",
+    "pot_cash": "Cash Pot",
 }
 
 EQUIPMENT_EFFECT_TRIGGERS = list(dungeon.EQUIPMENT_EFFECT_TRIGGERS)

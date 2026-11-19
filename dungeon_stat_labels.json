@@ -118,5 +118,25 @@
     "id": "hook",
     "label": "Hooked",
     "emoji": "\ud83e\ude9d"
+  },
+  {
+    "id": "tells",
+    "label": "Tells",
+    "emoji": "\ud83c\udfaf"
+  },
+  {
+    "id": "contract",
+    "label": "Contract",
+    "emoji": "\ud83d\udcdc"
+  },
+  {
+    "id": "charm",
+    "label": "Smitten",
+    "emoji": "\ud83d\udc98"
+  },
+  {
+    "id": "pot",
+    "label": "Pot",
+    "emoji": "\ud83d\udcb0"
   }
 ]

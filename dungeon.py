@@ -943,6 +943,7 @@ _REQUIRED_STAT_LABEL_IDS = {
     "hp", "atk", "def", "spatk", "speed", "chips", "dodge", "resist",
     "stun", "sap", "dot", "hot", "guard", "charge", "hex", "hype",
     "barrier", "grudge", "counter", "covered", "tab", "corner", "plate", "hook",
+    "tells", "contract", "charm", "pot",
 }
 
 
@@ -1197,6 +1198,22 @@ EFFECT_PARAM_SCHEMAS = {
     # it drains `value` (0-1) of the damage back to the attacker as HP (overflow becomes Barrier), and
     # the drain grows by `growth` (0-1) each of its turns.
     "hook": ({"value", "duration"}, {"growth"}, {"value", "growth"}),
+    # tells_spend: a rogue's finisher. Every hit a rogue with this skill unlocked lands adds 1 Tell
+    # to that target (+stunned_bonus more if it's stunned), up to max_points (default 5). This spends
+    # the target's Tells for x(1 + per_point x Tells) on this hit; at stun_at+ Tells it also stuns
+    # the target for 2 turns, no resist. Pairs with a non-aoe damage effect like execute.
+    "tells_spend": ({"per_point"}, {"max_points", "stunned_bonus", "stun_at"}, set()),
+    # contract: puts a contract out on the target. Each of the caster's hits on it does +value
+    # (0-1) more damage than the last, up to +max_bonus (default 0.5); killing it gives the caster
+    # an immediate extra turn.
+    "contract": ({"value"}, {"max_bonus"}, {"value", "max_bonus"}),
+    # charm: the target is Smitten for `duration` of its own turns -- on each, it attacks one of
+    # its own allies instead (or just stands there swooning if it has none).
+    "charm": ({"duration"}, set(), set()),
+    # pot_add / pot_cash: The Pot. pot_add raises the caster's pot by `value` (up to `max`,
+    # default 3); pot_cash multiplies this hit by x(1 + pot) and empties it. Pot resets each fight.
+    "pot_add": ({"value"}, {"max"}, set()),
+    "pot_cash": (set(), set(), set()),
 }
 
 # Which handler-calling-convention an effect type uses, for dungeon_view.py's dispatch -- three
@@ -1219,22 +1236,24 @@ EFFECT_PARAM_SCHEMAS = {
 # "enemy" is dodge-gated (matching every enemy-shaped effect's existing behavior); "self"/"ally"
 # never are (a self-heal, or now a self-inflicted stun, was never really "the attack" that could be
 # dodged) -- see dungeon_view._resolve_player_action.
-MODS_ONLY_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "lifesteal_fraction", "hype_spend", "grudge_spend"}
+MODS_ONLY_EFFECT_TYPES = {
+    "damage_multiplier", "extra_attack", "lifesteal_fraction", "hype_spend", "grudge_spend", "pot_cash",
+}
 # ENEMY_TARGETED types that only scale this action's own damage roll against their target (never
 # a status on it) -- avoided by Dodge with the hit, never separately Resisted, and they need a real
 # damage effect next to them that isn't aoe (their bonus is computed against one specific target).
-TARGET_DAMAGE_SCALER_TYPES = {"execute_multiplier", "blood_in_water", "collect_tab"}
+TARGET_DAMAGE_SCALER_TYPES = {"execute_multiplier", "blood_in_water", "collect_tab", "tells_spend"}
 # The MODS_ONLY types that actually establish a damage roll (mirrors dungeon_view.DAMAGE_EFFECT_TYPES).
 _DAMAGE_ROLL_EFFECT_TYPES = {"damage_multiplier", "extra_attack"}
 # Resource-building types that default to the caster themselves rather than "ally" (which in a
 # party means whichever ally is selected) -- charging up a teammate by accident would be a trap.
-SELF_DEFAULT_EFFECT_TYPES = {"charge", "overload", "counter", "plate_spend"}
+SELF_DEFAULT_EFFECT_TYPES = {"charge", "overload", "counter", "plate_spend", "pot_add"}
 # Params that count turns or stacks -- validated as positive ints, like "duration".
-_INT_EFFECT_PARAMS = {"duration", "max_stacks", "safe_stacks", "bust_stun", "max_points"}
+_INT_EFFECT_PARAMS = {"duration", "max_stacks", "safe_stacks", "bust_stun", "max_points", "stunned_bonus", "stun_at"}
 ENEMY_TARGETED_EFFECT_TYPES = {
     "atk_debuff", "spatk_debuff", "speed_debuff", "def_shred",
     "taunt", "lower_threat", "sap", "stun", "execute_multiplier", "hex", "blood_in_water", "collect_tab",
-    "pass_the_buck", "hook",
+    "pass_the_buck", "hook", "tells_spend", "contract", "charm",
     # dot used to be ally-shaped (left over from when it sat next to hot), so an effect with no
     # explicit "target" -- curse_the_table, every on_hit weapon proc -- festered on the caster.
     "dot",
@@ -1339,7 +1358,7 @@ def _validate_effects(effects, context: str):
     # is one shared scalar applied to every AOE target, but execute_multiplier's value is computed
     # against exactly the one enemy its own target/aoe resolved to -- mixing the two would silently
     # apply one target's execute bonus to every other AOE target too.
-    for spender in ("hype_spend", "grudge_spend"):
+    for spender in ("hype_spend", "grudge_spend", "pot_cash"):
         if any(e.get("type") == spender for e in effects) and not any(
             e.get("type") in _DAMAGE_ROLL_EFFECT_TYPES for e in effects
         ):
@@ -1466,6 +1485,7 @@ _MONSTER_SKILL_EXCLUDED_EFFECT_TYPES = {
     "taunt", "lower_threat", "charge", "overload", "hex", "hype_spend",
     "grudge_spend", "counter", "blood_in_water", "intercept", "collect_tab",
     "corner", "pass_the_buck", "plate_spend", "hook",
+    "tells_spend", "contract", "charm", "pot_add", "pot_cash",
 }
 
 
@@ -1725,6 +1745,7 @@ ON_HIT_EQUIPMENT_EFFECT_TYPES = set(EFFECT_PARAM_SCHEMAS) - {
     "damage_multiplier", "guard", "charge", "overload", "hex", "hype_spend",
     "grudge_spend", "counter", "blood_in_water", "intercept", "collect_tab",
     "corner", "pass_the_buck", "plate_spend", "hook",
+    "tells_spend", "contract", "charm", "pot_add", "pot_cash",
 }
 # type -> which stat constant_stat_bonuses folds it into -- the inverse of generate_item_constant_effects'
 # own mapping below.
