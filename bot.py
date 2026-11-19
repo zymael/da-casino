@@ -2332,11 +2332,12 @@ def _raid_target_problem(ctx, member: discord.Member) -> str | None:
     return None
 
 
-async def _heat(guild_id: int, user_id: int, now: int) -> int:
+async def _heat(guild_id: int, user_id: int, now: int) -> list[int]:
+    """When each point of the player's Heat cools off (war.heat_expiries); len() is the level."""
     last_caught = await asyncio.to_thread(
         db.get_flags, guild_id, user_id, [op.caught_flag for op in war.OPERATIONS.values()],
     )
-    return war.heat(last_caught, now)
+    return war.heat_expiries(last_caught, now)
 
 
 async def _raid_choose_op(ctx, member: discord.Member | None):
@@ -2381,12 +2382,9 @@ async def _raid_choose_op(ctx, member: discord.Member | None):
     async def on_pick(pick_ctx, op_id):
         await _raid_choose_target(pick_ctx, war.OPERATIONS[op_id], member)
 
-    heat_level = await _heat(guild_id, user_id, now)
     lines = ["What's the job?"]
-    if heat_level:
-        lines.append(
-            f"🌡️ Heat: {heat_level}. You've been caught recently: every job is {heat_level * war.HEAT_PENALTY:.0%} harder."
-        )
+    if heat_line := war.heat_text(await _heat(guild_id, user_id, now)):
+        lines.append(heat_line + " You've been caught recently.")
     lines += waiting
     await ctx.send("\n".join(lines), view=war_view.build_operation_picker(user_id, ready, on_pick))
 
@@ -2537,7 +2535,7 @@ async def _raid_resolve(
     job_intel_key = db.job_intel_flag(member.id)
     job_intel = op.id != "spy" and await asyncio.to_thread(db.get_flag, guild_id, user_id, job_intel_key) > now
     chance = war.op_chance(
-        op, operative_stat, guard, await _heat(guild_id, user_id, now), sentry is not None,
+        op, operative_stat, guard, len(await _heat(guild_id, user_id, now)), sentry is not None,
         war.JOB_INTEL_BONUS if job_intel else 0.0, facility_tier,
     )
 
@@ -2573,6 +2571,8 @@ async def _raid_resolve(
         await asyncio.to_thread(db.set_flag, guild_id, user_id, op.caught_flag, now)
     odds = f"(Odds were {chance:.0%}, intel included.)" if job_intel else f"(Odds were {chance:.0%}.)"
     landed = await _OP_OUTCOMES[op.id](ctx, member, success, odds, operative, rescue_index)
+    if not success:
+        await ctx.send(war.heat_text(await _heat(guild_id, user_id, now)))
     if landed:
         if op.id not in war.PILE_ON_EXEMPT:
             await asyncio.to_thread(db.record_hit, guild_id, member.id, now)

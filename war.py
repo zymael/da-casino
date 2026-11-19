@@ -72,7 +72,7 @@ ON_FOOT_SPIRIT = 50
 # stat), then loses HEAT_PENALTY per distinct op the player ran in the last HEAT_WINDOW_SECONDS
 # and SENTRY_PENALTY if the target has a sentry on duty, clamped to the op's own [min, max].
 OP_STAT_SWING = 0.005
-HEAT_WINDOW_SECONDS = 72 * 3600
+HEAT_WINDOW_SECONDS = 24 * 3600
 HEAT_PENALTY = 0.05
 SENTRY_PENALTY = 0.10
 # A target hit by an op with `immunity` can't be hit by that same op again, by anyone, for this long.
@@ -488,11 +488,25 @@ def guard_stat(
     return max((horse_stat(h, clothes.get(i, {}), op.guard_stat) for i, h in guards), default=0.0)
 
 
+def heat_expiries(last_caught: dict[str, int], now: int) -> list[int]:
+    """When each point of this player's Heat cools off (unix seconds, soonest first): one per
+    distinct op they got caught running in the last HEAT_WINDOW_SECONDS. last_caught maps each op's
+    caught_flag to its unix time (0 = never). A job that lands adds no heat; only getting caught does."""
+    return sorted(t + HEAT_WINDOW_SECONDS for t in last_caught.values() if t and now - t < HEAT_WINDOW_SECONDS)
+
+
 def heat(last_caught: dict[str, int], now: int) -> int:
-    """How many distinct ops this player got caught running in the last HEAT_WINDOW_SECONDS.
-    last_caught maps each op's caught_flag to its unix time (0 = never). A job that lands adds no
-    heat; only getting caught does."""
-    return sum(1 for t in last_caught.values() if t and now - t < HEAT_WINDOW_SECONDS)
+    return len(heat_expiries(last_caught, now))
+
+
+def heat_text(expiries: list[int]) -> str:
+    """The Heat line players see: level, the penalty, and when it cools. '' at zero Heat."""
+    if not expiries:
+        return ""
+    text = f"🌡️ Heat: {len(expiries)} (every job {len(expiries) * HEAT_PENALTY:.0%} harder)."
+    if len(expiries) == 1:
+        return text + f" Cools off <t:{expiries[0]}:R>."
+    return text + f" Drops to {len(expiries) - 1} <t:{expiries[0]}:R>, gone <t:{expiries[-1]}:R>."
 
 
 def op_chance(
