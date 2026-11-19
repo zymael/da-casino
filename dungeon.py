@@ -1921,6 +1921,12 @@ def usable_outside_combat(item: dict) -> bool:
     return out_of_combat_heal_fraction(item) is not None
 
 
+def usable_in_combat(item: dict) -> bool:
+    """Whether a consumable belongs in a fight's use-item list -- only if it has combat effects.
+    An energy_restore-only item (mystery powder, Hot Spring Salts) does nothing mid-fight."""
+    return bool(item.get("effects") or item.get("effect_groups"))
+
+
 def out_of_combat_heal_fraction(item: dict) -> float | None:
     """The flat fraction of max HP an out-of-combat use of `item` restores -- its first plain
     `effects` heal_fraction entry's value (see usable_outside_combat for why effect_groups don't

@@ -213,6 +213,27 @@ def _roll_monster_instances(
     return instances, group.get("next")
 
 
+_FIGHT_STATS = ("max_hp", "atk", "def_", "spatk", "speed")
+
+
+def _stat_snapshot(player) -> dict[str, int]:
+    return {stat: getattr(player, stat) for stat in _FIGHT_STATS}
+
+
+def _reset_fight_stats(player) -> None:
+    """Buffs and debuffs last one fight: called on every room change (solo _goto_room, party
+    _enter_room), this puts a player's stats back to their delve-start values (plus any level-ups
+    since, see _award_kill) and drops every debuff, timed effect and pending guard. Before this,
+    nothing ever reset them, so a "rest of the fight" buff (and a gear on_use buff, once per fight)
+    actually stacked for the whole delve."""
+    for stat, value in player.base_stats.items():
+        setattr(player, stat, value)
+    player.hp = min(player.hp, player.max_hp)
+    player.atk_debuff = player.def_debuff = player.spatk_debuff = player.speed_debuff = 0
+    player.timed_effects = []
+    player.guard_charge = None
+
+
 class DelveSession:
     def __init__(
         self, guild_id: int, user_id: int, character: dict, equipped: dict[str, str], delve: dict,
@@ -236,6 +257,7 @@ class DelveSession:
         # debuff before (only a monster's def_debuff existed), needed now that a monster's own
         # skill can weaken the player, same full parity as the buff side already had.
         self.atk_debuff = self.def_debuff = self.spatk_debuff = self.speed_debuff = 0
+        self.base_stats = _stat_snapshot(self)  # restored at every room change, see _reset_fight_stats
         self.timed_effects: list[dict] = []
         # Turn-order scheduling state -- see MonsterInstance's own fields for what these mean;
         # reset at the same points Chips/used_item_effects already reset.
@@ -359,6 +381,7 @@ class PartyMember:
         self.spatk = effective["spatk"]
         self.speed = effective["speed"]
         self.atk_debuff = self.def_debuff = self.spatk_debuff = self.speed_debuff = 0
+        self.base_stats = _stat_snapshot(self)  # restored at every room change, see _reset_fight_stats
         self.timed_effects: list[dict] = []
         self.turn_clock = 0.0
         self.guard_charge: float | None = None
@@ -493,6 +516,8 @@ class PartyDelveSession:
         self.current_room_id = room_id
         room = self.rooms_by_id[room_id]
         self.member_target_slots = {}
+        for m in self.members:
+            _reset_fight_stats(m)
         self.member_ally_target_ids = {}
         if room["type"] == "combat":
             living_count = len(self.living_members())
@@ -1125,6 +1150,7 @@ async def _goto_room(interaction: discord.Interaction, session: DelveSession, ro
     session.current_room_id = room_id
     session.rooms_visited += 1
     room = session.rooms_by_id[room_id]
+    _reset_fight_stats(session)
     if room["type"] == "combat":
         session.monsters, session.group_next_override = _roll_monster_instances(
             room, session.equipped.values(), session.all_in_tier, session.delve,
@@ -1458,6 +1484,12 @@ async def _solo_heal_items(session: DelveSession) -> list[tuple[dict, int]]:
     return await _held_healing_items(session.guild_id, session.user_id)
 
 
+_FIGHT_LONG_EFFECTS = {
+    "atk_buff", "def_buff", "spatk_buff", "speed_buff", "hp_buff",
+    "atk_debuff", "spatk_debuff", "speed_debuff", "def_shred",
+}
+
+
 def _battle_item_description(item: dict, solo: bool) -> str:
     """What a battle item does, for a use-item Select's 100-char description: 'heal 30% HP',
     'Hustle +5 · Enemy: Tempo −2', 'One of: ... / ...' for effect_groups items. Same wording as
@@ -1465,13 +1497,19 @@ def _battle_item_description(item: dict, solo: bool) -> str:
     there the ally pick is always yourself. Falls back to flavor for an item with no effects."""
     def describe(effects: list[dict]) -> str:
         text = effect_text.describe_effects(effects, scales_with_caster=False).replace("**", "")
+        text = re.sub(r"heal (\d+)% HP", rf"heals \1% of max {dungeon.stat_label('hp')}", text)
         if solo:
             text = text.replace("Ally:", "You:")
         if " — " not in text:  # one recipient: the label adds nothing for self/ally-only items
             for label in ("You: ", "Ally: "):
                 if text.startswith(label):
                     text = text[len(label):]
-        return text.replace(" — ", " · ")
+        text = text.replace(" — ", " · ")
+        # Stat buffs/debuffs have no duration of their own -- they hold until the fight ends
+        # (_effect_atk_buff etc.), which the bare "Hustle +3" wouldn't tell anyone.
+        if any(e["type"] in _FIGHT_LONG_EFFECTS for e in effects):
+            text += " (rest of fight)"
+        return text
 
     if item.get("effects"):
         text = describe(item["effects"])
@@ -1479,6 +1517,7 @@ def _battle_item_description(item: dict, solo: bool) -> str:
         text = "One of: " + " / ".join(describe(g["effects"]) for g in item["effect_groups"])
     else:
         text = item.get("flavor", "")
+    text = text[:1].upper() + text[1:]
     return text if len(text) <= 100 else text[:99] + "…"
 
 
@@ -2018,6 +2057,9 @@ async def _award_kill(
         actor.atk += atk_delta
         actor.def_ += def_delta
         actor.spatk += spatk_delta
+        if hasattr(actor, "base_stats"):  # keep the level-up when buffs reset next room
+            for stat, delta in (("max_hp", hp_delta), ("atk", atk_delta), ("def_", def_delta), ("spatk", spatk_delta)):
+                actor.base_stats[stat] += delta
         actor.unlocked_skills = dungeon.unlocked_skills(actor.main_class, actor.subclass, actor.level)
         plural = "s" if level_result["levels_gained"] > 1 else ""
         log_lines.append(f"🎉 Level up! Now level {actor.level} (+{level_result['levels_gained']} level{plural}).")
@@ -2919,7 +2961,10 @@ async def _build_combat_view(session: DelveSession) -> "CombatView":
     """Fetches current consumable holdings fresh (unlike unlocked_skills, these change turn to
     turn as items get crafted/used) and builds a CombatView reflecting them."""
     held = await asyncio.to_thread(db.get_inventory, session.guild_id, session.user_id)
-    usable_items = [dungeon.CONSUMABLES[item_id] for item_id, qty in held.items() if item_id in dungeon.CONSUMABLES and qty > 0]
+    usable_items = [
+        dungeon.CONSUMABLES[item_id] for item_id, qty in held.items()
+        if item_id in dungeon.CONSUMABLES and qty > 0 and dungeon.usable_in_combat(dungeon.CONSUMABLES[item_id])
+    ]
     return CombatView(session, usable_items)
 
 
@@ -3286,7 +3331,10 @@ async def _party_combat_embed(
 
 async def _usable_items_for(session: PartyDelveSession, actor: PartyMember) -> list[dict]:
     held = await asyncio.to_thread(db.get_inventory, session.guild_id, actor.user_id)
-    return [dungeon.CONSUMABLES[item_id] for item_id, qty in held.items() if item_id in dungeon.CONSUMABLES and qty > 0]
+    return [
+        dungeon.CONSUMABLES[item_id] for item_id, qty in held.items()
+        if item_id in dungeon.CONSUMABLES and qty > 0 and dungeon.usable_in_combat(dungeon.CONSUMABLES[item_id])
+    ]
 
 
 async def _build_party_combat_view(session: PartyDelveSession, actor: PartyMember) -> "PartyCombatView":
