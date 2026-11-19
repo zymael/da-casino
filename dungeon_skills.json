@@ -318,25 +318,14 @@
     "flavor": "I shall show you, peasant!",
     "effects": [
       {
-        "type": "stun",
-        "duration": 1,
+        "type": "charge",
+        "value": 2.5,
         "target": "self"
       },
       {
         "type": "dodge_buff",
-        "duration": 3,
+        "duration": 1,
         "value": 0.5,
-        "target": "self"
-      },
-      {
-        "type": "resist_buff",
-        "duration": 3,
-        "value": 0.5,
-        "target": "self"
-      },
-      {
-        "type": "spatk_buff",
-        "value": 7,
         "target": "self"
       }
     ],
@@ -1405,25 +1394,19 @@
     "flavor": "They rigged the batteries themselves. The batteries were never rated for this.",
     "effects": [
       {
-        "type": "stun",
-        "duration": 2,
+        "type": "charge",
+        "value": 2.5,
+        "step": 1.75,
+        "max_stacks": 3,
+        "safe_stacks": 2,
+        "short_chance": 0.25,
+        "short_damage": 0.2,
         "target": "self"
       },
       {
         "type": "dodge_buff",
-        "duration": 3,
+        "duration": 1,
         "value": 0.5,
-        "target": "self"
-      },
-      {
-        "type": "resist_buff",
-        "duration": 3,
-        "value": 0.5,
-        "target": "self"
-      },
-      {
-        "type": "spatk_buff",
-        "value": 18,
         "target": "self"
       }
     ],
@@ -1478,41 +1461,14 @@
     "unlock_level": 30,
     "name": "Overload",
     "flavor": "Nobody's sure what happens when a Wildcard channels this much power. Not even them.",
-    "effect_groups": [
+    "effects": [
       {
-        "chance": 1,
-        "effects": [
-          {
-            "type": "spatk_buff",
-            "value": 14,
-            "target": "self"
-          }
-        ]
-      },
-      {
-        "chance": 1,
-        "effects": [
-          {
-            "type": "guard",
-            "reduction": 0.6,
-            "target": "self"
-          }
-        ]
-      },
-      {
-        "chance": 1,
-        "effects": [
-          {
-            "type": "spatk_debuff",
-            "value": 5,
-            "target": "self"
-          },
-          {
-            "type": "stun",
-            "duration": 2,
-            "target": "self"
-          }
-        ]
+        "type": "overload",
+        "min": 0.5,
+        "max": 4,
+        "bust_chance": 0.25,
+        "bust_stun": 2,
+        "target": "self"
       }
     ],
     "chip_cost": 5,

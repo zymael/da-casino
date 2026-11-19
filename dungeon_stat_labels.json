@@ -63,5 +63,10 @@
     "id": "guard",
     "label": "Guard",
     "emoji": "\ud83e\uddf1"
+  },
+  {
+    "id": "charge",
+    "label": "Charge",
+    "emoji": "\u26a1"
   }
 ]

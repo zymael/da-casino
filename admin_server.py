@@ -5023,7 +5023,7 @@ _DEBUFF_EFFECT_TYPES = {
 }
 # Shown with a "x" prefix instead of a +/- sign -- these scale an existing number rather than
 # adding/subtracting from one.
-_MULTIPLIER_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "execute_multiplier"}
+_MULTIPLIER_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "execute_multiplier", "charge"}
 # No meaningful value to show at all -- cleanse_* and stun/sap are pure duration/boolean effects.
 _NO_VALUE_EFFECT_TYPES = {"stun", "sap", "cleanse_dot", "cleanse_cc"}
 
@@ -5047,6 +5047,8 @@ def format_effect(effect: dict) -> str:
     # "base" last: execute_multiplier is the only type with two required params (base and scale)
     # instead of the usual "at most one" -- this shows just base (e.g. "Execute x1.3") since a
     # compact fragment has no room for the scale/missing-HP formula too.
+    if etype == "overload":
+        return f"{label} ×{effect['min']:g}-{effect['max']:g}"
     param = next((p for p in ("value", "reduction", "multiplier", "base") if p in effect), None)
     if param is None:
         return label

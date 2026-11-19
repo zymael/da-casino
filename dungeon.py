@@ -941,7 +941,7 @@ _REQUIRED_STAT_LABEL_FIELDS = {"id", "label"}
 # so "Stunned"/"Festering"/... reflavor the same way the stats do.
 _REQUIRED_STAT_LABEL_IDS = {
     "hp", "atk", "def", "spatk", "speed", "chips", "dodge", "resist",
-    "stun", "sap", "dot", "hot", "guard",
+    "stun", "sap", "dot", "hot", "guard", "charge",
 }
 
 
@@ -1136,6 +1136,24 @@ EFFECT_PARAM_SCHEMAS = {
     # also break a Stun) instead of always doing both.
     "cleanse_dot": (set(), set(), set()),
     "cleanse_cc": (set(), set(), set()),
+    # Class resources -- a combatant-held resource built up by one skill and spent by another (see
+    # dungeon_view's "Class resources" section). Player-only (_MONSTER_SKILL_EXCLUDED_EFFECT_TYPES)
+    # and never an equipment on_hit proc; self-targeted by default (SELF_DEFAULT_EFFECT_TYPES).
+    #
+    # charge: stores a damage multiplier that the caster's NEXT damaging special (Magic) skill
+    # spends on every one of its hits. value = the multiplier after one cast. Recasting while
+    # charged adds a stack (up to max_stacks, default 1), each worth +step more. Stacks past
+    # safe_stacks (default max_stacks, i.e. no risk) can short out: short_chance (0-1) to lose the
+    # whole charge and take short_damage (0-1) of max HP as self-damage instead.
+    "charge": (
+        {"value"}, {"step", "max_stacks", "safe_stacks", "short_chance", "short_damage"},
+        {"short_chance", "short_damage"},
+    ),
+    # overload: push-your-luck charge. Each cast rolls a fresh multiplier between min and max,
+    # replacing the last roll; every reroll (a cast while already overloaded) first risks a bust,
+    # bust_chance (0-1) per roll already made -- busting loses the charge and stuns the caster
+    # for bust_stun turns (default 2).
+    "overload": ({"min", "max"}, {"bust_chance", "bust_stun"}, {"bust_chance"}),
 }
 
 # Which handler-calling-convention an effect type uses, for dungeon_view.py's dispatch -- three
@@ -1159,6 +1177,11 @@ EFFECT_PARAM_SCHEMAS = {
 # never are (a self-heal, or now a self-inflicted stun, was never really "the attack" that could be
 # dodged) -- see dungeon_view._resolve_player_action.
 MODS_ONLY_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "lifesteal_fraction"}
+# Resource-building types that default to the caster themselves rather than "ally" (which in a
+# party means whichever ally is selected) -- charging up a teammate by accident would be a trap.
+SELF_DEFAULT_EFFECT_TYPES = {"charge", "overload"}
+# Params that count turns or stacks -- validated as positive ints, like "duration".
+_INT_EFFECT_PARAMS = {"duration", "max_stacks", "safe_stacks", "bust_stun"}
 ENEMY_TARGETED_EFFECT_TYPES = {
     "atk_debuff", "spatk_debuff", "speed_debuff", "def_shred",
     "taunt", "lower_threat", "sap", "stun", "execute_multiplier",
@@ -1186,6 +1209,8 @@ def default_effect_target(effect_type: str) -> str:
     target -- "ally" alone, non-aoe, already means "self" via ally_target_for's own default)."""
     if effect_type in MODS_ONLY_EFFECT_TYPES or effect_type in ENEMY_TARGETED_EFFECT_TYPES:
         return "enemy"
+    if effect_type in SELF_DEFAULT_EFFECT_TYPES:
+        return "self"
     return "ally"
 
 
@@ -1245,13 +1270,17 @@ def _validate_effects(effects, context: str):
             raise ValueError(f"{context} effect {effect_type!r} has unknown param(s): {sorted(unknown)}")
         for param in params:
             value = effect[param]
-            if param == "duration":
-                if not isinstance(value, int) or value <= 0:
-                    raise ValueError(f"{context} effect {effect_type!r} param 'duration' must be a positive int")
+            if param in _INT_EFFECT_PARAMS:
+                if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                    raise ValueError(f"{context} effect {effect_type!r} param {param!r} must be a positive int")
             elif param in fraction_params and not (0 < value <= 1):
                 raise ValueError(f"{context} effect {effect_type!r} param {param!r} must be in (0, 1]")
             elif param not in fraction_params and value <= 0:
                 raise ValueError(f"{context} effect {effect_type!r} param {param!r} must be > 0")
+        if effect_type == "charge" and effect.get("safe_stacks", 1) > effect.get("max_stacks", 1):
+            raise ValueError(f"{context} effect 'charge' safe_stacks can't exceed max_stacks")
+        if effect_type == "overload" and effect["min"] > effect["max"]:
+            raise ValueError(f"{context} effect 'overload' min can't exceed max")
 
     # execute_multiplier only ever mutates mods["multiplier"] for a damage roll another effect in
     # this same list establishes -- alone it's a silent no-op (dungeon_view.DAMAGE_EFFECT_TYPES
@@ -1371,7 +1400,7 @@ def resolve_cast_effects(entry: dict) -> list[dict]:
 # (_MONSTER_SKILL_EXCLUDED_EFFECT_TYPES below), which are meaningless for a monster's own skill: a
 # player already picks their own attack target directly, so there's no "who do I attack" choice for
 # a monster to sway on a player's behalf the way taunt/lower_threat sway a monster's own choice.
-_MONSTER_SKILL_EXCLUDED_EFFECT_TYPES = {"taunt", "lower_threat"}
+_MONSTER_SKILL_EXCLUDED_EFFECT_TYPES = {"taunt", "lower_threat", "charge", "overload"}
 
 
 
@@ -1626,7 +1655,7 @@ CONSTANT_EQUIPMENT_EFFECT_TYPES = {
 # `actor`, same as the other *_buff types already allowed on_hit), no reason to special-case it out.
 # taunt/lower_threat are allowed too -- _roll_on_hit_procs dispatches any type through
 # EFFECT_HANDLERS with a real target already in hand, so their handlers just work unmodified.
-ON_HIT_EQUIPMENT_EFFECT_TYPES = set(EFFECT_PARAM_SCHEMAS) - {"damage_multiplier", "guard"}
+ON_HIT_EQUIPMENT_EFFECT_TYPES = set(EFFECT_PARAM_SCHEMAS) - {"damage_multiplier", "guard", "charge", "overload"}
 # type -> which stat constant_stat_bonuses folds it into -- the inverse of generate_item_constant_effects'
 # own mapping below.
 _CONSTANT_EFFECT_STAT = {

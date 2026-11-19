@@ -1586,6 +1586,8 @@ EFFECT_TYPE_HINTS = {
     "stun": "duration: how many of the target's own turns it skips -- damage does NOT break it",
     "cleanse_dot": "No params -- removes any active damage-over-time from the caster (or the whole party with aoe)",
     "cleanse_cc": "No params -- removes any active Sap/Stun from the caster (or the whole party with aoe)",
+    "charge": "value: damage multiplier your NEXT damaging Magic skill gets on every hit (e.g. 2.5). Optional: max_stacks (recasts that stack, default 1), step (extra multiplier per stack), safe_stacks (stacks with no risk), short_chance + short_damage (0-1: chance a risky stack shorts out, and the max-HP fraction it costs). Defaults to target self.",
+    "overload": "min/max: each cast rolls a damage multiplier in this range for your next damaging Magic skill, replacing the last roll. bust_chance (0-1) per roll already made: a reroll can bust, losing the charge and stunning you for bust_stun turns (default 2). Defaults to target self.",
 }
 
 # Compact type -> label used by the admin list view's stats-summary column and bot.py's !skills
@@ -1601,6 +1603,7 @@ EFFECT_SHORT_LABELS = {
     "taunt": "Taunt", "lower_threat": "Threat", "dodge_buff": "Dodge", "resist_buff": "Resist",
     "dot": "DoT", "hot": "HoT", "sap": "Sap", "stun": "Stun",
     "cleanse_dot": "Cleanse DoT", "cleanse_cc": "Cleanse CC",
+    "charge": "Charge", "overload": "Overload",
 }
 
 EQUIPMENT_EFFECT_TRIGGERS = list(dungeon.EQUIPMENT_EFFECT_TRIGGERS)

@@ -113,6 +113,7 @@ class MonsterInstance:
         # duration, just "until the next hit lands."
         self.turn_clock = 0.0
         self.guard_charge: float | None = None
+        self.charge: dict | None = None  # class resource, see _effect_charge/_effect_overload
         self.slot = slot
         # Party-only threat table: {user_id: accumulated threat}, this monster's own view of who
         # it's most likely to attack (dungeon.pick_target_by_threat, used by _advance_party_turns).
@@ -278,6 +279,13 @@ def _status_text(entity) -> str:
         lines.append(f"{E('hot')} {L('hot')} {round(timed['hot']['value'] * 100)}%/turn ({timed['hot']['remaining']})")
     if entity.guard_charge is not None:
         lines.append(f"{E('guard')} {L('guard')}: next hit -{round((1 - entity.guard_charge) * 100)}%")
+    charge = getattr(entity, "charge", None)
+    if charge:
+        if charge["kind"] == "charge" and charge["max_stacks"] > 1:
+            meter = "▰" * charge["stacks"] + "▱" * (charge["max_stacks"] - charge["stacks"])
+            lines.append(f"{E('charge')} {L('charge')} ×{charge['mult']:g} {meter}")
+        else:
+            lines.append(f"{E('charge')} {L('charge')} ×{charge['mult']:g}")
     # Net stat changes share ONE compact line (emoji + signed number, e.g. "✨+7 🛡️-5") -- a fight
     # with several buffs/debuffs would otherwise push everything else past STATUS_LINE_CAP.
     base = getattr(entity, "base_stats", None) or {}
@@ -312,6 +320,7 @@ def _reset_fight_stats(player) -> None:
     player.atk_debuff = player.def_debuff = player.spatk_debuff = player.speed_debuff = 0
     player.timed_effects = []
     player.guard_charge = None
+    player.charge = None
 
 
 class DelveSession:
@@ -343,6 +352,7 @@ class DelveSession:
         # reset at the same points Chips/used_item_effects already reset.
         self.turn_clock = 0.0
         self.guard_charge: float | None = None
+        self.charge: dict | None = None  # class resource, see _effect_charge/_effect_overload
         # Equipped item ids whose on_use effect has already been cast this fight -- reset
         # alongside chips at every combat-room entry (see _goto_room), same "once per fight"
         # reset point.
@@ -479,6 +489,7 @@ class PartyMember:
         self.timed_effects: list[dict] = []
         self.turn_clock = 0.0
         self.guard_charge: float | None = None
+        self.charge: dict | None = None  # class resource, see _effect_charge/_effect_overload
         self.used_item_effects: set[str] = set()
         # Same "start wherever the last delve left off" rule as DelveSession -- see its own hp
         # comment for why.
@@ -1906,6 +1917,25 @@ class AttackButton(discord.ui.Button):
             session.current_view = self.view  # rejected without consuming the turn -- release the claim
 
 
+def _skill_button_label(skill: dict, actor) -> str:
+    """A skill button's label: its name, plus live charge info -- the multiplier a charged caster's
+    next damaging special will release, or the backfire risk of casting a charge/overload skill
+    right now (see _charge_risk). Discord caps button labels at 80 characters."""
+    label = skill["name"]
+    charge = getattr(actor, "charge", None)
+    effects = [e for group in dungeon._effect_lists(skill) for e in group]
+    builder = next((e for e in effects if e["type"] in ("charge", "overload")), None)
+    if builder is not None:
+        risk = _charge_risk(builder, charge)
+        if builder["type"] == "charge" and charge and charge["kind"] == "charge" and charge["stacks"] >= builder.get("max_stacks", 1):
+            label += " (full)"
+        elif risk:
+            label += f" ({round(risk * 100)}% ⚠)"
+    elif charge and skill.get("special") and any(e["type"] in DAMAGE_EFFECT_TYPES for e in effects):
+        label += f" ⚡×{charge['mult']:g}"
+    return label[:80]
+
+
 class SkillButton(discord.ui.Button):
     """One button per skill the character has unlocked so far -- a build with only its level-1
     skill gets one, a higher-level build gets more. Each costs its own chip_cost out of
@@ -1914,8 +1944,8 @@ class SkillButton(discord.ui.Button):
     once-per-fight charge -- disabled (not hidden) once its cost exceeds what's left this fight,
     same "show what you can't afford yet" idea an already-used skill used to convey."""
 
-    def __init__(self, skill: dict, disabled: bool):
-        super().__init__(label=skill["name"], style=discord.ButtonStyle.success, disabled=disabled)
+    def __init__(self, skill: dict, disabled: bool, actor=None):
+        super().__init__(label=_skill_button_label(skill, actor), style=discord.ButtonStyle.success, disabled=disabled)
         self.skill = skill
 
     async def callback(self, interaction: discord.Interaction):
@@ -2045,7 +2075,7 @@ class CombatView(discord.ui.View):
             self.add_item(TargetSelect(session))
         self.add_item(AttackButton())
         for skill in session.unlocked_skills:
-            self.add_item(SkillButton(skill, disabled=skill["chip_cost"] > session.chips))
+            self.add_item(SkillButton(skill, disabled=skill["chip_cost"] > session.chips, actor=session))
         session.current_view = self
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -2626,6 +2656,79 @@ def _effect_stun(actor, monster_state, effect: dict, log_lines: list[str], mods:
     )
 
 
+# --- Class resources ---------------------------------------------------------------------------
+# Mage: Charge. A charge is a stored damage multiplier on the combatant (`.charge`, a dict, reset
+# every fight with the other buffs -- _reset_fight_stats) that their next damaging special skill
+# spends on every one of its hits (_resolve_player_action). `kind` says which skill shape built it.
+
+
+def _charge_risk(effect: dict, charge: dict | None) -> float:
+    """Chance the NEXT cast of `effect` (a charge or overload effect) backfires, given the caster's
+    current charge -- the one place this rule lives, shared by the handlers and the skill buttons'
+    risk labels."""
+    if effect["type"] == "charge":
+        stacks = charge["stacks"] if charge and charge["kind"] == "charge" else 0
+        if stacks >= effect.get("max_stacks", 1):
+            return 0.0  # already full -- a recast just refreshes, nothing to risk
+        safe = effect.get("safe_stacks", effect.get("max_stacks", 1))
+        return effect.get("short_chance", 0.0) if stacks + 1 > safe else 0.0
+    rolls = charge.get("rolls", 0) if charge and charge["kind"] == "overload" else 0
+    return min(1.0, effect.get("bust_chance", 0.0) * rolls)
+
+
+def _effect_charge(actor, caster, effect: dict, log_lines: list[str], mods: dict):
+    who = _possessive_label(actor)
+    current = actor.charge if actor.charge and actor.charge["kind"] == "charge" else None
+    max_stacks = effect.get("max_stacks", 1)
+    stacks = current["stacks"] if current else 0
+    if stacks >= max_stacks:
+        log_lines.append(f"⚡ {who} charge is already full (×{current['mult']:g}).")
+        return
+    if random.random() < _charge_risk(effect, current):
+        actor.charge = None
+        dmg = min(actor.hp - 1, round(actor.max_hp * effect.get("short_damage", 0.0)))
+        if dmg > 0:
+            actor.hp -= dmg
+        hurt = f" and {_verb(actor, 'take')} **{dmg}** damage" if dmg > 0 else ""
+        log_lines.append(f"💥 {_actor_label(actor)} {_verb(actor, 'short')} out{hurt}! The charge is lost.")
+        return
+    stacks += 1
+    mult = round(effect["value"] + effect.get("step", 0) * (stacks - 1), 2)
+    actor.charge = {"kind": "charge", "mult": mult, "stacks": stacks, "max_stacks": max_stacks}
+    log_lines.append(f"⚡ {who} next spell is charged to **×{mult:g}**.")
+
+
+def _effect_overload(actor, caster, effect: dict, log_lines: list[str], mods: dict):
+    current = actor.charge if actor.charge and actor.charge["kind"] == "overload" else None
+    if current and random.random() < _charge_risk(effect, current):
+        actor.charge = None
+        duration = effect.get("bust_stun", 2)
+        _apply_timed_effect(
+            actor, "stun", None, duration, log_lines,
+            f"💥 Overload busts! {_actor_label(actor)} {_verb(actor, 'lose')} the charge and "
+            f"{'are' if isinstance(actor, DelveSession) else 'is'} stunned for **{duration}** turn(s).",
+        )
+        return
+    mult = round(random.uniform(effect["min"], effect["max"]), 1)
+    rolls = (current["rolls"] if current else 0) + 1
+    actor.charge = {"kind": "overload", "mult": mult, "rolls": rolls}
+    log_lines.append(f"🎲 Overload rolls **×{mult:g}** on {_possessive_pronoun(actor)} next spell.")
+
+
+def _release_charge(actor, special: bool, mods: dict, log_lines: list[str]) -> None:
+    """Spends `actor`'s stored charge on this damaging action, if it's a special (Magic) one --
+    multiplies the main hit and every extra hit alike. A plain Attack leaves the charge stored."""
+    charge = getattr(actor, "charge", None)
+    if not charge or not special:
+        return
+    mult = charge["mult"]
+    mods["multiplier"] *= mult
+    mods["extra_attack_multipliers"] = [m * mult for m in mods["extra_attack_multipliers"]]
+    actor.charge = None
+    bolts = "⚡" * min(3, max(1, round(mult) - 1))
+    log_lines.append(f"{bolts} {_possessive_label(actor)} charge releases: **×{mult:g}**!")
+
+
 def _effect_cleanse_dot(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
     before = len(actor.timed_effects)
     actor.timed_effects = [e for e in actor.timed_effects if e["type"] != "dot"]
@@ -2664,6 +2767,8 @@ EFFECT_HANDLERS = {
     "taunt": _effect_taunt,
     "lower_threat": _effect_lower_threat,
     "dodge_buff": _effect_dodge_buff,
+    "charge": _effect_charge,
+    "overload": _effect_overload,
     "resist_buff": _effect_resist_buff,
     "dot": _effect_dot,
     "hot": _effect_hot,
@@ -2846,6 +2951,7 @@ def _resolve_player_action(
     hit_entities: list = []
     total_dmg = 0
     if is_damage_action:
+        _release_charge(actor, special and not is_plain_attack, mods, log_lines)
         attacker_atk = (actor.spatk - actor.spatk_debuff) if special else (actor.atk - actor.atk_debuff)
         for entity in damage_targets:
             if damage_is_enemy and dodged[entity]:
@@ -3869,8 +3975,8 @@ class PartyAttackButton(discord.ui.Button):
 
 
 class PartySkillButton(discord.ui.Button):
-    def __init__(self, skill: dict, disabled: bool):
-        super().__init__(label=skill["name"], style=discord.ButtonStyle.success, disabled=disabled)
+    def __init__(self, skill: dict, disabled: bool, actor=None):
+        super().__init__(label=_skill_button_label(skill, actor), style=discord.ButtonStyle.success, disabled=disabled)
         self.skill = skill
 
     async def callback(self, interaction: discord.Interaction):
@@ -4020,7 +4126,7 @@ class PartyCombatView(discord.ui.View):
             self.add_item(PartyAllyTargetSelect(session, actor))
         self.add_item(PartyAttackButton())
         for skill in actor.unlocked_skills:
-            self.add_item(PartySkillButton(skill, disabled=skill["chip_cost"] > actor.chips))
+            self.add_item(PartySkillButton(skill, disabled=skill["chip_cost"] > actor.chips, actor=actor))
         session.current_view = self
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -5415,8 +5521,8 @@ class DuelAttackButton(discord.ui.Button):
 
 
 class DuelSkillButton(discord.ui.Button):
-    def __init__(self, skill: dict, disabled: bool):
-        super().__init__(label=skill["name"], style=discord.ButtonStyle.success, disabled=disabled)
+    def __init__(self, skill: dict, disabled: bool, actor=None):
+        super().__init__(label=_skill_button_label(skill, actor), style=discord.ButtonStyle.success, disabled=disabled)
         self.skill = skill
 
     async def callback(self, interaction: discord.Interaction):
@@ -5475,7 +5581,7 @@ class DuelCombatView(discord.ui.View):
             self.add_item(DuelCastItemButton(item, disabled=item["id"] in actor.used_item_effects))
         self.add_item(DuelAttackButton())
         for skill in actor.unlocked_skills:
-            self.add_item(DuelSkillButton(skill, disabled=skill["chip_cost"] > actor.chips))
+            self.add_item(DuelSkillButton(skill, disabled=skill["chip_cost"] > actor.chips, actor=actor))
         # No target-select -- there's only ever one possible opponent in a 1v1 duel.
         session.current_view = self
 
