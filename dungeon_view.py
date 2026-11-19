@@ -1242,9 +1242,68 @@ async def _handle_choice_action(
     return True
 
 
+CONTINUE_STYLE = discord.ButtonStyle.success  # Continue / Push Deeper / a lone choice action: always green, always first
+RETREAT_STYLE = discord.ButtonStyle.danger  # Retreat with Loot: always red, always last
+
+
+def _choice_action_style(room: dict) -> discord.ButtonStyle:
+    """A choice room with exactly one action (e.g. Pizza's "Walk out") is just a Continue under
+    another name, so it gets Continue's style; real multi-way choices stay neutral blue."""
+    return CONTINUE_STYLE if len(room["actions"]) == 1 else discord.ButtonStyle.primary
+
+
+class RetreatConfirmView(discord.ui.View):
+    """Swapped onto the delve message in place of `parent` when Retreat is clicked, so ending a
+    run is never a single misclick. Back restores `parent` untouched; `parent` stays the session's
+    current_view the whole time, so its own timeout (auto-retreat) still applies."""
+
+    def __init__(self, parent: discord.ui.View, apply_retreat, user_id: int):
+        super().__init__(timeout=parent.timeout)
+        self.parent = parent
+        self.apply_retreat = apply_retreat
+        self.user_id = user_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Only the player making this call can decide.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Yes, Retreat", style=RETREAT_STYLE)
+    async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        session = self.parent.session
+        self.stop()
+        if session.current_view is not self.parent:
+            return  # already resolved (e.g. the parent timed out) -- avoid double-paying out
+        session.current_view = None  # claimed synchronously, before any await
+        embed = await self.apply_retreat(session)
+        await interaction.response.edit_message(content=None, embed=embed, attachments=[], view=None)
+        self.parent.stop()
+
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
+        if self.parent.session.current_view is not self.parent:
+            return
+        await interaction.response.edit_message(content=None, view=self.parent)
+
+
+async def _ask_retreat_confirm(interaction: discord.Interaction, parent: discord.ui.View, apply_retreat, user_id: int):
+    if parent.session.current_view is not parent:
+        return  # stale view -- nothing to retreat from
+    await interaction.response.edit_message(
+        content="**Retreat and end the delve with your loot?**",
+        view=RetreatConfirmView(parent, apply_retreat, user_id),
+    )
+
+
+def _party_leader_id(session: "PartyDelveSession") -> int:
+    return next(m for m in session.members if m.is_leader).user_id
+
+
 class ChoiceActionButton(discord.ui.Button):
-    def __init__(self, action: dict, row: int, disabled: bool):
-        super().__init__(label=action["label"][:80], style=discord.ButtonStyle.primary, row=row, disabled=disabled)
+    def __init__(self, action: dict, row: int, disabled: bool, style: discord.ButtonStyle = discord.ButtonStyle.primary):
+        super().__init__(label=action["label"][:80], style=style, row=row, disabled=disabled)
         self.action = action
 
     async def callback(self, interaction: discord.Interaction):
@@ -1261,12 +1320,10 @@ class ChoiceActionButton(discord.ui.Button):
 
 class RetreatFromChoiceButton(discord.ui.Button):
     def __init__(self, row: int):
-        super().__init__(label="Retreat with Loot", style=discord.ButtonStyle.secondary, row=row)
+        super().__init__(label="Retreat with Loot", style=RETREAT_STYLE, row=row)
 
     async def callback(self, interaction: discord.Interaction):
-        embed = await _apply_retreat(self.view.session)
-        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
-        self.view.stop()
+        await _ask_retreat_confirm(interaction, self.view, _apply_retreat, self.view.session.user_id)
 
 
 class ChoiceRoomView(discord.ui.View):
@@ -1281,7 +1338,7 @@ class ChoiceRoomView(discord.ui.View):
         self.session = session
         self.room = room
         for i, (action, ok) in enumerate(zip(room["actions"], availability)):
-            self.add_item(ChoiceActionButton(action, row=min(3, i // 5), disabled=not ok))
+            self.add_item(ChoiceActionButton(action, row=min(3, i // 5), disabled=not ok, style=_choice_action_style(room)))
         self.add_item(RetreatFromChoiceButton(row=4))
         # A Select needs a whole row to itself -- the first row the actions left free, if any
         # (a room with 16+ actions fills rows 0-3 and simply doesn't offer healing here).
@@ -1333,7 +1390,7 @@ class ChoiceOutcomeView(discord.ui.View):
             return False
         return True
 
-    @discord.ui.button(label="Continue", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Continue", style=CONTINUE_STYLE)
     async def continue_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.session.current_view is not self:
             return  # already acted on (e.g. a double-click) -- don't re-enter the room twice
@@ -1341,14 +1398,9 @@ class ChoiceOutcomeView(discord.ui.View):
         await _goto_room(interaction, self.session, self.next_room_id)
         self.stop()
 
-    @discord.ui.button(label="Retreat with Loot", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Retreat with Loot", style=RETREAT_STYLE)
     async def retreat_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.session.current_view is not self:
-            return  # already acted on -- avoid double-paying out
-        self.session.current_view = None  # claimed synchronously, before any await -- see RoomResultView.push_button
-        embed = await _apply_retreat(self.session)
-        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
-        self.stop()
+        await _ask_retreat_confirm(interaction, self, _apply_retreat, self.session.user_id)
 
     async def on_timeout(self):
         session = self.session
@@ -1808,16 +1860,7 @@ class RoomResultView(discord.ui.View):
             return False
         return True
 
-    @discord.ui.button(label="Retreat with Loot", style=discord.ButtonStyle.success)
-    async def retreat_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.session.current_view is not self:
-            return  # already acted on (e.g. a double-click) -- avoid double-paying out
-        self.session.current_view = None  # claimed synchronously, before any await -- see push_button below
-        embed = await _apply_retreat(self.session)
-        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
-        self.stop()
-
-    @discord.ui.button(label="Push Deeper", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Push Deeper", style=CONTINUE_STYLE)
     async def push_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         session = self.session
         if session.current_view is not self:
@@ -1834,6 +1877,10 @@ class RoomResultView(discord.ui.View):
         session.current_view = None
         await _goto_room(interaction, session, next_room, "You press deeper into the dungeon...")
         self.stop()
+
+    @discord.ui.button(label="Retreat with Loot", style=RETREAT_STYLE)
+    async def retreat_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _ask_retreat_confirm(interaction, self, _apply_retreat, self.session.user_id)
 
     async def on_timeout(self):
         session = self.session
@@ -4102,8 +4149,8 @@ class PartyCheckActorPickerView(discord.ui.View):
 
 
 class PartyChoiceActionButton(discord.ui.Button):
-    def __init__(self, action: dict, row: int, disabled: bool):
-        super().__init__(label=action["label"][:80], style=discord.ButtonStyle.primary, row=row, disabled=disabled)
+    def __init__(self, action: dict, row: int, disabled: bool, style: discord.ButtonStyle = discord.ButtonStyle.primary):
+        super().__init__(label=action["label"][:80], style=style, row=row, disabled=disabled)
         self.action = action
 
     async def callback(self, interaction: discord.Interaction):
@@ -4120,12 +4167,10 @@ class PartyChoiceActionButton(discord.ui.Button):
 
 class PartyRetreatFromChoiceButton(discord.ui.Button):
     def __init__(self, row: int):
-        super().__init__(label="Retreat with Loot", style=discord.ButtonStyle.secondary, row=row)
+        super().__init__(label="Retreat with Loot", style=RETREAT_STYLE, row=row)
 
     async def callback(self, interaction: discord.Interaction):
-        embed = await _apply_party_retreat(self.view.session)
-        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
-        self.view.stop()
+        await _ask_retreat_confirm(interaction, self.view, _apply_party_retreat, _party_leader_id(self.view.session))
 
 
 class PartyChoiceRoomView(discord.ui.View):
@@ -4139,7 +4184,7 @@ class PartyChoiceRoomView(discord.ui.View):
         self.leader = leader
         self.room = room
         for i, (action, ok) in enumerate(zip(room["actions"], availability)):
-            self.add_item(PartyChoiceActionButton(action, row=min(3, i // 5), disabled=not ok))
+            self.add_item(PartyChoiceActionButton(action, row=min(3, i // 5), disabled=not ok, style=_choice_action_style(room)))
         self.add_item(PartyRetreatFromChoiceButton(row=4))
         _add_party_heal_button(self, session, row=4)
         session.current_view = self
@@ -4189,7 +4234,7 @@ class PartyChoiceOutcomeView(discord.ui.View):
             return False
         return True
 
-    @discord.ui.button(label="Continue", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Continue", style=CONTINUE_STYLE)
     async def continue_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.session.current_view is not self:
             return  # already acted on (e.g. a double-click) -- don't re-enter the room twice
@@ -4197,14 +4242,9 @@ class PartyChoiceOutcomeView(discord.ui.View):
         await _goto_party_room(interaction, self.session, self.next_room_id)
         self.stop()
 
-    @discord.ui.button(label="Retreat with Loot", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Retreat with Loot", style=RETREAT_STYLE)
     async def retreat_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.session.current_view is not self:
-            return  # already acted on -- avoid double-paying out
-        self.session.current_view = None  # claimed synchronously, before any await -- see PartyRoomResultView.push_button
-        embed = await _apply_party_retreat(self.session)
-        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
-        self.stop()
+        await _ask_retreat_confirm(interaction, self, _apply_party_retreat, _party_leader_id(self.session))
 
     async def on_timeout(self):
         session = self.session
@@ -4387,16 +4427,7 @@ class PartyRoomResultView(discord.ui.View):
             return False
         return True
 
-    @discord.ui.button(label="Retreat with Loot", style=discord.ButtonStyle.success)
-    async def retreat_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.session.current_view is not self:
-            return  # already acted on (e.g. a double-click) -- avoid double-paying out
-        self.session.current_view = None  # claimed synchronously, before any await -- see push_button below
-        embed = await _apply_party_retreat(self.session)
-        await interaction.response.edit_message(embed=embed, attachments=[], view=None)
-        self.stop()
-
-    @discord.ui.button(label="Push Deeper", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Push Deeper", style=CONTINUE_STYLE)
     async def push_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         session = self.session
         if session.current_view is not self:
@@ -4410,6 +4441,10 @@ class PartyRoomResultView(discord.ui.View):
         session.current_view = None
         await _goto_party_room(interaction, session, next_room, "The party presses deeper into the dungeon...")
         self.stop()
+
+    @discord.ui.button(label="Retreat with Loot", style=RETREAT_STYLE)
+    async def retreat_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _ask_retreat_confirm(interaction, self, _apply_party_retreat, _party_leader_id(self.session))
 
     async def on_timeout(self):
         session = self.session
