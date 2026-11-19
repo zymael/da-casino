@@ -1589,6 +1589,11 @@ EFFECT_TYPE_HINTS = {
     "charge": "value: damage multiplier your NEXT damaging Magic skill gets on every hit (e.g. 2.5). Optional: max_stacks (recasts that stack, default 1), step (extra multiplier per stack), safe_stacks (stacks with no risk), short_chance + short_damage (0-1: chance a risky stack shorts out, and the max-HP fraction it costs). Defaults to target self.",
     "hex": "duration: how many of the enemy's own turns it lasts. Every point of damage the enemy takes meanwhile, from anyone, is stored; when it runs out it detonates for value (0-1) of the stored total. cap (optional, 0-1): detonation can't exceed this fraction of the enemy's max HP.",
     "hype_spend": "per_point: this cast's damage is multiplied by 1 + per_point x your Hype, then Hype resets. Hype builds by 1 whenever anyone in the party lands a hit or dodges, up to max_points (default 10), while you have this skill. Needs a damage_multiplier/extra_attack in the same effects.",
+    "grudge_spend": "per_point: this cast's damage is multiplied by 1 + per_point x your Grudge, then Grudge resets. Grudge builds by 1 each time a monster hits you, up to max_points (default 10), while you have this skill. Needs a damage_multiplier/extra_attack in the same effects.",
+    "counter": "value (0-1): for duration of your own turns, every monster hit you take is punched back at the attacker for this fraction of the damage. Defaults to target self.",
+    "blood_in_water": "multiplier: size of each bonus bite. One bite each if the target is slowed at all, under half HP, and slowed as far as it can go (up to 3). Needs a non-aoe damage effect in the same effects.",
+    "intercept": "value (0-1): aim at an ally -- the next single-target monster hit on them lands on you instead, and this fraction of the damage you take becomes a Barrier on every living party member.",
+    "collect_tab": "value: monsters that hit you run up a Tab (damage dealt). This cashes the target's Tab as value x Tab bonus damage and clears it. An uncashed Tab raises the monster's loot on death by loot_per_point (default 0.01) per point, up to loot_cap (default 0.5). Needs a non-aoe damage effect in the same effects.",
     "overload": "min/max: each cast rolls a damage multiplier in this range for your next damaging Magic skill, replacing the last roll. bust_chance (0-1) per roll already made: a reroll can bust, losing the charge and stunning you for bust_stun turns (default 2). Defaults to target self.",
 }
 
@@ -1606,6 +1611,8 @@ EFFECT_SHORT_LABELS = {
     "dot": "DoT", "hot": "HoT", "sap": "Sap", "stun": "Stun",
     "cleanse_dot": "Cleanse DoT", "cleanse_cc": "Cleanse CC",
     "charge": "Charge", "overload": "Overload", "hex": "Hex", "hype_spend": "Hype",
+    "grudge_spend": "Grudge", "counter": "Counter", "blood_in_water": "Bites", "intercept": "Cover",
+    "collect_tab": "Tab",
 }
 
 EQUIPMENT_EFFECT_TRIGGERS = list(dungeon.EQUIPMENT_EFFECT_TRIGGERS)

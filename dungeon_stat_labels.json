@@ -78,5 +78,30 @@
     "id": "hype",
     "label": "Hype",
     "emoji": "\ud83d\udce3"
+  },
+  {
+    "id": "barrier",
+    "label": "Barrier",
+    "emoji": "\ud83e\udee7"
+  },
+  {
+    "id": "grudge",
+    "label": "Grudge",
+    "emoji": "\ud83d\ude24"
+  },
+  {
+    "id": "counter",
+    "label": "Counter",
+    "emoji": "\ud83e\udd4a"
+  },
+  {
+    "id": "covered",
+    "label": "Covered by",
+    "emoji": "\ud83e\udec2"
+  },
+  {
+    "id": "tab",
+    "label": "Tab",
+    "emoji": "\ud83e\uddfe"
   }
 ]

@@ -942,6 +942,7 @@ _REQUIRED_STAT_LABEL_FIELDS = {"id", "label"}
 _REQUIRED_STAT_LABEL_IDS = {
     "hp", "atk", "def", "spatk", "speed", "chips", "dodge", "resist",
     "stun", "sap", "dot", "hot", "guard", "charge", "hex", "hype",
+    "barrier", "grudge", "counter", "covered", "tab",
 }
 
 
@@ -1162,6 +1163,24 @@ EFFECT_PARAM_SCHEMAS = {
     # default 10, while they have a hype_spend skill unlocked) on this cast's damage: x(1 +
     # per_point x Hype). Must share its effects list with a damage_multiplier/extra_attack.
     "hype_spend": ({"per_point"}, {"max_points"}, set()),
+    # grudge_spend: same shape as hype_spend, spending the fighter's Grudge -- 1 point per monster
+    # hit they take (up to max_points, default 10) while they have a grudge_spend skill unlocked.
+    "grudge_spend": ({"per_point"}, {"max_points"}, set()),
+    # counter: for `duration` of the caster's own turns, every monster hit they take is punched
+    # back at the attacker for `value` (0-1) of the damage. Defaults to target self.
+    "counter": ({"value", "duration"}, set(), {"value"}),
+    # blood_in_water: one extra hit of `multiplier` for each thing true of the target -- it's
+    # slowed at all, it's under half HP, it's slowed as far as it can go. Scales a damage roll like
+    # execute_multiplier, so it has the same pairing rules.
+    "blood_in_water": ({"multiplier"}, set(), set()),
+    # intercept: the chosen ally's next single-target monster hit lands on the caster instead, and
+    # `value` (0-1) of the damage the caster takes becomes a Barrier on every living party member.
+    "intercept": ({"value"}, set(), {"value"}),
+    # collect_tab: monsters that hit someone with this skill unlocked run up a Tab (the damage they
+    # dealt). This cashes the target's Tab in as `value` x Tab bonus damage on this hit and clears
+    # it. An uncashed Tab instead raises that monster's loot when it dies: +loot_per_point (default
+    # 0.01) per point, capped at +loot_cap (default 0.5). Pairs with a damage effect like execute.
+    "collect_tab": ({"value"}, {"loot_per_point", "loot_cap"}, {"loot_per_point", "loot_cap"}),
 }
 
 # Which handler-calling-convention an effect type uses, for dungeon_view.py's dispatch -- three
@@ -1184,17 +1203,21 @@ EFFECT_PARAM_SCHEMAS = {
 # "enemy" is dodge-gated (matching every enemy-shaped effect's existing behavior); "self"/"ally"
 # never are (a self-heal, or now a self-inflicted stun, was never really "the attack" that could be
 # dodged) -- see dungeon_view._resolve_player_action.
-MODS_ONLY_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "lifesteal_fraction", "hype_spend"}
+MODS_ONLY_EFFECT_TYPES = {"damage_multiplier", "extra_attack", "lifesteal_fraction", "hype_spend", "grudge_spend"}
+# ENEMY_TARGETED types that only scale this action's own damage roll against their target (never
+# a status on it) -- avoided by Dodge with the hit, never separately Resisted, and they need a real
+# damage effect next to them that isn't aoe (their bonus is computed against one specific target).
+TARGET_DAMAGE_SCALER_TYPES = {"execute_multiplier", "blood_in_water", "collect_tab"}
 # The MODS_ONLY types that actually establish a damage roll (mirrors dungeon_view.DAMAGE_EFFECT_TYPES).
 _DAMAGE_ROLL_EFFECT_TYPES = {"damage_multiplier", "extra_attack"}
 # Resource-building types that default to the caster themselves rather than "ally" (which in a
 # party means whichever ally is selected) -- charging up a teammate by accident would be a trap.
-SELF_DEFAULT_EFFECT_TYPES = {"charge", "overload"}
+SELF_DEFAULT_EFFECT_TYPES = {"charge", "overload", "counter"}
 # Params that count turns or stacks -- validated as positive ints, like "duration".
 _INT_EFFECT_PARAMS = {"duration", "max_stacks", "safe_stacks", "bust_stun", "max_points"}
 ENEMY_TARGETED_EFFECT_TYPES = {
     "atk_debuff", "spatk_debuff", "speed_debuff", "def_shred",
-    "taunt", "lower_threat", "sap", "stun", "execute_multiplier", "hex",
+    "taunt", "lower_threat", "sap", "stun", "execute_multiplier", "hex", "blood_in_water", "collect_tab",
     # dot used to be ally-shaped (left over from when it sat next to hot), so an effect with no
     # explicit "target" -- curse_the_table, every on_hit weapon proc -- festered on the caster.
     "dot",
@@ -1299,10 +1322,18 @@ def _validate_effects(effects, context: str):
     # is one shared scalar applied to every AOE target, but execute_multiplier's value is computed
     # against exactly the one enemy its own target/aoe resolved to -- mixing the two would silently
     # apply one target's execute bonus to every other AOE target too.
-    if any(e.get("type") == "hype_spend" for e in effects) and not any(
-        e.get("type") in _DAMAGE_ROLL_EFFECT_TYPES for e in effects
-    ):
-        raise ValueError(f"{context} has a hype_spend with no damage_multiplier/extra_attack to boost")
+    for spender in ("hype_spend", "grudge_spend"):
+        if any(e.get("type") == spender for e in effects) and not any(
+            e.get("type") in _DAMAGE_ROLL_EFFECT_TYPES for e in effects
+        ):
+            raise ValueError(f"{context} has a {spender} with no damage_multiplier/extra_attack to boost")
+    for scaler in sorted(TARGET_DAMAGE_SCALER_TYPES - {"execute_multiplier"}):
+        if any(e.get("type") == scaler for e in effects):
+            damage_effects = [e for e in effects if e.get("type") in _DAMAGE_ROLL_EFFECT_TYPES]
+            if not damage_effects:
+                raise ValueError(f"{context} has a {scaler} with no damage_multiplier/extra_attack in the same effects")
+            if any(e.get("aoe") for e in damage_effects):
+                raise ValueError(f"{context} pairs {scaler} with an aoe damage effect -- its bonus is per-target")
     if any(e.get("type") == "execute_multiplier" for e in effects):
         damage_effects = [e for e in effects if e.get("type") in _DAMAGE_ROLL_EFFECT_TYPES]
         if not damage_effects:
@@ -1414,7 +1445,10 @@ def resolve_cast_effects(entry: dict) -> list[dict]:
 # (_MONSTER_SKILL_EXCLUDED_EFFECT_TYPES below), which are meaningless for a monster's own skill: a
 # player already picks their own attack target directly, so there's no "who do I attack" choice for
 # a monster to sway on a player's behalf the way taunt/lower_threat sway a monster's own choice.
-_MONSTER_SKILL_EXCLUDED_EFFECT_TYPES = {"taunt", "lower_threat", "charge", "overload", "hex", "hype_spend"}
+_MONSTER_SKILL_EXCLUDED_EFFECT_TYPES = {
+    "taunt", "lower_threat", "charge", "overload", "hex", "hype_spend",
+    "grudge_spend", "counter", "blood_in_water", "intercept", "collect_tab",
+}
 
 
 
@@ -1671,6 +1705,7 @@ CONSTANT_EQUIPMENT_EFFECT_TYPES = {
 # EFFECT_HANDLERS with a real target already in hand, so their handlers just work unmodified.
 ON_HIT_EQUIPMENT_EFFECT_TYPES = set(EFFECT_PARAM_SCHEMAS) - {
     "damage_multiplier", "guard", "charge", "overload", "hex", "hype_spend",
+    "grudge_spend", "counter", "blood_in_water", "intercept", "collect_tab",
 }
 # type -> which stat constant_stat_bonuses folds it into -- the inverse of generate_item_constant_effects'
 # own mapping below.

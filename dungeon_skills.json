@@ -819,6 +819,11 @@
         "type": "speed_debuff",
         "value": 2,
         "target": "enemy"
+      },
+      {
+        "type": "grudge_spend",
+        "per_point": 0.15,
+        "max_points": 5
       }
     ],
     "chip_cost": 9,
@@ -865,6 +870,11 @@
             "type": "taunt",
             "value": 5,
             "target": "enemy"
+          },
+          {
+            "type": "collect_tab",
+            "value": 1.0,
+            "loot_per_point": 0.005
           }
         ],
         "chance": 1
@@ -880,6 +890,11 @@
             "type": "taunt",
             "value": 5,
             "target": "enemy"
+          },
+          {
+            "type": "collect_tab",
+            "value": 1.0,
+            "loot_per_point": 0.005
           }
         ],
         "chance": 1
@@ -895,6 +910,11 @@
             "type": "taunt",
             "value": 5,
             "target": "enemy"
+          },
+          {
+            "type": "collect_tab",
+            "value": 1.0,
+            "loot_per_point": 0.005
           }
         ],
         "chance": 1
@@ -931,6 +951,11 @@
         "multiplier": 1.5,
         "target": "enemy",
         "chance": 0.2
+      },
+      {
+        "type": "grudge_spend",
+        "per_point": 0.15,
+        "max_points": 5
       }
     ],
     "chip_cost": 9,
@@ -996,9 +1021,9 @@
     "flavor": "Whatever's coming for you, it goes through them first.",
     "effects": [
       {
-        "type": "damage_multiplier",
+        "type": "intercept",
         "value": 0.5,
-        "target": "enemy"
+        "target": "ally"
       },
       {
         "type": "dodge_buff",
@@ -1118,6 +1143,12 @@
       {
         "type": "atk_buff",
         "value": 5,
+        "target": "self"
+      },
+      {
+        "type": "counter",
+        "value": 0.5,
+        "duration": 3,
         "target": "self"
       }
     ],
@@ -1670,6 +1701,11 @@
         "type": "hp_buff",
         "value": 3,
         "target": "self"
+      },
+      {
+        "type": "grudge_spend",
+        "per_point": 0.15,
+        "max_points": 5
       }
     ],
     "chip_cost": 9,
@@ -1703,6 +1739,15 @@
         "type": "extra_attack",
         "multiplier": 0.5,
         "chance": 0.4
+      },
+      {
+        "type": "grudge_spend",
+        "per_point": 0.15,
+        "max_points": 5
+      },
+      {
+        "type": "blood_in_water",
+        "multiplier": 0.5
       }
     ],
     "chip_cost": 9,
@@ -1737,6 +1782,11 @@
         "duration": 2,
         "value": 0.1,
         "target": "self"
+      },
+      {
+        "type": "grudge_spend",
+        "per_point": 0.15,
+        "max_points": 5
       }
     ],
     "chip_cost": 9,

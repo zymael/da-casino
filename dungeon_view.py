@@ -114,7 +114,9 @@ class MonsterInstance:
         self.turn_clock = 0.0
         self.guard_charge: float | None = None
         self.charge: dict | None = None  # class resource, see _effect_charge/_effect_overload
-        self.hype = 0  # class resource, see _gain_hype/_effect_hype_spend
+        self.meters: dict[str, int] = {}  # class resources (Hype, Grudge...), see _gain_meter
+        self.barrier = 0  # absorbs damage before HP, see _consume_guard_charge/_add_barrier
+        self.protector = None  # an ally intercepting this one's next hit, see _effect_intercept
         self.slot = slot
         # Party-only threat table: {user_id: accumulated threat}, this monster's own view of who
         # it's most likely to attack (dungeon.pick_target_by_threat, used by _advance_party_turns).
@@ -130,6 +132,10 @@ class MonsterInstance:
         # pulls attention for at least a moment, on top of the lasting threat it adds. Latest
         # taunt wins. Cleared unused if the taunter is knocked out first.
         self.forced_target_id: int | None = None
+        # The Collector's Tab: damage this monster has dealt to anyone with a collect_tab skill,
+        # and (loot_per_point, loot_cap) from that skill for the kill bonus -- see _tab_loot_mult.
+        self.tab = 0
+        self.tab_loot: tuple[float, float] | None = None
 
     @property
     def name(self) -> str:
@@ -287,9 +293,18 @@ def _status_text(entity) -> str:
             lines.append(f"{E('charge')} {L('charge')} ×{charge['mult']:g} {meter}")
         else:
             lines.append(f"{E('charge')} {L('charge')} ×{charge['mult']:g}")
-    hype_max = _hype_max(entity)
-    if hype_max and entity.hype:
-        lines.append(f"{E('hype')} {L('hype')} {entity.hype}/{hype_max}")
+    for meter, points in getattr(entity, "meters", {}).items():
+        if points:
+            lines.append(f"{E(meter)} {L(meter)} {points}/{_meter_max(entity, meter)}")
+    if getattr(entity, "barrier", 0):
+        lines.append(f"{E('barrier')} {L('barrier')} {entity.barrier}")
+    if "counter" in timed:
+        lines.append(f"{E('counter')} {L('counter')} {round(timed['counter']['value'] * 100)}% ({timed['counter']['remaining']})")
+    protector = getattr(entity, "protector", None)
+    if protector is not None:
+        lines.append(f"{E('covered')} {L('covered')} {getattr(protector, 'player_name', 'an ally')}")
+    if getattr(entity, "tab", 0):
+        lines.append(f"{E('tab')} {L('tab')}: {entity.tab} owed")
     if "hex" in timed:
         lines.append(f"{E('hex')} {L('hex')}: {timed['hex'].get('stored', 0)} stored ({timed['hex']['remaining']})")
     # Net stat changes share ONE compact line (emoji + signed number, e.g. "✨+7 🛡️-5") -- a fight
@@ -327,7 +342,10 @@ def _reset_fight_stats(player) -> None:
     player.timed_effects = []
     player.guard_charge = None
     player.charge = None
-    player.hype = 0
+    player.meters = {}
+    player.barrier = 0
+    player.protector = None
+    player.intercepting = None
 
 
 class DelveSession:
@@ -360,7 +378,9 @@ class DelveSession:
         self.turn_clock = 0.0
         self.guard_charge: float | None = None
         self.charge: dict | None = None  # class resource, see _effect_charge/_effect_overload
-        self.hype = 0  # class resource, see _gain_hype/_effect_hype_spend
+        self.meters: dict[str, int] = {}  # class resources (Hype, Grudge...), see _gain_meter
+        self.barrier = 0  # absorbs damage before HP, see _consume_guard_charge/_add_barrier
+        self.protector = None  # an ally intercepting this one's next hit, see _effect_intercept
         # Equipped item ids whose on_use effect has already been cast this fight -- reset
         # alongside chips at every combat-room entry (see _goto_room), same "once per fight"
         # reset point.
@@ -498,7 +518,9 @@ class PartyMember:
         self.turn_clock = 0.0
         self.guard_charge: float | None = None
         self.charge: dict | None = None  # class resource, see _effect_charge/_effect_overload
-        self.hype = 0  # class resource, see _gain_hype/_effect_hype_spend
+        self.meters: dict[str, int] = {}  # class resources (Hype, Grudge...), see _gain_meter
+        self.barrier = 0  # absorbs damage before HP, see _consume_guard_charge/_add_barrier
+        self.protector = None  # an ally intercepting this one's next hit, see _effect_intercept
         self.used_item_effects: set[str] = set()
         # Same "start wherever the last delve left off" rule as DelveSession -- see its own hp
         # comment for why.
@@ -1942,9 +1964,11 @@ def _skill_button_label(skill: dict, actor) -> str:
             label += f" ({round(risk * 100)}% ⚠)"
     elif charge and skill.get("special") and any(e["type"] in DAMAGE_EFFECT_TYPES for e in effects):
         label += f" ⚡×{charge['mult']:g}"
-    hype = next((e for e in effects if e["type"] == "hype_spend"), None)
-    if hype is not None and getattr(actor, "hype", 0):
-        label += f" 📣×{1 + hype['per_point'] * actor.hype:g}"
+    for e in effects:
+        meter = _METER_SPEND_TYPES.get(e["type"])
+        points = getattr(actor, "meters", {}).get(meter, 0) if meter else 0
+        if points:
+            label += f" {dungeon.stat_emoji(meter)}×{round(1 + e['per_point'] * points, 2):g}"
     return label[:80]
 
 
@@ -2214,6 +2238,41 @@ async def _record_party_delve_clear(session: "PartyDelveSession", *, is_ending: 
         [(m.user_id, m.label, m.level) for m in session.members],
         room_id=session.current_room_id, is_ending=is_ending,
     )
+
+
+async def _solo_award(session: "DelveSession", instance: "MonsterInstance", log_lines: list[str], player_moon_mult: float) -> None:
+    """The solo kill reward for one dead monster -- the one call every solo kill site makes."""
+    await _award_kill(
+        session.guild_id, instance.monster, session, session.current_room_id, log_lines,
+        loot_mult=session.loot_mult * player_moon_mult * _tab_loot_mult(instance), chance_mult=1.0,
+        all_in_tier=session.all_in_tier,
+    )
+
+
+async def _party_award(session: "PartyDelveSession", instance: "MonsterInstance", log_lines: list[str], player_moon_mult: float) -> None:
+    """The party kill reward for one dead monster: every member's own full share (see
+    _party_share_mults), each under their own name in the log."""
+    for m in session.members:
+        member_log: list[str] = []
+        share_mult, chance_mult = _party_share_mults(session, m)
+        loot_mult = m.loot_mult * share_mult * player_moon_mult * _tab_loot_mult(instance)
+        await _award_kill(
+            session.guild_id, instance.monster, m, session.current_room_id, member_log,
+            loot_mult=loot_mult, chance_mult=chance_mult, all_in_tier=session.all_in_tier,
+        )
+        log_lines.append(f"**{m.label}**")
+        log_lines.extend(f"> {line}" for line in member_log)
+
+
+async def _settle_monster_turn_deaths(session, before: list, log_lines: list[str], player_moon_mult: float) -> None:
+    """Rewards monsters that died during a MONSTER's turn -- a Counter punching the attacker back,
+    a charmed monster hitting its ally -- the same way a player's kill would. `before` is the living
+    monster list from just before that monster acted."""
+    award = _party_award if isinstance(session, PartyDelveSession) else _solo_award
+    for instance in before:
+        if instance.hp <= 0:
+            log_lines.append(f"**{instance.name} is defeated!**")
+            await award(session, instance, log_lines, player_moon_mult)
 
 
 async def _award_kill(
@@ -2501,6 +2560,13 @@ def _consume_guard_charge(defender, dmg: int, log_lines: list[str]) -> int:
     turns later if nothing else has hit them since). Returns dmg unchanged if there's nothing to
     consume. Called at every point damage is applied to any entity, player or monster alike (full
     parity -- a monster's own Guard-shaped skill works the same way a player's does)."""
+    if getattr(defender, "barrier", 0) and dmg > 0:
+        absorbed = min(defender.barrier, dmg)
+        defender.barrier -= absorbed
+        log_lines.append(f"🫧 {_possessive_label(defender)} barrier soaks up **{absorbed}**.")
+        dmg -= absorbed
+        if dmg <= 0:
+            return 0
     if defender.guard_charge is None:
         return dmg
     reduced = max(1, round(dmg * defender.guard_charge))
@@ -2769,37 +2835,139 @@ def _on_damage_taken(entity, dmg: int, log_lines: list[str]) -> None:
                 eff["stored"] = eff.get("stored", 0) + dmg
 
 
-# Mage/Hearts: Hype. A meter on every combatant who has a hype_spend skill unlocked, filled by any
-# party member landing a hit or dodging (_gain_hype) and spent by that skill (_effect_hype_spend).
+# Meters: a points resource (`entity.meters[name]`) that exists only for a combatant with a skill
+# that spends it unlocked (_meter_max), filled by a meter-specific rule and spent by that skill on
+# one damage roll, x(1 + per_point x points). Hype (mage/Hearts): +1 whenever anyone in the party
+# lands a hit or dodges. Grudge (fighter): +1 each time a monster hits you.
+_METER_SPEND_TYPES = {"hype_spend": "hype", "grudge_spend": "grudge"}
+_METER_SPEND_LINES = {
+    "hype": "📣 The crowd goes wild! **{points}** Hype pumps this up **×{mult:g}**!",
+    "grudge": "😤 Payback time! **{points}** Grudge turns into **×{mult:g}** damage!",
+}
 
 
-def _hype_max(entity) -> int:
-    """How much Hype `entity` can hold -- 0 if none of their unlocked skills spends it (so the meter
-    only exists for builds that use it)."""
+def _meter_spend_effect(entity, meter: str) -> dict | None:
     for skill in getattr(entity, "unlocked_skills", None) or []:
         for group in dungeon._effect_lists(skill):
             for effect in group:
-                if effect["type"] == "hype_spend":
-                    return effect.get("max_points", 10)
-    return 0
+                if _METER_SPEND_TYPES.get(effect["type"]) == meter:
+                    return effect
+    return None
 
 
-def _gain_hype(entities: list, amount: int = 1) -> None:
+def _meter_max(entity, meter: str) -> int:
+    """How many points of `meter` `entity` can hold -- 0 if none of their unlocked skills spends it
+    (so the meter only exists for builds that use it)."""
+    effect = _meter_spend_effect(entity, meter)
+    return effect.get("max_points", 10) if effect else 0
+
+
+def _gain_meter(entities: list, meter: str, amount: int = 1) -> None:
     for entity in entities:
-        cap = _hype_max(entity)
+        cap = _meter_max(entity, meter)
         if cap and not getattr(entity, "knocked_out", False):
-            entity.hype = min(cap, entity.hype + amount)
+            entity.meters[meter] = min(cap, entity.meters.get(meter, 0) + amount)
 
 
-def _effect_hype_spend(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
-    points = actor.hype
-    mods["hype_spent"] = True
+def _effect_meter_spend(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    meter = _METER_SPEND_TYPES[effect["type"]]
+    mods.setdefault("spent_meters", set()).add(meter)
+    points = actor.meters.get(meter, 0)
     if not points:
         return
-    mult = 1 + effect["per_point"] * points
+    mult = round(1 + effect["per_point"] * points, 2)
     mods["multiplier"] *= mult
-    actor.hype = 0
-    log_lines.append(f"📣 The crowd goes wild! **{points}** Hype pumps this up **×{mult:g}**!")
+    actor.meters[meter] = 0
+    log_lines.append(_METER_SPEND_LINES[meter].format(points=points, mult=mult))
+
+
+# Barrier: an absorb shield (`entity.barrier`, HP points) spent before HP by any hit that goes
+# through _consume_guard_charge. Capped at BARRIER_CAP_FRACTION of max HP. Reset every fight.
+BARRIER_CAP_FRACTION = 0.5
+
+
+def _add_barrier(entity, amount: int, log_lines: list[str]) -> None:
+    cap = round(entity.max_hp * BARRIER_CAP_FRACTION)
+    gained = max(0, min(cap, entity.barrier + amount) - entity.barrier)
+    if gained:
+        entity.barrier += gained
+        log_lines.append(f"🫧 {_actor_label(entity)} {_verb(entity, 'gain')} a **{gained}**-point barrier.")
+
+
+# Fighter resources that react to a monster's hit landing (_after_monster_hit).
+
+
+def _effect_counter(actor, caster, effect: dict, log_lines: list[str], mods: dict):
+    _apply_timed_effect(
+        actor, "counter", effect["value"], effect["duration"], log_lines,
+        f"🥊 {_actor_label(actor)} {_verb(actor, 'put')} {_possessive_pronoun(actor)} fists up: every hit taken "
+        f"gets **{round(effect['value'] * 100)}%** sent back for **{effect['duration']}** turn(s).",
+    )
+
+
+def _effect_blood_in_water(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    cap = max(1, monster_state.speed // 2)  # the same floor _capped_speed_debuff stops at
+    bites = (monster_state.speed_debuff > 0) + (monster_state.hp < monster_state.max_hp / 2) + (monster_state.speed_debuff >= cap)
+    if bites:
+        mods["extra_attack_multipliers"].extend([effect["multiplier"]] * bites)
+        log_lines.append(f"🦈 Blood in the water: **{bites}** extra bite(s)!")
+
+
+def _effect_intercept(actor, caster, effect: dict, log_lines: list[str], mods: dict):
+    # `actor` is the ally this landed on, `caster` the one stepping in. Covering yourself is a no-op.
+    if actor is caster:
+        log_lines.append("🫂 Pick an ally to cover first.")
+        return
+    actor.protector = caster
+    caster.intercept_value = effect["value"]
+    log_lines.append(f"🫂 {_actor_label(caster)} {_verb(caster, 'cover')} {_combatant_name(actor)}: their next hit is coming through {_combatant_name(caster)} first.")
+
+
+def _effect_collect_tab(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    owed = getattr(monster_state, "tab", 0)
+    if not owed:
+        return
+    bonus = round(owed * effect["value"])
+    mods.setdefault("flat_bonus", {})[id(monster_state)] = bonus
+    monster_state.tab = 0
+    log_lines.append(f"🧾 Collection time! {_combatant_name(monster_state)}'s **{owed}** tab adds **{bonus}** damage.")
+
+
+def _tab_loot_mult(instance) -> float:
+    """A dying monster's loot multiplier from its uncashed Tab (1.0 if none)."""
+    if not getattr(instance, "tab", 0) or not instance.tab_loot:
+        return 1.0
+    per_point, cap = instance.tab_loot
+    return 1 + min(cap, instance.tab * per_point)
+
+
+def _after_monster_hit(monster, target, dmg: int, party: list, log_lines: list[str]) -> None:
+    """Everything a landed (not dodged) monster hit on a player triggers, after the damage is
+    applied: Grudge, the Collector's Tab, a Counter punching back, and an intercepting Minder's
+    damage turning into a party Barrier."""
+    if dmg <= 0:
+        return
+    _gain_meter([target], "grudge")
+    tab_effect = next(
+        (e for skill in getattr(target, "unlocked_skills", None) or [] for g in dungeon._effect_lists(skill)
+         for e in g if e["type"] == "collect_tab"),
+        None,
+    )
+    if tab_effect is not None and isinstance(monster, MonsterInstance):
+        monster.tab += dmg
+        monster.tab_loot = (tab_effect.get("loot_per_point", 0.01), tab_effect.get("loot_cap", 0.5))
+    counter = next((e for e in target.timed_effects if e["type"] == "counter"), None)
+    if counter is not None and monster.hp > 0:
+        back = max(1, round(dmg * counter["value"]))
+        monster.hp -= back
+        log_lines.append(f"🥊 {_actor_label(target)} {_verb(target, 'hit')} back for **{back}**!")
+        _on_damage_taken(monster, back, log_lines)
+    share = getattr(target, "intercepting", None)
+    if share:
+        target.intercepting = None
+        for member in party:
+            if not getattr(member, "knocked_out", False):
+                _add_barrier(member, round(dmg * share), log_lines)
 
 
 def _release_charge(actor, special: bool, mods: dict, log_lines: list[str]) -> None:
@@ -2857,7 +3025,12 @@ EFFECT_HANDLERS = {
     "charge": _effect_charge,
     "overload": _effect_overload,
     "hex": _effect_hex,
-    "hype_spend": _effect_hype_spend,
+    "hype_spend": _effect_meter_spend,
+    "grudge_spend": _effect_meter_spend,
+    "counter": _effect_counter,
+    "blood_in_water": _effect_blood_in_water,
+    "intercept": _effect_intercept,
+    "collect_tab": _effect_collect_tab,
     "resist_buff": _effect_resist_buff,
     "dot": _effect_dot,
     "hot": _effect_hot,
@@ -3018,7 +3191,7 @@ def _resolve_player_action(
     }
     status_targets = {
         entity for e, entities, is_enemy in handler_resolved
-        if is_enemy and e["type"] != "execute_multiplier" for entity in entities
+        if is_enemy and e["type"] not in dungeon.TARGET_DAMAGE_SCALER_TYPES for entity in entities
     }
     resisted = {entity: random.random() < _defended_dodge_chance(entity, True) for entity in status_targets}
     for entity, did_resist in resisted.items():
@@ -3027,7 +3200,10 @@ def _resolve_player_action(
 
     for e, entities, is_enemy in handler_resolved:
         for entity in entities:
-            if is_enemy and e["type"] != "execute_multiplier" and resisted[entity]:
+            if is_enemy and e["type"] not in dungeon.TARGET_DAMAGE_SCALER_TYPES and resisted[entity]:
+                continue
+            # A damage scaler's target dodging this hit means there's no hit for it to scale.
+            if e["type"] in dungeon.TARGET_DAMAGE_SCALER_TYPES and dodged.get(entity):
                 continue
             if e["type"] in dungeon.ENEMY_TARGETED_EFFECT_TYPES:
                 EFFECT_HANDLERS[e["type"]](actor, entity, e, log_lines, mods)
@@ -3052,6 +3228,7 @@ def _resolve_player_action(
             dmg = dungeon.roll_damage(attacker_atk, eff_def, mods["multiplier"] * moon_mult * crit_mult)
             for extra_multiplier in mods["extra_attack_multipliers"]:
                 dmg += dungeon.roll_damage(attacker_atk, eff_def, extra_multiplier * moon_mult * crit_mult)
+            dmg += mods.get("flat_bonus", {}).get(id(entity), 0)  # a cashed Tab, see _effect_collect_tab
             # Guard reduction is consumed here (against the TARGET's own charge, if any -- any
             # entity can guard itself, full parity) before lifesteal/on-hit procs read `dmg`.
             dmg = _consume_guard_charge(entity, dmg, log_lines)
@@ -3077,7 +3254,7 @@ def _resolve_player_action(
             log_lines.append(f"{subject_label} {drain_verb} **{healed}** HP from the strike.")
 
     if hit_entities and damage_is_enemy:
-        _gain_hype([a for a in ally_pool if not (a is actor and mods.get("hype_spent"))])
+        _gain_meter([a for a in ally_pool if not (a is actor and "hype" in mods.get("spent_meters", ()))], "hype")
 
     return hit_entities
 
@@ -3451,17 +3628,14 @@ async def _advance_solo_turns(
         monster.turn_clock += dungeon.turn_interval(max(1, monster.speed - monster.speed_debuff))
         if monster.hp <= 0:
             log_lines.append(f"**{monster.name}** succumbs to its wounds!")
-            await _award_kill(
-                session.guild_id, monster.monster, session, session.current_room_id, log_lines,
-                loot_mult=session.loot_mult * player_moon_mult, chance_mult=1.0,
-                all_in_tier=session.all_in_tier,
-            )
+            await _solo_award(session, monster, log_lines, player_moon_mult)
             continue  # never got to act this turn -- loop re-checks living_monsters() at the top
         if monster_cc_type is not None:
             log_lines.append(_crowd_control_skip_line(monster, monster_cc_type))
             continue
 
         last_attacker_slot = monster.slot
+        monsters_before = session.living_monsters()
         results, monster_skill, lifesteal_line, is_damage_action = _resolve_monster_attack(
             monster, [session], session, moon_effect, log_lines,
             monster_group=session.living_monsters(),
@@ -3470,7 +3644,7 @@ async def _advance_solo_turns(
         verb = f"unleashes **{monster_skill['name']}**" if monster_skill else "strikes back"
         if dodged:
             log_lines.append(f"You dodge **{monster.name}**'s attack!")
-            _gain_hype([session])
+            _gain_meter([session], "hype")
         else:
             monster_dmg = _consume_guard_charge(session, monster_dmg, log_lines)
             dmg_clause = f" for **{monster_dmg}**" if is_damage_action else ""
@@ -3479,11 +3653,13 @@ async def _advance_solo_turns(
                 log_lines.append(f"> {monster_skill['flavor']}")
             session.hp -= monster_dmg
             _on_damage_taken(session, monster_dmg, log_lines)
+            _after_monster_hit(monster, session, monster_dmg, [session], log_lines)
             # Appended last, deliberately after the announcement/flavor above -- see
             # _resolve_monster_attack's own docstring for why this can't just be appended there.
             if lifesteal_line:
                 log_lines.append(lifesteal_line)
 
+        await _settle_monster_turn_deaths(session, monsters_before, log_lines, player_moon_mult)
         if session.hp <= 0:
             await _solo_death_embed(interaction, session, log_lines)
             return
@@ -3530,11 +3706,7 @@ async def _resolve_combat_turn(
     for target in hit_monsters:
         if target.hp <= 0:
             log_lines.append(f"**{target.name} is defeated!**")
-            await _award_kill(
-                session.guild_id, target.monster, session, session.current_room_id, log_lines,
-                loot_mult=session.loot_mult * player_moon_mult, chance_mult=1.0,
-                all_in_tier=session.all_in_tier,
-            )
+            await _solo_award(session, target, log_lines, player_moon_mult)
     if hit_monsters and not session.living_monsters():
         await _present_room_result(interaction, session, log_lines)
         return True
@@ -3853,16 +4025,7 @@ async def _advance_party_turns(
         monster.turn_clock += dungeon.turn_interval(max(1, monster.speed - monster.speed_debuff))
         if monster.hp <= 0:
             log_lines.append(f"**{monster.name}** succumbs to its wounds!")
-            for m in session.members:
-                member_log: list[str] = []
-                share_mult, chance_mult = _party_share_mults(session, m)
-                loot_mult = m.loot_mult * share_mult * player_moon_mult
-                await _award_kill(
-                    session.guild_id, monster.monster, m, session.current_room_id, member_log,
-                    loot_mult=loot_mult, chance_mult=chance_mult, all_in_tier=session.all_in_tier,
-                )
-                log_lines.append(f"**{m.label}**")
-                log_lines.extend(f"> {line}" for line in member_log)
+            await _party_award(session, monster, log_lines, player_moon_mult)
             continue  # never got to act this turn -- loop re-checks living_monsters() at the top
         if monster_cc_type is not None:
             log_lines.append(_crowd_control_skip_line(monster, monster_cc_type))
@@ -3884,10 +4047,20 @@ async def _advance_party_turns(
                 [{"id": m.user_id, "threat": monster.threat.get(m.user_id, 0)} for m in living]
             )
         threat_target = session.members_by_id[target_id]
+        # A Minder covering this target takes the hit instead (single-target attacks only -- an aoe
+        # skill still hits everyone in `living`). One hit, then the cover is spent.
+        protector = threat_target.protector
+        if protector is not None:
+            threat_target.protector = None
+            if not protector.knocked_out and protector is not threat_target:
+                log_lines.append(f"🫂 **{protector.label}** steps in front of **{threat_target.label}**!")
+                protector.intercepting = getattr(protector, "intercept_value", 0.5)
+                threat_target = protector
         # `living` is only actually used as the target pool when the picked skill's own damage
         # effect is flagged "aoe" -- see _resolve_monster_attack's own docstring. Every other
         # skill (and a plain attack) still resolves to just the threat-picked `threat_target`.
         last_attacker_slot = monster.slot
+        monsters_before = session.living_monsters()
         results, monster_skill, lifesteal_line, is_damage_action = _resolve_monster_attack(
             monster, living, threat_target, moon_effect, log_lines,
             monster_group=session.living_monsters(),
@@ -3901,13 +4074,14 @@ async def _advance_party_turns(
             for target, monster_dmg, dodged in results:
                 if dodged:
                     log_lines.append(f"**{target.label}** dodges the blast!")
-                    _gain_hype(session.living_members())
+                    _gain_meter(session.living_members(), "hype")
                     continue
                 monster_dmg = _consume_guard_charge(target, monster_dmg, log_lines)
                 if is_damage_action:
                     log_lines.append(f"**{target.label}** takes **{monster_dmg}** damage.")
                 target.hp -= monster_dmg
                 _on_damage_taken(target, monster_dmg, log_lines)
+                _after_monster_hit(monster, target, monster_dmg, session.living_members(), log_lines)
                 if target.hp <= 0:
                     target.knocked_out = True
                     log_lines.append(f"💀 **{target.label}** is knocked out!")
@@ -3915,7 +4089,7 @@ async def _advance_party_turns(
             target, monster_dmg, dodged = results[0]
             if dodged:
                 log_lines.append(f"**{target.label}** dodges **{monster.name}**'s attack!")
-                _gain_hype(session.living_members())
+                _gain_meter(session.living_members(), "hype")
             else:
                 monster_dmg = _consume_guard_charge(target, monster_dmg, log_lines)
                 verb = f"unleashes **{monster_skill['name']}** on" if monster_skill else "strikes"
@@ -3925,6 +4099,7 @@ async def _advance_party_turns(
                     log_lines.append(f"> {flavor}")
                 target.hp -= monster_dmg
                 _on_damage_taken(target, monster_dmg, log_lines)
+                _after_monster_hit(monster, target, monster_dmg, session.living_members(), log_lines)
                 if target.hp <= 0:
                     target.knocked_out = True
                     log_lines.append(f"💀 **{target.label}** is knocked out!")
@@ -3932,6 +4107,7 @@ async def _advance_party_turns(
         # _resolve_monster_attack's own docstring for why this can't just be appended there.
         if lifesteal_line:
             log_lines.append(lifesteal_line)
+        await _settle_monster_turn_deaths(session, monsters_before, log_lines, player_moon_mult)
 
 
 async def _resolve_party_turn(
@@ -3976,16 +4152,7 @@ async def _resolve_party_turn(
     for target in hit_monsters:
         if target.hp <= 0:
             log_lines.append(f"**{target.name} is defeated!**")
-            for m in session.members:
-                member_log: list[str] = []
-                share_mult, chance_mult = _party_share_mults(session, m)
-                loot_mult = m.loot_mult * share_mult * player_moon_mult
-                await _award_kill(
-                    session.guild_id, target.monster, m, session.current_room_id, member_log,
-                    loot_mult=loot_mult, chance_mult=chance_mult, all_in_tier=session.all_in_tier,
-                )
-                log_lines.append(f"**{m.label}**")
-                log_lines.extend(f"> {line}" for line in member_log)
+            await _party_award(session, target, log_lines, player_moon_mult)
     if hit_monsters and not session.living_monsters():
         await _present_party_room_result(interaction, session, log_lines)
         return True
