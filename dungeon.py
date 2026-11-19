@@ -937,7 +937,12 @@ LEVELING = _load_leveling()
 # would silently break every display call site that looks it up.
 _STAT_LABELS_PATH = os.path.join(os.path.dirname(__file__), "dungeon_stat_labels.json")
 _REQUIRED_STAT_LABEL_FIELDS = {"id", "label"}
-_REQUIRED_STAT_LABEL_IDS = {"hp", "atk", "def", "spatk", "speed", "chips", "dodge", "resist"}
+# The battle screen's status line (dungeon_view._status_text) names combat statuses with these too,
+# so "Stunned"/"Festering"/... reflavor the same way the stats do.
+_REQUIRED_STAT_LABEL_IDS = {
+    "hp", "atk", "def", "spatk", "speed", "chips", "dodge", "resist",
+    "stun", "sap", "dot", "hot", "guard",
+}
 
 
 def _load_stat_labels(path: str = _STAT_LABELS_PATH) -> dict[str, dict]:

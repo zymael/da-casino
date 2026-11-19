@@ -38,5 +38,30 @@
     "id": "resist",
     "label": "Bluff",
     "emoji": "\ud83d\udd2e"
+  },
+  {
+    "id": "stun",
+    "label": "Stunned",
+    "emoji": "\ud83d\udcab"
+  },
+  {
+    "id": "sap",
+    "label": "Sapped",
+    "emoji": "\ud83d\udca4"
+  },
+  {
+    "id": "dot",
+    "label": "Festering",
+    "emoji": "\ud83e\ude78"
+  },
+  {
+    "id": "hot",
+    "label": "Mending",
+    "emoji": "\ud83d\udc9a"
+  },
+  {
+    "id": "guard",
+    "label": "Guard",
+    "emoji": "\ud83e\uddf1"
   }
 ]

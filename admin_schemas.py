@@ -883,9 +883,10 @@ CONTENT_TYPES = {
         "fields": [
             {
                 "name": "id", "type": "str", "required": True, "group": "Identity",
-                "hint": "must stay exactly one of: hp, atk, def, spatk, speed, chips, dodge, resist -- "
-                        "the roster is fixed (wired to real stats/mechanics elsewhere), only label/emoji "
-                        "are editable",
+                "hint": "must stay exactly one of: " + ", ".join(sorted(dungeon._REQUIRED_STAT_LABEL_IDS))
+                        + " -- the roster is fixed (wired to real stats/mechanics elsewhere), only "
+                        "label/emoji are editable. stun/sap/dot/hot/guard name combat statuses on the "
+                        "battle screen's status line.",
             },
             {
                 "name": "label", "type": "str", "required": True, "group": "Display",

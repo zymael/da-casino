@@ -85,7 +85,7 @@ class MonsterInstance:
     def __init__(self, monster: dict, slot: int):
         self.monster = monster
         # A/B/C letter shown on this monster's turn-order card, under its sprite, in its embed field
-        # and in log lines -- only set (by _assign_monster_tags) when its group has 2+ monsters, so a
+        # and in log lines -- only set (by _finalize_monster_group) when its group has 2+ monsters, so a
         # lone monster's name reads exactly as authored.
         self.tag: str | None = None
         self.hp = monster["hp"]
@@ -137,13 +137,15 @@ class MonsterInstance:
         return f"{self.monster['name']} {self.tag}" if self.tag else self.monster["name"]
 
 
-def _assign_monster_tags(instances: list["MonsterInstance"]) -> None:
-    """Gives each monster in a freshly rolled group its A/B/C tag (by slot, so a tag never changes
-    mid-fight as others die) -- or none at all for a lone monster. Called wherever a group spawns."""
-    if len(instances) < 2:
-        return
+def _finalize_monster_group(instances: list["MonsterInstance"]) -> None:
+    """Called wherever a group spawns, once its stats are final (after party/All In scaling):
+    gives each monster its A/B/C tag (by slot, so a tag never changes mid-fight as others die; none
+    at all for a lone monster), and snapshots base_stats so the status line can show a monster's
+    own buffs as a +N against where it started (see _status_text)."""
     for inst in instances:
-        inst.tag = chr(ord("A") + inst.slot) if inst.slot < 26 else str(inst.slot + 1)
+        inst.base_stats = _stat_snapshot(inst)
+        if len(instances) >= 2:
+            inst.tag = chr(ord("A") + inst.slot) if inst.slot < 26 else str(inst.slot + 1)
 
 
 def _capped_speed_debuff(combatant, added: int) -> int:
@@ -227,7 +229,7 @@ def _roll_monster_instances(
         MonsterInstance(m, slot)
         for slot, m in enumerate(_all_in_spawn(delve, room, group["monsters"], all_in_tier))
     ]
-    _assign_monster_tags(instances)
+    _finalize_monster_group(instances)
     for instance in instances:
         _apply_vs_monster_debuffs(instance, equipped_item_ids)
         instance.turn_clock = dungeon.turn_interval(max(1, instance.speed - instance.speed_debuff))
@@ -239,6 +241,63 @@ _FIGHT_STATS = ("max_hp", "atk", "def_", "spatk", "speed")
 
 def _stat_snapshot(player) -> dict[str, int]:
     return {stat: getattr(player, stat) for stat in _FIGHT_STATS}
+
+
+# --- Battle-screen status line ------------------------------------------------------------------
+# Every combatant's embed field gets a short status block under its HP/Chips: stuns, timed buffs and
+# DoT/HoT with turns left, a pending Guard, and net stat changes for this fight. Names and emoji
+# come from the admin-editable Stat Labels (dungeon.stat_label/stat_emoji) -- the same reflavor that
+# renames the stats themselves renames these. One status per line: inline embed fields are narrow.
+
+_STATUS_STAT_KEYS = (  # (entity attr, stat-label key, debuff attr or None)
+    ("atk", "atk", "atk_debuff"),
+    ("def_", "def", "def_debuff"),
+    ("spatk", "spatk", "spatk_debuff"),
+    ("speed", "speed", "speed_debuff"),
+    ("max_hp", "hp", None),
+)
+STATUS_LINE_CAP = 6  # most status lines one combatant shows before collapsing the rest into "+N more"
+
+
+def _status_text(entity) -> str:
+    """The status block for one combatant (solo player, party member, duelist or monster), or ""
+    when nothing's active. Turn counts are the entity's own turns left, matching how
+    _tick_timed_effects counts them down."""
+    L, E = dungeon.stat_label, dungeon.stat_emoji
+    lines: list[str] = []
+    timed = {e["type"]: e for e in entity.timed_effects}
+    for key in ("stun", "sap"):
+        if key in timed:
+            lines.append(f"{E(key)} {L(key)} ({timed[key]['remaining']})")
+    for buff, stat in (("dodge_buff", "dodge"), ("resist_buff", "resist")):
+        if buff in timed:
+            lines.append(f"{E(stat)} {L(stat)} +{round(timed[buff]['value'] * 100)}% ({timed[buff]['remaining']})")
+    if "dot" in timed:
+        lines.append(f"{E('dot')} {L('dot')} {round(timed['dot']['value'])}/turn ({timed['dot']['remaining']})")
+    if "hot" in timed:
+        lines.append(f"{E('hot')} {L('hot')} {round(timed['hot']['value'] * 100)}%/turn ({timed['hot']['remaining']})")
+    if entity.guard_charge is not None:
+        lines.append(f"{E('guard')} {L('guard')}: next hit -{round((1 - entity.guard_charge) * 100)}%")
+    # Net stat changes share ONE compact line (emoji + signed number, e.g. "✨+7 🛡️-5") -- a fight
+    # with several buffs/debuffs would otherwise push everything else past STATUS_LINE_CAP.
+    base = getattr(entity, "base_stats", None) or {}
+    changes = []
+    for attr, key, debuff_attr in _STATUS_STAT_KEYS:
+        current = getattr(entity, attr)
+        delta = (current - base.get(attr, current)) - (getattr(entity, debuff_attr) if debuff_attr else 0)
+        if delta:
+            changes.append(f"{E(key) or L(key)}{delta:+d}")
+    if changes:
+        lines.append(" ".join(changes))
+    if len(lines) > STATUS_LINE_CAP:
+        lines = lines[:STATUS_LINE_CAP - 1] + [f"+{len(lines) - STATUS_LINE_CAP + 1} more"]
+    return "\n".join(lines)
+
+
+def _with_status(value: str, entity) -> str:
+    """An embed field value with `entity`'s status block appended, if it has one."""
+    status = _status_text(entity)
+    return f"{value}\n{status}" if status else value
 
 
 def _reset_fight_stats(player) -> None:
@@ -633,7 +692,7 @@ class PartyDelveSession:
                         instance.threat[user_id] = bonus
                 _apply_vs_monster_debuffs(instance, party_equipped_ids)
                 self.monsters.append(instance)
-            _assign_monster_tags(self.monsters)
+            _finalize_monster_group(self.monsters)
             for m in self.members:
                 m.used_item_effects = set()
                 m.turn_clock = 0.0  # fresh fight -- chips are delve-scoped, not reset here (see __init__)
@@ -783,13 +842,16 @@ async def _combat_embed(
     _apply_room_header(embed, room, session.all_in_tier)
     embed.add_field(
         name=f"{session.display_name} (You)",
-        value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(session.hp, 0)}/{session.max_hp}\n🪙 Chips {session.chips}/{session.max_chips}",
+        value=_with_status(
+            f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(session.hp, 0)}/{session.max_hp}\n🪙 Chips {session.chips}/{session.max_chips}",
+            session,
+        ),
         inline=True,
     )
     target_slot = session.current_target().slot if living else None
     for m in living:
         marker = " ⬅️ target" if len(living) > 1 and m.slot == target_slot else ""
-        embed.add_field(name=m.name, value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
+        embed.add_field(name=m.name, value=_with_status(f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}{marker}", m), inline=True)
     attack = _attack_animation(living, attack_slot)
     render_result = await asyncio.to_thread(
         dungeon_render.render_room, session.rooms_visited, [m.monster for m in living],
@@ -3408,13 +3470,15 @@ async def _party_combat_embed(
             status = f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}\n🪙 Chips {m.chips}/{m.max_chips} ⬅️ acting now"
         else:
             status = f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}\n🪙 Chips {m.chips}/{m.max_chips}"
+        if not m.knocked_out:
+            status = _with_status(status, m)
         embed.add_field(name=f"{m.marker} {m.label}".strip(), value=status, inline=True)
     # Only the currently-acting member's target is shown -- every other member's independent
     # target choice isn't relevant to the embed until it's their own turn.
     target_slot = session.target_for(current_actor).slot if living_monsters else None
     for m in living_monsters:
         marker = " ⬅️ target" if len(living_monsters) > 1 and m.slot == target_slot else ""
-        embed.add_field(name=m.name, value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}{marker}", inline=True)
+        embed.add_field(name=m.name, value=_with_status(f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(m.hp, 0)}/{m.max_hp}{marker}", m), inline=True)
     room = session.rooms_by_id[session.current_room_id]
     attack = _attack_animation(living_monsters, attack_slot)
     render_result = await asyncio.to_thread(
@@ -5122,7 +5186,9 @@ async def _duel_combat_embed(
     for d in (session.challenger, session.opponent):
         marker = " ⬅️ acting now" if d.user_id == current_actor.user_id else ""
         embed.add_field(
-            name=f"{d.marker} {d.label}".strip(), value=f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(d.hp, 0)}/{d.max_hp}\n🪙 Chips {d.chips}/{d.max_chips}{marker}", inline=True,
+            name=f"{d.marker} {d.label}".strip(),
+            value=_with_status(f"{dungeon.stat_emoji('hp')} {dungeon.stat_label('hp')} {max(d.hp, 0)}/{d.max_hp}\n🪙 Chips {d.chips}/{d.max_chips}{marker}", d),
+            inline=True,
         )
     render_result = await asyncio.to_thread(
         dungeon_render.render_room, 1, [], DUEL_ARENA_BACKGROUND, label="Duel", turn_order=_duel_turn_order_cards(session)
