@@ -160,6 +160,25 @@ delve/monster/equipment JSON. Everything derives live from the base content, the
   authored speed (only ceilinged by `monster_speed_max`), base gear speed
   isn't scaled, and gear rolls at most one small speed bonus.
 
+## Class resources (`dungeon_view.py`, "Class resources" / "Healer resources" / "Rogue resources")
+
+Each class has a signature resource, each suit a twist on it, all built from effect types in
+`dungeon.EFFECT_PARAM_SCHEMAS` (so skills stay JSON): mage Charge (`charge`/`overload`, Spades
+`hex`, Hearts `hype_spend`), fighter Grudge (`grudge_spend`, `counter`, `blood_in_water`,
+`intercept`, `collect_tab`), healer Comps (`overheal_barrier` on heals/HoTs, `corner`,
+`pass_the_buck`, `plate_spend`, `hook`), rogue Tells (`tells_spend`, `contract`, `charm`,
+`pot_add`/`pot_cash`). All of it is player-only and resets every fight in `_reset_fight_stats`.
+
+- **Damage landing anywhere goes through `_on_damage_taken`** (sap break + hex feed) and a monster
+  hit on a player also through `_after_monster_hit` (Grudge, Tab, Counter, intercept barrier). A new
+  damage source must call these, not just subtract HP.
+- **Barrier** is eaten inside `_consume_guard_charge`, so anything that skips that (DoT ticks) skips it.
+- **Kills always go through `_solo_award`/`_party_award`.** A monster can now die on a MONSTER's
+  turn (Counter, a charmed ally); `_settle_monster_turn_deaths` rewards those.
+- Meters (Hype, Grudge) only exist for a combatant whose unlocked skills spend them (`_meter_max`).
+- The battle screen's status line (`_status_text`) names everything via Stat Labels, whose fixed
+  roster now includes the status/resource ids. A new resource needs a label row there.
+
 ## Operational
 
 - The bot runs under systemd as `da-casino-bot.service`. Restart via `sudo systemctl restart
