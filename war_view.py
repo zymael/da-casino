@@ -151,7 +151,7 @@ def build_operation_picker(owner_id: int, ops: list[war.Operation], on_pick) -> 
 
 def build_spy_report(
     target_name: str, horses: list[dict], injured: set[int], sentry_index: int | None,
-    clothes: dict[int, dict[str, str]], luck: int, balance: int, currency: str, heat: int,
+    clothes: dict[int, dict[str, str]], luck: int, balance: int, currency: str, heat: list[int],
     facility_tier: int, fortress_off_until: int, ceasefire_until: int, war_ready_at: int, character: dict | None,
     lineup: list[str], job_ready: list[tuple[war.Operation, int]], propaganda_until: int,
     alert_ops: list[war.Operation], held_stolen: list[tuple[str, str]],
@@ -186,7 +186,7 @@ def build_spy_report(
     if facility_tier:
         lines.append(f"🏰 Fortress: tier {facility_tier}")
     lines.append("🛡️ Sentry: on duty" if sentry_index is not None else "🛡️ Sentry: nobody on watch")
-    lines.append(f"🌡️ Heat: {heat}")
+    lines.append(war.heat_text(heat) or "🌡️ Heat: 0")
     if ceasefire_until:
         lines.append(f"🏳️ Ceasefire until <t:{ceasefire_until}:R>")
     lines.append(f"⚔️ Can declare war <t:{war_ready_at}:R>" if war_ready_at else "⚔️ Ready to declare war")
