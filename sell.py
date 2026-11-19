@@ -114,6 +114,28 @@ async def sell(guild_id: int, user_id: int, kind: str, item_id: str) -> dict:
     return {"success": True, "item": item, "kind": kind, "price": price, "balance": new_balance}
 
 
+async def sell_many(guild_id: int, user_id: int, picks: list[tuple[str, str, int]]) -> dict:
+    """Sells qty copies of each (kind, item_id, qty) in `picks`, one sell() at a time so every copy
+    gets the same ownership re-check a single sale does. Returns {"sold": [(item, count, earned)],
+    "short": [(item, wanted, got)], "total"} -- "short" lists anything the player no longer held
+    enough of (sold/used/dressed onto a horse since the popup opened); whatever was still there sold."""
+    sold, short, total = [], [], 0
+    for kind, item_id, qty in picks:
+        count, earned, item = 0, 0, SELLABLE_REGISTRIES[kind]()[item_id]
+        for _ in range(qty):
+            result = await sell(guild_id, user_id, kind, item_id)
+            if not result["success"]:
+                break
+            count += 1
+            earned += result["price"]
+        if count:
+            sold.append((item, count, earned))
+            total += earned
+        if count < qty:
+            short.append((item, qty, count))
+    return {"sold": sold, "short": short, "total": total}
+
+
 def consume_free_horse_clothes(guild_id: int, user_id: int, item_id: str) -> bool:
     """Re-checks horse_clothes_in_use right before consuming, not just at picker-build time, so a
     horse dressed in this exact item in the gap between opening the sell/smash popup and picking
