@@ -60,7 +60,7 @@ def _chunked_field_pairs(name: str, lines: list[str], empty_text: str) -> list[t
 
 def _pack_into_embeds(
     title: str, color: discord.Color, footer_text: str | None, field_pairs: list[tuple[str, str]],
-    *, description: str | None = None,
+    *, description: str | None = None, first_message_fields: int | None = None,
 ) -> list[discord.Embed]:
     """Distributes `field_pairs` (each already under the per-field EMBED_FIELD_LIMIT -- see
     _chunked_field_pairs) across as many embeds as needed to respect EMBED_TOTAL_LIMIT, Discord's
@@ -73,11 +73,20 @@ def _pack_into_embeds(
     by the caller (a second embed can't just be appended to the same message -- Discord's 6000 cap
     applies across all embeds *in one message*, not per embed). Only the first carries the
     title/color/footer; follow-ons are titled "<title> (cont.)" so a multi-message reply still
-    reads as one continuous thing."""
+    reads as one continuous thing.
+
+    `first_message_fields` caps how many of the leading field_pairs go into the first embed; the
+    rest always start in a follow-up. Needed when the first message also carries a heavy view:
+    Discord rejects a message whose embeds *and* components are both large together (413 Payload
+    Too Large, "Oversized fields: message.embeds=5899, message.components=4324"), even though each
+    is under its own documented cap. !equipment's slot Selects grow with the stored gear (All In
+    ids and descriptions are long), so its Stored list never shares a message with them."""
     embeds = [discord.Embed(title=title, color=color, description=description or None)]
     if footer_text:
         embeds[0].set_footer(text=footer_text)
-    for name, value in field_pairs:
+    for i, (name, value) in enumerate(field_pairs):
+        if first_message_fields is not None and i == first_message_fields and len(embeds) == 1:
+            embeds.append(discord.Embed(title=f"{title} (cont.)", color=color))
         embeds[-1].add_field(name=name, value=value, inline=False)
         if len(embeds[-1]) > EMBED_TOTAL_LIMIT:
             embeds[-1].remove_field(len(embeds[-1].fields) - 1)
@@ -401,6 +410,7 @@ async def build_equipment_display(guild_id: int, user_id: int) -> tuple[list[dis
     embeds = _pack_into_embeds(
         "⚔️ Equipment", discord.Color.blurple(), None, field_pairs,
         description="Pick a replacement (or unequip) per slot below.",
+        first_message_fields=1 if stored else None,  # Equipped only: the slot Selects share this message
     )
 
     view = EquipmentView(guild_id, user_id, equipped, stored)
