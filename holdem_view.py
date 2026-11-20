@@ -122,6 +122,12 @@ class Seat:
         # A bot's stack for the whole session: set at its first deal, carried hand to hand, and
         # when it hits 0 the bot is bust and leaves. None for humans (they buy in per hand).
         self.bot_stack: int | None = None
+        # A human's session stack, same idea: set the first time they're dealt in (their buy-in,
+        # capped at BOT_STACK_CAP while bots are seated), carried hand to hand with winnings, and
+        # at 0 they're bust and out. It only limits how much of their balance is in play -- chips
+        # still move to and from their real balance as each hand is played, so nothing is held
+        # in escrow (a restart mid-session can't lose anyone's money).
+        self.session_stack: int | None = None
 
 
 class HoldemTable:
@@ -141,6 +147,8 @@ class HoldemTable:
         self.started = False  # first hand dealt; random starting bots are picked at this moment
         self.big_blind: int | None = None  # set at the first deal (starting_big_blind), then climbs
         self.hands_dealt = 0
+        # human id -> session stack they left with (0 = went bust); sitting back down resumes it
+        self.left_stacks: dict[int, int] = {}
         self.blind_note: str | None = None  # announced in the next hand's first caption
         self.pending_bots = 0  # mystery bots still to be picked at the deal
         self.avatars: dict[int, bytes | None] = {}  # human id -> Discord avatar PNG, fetched once per table
@@ -165,6 +173,13 @@ class HoldemTable:
         member = NpcMember(npc_id, self._next_bot_id)
         self._next_bot_id -= 1
         return member
+
+    def remove_standing(self):
+        """Drops everyone who's stood up, remembering each human's session stack."""
+        for seat in self.seats:
+            if seat.standing and not is_npc(seat.member) and seat.session_stack is not None:
+                self.left_stacks[seat.member.id] = seat.session_stack
+        self.seats = [seat for seat in self.seats if not seat.standing]
 
     def seated_humans(self) -> list[Seat]:
         return [s for s in self.seats if not s.standing and not is_npc(s.member)]
@@ -411,6 +426,8 @@ def build_control_embed(table: HoldemTable) -> discord.Embed:
         for s in table.seats:
             if is_npc(s.member):
                 buyin_str = "🤖 bot" + (f", stack {s.bot_stack}" if s.bot_stack is not None else "")
+            elif s.session_stack is not None:
+                buyin_str = f"stack {s.session_stack}"
             elif capped:
                 buyin_str = f"buy-in {min(s.buy_in, BOT_STACK_CAP)}" if s.buy_in is not None else f"buy-in {BOT_STACK_CAP} (max)"
             else:
@@ -420,7 +437,10 @@ def build_control_embed(table: HoldemTable) -> discord.Embed:
         if table.pending_bots and not table.started:
             lines.append(f"🤖 **+{table.pending_bots} mystery bots** — revealed on the deal")
         embed.description = "\n".join(lines)
-    footer = "Buy In to sit down or update your buy-in. Stand to leave whenever you like."
+    footer = (
+        "Buy In once: your stack carries hand to hand, and at 0 you're out. "
+        "Stand to leave whenever you like (sit back down and your stack's waiting)."
+    )
     if table.pending_bots or any(is_npc(s.member) for s in table.seated()):
         footer += f" Buy-ins are capped at {BOT_STACK_CAP} while bots are at the table."
     embed.set_footer(text=footer)
@@ -451,17 +471,34 @@ class BuyInModal(discord.ui.Modal):
                 await interaction.response.send_message("Buy-in must be positive.", ephemeral=True)
                 return
 
-        seat = self.table.seat_for(interaction.user.id)
-        if seat is not None:
+        table = self.table
+        uid = interaction.user.id
+        seat = table.seat_for(uid)
+        if seat is not None and seat.session_stack is not None:
+            seat.standing = False
+            await interaction.response.send_message(
+                f"You're already playing this session with a stack of {seat.session_stack}. "
+                f"Your stack carries hand to hand; no top-ups.", ephemeral=True,
+            )
+        elif seat is not None:
             seat.buy_in = buy_in
             seat.standing = False
-            await interaction.response.send_message("Buy-in updated for your next hand.", ephemeral=True)
+            await interaction.response.send_message("Buy-in updated for your first hand.", ephemeral=True)
+        elif table.left_stacks.get(uid) == 0:
+            await interaction.response.send_message("You went bust at this table. No rebuys this session.", ephemeral=True)
+            return
         else:
-            if len(self.table.seated()) >= MAX_SEATS:
+            if len(table.seated()) >= MAX_SEATS:
                 await interaction.response.send_message(f"The table's full ({MAX_SEATS} seats).", ephemeral=True)
                 return
-            self.table.add_seat(interaction.user, buy_in)
-            await interaction.response.send_message("You're seated! You'll be dealt into the next hand.", ephemeral=True)
+            seat = table.add_seat(interaction.user, buy_in)
+            if uid in table.left_stacks:
+                seat.session_stack = table.left_stacks.pop(uid)
+                await interaction.response.send_message(
+                    f"Welcome back! Your stack of {seat.session_stack} was waiting for you.", ephemeral=True,
+                )
+            else:
+                await interaction.response.send_message("You're seated! You'll be dealt into the next hand.", ephemeral=True)
 
         await update_control_message(self.table)
 
@@ -943,7 +980,7 @@ async def play_hand(ctx, table: HoldemTable, members: list, stacks: dict[int, in
                 while len(game.community) < 5:
                     game.community.append(game.deck.draw())
         await settle_hand(ctx, table, game)
-        return {p.member.id: p.remaining for p in players if is_npc(p.member)}
+        return {p.member.id: p.remaining for p in players}  # everyone's stack after payouts
     finally:
         busy_players.difference_update(m.id for m in humans)
         table.current_game = None
@@ -984,27 +1021,29 @@ async def run_table(ctx, table: HoldemTable):
                 if is_npc(s.member) and not await bot_available(table, s.member.npc):
                     s.standing = True
                     await ctx.send(f"🤖 **{s.member.display_name}** has somewhere to be and leaves the table.")
-            table.seats = [s for s in table.seats if not s.standing]
+            table.remove_standing()
 
             members: list = []
             stacks: dict[int, int] = {}
-            bot_seats = []
+            bot_seats = [s for s in table.seated() if is_npc(s.member)]  # known before any human's stack is set
             for s in table.seated():
                 if is_npc(s.member):
-                    bot_seats.append(s)
                     continue
                 if s.member.id in busy_players:
                     continue
                 balance = await asyncio.to_thread(db.get_balance, table.guild_id, s.member.id)
                 if balance <= 0:
                     continue
+                if s.session_stack is None:
+                    # First hand of their session: the buy-in, and at a bot table never more than
+                    # a bot can ever have (no bullying the bots with a huge bankroll).
+                    start = min(balance, s.buy_in) if s.buy_in is not None else balance
+                    s.session_stack = min(start, BOT_STACK_CAP) if bot_seats else start
+                stack = min(s.session_stack, balance)  # their balance may have dipped elsewhere
+                if stack <= 0:
+                    continue
                 members.append(s.member)
-                stacks[s.member.id] = min(balance, s.buy_in) if s.buy_in is not None else balance
-            if bot_seats:
-                # No bringing a bankroll the bots can't match: at a bot table nobody sits down
-                # with more than a bot ever can.
-                for uid in stacks:
-                    stacks[uid] = min(stacks[uid], BOT_STACK_CAP)
+                stacks[s.member.id] = stack
             if members:
                 for s in bot_seats:
                     if s.bot_stack is None:  # first deal: as deep as the deepest human, capped
@@ -1028,16 +1067,24 @@ async def run_table(ctx, table: HoldemTable):
                 table.blind_note = f"⏫ **Blinds are up: {table.big_blind // 2}/{table.big_blind}**"
             table.hands_dealt += 1
 
-            bot_stacks = await play_hand(ctx, table, members, stacks)
+            final_stacks = await play_hand(ctx, table, members, stacks)
 
             busted_this_hand = False
             for s in table.seats:
-                if is_npc(s.member) and bot_stacks and s.member.id in bot_stacks:
-                    s.bot_stack = bot_stacks[s.member.id]
-                    if s.bot_stack <= 0:
+                if not final_stacks or s.member.id not in final_stacks:
+                    continue
+                left = final_stacks[s.member.id]
+                if is_npc(s.member):
+                    s.bot_stack = left
+                    if left <= 0:
                         s.standing = True
                         busted_this_hand = True
-            table.seats = [s for s in table.seats if not s.standing]
+                else:
+                    s.session_stack = left
+                    if left <= 0:
+                        s.standing = True
+                        await ctx.send(f"💸 **{isolate(s.member.display_name)}** is bust and leaves the table.")
+            table.remove_standing()
             await update_control_message(table)
 
             if busted_this_hand and not any(is_npc(s.member) for s in table.seats):
