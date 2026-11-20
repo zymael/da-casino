@@ -31,6 +31,10 @@ BLIND_LADDER = [
 ]
 
 
+# The smallest a table's big blind can ever be (bot.py's !holdem rejects a buy-in under it).
+MIN_BIG_BLIND = BLIND_LADDER[0]
+
+
 def starting_big_blind(deepest_stack: int) -> int:
     target = deepest_stack / BB_PER_STACK
     return max([BLIND_LADDER[0]] + [step for step in BLIND_LADDER if step <= target])

@@ -36,7 +36,7 @@ import housing
 import housing_render
 import housing_view
 from holdem_view import (
-    BIG_BLIND as HOLDEM_BIG_BLIND,
+    MIN_BIG_BLIND as HOLDEM_BIG_BLIND,
     active_tables as active_holdem_tables,
     busy_players as holdem_busy_players,
     start_holdem_table,
