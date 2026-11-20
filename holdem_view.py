@@ -6,10 +6,12 @@ import discord
 
 import cards_render
 import db
+import holdem_render
 import npcs
 import poker
 import poker_ai
 import quests
+import rooms
 from game import Deck
 
 JOIN_SECONDS = 45
@@ -17,14 +19,16 @@ ACTION_SECONDS = 45
 BETWEEN_HANDS_SECONDS = 5
 SMALL_BLIND = 5
 BIG_BLIND = 10
-MAX_SEATS = 9
+MAX_SEATS = holdem_render.MAX_SEATS
 # NPC bots (npcs.json poker_bot) play from a house-funded stack: each hand, as deep as the deepest
 # human at the table, but never more than this.
 BOT_STACK_CAP = 5000
-BOT_THINK_SECONDS = 1.5
+BOT_THINK_SECONDS = 0.5  # bots post nothing while thinking now, so just a short beat
 DEFAULT_CHATTER = 0.6
 # Random bots seated automatically when a table opens (fewer if not enough are available).
 STARTING_BOTS = 4
+# Whose room photo the table scene uses as its backdrop (until assets/holdem/room_background.png exists).
+CASINO_ROOM_ID = "casino"
 
 # channel_id -> HoldemTable, so only one table can be running per channel
 active_tables: dict[int, "HoldemTable"] = {}
@@ -73,6 +77,11 @@ def human_live(game: "HoldemGame") -> bool:
     return any(not is_npc(p.member) and not p.folded for p in game.players)
 
 
+def human_to_act(game: "HoldemGame") -> bool:
+    """Whether some human can still make a betting decision (in the hand and not all-in)."""
+    return any(not is_npc(p.member) and not p.folded and not p.all_in for p in game.players)
+
+
 def npc_line(npc: dict, kind: str, always: bool = False) -> str | None:
     """A random one of this NPC's lines for `kind`, or None (no lines, or it stayed quiet)."""
     lines = npcs.poker_lines(npc, kind)
@@ -107,6 +116,9 @@ class HoldemTable:
         self.closed = False
         self.started = False  # first hand dealt; random starting bots are picked at this moment
         self.pending_bots = 0  # mystery bots still to be picked at the deal
+        self.avatars: dict[int, bytes | None] = {}  # human id -> Discord avatar PNG, fetched once per table
+        self.log: list[str] = []  # actions since the last table image, captioned under the next one
+        self.speech: dict[int, str] = {}  # player id -> line for a speech bubble on the next image
         self._next_seat_no = 0
         self.last_dealer_seat_no: int | None = None
 
@@ -513,45 +525,99 @@ async def update_control_message(table: HoldemTable):
         pass
 
 
-def build_table_embed(
-    game: HoldemGame, street_name: str, prompt_player: Player | None = None
-) -> tuple[discord.Embed, discord.File | None]:
-    embed = discord.Embed(title=f"🃏 Texas Hold'em — {street_name}", color=discord.Color.dark_green())
+def _action_text(kind: str, call_amount: int, player: Player, game: HoldemGame, opening_bet: bool) -> str:
+    if kind == "fold":
+        return "folds"
+    if kind == "check":
+        return "checks"
+    if kind == "call":
+        return f"calls {call_amount}" + (", all-in" if player.all_in else "")
+    if kind == "raise":
+        return f"bets {game.current_bet}" if opening_bet else f"raises to {game.current_bet}"
+    return f"goes **all-in** ({player.street_contributed} this street)"
 
-    file = None
-    if game.community:
-        buf = cards_render.render_hand(game.community)
-        file = discord.File(buf, filename="community.png")
-        embed.set_image(url="attachment://community.png")
-    else:
-        embed.add_field(name="Community", value="—", inline=False)
 
-    pot_total = sum(p.contributed for p in game.players)
-    currency = db.get_currency_name(game.guild_id)
-    embed.add_field(name="Pot", value=f"{pot_total} {currency}", inline=True)
-    embed.add_field(name="Current bet", value=f"{game.current_bet} {currency}", inline=True)
+def _log(table: HoldemTable, player: Player, text: str, speech: str | None = None):
+    """Queues one line for the next table image's caption (and a speech bubble over the speaker)."""
+    icon = "🤖 " if is_npc(player.member) else ""
+    table.log.append(f"{icon}**{isolate(player.member.display_name)}** {text}.")
+    if speech:
+        table.speech[player.member.id] = speech
 
-    lines = []
+
+def _portrait_path(member) -> str | None:
+    if not is_npc(member):
+        return None
+    npc = member.npc
+    return npc.get("poker_sprite_path") or npc.get("sprite_path")
+
+
+def _seat_views(
+    table: HoldemTable, game: HoldemGame, prompt_player: Player | None,
+    showdown: dict[int, tuple[str | None, int]] | None,
+) -> list[holdem_render.SeatView]:
+    """`showdown` maps player id -> (hand description or None if their cards stay hidden, amount
+    won) once the hand is over."""
     dealer_idx, sb_idx, bb_idx = blind_seats(len(game.players))
+    seat_nos = {s.member.id: s.seat_no for s in table.seats}
+    views = []
     for i, p in enumerate(game.players):
-        badges = [b for b, idx in (("🔘D", dealer_idx), ("SB", sb_idx), ("BB", bb_idx)) if idx == i]
-        badge = f"`{' '.join(badges)}` " if badges else ""
-        if p.folded:
-            tag = "❌ folded"
-        elif p.all_in:
-            tag = "🔥 all-in"
-        elif prompt_player is p:
-            tag = "🎯 to act"
-        else:
-            tag = ""
-        lines.append(f"{badge}**{isolate(p.member.display_name)}** — {p.street_contributed} in (stack {p.remaining}) {tag}")
-    embed.add_field(name="Players", value="\n".join(lines), inline=False)
+        badge = " ".join(b for b, idx in (("D", dealer_idx), ("SB", sb_idx), ("BB", bb_idx)) if idx == i)
+        hand_label, won = (showdown or {}).get(p.member.id, (None, 0))
+        views.append((seat_nos.get(p.member.id, 10_000 + i), holdem_render.SeatView(
+            name=p.member.display_name,
+            is_npc=is_npc(p.member),
+            stack=p.remaining,
+            bet=0 if showdown else p.street_contributed,
+            folded=p.folded,
+            all_in=p.all_in,
+            to_act=p is prompt_player,
+            badge=badge,
+            portrait_path=_portrait_path(p.member),
+            avatar=table.avatars.get(p.member.id),
+            cards=p.hole if hand_label else None,
+            hand_label=hand_label,
+            won=won,
+            speech=table.speech.get(p.member.id),
+        )))
+    views.sort(key=lambda pair: pair[0])  # physical seat order, not this hand's dealer-first order
+    return [v for _, v in views]
+
+
+async def table_message(
+    table: HoldemTable, game: HoldemGame, street: str, *, prompt_player: Player | None = None,
+    showdown: dict | None = None, title: str | None = None, result_lines: list[str] | None = None,
+) -> tuple[discord.Embed, discord.File]:
+    """The table scene (holdem_render) as an embed image, captioned with everything that happened
+    since the previous image. Consumes the queued log and speech bubbles."""
+    views = _seat_views(table, game, prompt_player, showdown)
+    pot = sum(p.contributed for p in game.players)
+    currency = db.get_currency_name(game.guild_id)
+    backdrop = rooms.ROOMS.get(CASINO_ROOM_ID, {}).get("background_path")
+    buf = await asyncio.to_thread(
+        holdem_render.render_table, views, list(game.community), pot, street, currency, backdrop,
+    )
+    file = discord.File(buf, filename="table.png")
+    embed = discord.Embed(
+        title=title or f"🃏 Texas Hold'em — {street}",
+        color=discord.Color.gold() if showdown else discord.Color.dark_red(),
+    )
+    lines = table.log[-10:] + (result_lines or [])
+    if lines:
+        embed.description = "\n".join(lines)
+    if prompt_player is not None:
+        to_call = game.current_bet - prompt_player.street_contributed
+        embed.set_footer(text=f"To call: {to_call} · current bet {game.current_bet} · pot {pot} {currency}")
+    embed.set_image(url="attachment://table.png")
+    table.log.clear()
+    table.speech.clear()
     return embed, file
 
 
-async def _bot_turn(ctx, game: HoldemGame, player: Player, to_call: int):
-    """An NPC bot thinks (Monte Carlo equity in a thread, padded to a readable pause), acts through
-    the same apply_action a human's buttons use, and announces it, maybe with one of its lines."""
+async def _bot_turn(table: HoldemTable, game: HoldemGame, player: Player, to_call: int):
+    """An NPC bot thinks (Monte Carlo equity in a thread, padded to a short pause), acts through the
+    same apply_action a human's buttons use, and queues its action (and maybe a line) for the next
+    table image instead of posting a message of its own."""
     npc = player.member.npc
     started = time.monotonic()
     opponents = len(game.active()) - 1
@@ -570,23 +636,8 @@ async def _bot_turn(ctx, game: HoldemGame, player: Player, to_call: int):
     call_amount = min(to_call, player.remaining)
     opening_bet = game.current_bet == 0
     await apply_action(game, player, action)
-    kind = action[0]
-    if kind == "fold":
-        verb = "folds"
-    elif kind == "check":
-        verb = "checks"
-    elif kind == "call":
-        verb = f"calls {call_amount}" + (", all-in" if player.all_in else "")
-    elif kind == "raise":
-        verb = f"bets {game.current_bet}" if opening_bet else f"raises to {game.current_bet}"
-    else:
-        kind = "allin"
-        verb = f"goes **all-in** ({player.street_contributed} this street)"
-    text = f"🤖 **{player.member.display_name}** {verb}."
-    line = npc_line(npc, kind)
-    if line:
-        text += f"\n> {line}"
-    await ctx.send(text)
+    kind = action[0] if action[0] in ("fold", "check", "call", "raise") else "allin"
+    _log(table, player, _action_text(kind, call_amount, player, game, opening_bet), npc_line(npc, kind))
 
 
 async def run_betting_round(ctx, table: HoldemTable, game: HoldemGame, street_name: str, reset_street: bool):
@@ -621,21 +672,25 @@ async def run_betting_round(ctx, table: HoldemTable, game: HoldemGame, street_na
         player = pending[0]
         to_call = game.current_bet - player.street_contributed
         if is_npc(player.member):
-            await _bot_turn(ctx, game, player, to_call)
+            await _bot_turn(table, game, player, to_call)
             continue
         view = ActionView(table, game, player, to_call)
         table.current_action_view = view
-        embed, file = build_table_embed(game, street_name, prompt_player=player)
-        send_kwargs = {"content": f"{player.member.mention} — your turn ({street_name})", "embed": embed, "view": view}
-        if file is not None:
-            send_kwargs["file"] = file
-        turn_message = await ctx.send(**send_kwargs)
+        embed, file = await table_message(table, game, street_name, prompt_player=player)
+        turn_message = await ctx.send(
+            content=f"{player.member.mention} — your turn ({street_name})", embed=embed, file=file, view=view,
+        )
 
         timed_out = await view.wait()
         action = view.result
         if timed_out or action is None:
             action = ("fold",) if to_call > 0 else ("check",)
+        call_amount = min(to_call, player.remaining)
+        opening_bet = game.current_bet == 0
         await apply_action(game, player, action)
+        kind = action[0] if action[0] in ("fold", "check", "call", "raise") else "allin"
+        text = _action_text(kind, call_amount, player, game, opening_bet)
+        _log(table, player, f"{text} (timed out)" if timed_out else text)
         table.current_action_view = None
 
         try:
@@ -644,44 +699,32 @@ async def run_betting_round(ctx, table: HoldemTable, game: HoldemGame, street_na
             pass
 
 
-async def settle_hand(ctx, game: HoldemGame):
+async def settle_hand(ctx, table: HoldemTable, game: HoldemGame):
     active = game.active()
     contributions = {p.member.id: p.contributed for p in game.players}
     folded_ids = {p.member.id for p in game.players if p.folded}
+    currency = db.get_currency_name(game.guild_id)
+    id_to_player = {p.member.id: p for p in game.players}
 
     if len(active) == 1:
         winner = active[0]
         amount = sum(contributions.values())
-        currency = db.get_currency_name(game.guild_id)
+        line = f"Everyone else folded — **{isolate(winner.member.display_name)}** takes the pot of **{amount}** {currency}!"
         if is_npc(winner.member):
-            balance_str = ""
+            speech = npc_line(winner.member.npc, "win")
+            if speech:
+                table.speech[winner.member.id] = speech
         else:
             new_balance = await asyncio.to_thread(db.update_balance, game.guild_id, winner.member.id, amount)
-            balance_str = f" (Balance: {new_balance})"
-        embed = discord.Embed(
-            title="🃏 Texas Hold'em — Result",
-            description=(
-                f"Everyone else folded — **{winner.member.display_name}** takes the pot of "
-                f"**{amount}** {currency}!{balance_str}"
-            ),
-            color=discord.Color.gold(),
+            line += f" (Balance: {new_balance})"
+        embed, file = await table_message(
+            table, game, "Result", showdown={winner.member.id: (None, amount)},
+            title="🃏 Texas Hold'em — Result", result_lines=[line],
         )
-        if is_npc(winner.member):
-            line = npc_line(winner.member.npc, "win")
-            if line:
-                embed.add_field(name=f"{winner.member.display_name} says", value=line, inline=False)
-        send_kwargs = {"embed": embed}
-        if game.community:
-            buf = cards_render.render_hand(game.community)
-            send_kwargs["file"] = discord.File(buf, filename="community.png")
-            embed.set_image(url="attachment://community.png")
-        else:
-            embed.add_field(name="Community", value="—", inline=False)
-        await ctx.send(**send_kwargs)
+        await ctx.send(embed=embed, file=file)
         return
 
     pots = poker.build_pots(contributions, folded_ids)
-    id_to_player = {p.member.id: p for p in game.players}
     payouts: dict[int, int] = {}
     hand_desc: dict[int, str] = {}
 
@@ -698,37 +741,36 @@ async def settle_hand(ctx, game: HoldemGame):
         for i, w in enumerate(winners):
             payouts[w.member.id] = payouts.get(w.member.id, 0) + share + (1 if i < remainder else 0)
 
+    result_lines = []
     for uid, amount in payouts.items():
-        if not is_npc(id_to_player[uid].member):
-            await asyncio.to_thread(db.update_balance, game.guild_id, uid, amount)
+        p = id_to_player[uid]
+        line = f"🏆 **{isolate(p.member.display_name)}** wins **{amount}** {currency} with {hand_desc.get(uid, '?')}"
+        if not is_npc(p.member):
+            new_balance = await asyncio.to_thread(db.update_balance, game.guild_id, uid, amount)
+            line += f" (Balance: {new_balance})"
+        result_lines.append(line)
 
-    community_buf = cards_render.render_hand(game.community)
-    files = [discord.File(community_buf, filename="community.png")]
-    community_embed = discord.Embed(title="🃏 Texas Hold'em — Showdown", color=discord.Color.gold())
-    community_embed.set_image(url="attachment://community.png")
-    embeds = [community_embed]
-
-    currency = db.get_currency_name(game.guild_id)
-    for i, p in enumerate(active):
-        won = payouts.get(p.member.id, 0)
-        hand_buf = cards_render.render_hand(p.hole)
-        fname = f"hand{i}.png"
-        files.append(discord.File(hand_buf, filename=fname))
-        title = f"{p.member.display_name} — won {won} {currency}" if won else p.member.display_name
-        description = hand_desc.get(p.member.id, "—")
+    for p in active:
         if is_npc(p.member):
-            line = npc_line(p.member.npc, "win" if won else "lose")
-            if line:
-                description += f"\n> {line}"
-        player_embed = discord.Embed(
-            title=title,
-            description=description,
-            color=discord.Color.green() if won else discord.Color.greyple(),
-        )
-        player_embed.set_image(url=f"attachment://{fname}")
-        embeds.append(player_embed)
+            speech = npc_line(p.member.npc, "win" if payouts.get(p.member.id) else "lose")
+            if speech:
+                table.speech[p.member.id] = speech
 
-    await ctx.send(embeds=embeds, files=files)
+    showdown = {p.member.id: (hand_desc.get(p.member.id), payouts.get(p.member.id, 0)) for p in active}
+    embed, file = await table_message(
+        table, game, "Showdown", showdown=showdown, title="🃏 Texas Hold'em — Showdown", result_lines=result_lines,
+    )
+    await ctx.send(embed=embed, file=file)
+
+
+async def _fetch_avatars(table: HoldemTable, members: list):
+    for m in members:
+        if is_npc(m) or m.id in table.avatars:
+            continue
+        try:
+            table.avatars[m.id] = await m.display_avatar.replace(size=128, static_format="png").read()
+        except Exception:
+            table.avatars[m.id] = None  # renders as an initial instead
 
 
 async def play_hand(ctx, table: HoldemTable, members: list, stacks: dict[int, int]):
@@ -738,8 +780,11 @@ async def play_hand(ctx, table: HoldemTable, members: list, stacks: dict[int, in
     table.current_players_by_id = {p.member.id: p for p in players}
     humans = [m for m in members if not is_npc(m)]
     busy_players.update(m.id for m in humans)
+    table.log.clear()
+    table.speech.clear()
 
     try:
+        await _fetch_avatars(table, humans)
         dealer, sb_idx, bb_idx = blind_seats(len(players))
         sb_player, bb_player = players[sb_idx], players[bb_idx]
         await _commit(game, sb_player, min(SMALL_BLIND, sb_player.remaining))
@@ -749,15 +794,11 @@ async def play_hand(ctx, table: HoldemTable, members: list, stacks: dict[int, in
         for p in players:
             p.hole = [game.deck.draw(), game.deck.draw()]
 
-        preflop_embed, preflop_file = build_table_embed(game, "Pre-Flop")
-        preflop_kwargs = {
-            "content": "Cards are dealt — click below to see your hand (only you can see it).",
-            "embed": preflop_embed,
-            "view": RevealHandView(table),
-        }
-        if preflop_file is not None:
-            preflop_kwargs["file"] = preflop_file
-        await ctx.send(**preflop_kwargs)
+        # A standalone deal/street scene only when no human will get a turn prompt this street
+        # (which would show the same table a moment later anyway, right after the bots' moves).
+        if not human_to_act(game):
+            embed, file = await table_message(table, game, "Pre-Flop")
+            await ctx.send(content="Cards are dealt.", embed=embed, file=file, view=RevealHandView(table))
         await run_betting_round(ctx, table, game, "Pre-Flop", reset_street=False)
 
         for street_name, n_cards in (("Flop", 3), ("Turn", 1), ("River", 1)):
@@ -770,11 +811,14 @@ async def play_hand(ctx, table: HoldemTable, members: list, stacks: dict[int, in
                 game.community.append(game.deck.draw())
 
             can_act = [p for p in game.active() if not p.all_in]
-            street_embed, street_file = build_table_embed(game, street_name)
-            street_kwargs = {"embed": street_embed, "view": RevealHandView(table)}
-            if street_file is not None:
-                street_kwargs["file"] = street_file
-            await ctx.send(**street_kwargs)
+            if len(can_act) > 1:
+                # Reset street bets before drawing, so the scene doesn't show last street's chips.
+                for p in game.players:
+                    p.street_contributed = 0
+                game.current_bet = 0
+            if len(can_act) <= 1 or not human_to_act(game):
+                embed, file = await table_message(table, game, street_name)
+                await ctx.send(embed=embed, file=file, view=RevealHandView(table))
             if len(can_act) > 1:
                 await run_betting_round(ctx, table, game, street_name, reset_street=True)
             else:
@@ -789,7 +833,7 @@ async def play_hand(ctx, table: HoldemTable, members: list, stacks: dict[int, in
             if len(game.active()) > 1:
                 while len(game.community) < 5:
                     game.community.append(game.deck.draw())
-        await settle_hand(ctx, game)
+        await settle_hand(ctx, table, game)
     finally:
         busy_players.difference_update(m.id for m in humans)
         table.current_game = None

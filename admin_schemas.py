@@ -1356,6 +1356,13 @@ CONTENT_TYPES = {
                 )
             ],
             {
+                "name": "poker_sprite_path", "type": "image", "required": False, "subdir": "npcs",
+                "hint": "optional seated portrait for the Hold'em table: a cut-out on a transparent "
+                        "background, drawn behind the far rail (its bottom ~35px hides under the table). "
+                        "Any size; it's trimmed to its visible pixels and scaled to fit 196x205. Without "
+                        "one, sprite_path is used (or framed, if it has no transparency to trim).",
+            },
+            {
                 "name": "poker_trigger", "type": "trigger", "required": False,
                 "hint": "optional -- this NPC only sits at Hold'em tables while this holds (checked "
                         "against whoever opened the table), and leaves between hands once it stops. "

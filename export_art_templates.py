@@ -1,5 +1,5 @@
 """One-off dev utility: exports every hand-drawn PIL visual element from the casino games
-(roulette, craps, slots, cards, connect4, mancala, uno, icebreak) as an individual PNG template, sized at
+(roulette, blackjack, holdem, craps, slots, cards, connect4, mancala, uno, icebreak) as an individual PNG template, sized at
 its real render dimensions, so each can be repainted into real art and later swapped in as an
 image asset (same pattern as assets/npcs, assets/horses, assets/dungeon).
 
@@ -69,6 +69,34 @@ def export_blackjack():
     import blackjack_render as bjr
 
     _save(bjr._base_table(), "blackjack", "table_background")
+
+
+# ---------------------------------------------------------------------------
+# hold'em
+# ---------------------------------------------------------------------------
+def export_holdem():
+    """room_background sits behind the seated NPCs; table_foreground goes over them and must stay
+    transparent above the far rail. seat_guide (reference only, not loaded by the bot) marks where
+    the far-row portraits stand and how much of them the rail hides."""
+    import holdem_render as hr
+
+    _save(hr.procedural_room(), "holdem", "room_background")
+    _save(hr.procedural_table(), "holdem", "table_foreground")
+
+    guide = hr.procedural_room()
+    draw = ImageDraw.Draw(guide)
+    pw, ph = hr.PORTRAIT_BOX
+    for cx in hr.FAR_XS:
+        bottom = hr.FAR_RAIL_Y + hr.PORTRAIT_TUCK
+        draw.rectangle([cx - pw / 2, bottom - ph, cx + pw / 2, bottom], outline=(255, 205, 60, 255), width=2)
+    guide.alpha_composite(hr.procedural_table())
+    draw = ImageDraw.Draw(guide)
+    draw.line([(0, hr.FAR_RAIL_Y), (hr.WIDTH, hr.FAR_RAIL_Y)], fill=(255, 80, 80, 255), width=1)
+    for cx in hr.NEAR_XS:
+        cy = hr.NEAR_AVATAR_Y
+        r = hr.AVATAR_SIZE / 2
+        draw.ellipse([cx - 95 - r, cy - r, cx - 95 + r, cy + r], outline=(255, 205, 60, 255), width=2)
+    _save(guide, "holdem", "seat_guide")
 
 
 def export_craps():
@@ -250,6 +278,7 @@ def export_icebreak():
 if __name__ == "__main__":
     export_roulette()
     export_blackjack()
+    export_holdem()
     export_craps()
     export_cards()
     export_connect4()

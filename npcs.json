@@ -281,6 +281,7 @@
     "room": "vic_junkyard",
     "greet_message": "*The statue grows arms and gestures furiously at you, speaking a gibberish language you don't understand.*",
     "sprite_path": "assets/npcs/vic.png",
+    "poker_sprite_path": "assets/npcs/vic_poker.png",
     "buys_items": false,
     "poker_bot": true,
     "poker_tightness": 0.5,
