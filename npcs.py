@@ -122,6 +122,9 @@ def _validate_poker_fields(npc_id: str, entry: dict):
         value = entry.get(f"poker_lines_{kind}")
         if value is not None and not isinstance(value, str):
             raise ValueError(f"npcs.json: npc {npc_id!r} poker_lines_{kind} must be text")
+    scale = entry.get("poker_sprite_scale")
+    if scale is not None and not (isinstance(scale, (int, float)) and 0 < scale <= 2):
+        raise ValueError(f"npcs.json: npc {npc_id!r} poker_sprite_scale must be a number above 0, up to 2")
     trigger = entry.get("poker_trigger")
     if trigger is not None and not (isinstance(trigger, dict) and "type" in trigger):
         raise ValueError(f"npcs.json: npc {npc_id!r} has a malformed poker_trigger")

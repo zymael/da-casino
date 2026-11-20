@@ -652,6 +652,7 @@ def _seat_views(
             to_act=p is prompt_player,
             badge=badge,
             portrait_path=_portrait_path(p.member),
+            portrait_scale=p.member.npc.get("poker_sprite_scale", 1.0) if is_npc(p.member) else 1.0,
             avatar=table.avatars.get(p.member.id),
             cards=p.hole if hand_label else None,
             hand_label=hand_label,

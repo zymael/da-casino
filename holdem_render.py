@@ -84,6 +84,7 @@ class SeatView:
     to_act: bool = False
     badge: str = ""  # "D", "SB", "BB", "D SB"
     portrait_path: str | None = None  # NPCs
+    portrait_scale: float = 1.0  # NPCs: npcs.json poker_sprite_scale
     avatar: bytes | None = None  # humans (Discord avatar PNG)
     cards: list | None = None  # face-up cards (showdown); None = face-down backs while in the hand
     hand_label: str | None = None  # e.g. "Full House" at showdown
@@ -272,7 +273,7 @@ def _table() -> Image.Image:
 # ---------------------------------------------------------------------------
 # portraits
 # ---------------------------------------------------------------------------
-_portrait_cache: dict[str, tuple[float, Image.Image]] = {}
+_portrait_cache: dict[tuple, tuple[float, Image.Image]] = {}  # (path, scale) -> (mtime, image)
 
 
 def _framed(img: Image.Image) -> Image.Image:
@@ -289,15 +290,17 @@ def _framed(img: Image.Image) -> Image.Image:
     return frame
 
 
-def load_portrait(path: str | None) -> Image.Image | None:
-    """An NPC portrait trimmed to its visible pixels and scaled into PORTRAIT_BOX (cached)."""
+def load_portrait(path: str | None, scale_mult: float = 1.0) -> Image.Image | None:
+    """An NPC portrait trimmed to its visible pixels and scaled into PORTRAIT_BOX, then by the NPC's
+    optional poker_sprite_scale (`scale_mult`, e.g. 0.5 for a small creature). Cached."""
     if not path:
         return None
     full = path if os.path.isabs(path) else os.path.join(os.path.dirname(__file__), path)
     if not os.path.exists(full):
         return None
     mtime = os.path.getmtime(full)
-    hit = _portrait_cache.get(full)
+    key = (full, scale_mult)
+    hit = _portrait_cache.get(key)
     if hit and hit[0] == mtime:
         return hit[1]
     img = Image.open(full)
@@ -310,9 +313,9 @@ def load_portrait(path: str | None) -> Image.Image | None:
         portrait = _framed(img)
     else:
         portrait = img.crop(bbox)
-    scale = min(PORTRAIT_BOX[0] / portrait.width, PORTRAIT_BOX[1] / portrait.height)
+    scale = min(PORTRAIT_BOX[0] / portrait.width, PORTRAIT_BOX[1] / portrait.height) * scale_mult
     portrait = portrait.resize((max(1, int(portrait.width * scale)), max(1, int(portrait.height * scale))), Image.LANCZOS)
-    _portrait_cache[full] = (mtime, portrait)
+    _portrait_cache[key] = (mtime, portrait)
     return portrait
 
 
@@ -500,7 +503,7 @@ def _draw_far(img, seats: list[SeatView], portraits_layer: Image.Image):
     xs = _spread(FAR_XS, len(seats))
     for seat, cx in zip(seats, xs):
         if seat.is_npc:
-            p = load_portrait(seat.portrait_path)
+            p = load_portrait(seat.portrait_path, seat.portrait_scale)
         else:
             p = _avatar_circle(seat.avatar, 120, seat.name)
         if p is None:
@@ -527,7 +530,7 @@ def _near_details(img, draw, seats: list[SeatView]):
         _seat_cards(img, draw, cx, NEAR_CARDS_Y, seat, label_above=True)
         av_x = cx - 95
         if seat.is_npc:
-            p = load_portrait(seat.portrait_path)
+            p = load_portrait(seat.portrait_path, seat.portrait_scale)
             av = _avatar_circle(None, AVATAR_SIZE, seat.name) if p is None else None
             if p is not None:  # an overflow NPC on the near side: a head-and-shoulders crop in a circle
                 buf = io.BytesIO()

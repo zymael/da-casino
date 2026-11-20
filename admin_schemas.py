@@ -1363,6 +1363,11 @@ CONTENT_TYPES = {
                         "one, sprite_path is used (or framed, if it has no transparency to trim).",
             },
             {
+                "name": "poker_sprite_scale", "type": "float", "required": False, "group": "Hold'em Bot",
+                "hint": "optional, default 1.0 (above 0, up to 2): multiplies the seated portrait's size at "
+                        "the Hold'em table, e.g. 0.5 for a small creature.",
+            },
+            {
                 "name": "poker_trigger", "type": "trigger", "required": False,
                 "hint": "optional -- this NPC only sits at Hold'em tables while this holds (checked "
                         "against whoever opened the table), and leaves between hands once it stops. "
