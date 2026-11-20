@@ -64,6 +64,7 @@
       "phase": "full_moon"
     },
     "sprite_path": "assets/npcs/kel_werewolf.png",
+    "poker_sprite_path": "assets/npcs/kel_werewolf_poker.png",
     "buys_items": false,
     "poker_bot": true,
     "poker_tightness": 0.2,
