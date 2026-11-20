@@ -194,14 +194,14 @@
     "poker_aggression": 0.65,
     "poker_bluff": 0.1,
     "poker_allin_rate": 0.08,
-    "poker_lines_sit": "I hope you're stronger than you look.\nLet's see what you're made of.",
-    "poker_lines_fold": "Fine. Keep it.\nYou got lucky.",
-    "poker_lines_check": "Go ahead.",
-    "poker_lines_call": "That all you got?\nI'll take that.",
-    "poker_lines_raise": "Let's make this hurt.\nYou look nervous. Raise.",
-    "poker_lines_allin": "Everything. Show me some strength.\nAll in. Don't flinch.",
-    "poker_lines_win": "Weaker than you look, actually.\nThought so.",
-    "poker_lines_lose": "Huh. Stronger than you look.\nDon't get used to it."
+    "poker_lines_sit": "*Slithers up onto the chair, the hammer coiled in her tail, and slams it down on the table. The chips jump.* I hope you're stronger than you look.",
+    "poker_lines_fold": "Fine. *Coils tighter around the hammer handle.* Next hand, you're mine.",
+    "poker_lines_check": "*Eyestalks narrow.* Go on.",
+    "poker_lines_call": "*Thunk. The hammer drops next to her chips.* Called.",
+    "poker_lines_raise": "*Sweeps a pile of chips into the pot with one swing of the hammer.* Let's make this hurt.",
+    "poker_lines_allin": "*Rears up and brings the hammer down on her whole stack, sending it skidding into the pot.* ALL OF IT.",
+    "poker_lines_win": "*Curls up around the pot.* Thought so.",
+    "poker_lines_lose": "*Squeezes the hammer handle until it snaps clean in half then slimes off.*"
   },
   {
     "id": "leto",
