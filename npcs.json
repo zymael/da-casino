@@ -98,14 +98,14 @@
     "poker_bluff": 0.05,
     "poker_allin_rate": 0.25,
     "poker_chatter": 0.7,
-    "poker_lines_sit": "LET IT RIDE\nPUT ME IN",
-    "poker_lines_fold": "...THE RIDE IS OVER\nNOT EVEN I RIDE THIS ONE",
-    "poker_lines_check": "LET IT ROLL",
+    "poker_lines_sit": "LET IT RIDE\nPUT ME IN\nEVERYTHING ON 17 BLACK. WAIT, WRONG TABLE.",
+    "poker_lines_fold": "...THE RIDE IS OVER\nNOT EVEN I RIDE THIS ONE\nSHOULD'VE PUT IT ON 17 BLACK",
+    "poker_lines_check": "*Taps head.* 17... BLACK...\nLET IT RIDE",
     "poker_lines_call": "LET IT RIDE\nRIDING IT",
     "poker_lines_raise": "LET IT RIDE HIGHER\nMORE RIDE",
-    "poker_lines_allin": "LET IT ALL RIDE\nRIDE OR DIE",
-    "poker_lines_win": "IT RODE\nTHAT'S WHY YOU LET IT RIDE",
-    "poker_lines_lose": "PHUK VEGAS\nTHE HOUSE IS EDGING"
+    "poker_lines_allin": "LET IT ALL RIDE\nRIDE OR DIE\nEVERYTHING ON 17 BLACK. LET IT RIDE.",
+    "poker_lines_win": "IT RODE\nTHAT'S WHY YOU LET IT RIDE\n17 BLACK BABY\n*Taps head.* NEVER BET AGAINST 17 BLACK",
+    "poker_lines_lose": "PHUK VEGAS\nTHE HOUSE IS EDGING\n*Wanders off toward the roulette wheel.*"
   },
   {
     "id": "princess",
