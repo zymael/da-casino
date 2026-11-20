@@ -82,7 +82,9 @@ def effect_phrase(effect: dict, scales_with_caster: bool = True) -> str:
     if t == "dot":
         return f"{round(v)} dmg/round for {_rounds(effect['duration'])}"
     if t == "hot":
-        return f"regen {_pct(v)} HP/round for {_rounds(effect['duration'])}" + _overheal_note(effect)
+        text = f"regen {_pct(v)}+ HP/round for {_rounds(effect['duration'])} (grows with {dungeon.stat_label('spatk')})" \
+            if scales_with_caster else f"regen {_pct(v)} HP/round for {_rounds(effect['duration'])}"
+        return text + _overheal_note(effect)
     if t == "stun":
         return f"stunned {_turns(effect['duration'])}"
     if t == "sap":

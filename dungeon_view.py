@@ -2591,10 +2591,10 @@ def _effect_execute_multiplier(actor, monster_state, effect: dict, log_lines: li
 
 
 def _effect_heal_fraction(target, caster, effect: dict, log_lines: list[str], mods: dict):
-    """Heals `target` for a fraction of THEIR OWN max HP -- effect["value"] is a floor, not the
-    final number: `caster`'s own SpAtk (debuff-adjusted, same as every other stat this game reads
-    mid-fight) scales it up from there, capped at dungeon.HEAL_FRACTION_CAP (see that constant's
-    own comment for the curve this produces). `caster` is the same entity as `target` for a
+    """Heals `target` for a fraction of THEIR OWN max HP -- effect["value"] is the base, multiplied
+    by `caster`'s own SpAtk (debuff-adjusted, same as every other stat this game reads mid-fight)
+    via dungeon.heal_multiplier, capped at dungeon.HEAL_FRACTION_CAP (see HEAL_SPATK_WEIGHT's own
+    comment for the curve this produces). On-hit gear procs (_roll_on_hit_procs) scale too. `caster` is the same entity as `target` for a
     self-cast heal (_apply_self_effects passes actor in both slots) -- reads identically either
     way, since this only ever cares about whoever's casting, not whether that's also the target.
 
@@ -2605,16 +2605,21 @@ def _effect_heal_fraction(target, caster, effect: dict, log_lines: list[str], mo
     out-of-combat flat-fraction behavior instead of quietly inheriting a healer skill's own
     progression curve. True (the default) preserves the original scaling for every skill/monster
     cast, which is what this curve was actually tuned around."""
-    if mods.get("heal_scales_with_caster", True):
-        caster_spatk = max(0, caster.spatk - caster.spatk_debuff)
-        fraction = min(dungeon.HEAL_FRACTION_CAP, effect["value"] + caster_spatk * dungeon.HEAL_SPATK_WEIGHT)
-    else:
-        fraction = effect["value"]
+    fraction = _scaled_heal_value(effect["value"], caster, mods)
     amount = round(target.max_hp * fraction)
     healed = min(target.max_hp, target.hp + amount) - target.hp
     target.hp += healed
     log_lines.append(f"{_actor_label(target)} {_verb(target, 'recover')} **{healed}** HP.")
     _handle_overheal(target, caster, amount - healed, effect, log_lines)
+
+
+def _scaled_heal_value(value: float, caster, mods: dict) -> float:
+    """A heal_fraction/hot value after the caster's SpAtk multiplier, or unchanged for an item's
+    on-use cast (mods["heal_scales_with_caster"] False) or a casterless heal."""
+    if caster is None or not mods.get("heal_scales_with_caster", True):
+        return value
+    multiplier = dungeon.heal_multiplier(caster.spatk - caster.spatk_debuff)
+    return min(dungeon.HEAL_FRACTION_CAP, value * multiplier)
 
 
 def _handle_overheal(target, caster, overheal: int, effect: dict, log_lines: list[str]) -> None:
@@ -2790,8 +2795,10 @@ def _effect_dot(actor, monster_state, effect: dict, log_lines: list[str], mods: 
 
 
 def _effect_hot(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    # Scaled once at cast time by the caster's SpAtk, same multiplier as heal_fraction.
+    value = _scaled_heal_value(effect["value"], monster_state, mods)
     _apply_timed_effect(
-        actor, "hot", effect["value"], effect["duration"], log_lines,
+        actor, "hot", value, effect["duration"], log_lines,
         f"{_possessive_label(actor)} wounds will mend for **{effect['duration']}** more round(s).",
     )
     # Remember who cast it and its Comps share, so each tick's overheal can be routed (_tick_timed_effects).

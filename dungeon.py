@@ -2308,15 +2308,20 @@ SPEED_DODGE_CAP = 20
 # early monsters barely move. Applies before any dodge_buff/resist_buff bonus, which stays flat.
 MONSTER_AVOID_MULTIPLIER = 0.6
 
-# A heal_fraction effect's own authored "value" is its floor, not its final number -- the caster's
-# own SpAtk scales it up from there (dungeon_view._effect_heal_fraction), capped at
-# HEAL_FRACTION_CAP (1.0 -- a literal full heal). Gives healing an actual progression curve tied to
-# a stat a player can build around, the same way damage already scales with ATK/SpAtk, instead of
-# being a flat number from level 1. HEAL_SPATK_WEIGHT=0.007 against a healer's own SpAtk growth
-# (base 9, +2/level) means a fresh level-1 healer's heal (base 0.5) sits around 56%, climbing
-# through ~75% by level 15 and reaching the full 100% cap around level 40.
-HEAL_SPATK_WEIGHT = 0.007
+# A heal_fraction/hot effect's authored "value" is its base, which the caster's SpAtk MULTIPLIES
+# (heal_multiplier), capped at HEAL_FRACTION_CAP (1.0 -- a literal full heal). Multiplying rather
+# than adding keeps the authored size meaningful: it used to be value + SpAtk x 0.007, which at the
+# level cap added +61% to every heal before gear, so a 12% gear proc and a 50% healer spell both
+# landed near a full heal. With 0.003, a level-40 healer's 50% heal is ~63% ungeared (SpAtk 87),
+# ~77% in the best normal gear (~181), ~90% in typical All In 5 SpAtk gear (~264), and only a
+# perfect-roll All In set reaches the cap.
+HEAL_SPATK_WEIGHT = 0.003
 HEAL_FRACTION_CAP = 1.0
+
+
+def heal_multiplier(spatk: int) -> float:
+    """How much a caster with this (debuff-adjusted) SpAtk scales a heal's authored value."""
+    return 1 + max(0, spatk) * HEAL_SPATK_WEIGHT
 
 
 def dodge_chance(defense: int, speed: int = 0, *, monster: bool = False) -> float:
