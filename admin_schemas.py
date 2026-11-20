@@ -1271,8 +1271,11 @@ CONTENT_TYPES = {
         # npcs._load_npcs can't check a "housing_item"-kind shop entry's item_id itself (see
         # npcs.py's own SHOP_KINDS comment for why) -- deferred here as an extra save-time check,
         # same "rooms"/"recipes" pattern above.
-        "extra_validators": [lambda new_registry: quests.validate_shop_housing_items(new_registry)],
-        "list_columns": ["id", "name", "room", "greet_achievement"],
+        "extra_validators": [
+            lambda new_registry: quests.validate_shop_housing_items(new_registry),
+            lambda new_registry: quests.validate_npc_poker_triggers(new_registry),
+        ],
+        "list_columns": ["id", "name", "room", "greet_achievement", "poker_bot"],
         "fields": [
             {"name": "id", "type": "str", "required": True, "group": "Identity"},
             {"name": "name", "type": "str", "required": True, "group": "Identity"},
@@ -1314,6 +1317,49 @@ CONTENT_TYPES = {
                 "name": "buys_items", "type": "bool", "required": False, "default": False,
                 "hint": "shows a Sell button for this NPC -- buys anything sellable (any kind but "
                         "quest_item) the player currently owns, at half its base_value (sell.py)",
+            },
+            {
+                "name": "poker_bot", "type": "bool", "required": False, "default": False, "group": "Hold'em Bot",
+                "hint": "lets players seat this NPC at a Hold'em table as a bot (house-funded stack)",
+            },
+            {
+                "name": "poker_tightness", "type": "float", "required": False, "group": "Hold'em Bot",
+                "hint": "0-1, default 0.5. How much of an edge over the pot odds it wants before calling. "
+                        "0 calls a little light, 1 only continues with a clear edge.",
+            },
+            {
+                "name": "poker_aggression", "type": "float", "required": False, "group": "Hold'em Bot",
+                "hint": "0-1, default 0.5. How readily it raises a good hand instead of calling, and how big.",
+            },
+            {
+                "name": "poker_bluff", "type": "float", "required": False, "group": "Hold'em Bot",
+                "hint": "0-1, default 0.08. Chance to bet a weak hand when it could check. Bluffs never "
+                        "risk more than about a third of its stack.",
+            },
+            {
+                "name": "poker_allin_rate", "type": "float", "required": False, "group": "Hold'em Bot",
+                "hint": "0-1, default 0.05. Chance a raise becomes an all-in shove.",
+            },
+            {
+                "name": "poker_chatter", "type": "float", "required": False, "group": "Hold'em Bot",
+                "hint": "0-1, default 0.6. Chance it says one of its lines when it acts.",
+            },
+            *[
+                {
+                    "name": f"poker_lines_{kind}", "type": "text", "required": False, "group": "Hold'em Bot Lines",
+                    "hint": f"one line per line, a random one is said when it {desc}",
+                }
+                for kind, desc in (
+                    ("sit", "sits down"), ("fold", "folds"), ("check", "checks"), ("call", "calls"),
+                    ("raise", "raises"), ("allin", "goes all-in"), ("win", "wins a pot"),
+                    ("lose", "loses a showdown"),
+                )
+            ],
+            {
+                "name": "poker_trigger", "type": "trigger", "required": False,
+                "hint": "optional -- this NPC only sits at Hold'em tables while this holds (checked "
+                        "against whoever opened the table), and leaves between hands once it stops. "
+                        "Counted types (kill_monster/craft_item) aren't allowed.",
             },
         ],
     },

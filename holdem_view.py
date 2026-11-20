@@ -1,10 +1,15 @@
 import asyncio
+import random
+import time
 
 import discord
 
 import cards_render
 import db
+import npcs
 import poker
+import poker_ai
+import quests
 from game import Deck
 
 JOIN_SECONDS = 45
@@ -12,6 +17,12 @@ ACTION_SECONDS = 45
 BETWEEN_HANDS_SECONDS = 5
 SMALL_BLIND = 5
 BIG_BLIND = 10
+MAX_SEATS = 9
+# NPC bots (npcs.json poker_bot) play from a house-funded stack: each hand, as deep as the deepest
+# human at the table, but never more than this.
+BOT_STACK_CAP = 5000
+BOT_THINK_SECONDS = 1.5
+DEFAULT_CHATTER = 0.6
 
 # channel_id -> HoldemTable, so only one table can be running per channel
 active_tables: dict[int, "HoldemTable"] = {}
@@ -22,30 +33,99 @@ active_tables: dict[int, "HoldemTable"] = {}
 busy_players: set[int] = set()
 
 
+class NpcMember:
+    """Stands in for a discord.Member at the table for an NPC bot. Its id is negative, so it can
+    never collide with a real user, and every db write is skipped for it (`is_npc`)."""
+
+    is_npc = True
+
+    def __init__(self, npc_id: str, bot_id: int):
+        self.npc_id = npc_id
+        self.id = bot_id
+
+    @property
+    def npc(self) -> dict:
+        return npcs.NPCS[self.npc_id]
+
+    @property
+    def display_name(self) -> str:
+        return self.npc["name"]
+
+    @property
+    def mention(self) -> str:
+        return f"**{self.display_name}**"
+
+
+def is_npc(member) -> bool:
+    return getattr(member, "is_npc", False)
+
+
+def npc_line(npc: dict, kind: str, always: bool = False) -> str | None:
+    """A random one of this NPC's lines for `kind`, or None (no lines, or it stayed quiet)."""
+    lines = npcs.poker_lines(npc, kind)
+    if not lines or (not always and random.random() >= npc.get("poker_chatter", DEFAULT_CHATTER)):
+        return None
+    return random.choice(lines)
+
+
 class Seat:
-    def __init__(self, member: discord.Member, buy_in: int | None):
+    def __init__(self, member, buy_in: int | None, seat_no: int = 0):
         self.member = member
-        self.buy_in = buy_in  # None = bring full balance to every hand
+        self.buy_in = buy_in  # None = bring full balance to every hand (ignored for bots)
         self.standing = False  # leave once the current/next hand wraps up
+        # Ever-increasing per table, so the dealer button can move "one seat left" past players
+        # who've since left (see next_hand_order).
+        self.seat_no = seat_no
 
 
 class HoldemTable:
-    def __init__(self, channel: discord.abc.Messageable, channel_id: int, guild_id: int):
+    def __init__(self, channel: discord.abc.Messageable, channel_id: int, guild_id: int, host_id: int):
         self.channel = channel
         self.channel_id = channel_id
         self.guild_id = guild_id
+        self.host_id = host_id  # whose state an NPC's poker_trigger is checked against
         self.seats: list[Seat] = []
         self.control_message: discord.Message | None = None
+        self.control_view: "TableControlView | None" = None
         self.current_game: "HoldemGame | None" = None
         self.current_players_by_id: dict[int, "Player"] = {}
         self.current_action_view: "ActionView | None" = None
+        self._next_bot_id = -1
+        self.closed = False
+        self._next_seat_no = 0
+        self.last_dealer_seat_no: int | None = None
+
+    def add_seat(self, member, buy_in: int | None) -> Seat:
+        seat = Seat(member, buy_in, self._next_seat_no)
+        self._next_seat_no += 1
+        self.seats.append(seat)
+        return seat
 
     def seat_for(self, user_id: int) -> Seat | None:
         return next((s for s in self.seats if s.member.id == user_id), None)
 
+    def bot_seat_for(self, npc_id: str) -> Seat | None:
+        return next((s for s in self.seats if is_npc(s.member) and s.member.npc_id == npc_id), None)
+
+    def new_bot_member(self, npc_id: str) -> NpcMember:
+        member = NpcMember(npc_id, self._next_bot_id)
+        self._next_bot_id -= 1
+        return member
+
+    def seated_humans(self) -> list[Seat]:
+        return [s for s in self.seats if not s.standing and not is_npc(s.member)]
+
+    def seated(self) -> list[Seat]:
+        return [s for s in self.seats if not s.standing]
+
+
+async def bot_available(table: HoldemTable, npc: dict) -> bool:
+    trigger = npc.get("poker_trigger")
+    return trigger is None or await quests.trigger_satisfied(table.guild_id, table.host_id, trigger)
+
 
 class Player:
-    def __init__(self, member: discord.Member, starting_stack: int):
+    def __init__(self, member, starting_stack: int):
         self.member = member
         self.hole: list = []
         self.folded = False
@@ -54,6 +134,7 @@ class Player:
         self.street_contributed = 0
         self.remaining = starting_stack
         self.acted = False
+        self.raises_this_street = 0
 
 
 class HoldemGame:
@@ -99,7 +180,8 @@ async def _commit(game: HoldemGame, player: Player, amount: int):
     """Escrows `amount` from the player's balance into the pot."""
     if amount <= 0:
         return
-    await asyncio.to_thread(db.update_balance, game.guild_id, player.member.id, -amount)
+    if not is_npc(player.member):
+        await asyncio.to_thread(db.update_balance, game.guild_id, player.member.id, -amount)
     player.remaining -= amount
     player.contributed += amount
     player.street_contributed += amount
@@ -120,6 +202,7 @@ async def apply_action(game: HoldemGame, player: Player, action: tuple):
         raise_to = action[1]
         await _commit(game, player, raise_to - player.street_contributed)
         game.current_bet = player.street_contributed
+        player.raises_this_street += 1
         for p in game.active():
             if p is not player:
                 p.acted = False
@@ -127,6 +210,7 @@ async def apply_action(game: HoldemGame, player: Player, action: tuple):
         await _commit(game, player, player.remaining)
         if player.street_contributed > game.current_bet:
             game.current_bet = player.street_contributed
+            player.raises_this_street += 1
             for p in game.active():
                 if p is not player:
                     p.acted = False
@@ -245,11 +329,17 @@ def build_control_embed(table: HoldemTable) -> discord.Embed:
     else:
         lines = []
         for s in table.seats:
-            buyin_str = f"buy-in {s.buy_in}" if s.buy_in is not None else "full balance"
+            if is_npc(s.member):
+                buyin_str = "🤖 bot, house stack"
+            else:
+                buyin_str = f"buy-in {s.buy_in}" if s.buy_in is not None else "full balance"
             tag = " — *standing up after this hand*" if s.standing else ""
             lines.append(f"**{s.member.display_name}** — {buyin_str}{tag}")
         embed.description = "\n".join(lines)
-    embed.set_footer(text="Buy In to sit down or update your buy-in. Stand to leave whenever you like.")
+    embed.set_footer(
+        text="Buy In to sit down or update your buy-in. Stand to leave whenever you like. "
+             "Seated players can add or remove NPC bots below."
+    )
     return embed
 
 
@@ -283,16 +373,81 @@ class BuyInModal(discord.ui.Modal):
             seat.standing = False
             await interaction.response.send_message("Buy-in updated for your next hand.", ephemeral=True)
         else:
-            self.table.seats.append(Seat(interaction.user, buy_in))
+            if len(self.table.seated()) >= MAX_SEATS:
+                await interaction.response.send_message(f"The table's full ({MAX_SEATS} seats).", ephemeral=True)
+                return
+            self.table.add_seat(interaction.user, buy_in)
             await interaction.response.send_message("You're seated! You'll be dealt into the next hand.", ephemeral=True)
 
         await update_control_message(self.table)
 
 
+class BotSelect(discord.ui.Select):
+    """Seats or unseats an NPC bot. Options are every poker_bot NPC whose poker_trigger currently
+    holds, plus any bot already seated (so it can always be removed)."""
+
+    def __init__(self, table: HoldemTable, options: list[discord.SelectOption]):
+        super().__init__(placeholder="🤖 Add or remove a bot...", options=options, row=1)
+        self.table = table
+
+    async def callback(self, interaction: discord.Interaction):
+        table = self.table
+        seat = table.seat_for(interaction.user.id)
+        if seat is None or seat.standing:
+            await interaction.response.send_message("Sit down first to add or remove bots.", ephemeral=True)
+            return
+        npc_id = self.values[0]
+        npc = npcs.NPCS.get(npc_id)
+        if npc is None or not npc.get("poker_bot"):
+            await interaction.response.send_message("That bot isn't available any more.", ephemeral=True)
+            return
+
+        bot_seat = table.bot_seat_for(npc_id)
+        if bot_seat is not None and not bot_seat.standing:
+            bot_seat.standing = True
+            in_hand = bot_seat.member.id in table.current_players_by_id
+            when = "after this hand" if in_hand else "now"
+            await interaction.response.send_message(f"🤖 **{npc['name']}** leaves the table {when}.")
+        else:
+            if not await bot_available(table, npc):
+                await interaction.response.send_message(f"**{npc['name']}** isn't around right now.", ephemeral=True)
+                return
+            if len(table.seated()) >= MAX_SEATS:
+                await interaction.response.send_message(f"The table's full ({MAX_SEATS} seats).", ephemeral=True)
+                return
+            if bot_seat is not None:
+                bot_seat.standing = False
+            else:
+                table.add_seat(table.new_bot_member(npc_id), None)
+            line = npc_line(npc, "sit", always=True)
+            text = f"🤖 **{npc['name']}** sits down at the table."
+            if line:
+                text += f"\n> {line}"
+            await interaction.response.send_message(text)
+        await update_control_message(table)
+
+
+async def _bot_select_options(table: HoldemTable) -> list[discord.SelectOption]:
+    options = []
+    for npc in npcs.poker_bots():
+        seat = table.bot_seat_for(npc["id"])
+        seated = seat is not None and not seat.standing
+        if not seated and not await bot_available(table, npc):
+            continue
+        options.append(discord.SelectOption(
+            label=f"Remove {npc['name']}" if seated else f"Add {npc['name']}",
+            value=npc["id"],
+            emoji="✖️" if seated else "🤖",
+        ))
+    return options[:25]
+
+
 class TableControlView(discord.ui.View):
-    def __init__(self, table: HoldemTable):
+    def __init__(self, table: HoldemTable, bot_options: list[discord.SelectOption] | None = None):
         super().__init__(timeout=None)
         self.table = table
+        if bot_options:
+            self.add_item(BotSelect(table, bot_options))
 
     @discord.ui.button(label="Buy In", style=discord.ButtonStyle.success)
     async def buy_in_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -322,11 +477,20 @@ class TableControlView(discord.ui.View):
         await update_control_message(table)
 
 
+async def build_control_view(table: HoldemTable) -> TableControlView:
+    if table.control_view is not None:
+        table.control_view.stop()
+    table.control_view = TableControlView(table, await _bot_select_options(table))
+    return table.control_view
+
+
 async def update_control_message(table: HoldemTable):
-    if table.control_message is None:
+    if table.control_message is None or table.closed:
         return
+    # A bot that left before any hand dealt it in can just go.
+    table.seats = [s for s in table.seats if not (s.standing and is_npc(s.member) and s.member.id not in table.current_players_by_id)]
     try:
-        await table.control_message.edit(embed=build_control_embed(table))
+        await table.control_message.edit(embed=build_control_embed(table), view=await build_control_view(table))
     except discord.HTTPException:
         pass
 
@@ -350,7 +514,10 @@ def build_table_embed(
     embed.add_field(name="Current bet", value=f"{game.current_bet} {currency}", inline=True)
 
     lines = []
-    for p in game.players:
+    dealer_idx, sb_idx, bb_idx = blind_seats(len(game.players))
+    for i, p in enumerate(game.players):
+        badges = [b for b, idx in (("🔘D", dealer_idx), ("SB", sb_idx), ("BB", bb_idx)) if idx == i]
+        badge = f"`{' '.join(badges)}` " if badges else ""
         if p.folded:
             tag = "❌ folded"
         elif p.all_in:
@@ -359,9 +526,49 @@ def build_table_embed(
             tag = "🎯 to act"
         else:
             tag = ""
-        lines.append(f"**{p.member.display_name}** — {p.street_contributed} in (stack {p.remaining}) {tag}")
+        lines.append(f"{badge}**{p.member.display_name}** — {p.street_contributed} in (stack {p.remaining}) {tag}")
     embed.add_field(name="Players", value="\n".join(lines), inline=False)
     return embed, file
+
+
+async def _bot_turn(ctx, game: HoldemGame, player: Player, to_call: int):
+    """An NPC bot thinks (Monte Carlo equity in a thread, padded to a readable pause), acts through
+    the same apply_action a human's buttons use, and announces it, maybe with one of its lines."""
+    npc = player.member.npc
+    started = time.monotonic()
+    opponents = len(game.active()) - 1
+    equity = await asyncio.to_thread(poker_ai.estimate_equity, player.hole, list(game.community), opponents)
+    situation = poker_ai.Situation(
+        hole=player.hole, community=list(game.community), n_opponents=opponents, to_call=to_call,
+        pot=sum(p.contributed for p in game.players), current_bet=game.current_bet,
+        street_contributed=player.street_contributed, remaining=player.remaining, big_blind=BIG_BLIND,
+        raises_this_street=player.raises_this_street,
+    )
+    action = poker_ai.decide(situation, poker_ai.Personality.from_npc(npc), equity)
+    if action[0] == "check" and to_call > 0:
+        action = ("call",)
+    await asyncio.sleep(max(0.0, BOT_THINK_SECONDS - (time.monotonic() - started)))
+
+    call_amount = min(to_call, player.remaining)
+    opening_bet = game.current_bet == 0
+    await apply_action(game, player, action)
+    kind = action[0]
+    if kind == "fold":
+        verb = "folds"
+    elif kind == "check":
+        verb = "checks"
+    elif kind == "call":
+        verb = f"calls {call_amount}" + (", all-in" if player.all_in else "")
+    elif kind == "raise":
+        verb = f"bets {game.current_bet}" if opening_bet else f"raises to {game.current_bet}"
+    else:
+        kind = "allin"
+        verb = f"goes **all-in** ({player.street_contributed} this street)"
+    text = f"🤖 **{player.member.display_name}** {verb}."
+    line = npc_line(npc, kind)
+    if line:
+        text += f"\n> {line}"
+    await ctx.send(text)
 
 
 async def run_betting_round(ctx, table: HoldemTable, game: HoldemGame, street_name: str, reset_street: bool):
@@ -377,6 +584,7 @@ async def run_betting_round(ctx, table: HoldemTable, game: HoldemGame, street_na
         game.current_bet = 0
     for p in game.players:
         p.acted = False
+        p.raises_this_street = 0
 
     order = preflop_order(game.players) if street_name == "Pre-Flop" else postflop_order(game.players)
 
@@ -392,6 +600,9 @@ async def run_betting_round(ctx, table: HoldemTable, game: HoldemGame, street_na
 
         player = pending[0]
         to_call = game.current_bet - player.street_contributed
+        if is_npc(player.member):
+            await _bot_turn(ctx, game, player, to_call)
+            continue
         view = ActionView(table, game, player, to_call)
         table.current_action_view = view
         embed, file = build_table_embed(game, street_name, prompt_player=player)
@@ -421,16 +632,24 @@ async def settle_hand(ctx, game: HoldemGame):
     if len(active) == 1:
         winner = active[0]
         amount = sum(contributions.values())
-        new_balance = await asyncio.to_thread(db.update_balance, game.guild_id, winner.member.id, amount)
         currency = db.get_currency_name(game.guild_id)
+        if is_npc(winner.member):
+            balance_str = ""
+        else:
+            new_balance = await asyncio.to_thread(db.update_balance, game.guild_id, winner.member.id, amount)
+            balance_str = f" (Balance: {new_balance})"
         embed = discord.Embed(
             title="🃏 Texas Hold'em — Result",
             description=(
                 f"Everyone else folded — **{winner.member.display_name}** takes the pot of "
-                f"**{amount}** {currency}! (Balance: {new_balance})"
+                f"**{amount}** {currency}!{balance_str}"
             ),
             color=discord.Color.gold(),
         )
+        if is_npc(winner.member):
+            line = npc_line(winner.member.npc, "win")
+            if line:
+                embed.add_field(name=f"{winner.member.display_name} says", value=line, inline=False)
         send_kwargs = {"embed": embed}
         if game.community:
             buf = cards_render.render_hand(game.community)
@@ -460,7 +679,8 @@ async def settle_hand(ctx, game: HoldemGame):
             payouts[w.member.id] = payouts.get(w.member.id, 0) + share + (1 if i < remainder else 0)
 
     for uid, amount in payouts.items():
-        await asyncio.to_thread(db.update_balance, game.guild_id, uid, amount)
+        if not is_npc(id_to_player[uid].member):
+            await asyncio.to_thread(db.update_balance, game.guild_id, uid, amount)
 
     community_buf = cards_render.render_hand(game.community)
     files = [discord.File(community_buf, filename="community.png")]
@@ -475,9 +695,14 @@ async def settle_hand(ctx, game: HoldemGame):
         fname = f"hand{i}.png"
         files.append(discord.File(hand_buf, filename=fname))
         title = f"{p.member.display_name} — won {won} {currency}" if won else p.member.display_name
+        description = hand_desc.get(p.member.id, "—")
+        if is_npc(p.member):
+            line = npc_line(p.member.npc, "win" if won else "lose")
+            if line:
+                description += f"\n> {line}"
         player_embed = discord.Embed(
             title=title,
-            description=hand_desc.get(p.member.id, "—"),
+            description=description,
             color=discord.Color.green() if won else discord.Color.greyple(),
         )
         player_embed.set_image(url=f"attachment://{fname}")
@@ -486,12 +711,13 @@ async def settle_hand(ctx, game: HoldemGame):
     await ctx.send(embeds=embeds, files=files)
 
 
-async def play_hand(ctx, table: HoldemTable, members: list[discord.Member], stacks: dict[int, int]):
+async def play_hand(ctx, table: HoldemTable, members: list, stacks: dict[int, int]):
     players = [Player(m, stacks[m.id]) for m in members]
     game = HoldemGame(players, table.guild_id)
     table.current_game = game
     table.current_players_by_id = {p.member.id: p for p in players}
-    busy_players.update(m.id for m in members)
+    humans = [m for m in members if not is_npc(m)]
+    busy_players.update(m.id for m in humans)
 
     try:
         dealer, sb_idx, bb_idx = blind_seats(len(players))
@@ -534,19 +760,44 @@ async def play_hand(ctx, table: HoldemTable, members: list[discord.Member], stac
 
         await settle_hand(ctx, game)
     finally:
-        busy_players.difference_update(m.id for m in members)
+        busy_players.difference_update(m.id for m in humans)
         table.current_game = None
         table.current_players_by_id = {}
         table.current_action_view = None
 
 
+def next_hand_order(table: HoldemTable, members: list) -> list:
+    """Seats this hand's players in table order with the dealer first (play_hand/blind_seats treat
+    index 0 as the button). The button moves one seat on from last hand's dealer, skipping anyone
+    sitting out, and the blinds follow it."""
+    seat_nos = {s.member.id: s.seat_no for s in table.seats}
+    ordered = sorted(members, key=lambda m: seat_nos[m.id])
+    last = table.last_dealer_seat_no
+    start = 0
+    if last is not None:
+        start = next((i for i, m in enumerate(ordered) if seat_nos[m.id] > last), 0)
+    ordered = ordered[start:] + ordered[:start]
+    table.last_dealer_seat_no = seat_nos[ordered[0].id]
+    return ordered
+
+
 async def run_table(ctx, table: HoldemTable):
     try:
         while True:
-            active_seats = [s for s in table.seats if not s.standing]
-            members: list[discord.Member] = []
+            # A bot whose poker_trigger stopped holding (Kel when the full moon rises) gets up.
+            for s in table.seated():
+                if is_npc(s.member) and not await bot_available(table, s.member.npc):
+                    s.standing = True
+                    await ctx.send(f"🤖 **{s.member.display_name}** has somewhere to be and leaves the table.")
+            table.seats = [s for s in table.seats if not s.standing]
+
+            members: list = []
             stacks: dict[int, int] = {}
-            for s in active_seats:
+            bot_seats = []
+            for s in table.seated():
+                if is_npc(s.member):
+                    bot_seats.append(s)
+                    continue
                 if s.member.id in busy_players:
                     continue
                 balance = await asyncio.to_thread(db.get_balance, table.guild_id, s.member.id)
@@ -554,23 +805,32 @@ async def run_table(ctx, table: HoldemTable):
                     continue
                 members.append(s.member)
                 stacks[s.member.id] = min(balance, s.buy_in) if s.buy_in is not None else balance
-
-            if len(members) < 2:
+            if members:
+                bot_stack = min(BOT_STACK_CAP, max(stacks.values()))
+                for s in bot_seats:
+                    members.append(s.member)
+                    stacks[s.member.id] = bot_stack
+            if not any(not is_npc(m) for m in members) or len(members) < 2:
                 await ctx.send("Not enough funded players to deal a hand — table closed. Run `!holdem` to start a new one.")
                 break
+
+            members = next_hand_order(table, members)
 
             await play_hand(ctx, table, members, stacks)
 
             table.seats = [s for s in table.seats if not s.standing]
             await update_control_message(table)
 
-            if len([s for s in table.seats if not s.standing]) < 2:
+            if not table.seated_humans() or len(table.seated()) < 2:
                 await ctx.send("Table closed — not enough players left.")
                 break
 
             await asyncio.sleep(BETWEEN_HANDS_SECONDS)
     finally:
+        table.closed = True
         active_tables.pop(table.channel_id, None)
+        if table.control_view is not None:
+            table.control_view.stop()
         if table.control_message is not None:
             try:
                 await table.control_message.edit(view=None)
@@ -579,13 +839,16 @@ async def run_table(ctx, table: HoldemTable):
 
 
 async def start_holdem_table(ctx, buy_in: int | None):
-    table = HoldemTable(ctx.channel, ctx.channel.id, ctx.guild.id)
-    table.seats.append(Seat(ctx.author, buy_in))
+    table = HoldemTable(ctx.channel, ctx.channel.id, ctx.guild.id, ctx.author.id)
+    table.add_seat(ctx.author, buy_in)
     active_tables[ctx.channel.id] = table
 
-    view = TableControlView(table)
+    view = await build_control_view(table)
     message = await ctx.send(
-        content=f"🃏 {ctx.author.mention} opened a Hold'em table! Dealing the first hand in {JOIN_SECONDS}s.",
+        content=(
+            f"🃏 {ctx.author.mention} opened a Hold'em table! Dealing the first hand in {JOIN_SECONDS}s. "
+            f"Short on players? Add a bot from the dropdown."
+        ),
         embed=build_control_embed(table),
         view=view,
     )

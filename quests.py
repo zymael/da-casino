@@ -731,6 +731,24 @@ for _npc in npcs.NPCS.values():
                 f"not in QUEST_ITEMS"
             )
 
+
+def validate_npc_poker_triggers(npcs_by_id: dict | None = None):
+    """An NPC's optional "poker_trigger" decides when they'll sit at a Hold'em table (e.g. Kel only
+    off the full moon, Da Alpha only on it). Checked here for the visible_trigger reason above, at
+    import and again on every admin save of npcs.json. Counted types are rejected: there's no quest
+    stage to scope their counter to."""
+    for npc in (npcs_by_id if npcs_by_id is not None else npcs.NPCS).values():
+        trigger = npc.get("poker_trigger")
+        if trigger is None:
+            continue
+        context = f"npcs.json: npc {npc['id']!r} poker_trigger"
+        _validate_trigger(trigger, context)
+        if trigger["type"] in ("kill_monster", "craft_item"):
+            raise ValueError(f"{context}: {trigger['type']!r} can't gate a poker bot (no quest to scope its counter to)")
+
+
+validate_npc_poker_triggers()
+
 # Same story again for a delve choice room's action "requires" (any trigger type) and its
 # quest_item-kind cost's item_id -- dungeon.py's own loader treats both as opaque (it can't import
 # this module either, for the same reason npcs.py can't), so they're cross-validated here too,

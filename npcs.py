@@ -100,8 +100,40 @@ def _load_npcs(path: str = _NPCS_PATH) -> dict[str, dict]:
                         f"npcs.json: npc {npc_id!r} shop entry {i} item_id {shop_entry['item_id']!r} "
                         f"not in dungeon's {kind!r} registry"
                     )
+        _validate_poker_fields(npc_id, entry)
         npcs_by_id[npc_id] = entry
     return npcs_by_id
+
+
+# Hold'em bot personality (holdem_view.py seats any NPC with poker_bot true; poker_ai.py reads the
+# numbers). Every field is optional -- poker_ai.Personality supplies defaults. poker_trigger is
+# cross-validated in quests.py, same circularity as visible_trigger.
+POKER_TRAITS = ("poker_tightness", "poker_aggression", "poker_bluff", "poker_allin_rate", "poker_chatter")
+# Each is a text block, one line per line; a bot says a random one when it does that thing.
+POKER_LINE_KINDS = ("sit", "fold", "check", "call", "raise", "allin", "win", "lose")
+
+
+def _validate_poker_fields(npc_id: str, entry: dict):
+    for trait in POKER_TRAITS:
+        value = entry.get(trait)
+        if value is not None and not (isinstance(value, (int, float)) and 0 <= value <= 1):
+            raise ValueError(f"npcs.json: npc {npc_id!r} {trait} must be a number from 0 to 1")
+    for kind in POKER_LINE_KINDS:
+        value = entry.get(f"poker_lines_{kind}")
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"npcs.json: npc {npc_id!r} poker_lines_{kind} must be text")
+    trigger = entry.get("poker_trigger")
+    if trigger is not None and not (isinstance(trigger, dict) and "type" in trigger):
+        raise ValueError(f"npcs.json: npc {npc_id!r} has a malformed poker_trigger")
+
+
+def poker_lines(npc: dict, kind: str) -> list[str]:
+    return [line.strip() for line in npc.get(f"poker_lines_{kind}", "").splitlines() if line.strip()]
+
+
+def poker_bots() -> list[dict]:
+    """Every NPC that can sit at a Hold'em table, in npcs.json order."""
+    return [npc for npc in NPCS.values() if npc.get("poker_bot")]
 
 
 NPCS = _load_npcs()

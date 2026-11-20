@@ -6,7 +6,21 @@
     "greet_message": "I HAVE MANY CHALLENGES FOR YOU. DARE YOU BE CHALLENGED BY MONDOR?",
     "greet_achievement": "dared_by_mondor",
     "sprite_path": "assets/npcs/mondor.png",
-    "buys_items": false
+    "buys_items": false,
+    "poker_bot": true,
+    "poker_tightness": 0.35,
+    "poker_aggression": 0.85,
+    "poker_bluff": 0.15,
+    "poker_allin_rate": 0.1,
+    "poker_chatter": 0.8,
+    "poker_lines_sit": "MONDOR WILL CHALLENGE YOU AT CARDS.\nDARE YOU BE DEALT IN BY MONDOR?",
+    "poker_lines_fold": "MONDOR ALLOWS YOU THIS SMALL VICTORY.\nA TACTICAL RETREAT. MONDOR WILL RETURN.",
+    "poker_lines_check": "MONDOR WAITS.\nMONDOR IS PATIENT. FOR NOW.",
+    "poker_lines_call": "MONDOR ACCEPTS YOUR CHALLENGE.\nYOU DARE? MONDOR MATCHES.",
+    "poker_lines_raise": "MONDOR RAISES THE STAKES!\nA GREATER CHALLENGE! DARE YOU?\nMONDOR HAS MANY CHIPS FOR YOU.",
+    "poker_lines_allin": "EVERYTHING. MONDOR WAGERS EVERYTHING.\nTHIS IS THE ULTIMATE CHALLENGE!",
+    "poker_lines_win": "YOU HAVE BEEN CHALLENGED. AND YOU HAVE FAILED.\nANOTHER VICTORY FOR MONDOR!",
+    "poker_lines_lose": "IMPOSSIBLE. MONDOR DEMANDS A REMATCH.\nYOU ARE A WORTHY CHALLENGER."
   },
   {
     "id": "kel",
@@ -19,7 +33,24 @@
       "phase": "full_moon"
     },
     "sprite_path": "assets/npcs/kel.png",
-    "buys_items": false
+    "buys_items": false,
+    "poker_bot": true,
+    "poker_tightness": 0.6,
+    "poker_aggression": 0.45,
+    "poker_bluff": 0.06,
+    "poker_allin_rate": 0.03,
+    "poker_lines_sit": "Yes, I am Kel. I'll be your opponent this evening.\nThe horses have water. I have a few hands to spare.",
+    "poker_lines_fold": "I'll sit this one out.\nNot a hand worth breeding.",
+    "poker_lines_check": "Check, if that's alright.\nI'll check.",
+    "poker_lines_call": "I'll match that.\nVery well, I call.",
+    "poker_lines_raise": "I'd like to raise, if you don't mind.\nGood bloodlines on this one. Raise.",
+    "poker_lines_allin": "I believe in this one. All of it.\nForgive me. I'm all in.",
+    "poker_lines_win": "Thank you for the game.\nThat should cover feed for the month.",
+    "poker_lines_lose": "Well played. Truly.\nI'll be at the ranch if you need anything.",
+    "poker_trigger": {
+      "type": "not_moon_phase",
+      "phase": "full_moon"
+    }
   },
   {
     "id": "kel_werewolf",
@@ -33,7 +64,25 @@
       "phase": "full_moon"
     },
     "sprite_path": "assets/npcs/kel_werewolf.png",
-    "buys_items": false
+    "buys_items": false,
+    "poker_bot": true,
+    "poker_tightness": 0.2,
+    "poker_aggression": 1.0,
+    "poker_bluff": 0.2,
+    "poker_allin_rate": 0.7,
+    "poker_chatter": 0.8,
+    "poker_lines_sit": "Kit...ten... Sit... with your... Alpha...\n*It drags a chair to the table with its teeth.*",
+    "poker_lines_fold": "*Growls and swipes the cards off the table.*\n...Not... this... one...",
+    "poker_lines_check": "*Sniffs the cards suspiciously.*\nHrrr...",
+    "poker_lines_call": "*Snarls and pushes the chips forward.*\nYour Alpha... follows...",
+    "poker_lines_raise": "MORE... Kit...ten...\n*Howls and slams more chips down.*",
+    "poker_lines_allin": "*AWOOOOO*\nALL... of it... Kit...ten...\n*Shoves everything in and stares at you, breathing heavily.*",
+    "poker_lines_win": "Good... kit...ten...\n*Beats the ever loving shit out of the pot.*",
+    "poker_lines_lose": "*Whimpers, then flips the table.*\n...You... will... be... morbed... later...",
+    "poker_trigger": {
+      "type": "moon_phase",
+      "phase": "full_moon"
+    }
   },
   {
     "id": "roy",
@@ -41,7 +90,21 @@
     "room": "casino",
     "greet_message": "LET IT RIDE",
     "sprite_path": "assets/npcs/roy.png",
-    "buys_items": false
+    "buys_items": false,
+    "poker_bot": true,
+    "poker_tightness": 0.1,
+    "poker_aggression": 0.5,
+    "poker_bluff": 0.05,
+    "poker_allin_rate": 0.25,
+    "poker_chatter": 0.7,
+    "poker_lines_sit": "LET IT RIDE\nPUT ME IN",
+    "poker_lines_fold": "...THE RIDE IS OVER\nNOT EVEN I RIDE THIS ONE",
+    "poker_lines_check": "LET IT ROLL",
+    "poker_lines_call": "LET IT RIDE\nRIDING IT",
+    "poker_lines_raise": "LET IT RIDE HIGHER\nMORE RIDE",
+    "poker_lines_allin": "LET IT ALL RIDE\nRIDE OR DIE",
+    "poker_lines_win": "IT RODE\nTHAT'S WHY YOU LET IT RIDE",
+    "poker_lines_lose": "PHUK VEGAS\nTHE HOUSE IS EDGING"
   },
   {
     "id": "princess",
@@ -54,7 +117,20 @@
       "quest_id": "mondor_goblin_chieftain"
     },
     "sprite_path": "assets/npcs/princess.png",
-    "buys_items": false
+    "buys_items": false,
+    "poker_bot": true,
+    "poker_tightness": 0.4,
+    "poker_aggression": 0.6,
+    "poker_bluff": 0.25,
+    "poker_allin_rate": 0.1,
+    "poker_lines_sit": "Squeak.\n*Climbs onto the chair and bites it.*",
+    "poker_lines_fold": "*Bites the cards and spits them out.*\nSqueak...",
+    "poker_lines_check": "*Squeaks.*",
+    "poker_lines_call": "Squeak! *Bites a chip, then pushes it in.*",
+    "poker_lines_raise": "SQUEAK!\n*Bites you, then raises.*",
+    "poker_lines_allin": "*Shoves every chip in, face first.*\nSQUEEEEAK!",
+    "poker_lines_win": "*Bites the pot. The pot belongs to the Princess now.*\nSqueak squeak squeak!",
+    "poker_lines_lose": "*Bites you.*\n*Bites the dealer.*"
   },
   {
     "id": "the_goo",
@@ -89,7 +165,21 @@
         "price": 1000
       }
     ],
-    "buys_items": false
+    "buys_items": false,
+    "poker_bot": true,
+    "poker_tightness": 0.75,
+    "poker_aggression": 0.35,
+    "poker_bluff": 0.08,
+    "poker_allin_rate": 0.02,
+    "poker_chatter": 0.5,
+    "poker_lines_sit": "*The Goo oozes into a chair and quivers expectantly.*",
+    "poker_lines_fold": "*The Goo quivers and slides the cards away.*",
+    "poker_lines_check": "*The Goo taps the table with a pseudopod.*",
+    "poker_lines_call": "*The Goo gesticulates silently towards the pot.*",
+    "poker_lines_raise": "*The Goo quivers ominously and extends a dripping pile of chips.*",
+    "poker_lines_allin": "*The Goo engulfs the entire stack and deposits it into the pot.*",
+    "poker_lines_win": "*The Goo envelops the pot. The chips come out slightly damp.*",
+    "poker_lines_lose": "*The Goo deflates slightly.*"
   },
   {
     "id": "slug",
@@ -97,7 +187,20 @@
     "room": "slug_dome",
     "greet_message": "I hope you're stronger than you look.",
     "sprite_path": "assets/npcs/slug.png",
-    "buys_items": false
+    "buys_items": false,
+    "poker_bot": true,
+    "poker_tightness": 0.5,
+    "poker_aggression": 0.65,
+    "poker_bluff": 0.1,
+    "poker_allin_rate": 0.08,
+    "poker_lines_sit": "I hope you're stronger than you look.\nLet's see what you're made of.",
+    "poker_lines_fold": "Fine. Keep it.\nYou got lucky.",
+    "poker_lines_check": "Go ahead.",
+    "poker_lines_call": "That all you got?\nI'll take that.",
+    "poker_lines_raise": "Let's make this hurt.\nYou look nervous. Raise.",
+    "poker_lines_allin": "Everything. Show me some strength.\nAll in. Don't flinch.",
+    "poker_lines_win": "Weaker than you look, actually.\nThought so.",
+    "poker_lines_lose": "Huh. Stronger than you look.\nDon't get used to it."
   },
   {
     "id": "leto",
@@ -106,7 +209,20 @@
     "greet_message": "*They appear to take a drag from a cigarette with the side of their head before a series of hacking coughs erupt from the masked person*",
     "greet_achievement": "greeted_leto",
     "sprite_path": "assets/npcs/leto.png",
-    "buys_items": false
+    "buys_items": false,
+    "poker_bot": true,
+    "poker_tightness": 0.55,
+    "poker_aggression": 0.5,
+    "poker_bluff": 0.12,
+    "poker_allin_rate": 0.04,
+    "poker_lines_sit": "*A drag from a cigarette, taken with the side of the head. A chair scrapes.*",
+    "poker_lines_fold": "*Hacking cough.* ...Fold.\n*Coughs into the cards.*",
+    "poker_lines_check": "*Wheeze.*\n*A long drag. A tap on the table.*",
+    "poker_lines_call": "*Cough.* Yeah, alright.\n*Exhales smoke through the mask.* Call.",
+    "poker_lines_raise": "*Coughs violently while raising.*\n*Taps ash onto the pot.* Raise.",
+    "poker_lines_allin": "*The coughing fit is so bad it knocks every chip into the pot.*\n*Stubs the cigarette out on the table.* All of it.",
+    "poker_lines_win": "*Wheezing laughter.*\n*Smoke curls out of the mask in a smug sort of way.*",
+    "poker_lines_lose": "*A coughing fit that goes on far too long.*\n*Lights another one.*"
   },
   {
     "id": "kreachur",
@@ -131,7 +247,20 @@
         "price": 25
       }
     ],
-    "buys_items": true
+    "buys_items": true,
+    "poker_bot": true,
+    "poker_tightness": 0.45,
+    "poker_aggression": 0.55,
+    "poker_bluff": 0.12,
+    "poker_allin_rate": 0.05,
+    "poker_lines_sit": "I'm KREACHIN'. Deal me in.\nYou wanna trade? Trade me some chips.",
+    "poker_lines_fold": "Bad trade. I'm out.\nNot KREACHIN' for that.",
+    "poker_lines_check": "I'm lookin'. I'm lookin'.",
+    "poker_lines_call": "Fair trade.\nI'll take that deal.",
+    "poker_lines_raise": "I got many unique, and powerful chips.\nKREACHIN' for more.",
+    "poker_lines_allin": "Everything in the Emporium. All in.\nMAXIMUM KREACH.",
+    "poker_lines_win": "Pleasure doin' business.\nNo refunds.",
+    "poker_lines_lose": "That's a rip off.\nI'm filing a complaint with the Emporium."
   },
   {
     "id": "kel_copy",
@@ -152,6 +281,19 @@
     "room": "vic_junkyard",
     "greet_message": "*The statue grows arms and gestures furiously at you, speaking a gibberish language you don't understand.*",
     "sprite_path": "assets/npcs/vic.png",
-    "buys_items": false
+    "buys_items": false,
+    "poker_bot": true,
+    "poker_tightness": 0.5,
+    "poker_aggression": 0.5,
+    "poker_bluff": 0.1,
+    "poker_allin_rate": 0.05,
+    "poker_lines_sit": "*The statue grows arms and pulls up a chair.*\nGrazzlemok. Fneh!",
+    "poker_lines_fold": "*The arms retract. The statue is just a statue again.*\nBlorp.",
+    "poker_lines_check": "Hnn. Vaskibo.",
+    "poker_lines_call": "*Gestures furiously at the pot.* Zibbit!",
+    "poker_lines_raise": "KRAFFLE MOK ZIBBIT!\n*Gestures furiously, then adds more chips.*",
+    "poker_lines_allin": "*Every arm pushes chips into the pot at once.* GRAZZLEMOK!",
+    "poker_lines_win": "Hahahsnorbl! Fneh fneh!\n*The statue does a little dance. Statues should not dance.*",
+    "poker_lines_lose": "*Gibberish that is clearly swearing.*\n*The statue crumbles slightly.*"
   }
 ]
