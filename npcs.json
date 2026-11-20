@@ -254,14 +254,14 @@
     "poker_aggression": 0.55,
     "poker_bluff": 0.12,
     "poker_allin_rate": 0.05,
-    "poker_lines_sit": "I'm KREACHIN'. Deal me in.\nYou wanna trade? Trade me some chips.",
-    "poker_lines_fold": "Bad trade. I'm out.\nNot KREACHIN' for that.",
-    "poker_lines_check": "I'm lookin'. I'm lookin'.",
-    "poker_lines_call": "Fair trade.\nI'll take that deal.",
-    "poker_lines_raise": "I got many unique, and powerful chips.\nKREACHIN' for more.",
-    "poker_lines_allin": "Everything in the Emporium. All in.\nMAXIMUM KREACH.",
-    "poker_lines_win": "Pleasure doin' business.\nNo refunds.",
-    "poker_lines_lose": "That's a rip off.\nI'm filing a complaint with the Emporium."
+    "poker_lines_sit": "*Hops up onto the chair, squats on it, and licks every chip one by one.* I'm KREACHIN'. Deal me in.",
+    "poker_lines_fold": "Not KREACHIN' for that. *Scratches something under the table for too long.*",
+    "poker_lines_check": "*Sniffs the deck.* I'm lookin'. I'm lookin'.",
+    "poker_lines_call": "*Counts out chips with a sticky finger.* Fine. FINE.",
+    "poker_lines_raise": "*Pulls more chips out of an ear.* Raise.",
+    "poker_lines_allin": "*Dumps out every pocket. Chips, a toenail, half a rat.* ALL OF IT.",
+    "poker_lines_win": "*Drags the pot in and nuzzles it.* Mine. Mine mine mine.",
+    "poker_lines_lose": "Rip off. RIP OFF. *Pisses under the table.*"
   },
   {
     "id": "kel_copy",
