@@ -435,22 +435,35 @@ def _wrap(text: str, font, max_w: int, draw, max_lines: int = 3) -> list[str]:
     return [_fit(line, font, max_w, draw) for line in lines]
 
 
-def _bubble(draw, anchor_x, anchor_y, text: str, right_side: bool):
-    max_w = 190
-    lines = _wrap(text, _bubble_font, max_w, draw)
+BUBBLE_MAX_W = 230
+BUBBLE_FILL = (250, 250, 245, 255)
+
+
+def _lane_width(xs: list[float]) -> float:
+    """How wide one seat's speech bubble may be: never wider than the gap to the next seat, so
+    two neighbours talking at once can't overlap."""
+    if len(xs) < 2:
+        return BUBBLE_MAX_W
+    return min(BUBBLE_MAX_W, min(b - a for a, b in zip(xs, xs[1:])) - 10)
+
+
+def _bubble(draw, cx: float, lane_w: float, head_y: float, text: str):
+    """A speech bubble centred above a speaker at `cx` (clamped inside its own lane and the canvas),
+    its tail pointing down at the top of their head (`head_y`)."""
+    pad = 10
+    lines = _wrap(text, _bubble_font, int(lane_w - 2 * pad), draw, max_lines=4)
     lh = _bubble_font.size + 4
-    w = max(draw.textlength(line, font=_bubble_font) for line in lines) + 20
+    w = max(draw.textlength(line, font=_bubble_font) for line in lines) + 2 * pad
     h = lh * len(lines) + 14
-    x0 = anchor_x + 18 if right_side else anchor_x - 18 - w
-    x0 = max(6, min(WIDTH - 6 - w, x0))
-    y0 = max(6, anchor_y - h)
-    box = [x0, y0, x0 + w, y0 + h]
-    tail_x = x0 + 14 if right_side else x0 + w - 14
-    draw.polygon([(tail_x - 7, y0 + h - 1), (tail_x + 7, y0 + h - 1), (anchor_x, y0 + h + 14)], fill=(250, 250, 245, 255))
-    draw.rounded_rectangle(box, radius=12, fill=(250, 250, 245, 255), outline=(30, 30, 30, 255), width=2)
+    x0 = max(6, min(WIDTH - 6 - w, cx - w / 2))
+    y0 = max(6, head_y - h - 16)
+    tail_tip = (cx, min(y0 + h + 14, head_y + 8))
+    tail_x = max(x0 + 14, min(x0 + w - 14, cx))
+    draw.polygon([(tail_x - 7, y0 + h - 1), (tail_x + 7, y0 + h - 1), tail_tip], fill=BUBBLE_FILL)
+    draw.rounded_rectangle([x0, y0, x0 + w, y0 + h], radius=12, fill=BUBBLE_FILL, outline=(30, 30, 30, 255), width=2)
     y = y0 + 7
     for line in lines:
-        draw.text((x0 + 10, y), line, font=_bubble_font, fill=(25, 25, 25, 255))
+        draw.text((x0 + pad, y), line, font=_bubble_font, fill=(25, 25, 25, 255))
         y += lh
 
 
@@ -499,8 +512,10 @@ def _status_line(seat: SeatView) -> tuple[str, tuple]:
     return f"{seat.stack}", DIM_TEXT
 
 
-def _draw_far(img, seats: list[SeatView], portraits_layer: Image.Image):
+def _draw_far(img, seats: list[SeatView], portraits_layer: Image.Image) -> list[float]:
+    """Draws the far-row portraits; returns each one's top edge (where its speech bubble points)."""
     xs = _spread(FAR_XS, len(seats))
+    tops = []
     for seat, cx in zip(seats, xs):
         if seat.is_npc:
             p = load_portrait(seat.portrait_path, seat.portrait_scale)
@@ -513,6 +528,8 @@ def _draw_far(img, seats: list[SeatView], portraits_layer: Image.Image):
         tuck = PORTRAIT_TUCK if seat.is_npc else 6
         y = FAR_RAIL_Y + tuck - p.height
         portraits_layer.alpha_composite(p, (int(cx - p.width / 2), int(max(0, y))))
+        tops.append(max(0, y))
+    return tops
 
 
 def _far_details(img, draw, seats: list[SeatView]):
@@ -556,7 +573,7 @@ def render_table(
 
     img = _room(backdrop_path)
     portraits = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
-    _draw_far(img, far, portraits)
+    far_tops = _draw_far(img, far, portraits)
     img.alpha_composite(portraits)
     img.alpha_composite(_table())
     draw = ImageDraw.Draw(img)
@@ -585,13 +602,15 @@ def render_table(
 
     _near_details(img, draw, near)
 
-    # speech bubbles last, over everything
-    for seat, cx in zip(far, _spread(FAR_XS, len(far))):
+    # speech bubbles last, over everything: each in its own seat's lane, so neighbours can't overlap
+    far_xs = _spread(FAR_XS, len(far))
+    for seat, cx, top in zip(far, far_xs, far_tops):
         if seat.speech:
-            _bubble(draw, cx + 30, 70, seat.speech, right_side=cx < WIDTH * 0.66)
-    for seat, cx in zip(near, _spread(NEAR_XS, len(near))):
+            _bubble(draw, cx, _lane_width(far_xs), top, seat.speech)
+    near_xs = _spread(NEAR_XS, len(near))
+    for seat, cx in zip(near, near_xs):
         if seat.speech:
-            _bubble(draw, cx - 95, NEAR_AVATAR_Y - AVATAR_SIZE / 2, seat.speech, right_side=True)
+            _bubble(draw, cx - 95, _lane_width(near_xs), NEAR_AVATAR_Y - AVATAR_SIZE / 2, seat.speech)
 
     buf = io.BytesIO()
     img.convert("RGB").save(buf, format="PNG", optimize=True)
