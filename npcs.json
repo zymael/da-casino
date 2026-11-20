@@ -216,14 +216,14 @@
     "poker_aggression": 0.5,
     "poker_bluff": 0.12,
     "poker_allin_rate": 0.04,
-    "poker_lines_sit": "*A drag from a cigarette, taken with the side of the head. A chair scrapes.*",
-    "poker_lines_fold": "*Hacking cough.* ...Fold.\n*Coughs into the cards.*",
-    "poker_lines_check": "*Wheeze.*\n*A long drag. A tap on the table.*",
-    "poker_lines_call": "*Cough.* Yeah, alright.\n*Exhales smoke through the mask.* Call.",
-    "poker_lines_raise": "*Coughs violently while raising.*\n*Taps ash onto the pot.* Raise.",
-    "poker_lines_allin": "*The coughing fit is so bad it knocks every chip into the pot.*\n*Stubs the cigarette out on the table.* All of it.",
-    "poker_lines_win": "*Wheezing laughter.*\n*Smoke curls out of the mask in a smug sort of way.*",
-    "poker_lines_lose": "*A coughing fit that goes on far too long.*\n*Lights another one.*"
+    "poker_lines_sit": "*Takes a drag through the side of her head.* \"Deal me in. I'm on a schedule.\"\n\"Make it quick. Goblins are loose in lot nine again.\"",
+    "poker_lines_fold": "\"Fold. Goblins got into the propane again and I'm not in the mood.\"\n*Hacking cough.* \"...Fold.\"",
+    "poker_lines_check": "*Wheeze.* \"Check.\"\n\"Check. I'm in no hurry. I've got people for hurrying.\"",
+    "poker_lines_call": "*Exhales smoke through the mask.* \"Fine. Call.\"\n*Peels the chips off her palm.* \"Call.\"",
+    "poker_lines_raise": "\"Raise. Goblins chewed through my power line this morning. Somebody's paying for it.\"\n*Coughs violently.* \"...Raise.\"",
+    "poker_lines_allin": "*Shoves every chip in. And an ear.* \"Leave it. It's in now.\"\n\"All of it. I've laundered bigger piles than this before breakfast.\"",
+    "poker_lines_win": "\"That's Shacktown, Baby.\"\n\"That's going toward the new double-wide.\"",
+    "poker_lines_lose": "\"I think I hear the doorbell ringing.\" *Flees the table.*\n\"Huh. Somebody's gettin' evicted.\"\n\"Enjoy it. I know where you park.\""
   },
   {
     "id": "kreachur",
