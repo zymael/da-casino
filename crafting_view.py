@@ -156,6 +156,8 @@ def _known_recipe_line(recipe: dict) -> str:
 async def build_known_recipes_display(guild_id: int, user_id: int) -> tuple[discord.Embed, "KnownRecipesView"]:
     discovered_ids = await asyncio.to_thread(db.get_discovered_recipes, guild_id, user_id)
     embed = discord.Embed(title="📖 Known Recipes", color=discord.Color.blurple())
+    discovered_ids = {r_id for r_id in discovered_ids
+                      if r_id in dungeon.RECIPES and dungeon.RECIPES[r_id].get("station") is None}
     if not discovered_ids:
         embed.description = "You haven't discovered any recipes yet -- try combining materials and see what happens."
     else:

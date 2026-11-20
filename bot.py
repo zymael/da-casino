@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 
 import achievements
 import admin_server
+import bake_view
 import crafting_view
 import db
 from blackjack_view import active_tables as active_blackjack_tables, start_blackjack_table
@@ -144,7 +145,7 @@ bot = commands.Bot(
 )
 
 HELP_CATEGORIES = [
-    ("💰 Economy", ["balance", "stats", "rest", "mine", "tip", "transfer", "pizza", "house", "leaderboard"]),
+    ("💰 Economy", ["balance", "stats", "rest", "mine", "tip", "transfer", "pizza", "house", "bake", "leaderboard"]),
     ("🎲 Casino Games", ["blackjack", "slots", "roulette", "craps", "holdem", "videopoker", "deuceswild"]),
     ("🤝 Challenges", ["duel", "mancala", "connect4", "icebreak", "uno"]),
     ("🐎 Horse Racing", ["horserace", "horses", "stable", "buyhorse", "buyfoal", "renamehorse", "train", "trainall", "facility", "boost", "horseequip", "givehorse"]),
@@ -3584,6 +3585,19 @@ async def pizza(ctx):
     embed = discord.Embed(title="🍕 Pizza delivery for the casino!", color=discord.Color.orange())
     embed.set_image(url=random.choice(PIZZA_GIFS))
     embed.set_footer(text=f"Balance: {balance} {currency}")
+
+    # Owning a pizza_leftovers house item (the Necronomicrust, dropped by the Number 5) means every
+    # order leaves leftovers to bake into pizzas via !craft. Which item and which leftovers are
+    # both data: housing_items.json's effect_type and dungeon_materials.json's pizza_weight.
+    extra_chance = await asyncio.to_thread(housing.owned_bonus, ctx.guild.id, ctx.author.id, "pizza_leftovers")
+    if extra_chance is not None:
+        count = 1 + (random.random() * 100 < extra_chance)
+        leftovers = dungeon.roll_pizza_leftovers(count)
+        for item_id, qty in leftovers.items():
+            await asyncio.to_thread(db.add_inventory_item, ctx.guild.id, ctx.author.id, item_id, qty)
+        if leftovers:
+            listing = ", ".join(f"{qty}x {dungeon.MATERIALS[i]['name']}" for i, qty in leftovers.items())
+            embed.description = f"You keep the leftovers: **{listing}**."
     await ctx.send(embed=embed)
     await _update_pizza_champion(ctx.guild)
 
@@ -3619,6 +3633,19 @@ async def house_cmd(ctx):
     await _show_house(ctx)
 
 
+@bot.command(name="bake", brief="Bake your pizza leftovers into whole pizzas.")
+async def bake_cmd(ctx):
+    """Open your oven: bake pizzas you've discovered, or experiment with leftovers to find new
+    ones: !bake (also the Bake button on your !house screen). Needs a housing item with
+    "station": "oven" (the Necronomicrust), owned -- placed in the house or not."""
+    oven = await asyncio.to_thread(housing.owned_station, ctx.guild.id, ctx.author.id, bake_view.STATION)
+    if oven is None:
+        await ctx.send("You don't have anything to bake in.")
+        return
+    embed, view = await bake_view.build_oven_display(ctx.guild.id, ctx.author.id, oven)
+    await ctx.send(embed=embed, view=view)
+
+
 async def _show_house(ctx):
     guild_id, user_id = ctx.guild.id, ctx.author.id
     placements = await asyncio.to_thread(db.get_house_placements, guild_id, user_id)
@@ -3627,7 +3654,8 @@ async def _show_house(ctx):
     file = discord.File(buf, filename=housing_view.IMAGE_FILENAME)
     embed = housing_view.build_house_embed(ctx.author.display_name, placements, bonuses)
     embed.set_image(url=f"attachment://{housing_view.IMAGE_FILENAME}")
-    view = housing_view.build_slot_picker(placements, _pick_house_slot)
+    owns_oven = await asyncio.to_thread(housing.owned_station, guild_id, user_id, bake_view.STATION)
+    view = housing_view.build_slot_picker(placements, _pick_house_slot, bake_cmd.callback if owns_oven else None)
     await ctx.send(embed=embed, file=file, view=view)
 
 
@@ -3723,6 +3751,7 @@ room_commands.COMMANDS.update({
     "facility": facility_cmd.callback,
     "horseequip": horseequip_cmd.callback,
     "house": house_cmd.callback,
+    "bake": bake_cmd.callback,
     "givehorse": givehorse_cmd.callback,
     "stable": stable_cmd.callback,
     "buyfoal": buyfoal_cmd.callback,

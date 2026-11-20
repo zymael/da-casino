@@ -1466,6 +1466,12 @@
         "chance": 1.0
       },
       {
+        "kind": "housing_item",
+        "item_id": "necronomicrust",
+        "chance": 1.0,
+        "once": true
+      },
+      {
         "kind": "equipment",
         "item_id": "the_first_slice",
         "chance": 0.15

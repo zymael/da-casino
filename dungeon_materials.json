@@ -219,5 +219,77 @@
     "unsellable": true,
     "flavor": "The house pays out in paper. One is worth nothing, which is the trick: it takes a whole fistful to clear the bottom shelf behind the counter.",
     "unsmashable_message": "Vic squints at the little paper strip. \"You want me to break THAT? It's already nothin'.\""
+  },
+  {
+    "id": "leftover_crust",
+    "name": "Leftover Crust",
+    "rarity": "common",
+    "base_value": 5,
+    "pizza_weight": 10,
+    "flavor": "The part of the slice nobody wants. You kept it anyway."
+  },
+  {
+    "id": "box_grease",
+    "name": "Box Grease",
+    "rarity": "common",
+    "base_value": 5,
+    "pizza_weight": 10,
+    "flavor": "The bottom of the box gave out, and this is the piece that went first."
+  },
+  {
+    "id": "cheese_lump",
+    "name": "Cheese Lump",
+    "rarity": "common",
+    "base_value": 5,
+    "pizza_weight": 10,
+    "flavor": "Peeled off the inside of the lid. Technically, it's still pizza."
+  },
+  {
+    "id": "pepperoni_crumbs",
+    "name": "Pepperoni Crumbs",
+    "rarity": "uncommon",
+    "base_value": 10,
+    "pizza_weight": 4,
+    "flavor": "The ones that slid off and ended up in the corner of the box."
+  },
+  {
+    "id": "mushroom_slice",
+    "name": "Mushroom Slice",
+    "rarity": "uncommon",
+    "base_value": 10,
+    "pizza_weight": 4,
+    "flavor": "Somebody picked it off and left it on the lid."
+  },
+  {
+    "id": "stray_olive",
+    "name": "Stray Olive",
+    "rarity": "uncommon",
+    "base_value": 10,
+    "pizza_weight": 4,
+    "flavor": "It rolled under the couch. You found it eventually."
+  },
+  {
+    "id": "red_pepper_packet",
+    "name": "Red Pepper Packet",
+    "rarity": "uncommon",
+    "base_value": 10,
+    "pizza_weight": 4,
+    "flavor": "There are always more of these than anyone could use. You have a drawer of them."
+  },
+  {
+    "id": "pineapple_chunk",
+    "name": "Pineapple Chunk",
+    "rarity": "rare",
+    "base_value": 15,
+    "pizza_weight": 2,
+    "flavor": "Someone at the party ordered this. Nobody will say who."
+  },
+  {
+    "id": "garlic_cup",
+    "name": "Garlic Cup",
+    "rarity": "rare",
+    "base_value": 15,
+    "pizza_weight": 2,
+    "flavor": "The little dipping cup, still sealed. You don't remember getting it."
   }
 ]

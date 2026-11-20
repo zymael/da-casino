@@ -38,6 +38,9 @@ HOUSING_EFFECT_TYPES = {
     "rest_energy_bonus": {"value_kind": "flat", "requires_stat": False},
     "rest_gold_bonus": {"value_kind": "flat", "requires_stat": False},
     "luck_bonus": {"value_kind": "flat", "requires_stat": False},
+    # Works while the item is merely *owned* (held or placed), not only placed -- see owned_bonus.
+    # Read by bot.py's !pizza: owning one means 1 leftover per order plus value% chance of a second.
+    "pizza_leftovers": {"value_kind": "percent", "requires_stat": False, "while_owned": True},
 }
 
 # Matches dungeon.compute_effective_stats' stat keys -- a housing stat_bonus item stacks alongside
@@ -79,6 +82,9 @@ def _load_housing_items(path: str = _HOUSING_ITEMS_PATH) -> dict[str, dict]:
             )
         if entry["base_value"] < 0:
             raise ValueError(f"housing_items.json: item {entry_id!r} base_value must be >= 0")
+        station = entry.get("station")
+        if station is not None and station not in dungeon.RECIPE_STATIONS:
+            raise ValueError(f"housing_items.json: item {entry_id!r} has unknown station {station!r}")
         if bool(entry.get("use_label")) != bool(entry.get("use_message")):
             raise ValueError(
                 f"housing_items.json: item {entry_id!r} sets one of use_label/use_message without "
@@ -135,6 +141,26 @@ def get_house_bonuses(guild_id: int, user_id: int) -> dict:
         else:
             bonuses[effect_type] = bonuses.get(effect_type, 0) + value
     return bonuses
+
+
+def _owned_items(guild_id: int, user_id: int) -> list[dict]:
+    """Every housing item the player owns, whether held in inventory or placed in their house
+    (placing moves an item out of inventory, so both have to be checked)."""
+    held = {item_id for item_id, qty in db.get_inventory(guild_id, user_id).items() if qty > 0}
+    owned = held | set(db.get_house_placements(guild_id, user_id).values())
+    return [HOUSING_ITEMS[item_id] for item_id in owned if item_id in HOUSING_ITEMS]
+
+
+def owned_bonus(guild_id: int, user_id: int, effect_type: str) -> int | None:
+    """For a "while_owned" effect type: the best value among owned housing items with that effect
+    (placed or not). None if they own none. Max, not sum, so extra copies don't stack."""
+    values = [item["value"] for item in _owned_items(guild_id, user_id) if item["effect_type"] == effect_type]
+    return max(values) if values else None
+
+
+def owned_station(guild_id: int, user_id: int, station: str) -> dict | None:
+    """An owned housing item (placed or not) that provides crafting `station`, or None."""
+    return next((item for item in _owned_items(guild_id, user_id) if item.get("station") == station), None)
 
 
 def get_effective_luck(guild_id: int, user_id: int) -> int:

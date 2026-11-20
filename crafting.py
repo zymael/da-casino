@@ -57,7 +57,7 @@ async def craft(guild_id: int, user_id: int, recipe_id: str) -> dict:
     }
 
 
-async def combine(guild_id: int, user_id: int, material_ids: list[str]) -> dict:
+async def combine(guild_id: int, user_id: int, material_ids: list[str], station: str | None = None) -> dict:
     """Discovery-based crafting: `material_ids` is what the player picked (e.g. ["stick",
     "stick"] for a 2-stick combo) with no recipe chosen up front -- this is what figures out
     whether that combo actually means anything. Delegates the real consumption/grant work to
@@ -67,12 +67,13 @@ async def combine(guild_id: int, user_id: int, material_ids: list[str]) -> dict:
     Returns everything craft() does, plus "newly_discovered" (True only the first time this
     player has ever landed on this particular recipe -- lets the UI call out a genuine discovery
     differently from a routine repeat craft). On "no_match", nothing is touched -- a failed guess
-    costs nothing, so experimenting isn't punishing."""
+    costs nothing, so experimenting isn't punishing. `station` limits matches to that station's
+    recipes (None = plain !craft)."""
     materials: dict[str, int] = {}
     for material_id in material_ids:
         materials[material_id] = materials.get(material_id, 0) + 1
 
-    recipe = dungeon.find_recipe_by_materials(materials)
+    recipe = dungeon.find_recipe_by_materials(materials, station)
     if recipe is None:
         return {
             "success": False, "status": "no_match", "balance": None,

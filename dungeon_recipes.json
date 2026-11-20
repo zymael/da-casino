@@ -202,5 +202,109 @@
     },
     "currency_cost": 0,
     "flavor": "Just a lil' squirt of Pomade and..."
+  },
+  {
+    "id": "recipe_cheese_pizza",
+    "name": "Cheese Pizza",
+    "output_kind": "consumable",
+    "output_id": "cheese_pizza",
+    "materials": {
+      "leftover_crust": 1,
+      "cheese_lump": 1
+    },
+    "currency_cost": 0,
+    "station": "oven"
+  },
+  {
+    "id": "recipe_pepperoni_pizza",
+    "name": "Pepperoni Pizza",
+    "output_kind": "consumable",
+    "output_id": "pepperoni_pizza",
+    "materials": {
+      "leftover_crust": 1,
+      "cheese_lump": 1,
+      "pepperoni_crumbs": 1
+    },
+    "currency_cost": 0,
+    "station": "oven"
+  },
+  {
+    "id": "recipe_extra_greasy_pizza",
+    "name": "Extra Greasy",
+    "output_kind": "consumable",
+    "output_id": "extra_greasy_pizza",
+    "materials": {
+      "leftover_crust": 1,
+      "cheese_lump": 1,
+      "box_grease": 1
+    },
+    "currency_cost": 0,
+    "station": "oven"
+  },
+  {
+    "id": "recipe_deep_dish_pizza",
+    "name": "Deep Dish",
+    "output_kind": "consumable",
+    "output_id": "deep_dish_pizza",
+    "materials": {
+      "leftover_crust": 2,
+      "cheese_lump": 2
+    },
+    "currency_cost": 0,
+    "station": "oven"
+  },
+  {
+    "id": "recipe_hawaiian_pizza",
+    "name": "Hawaiian",
+    "output_kind": "consumable",
+    "output_id": "hawaiian_pizza",
+    "materials": {
+      "leftover_crust": 1,
+      "cheese_lump": 1,
+      "pineapple_chunk": 1
+    },
+    "currency_cost": 0,
+    "station": "oven"
+  },
+  {
+    "id": "recipe_diavolo_pizza",
+    "name": "Diavolo",
+    "output_kind": "consumable",
+    "output_id": "diavolo_pizza",
+    "materials": {
+      "leftover_crust": 1,
+      "cheese_lump": 1,
+      "red_pepper_packet": 1
+    },
+    "currency_cost": 0,
+    "station": "oven"
+  },
+  {
+    "id": "recipe_garlic_white_pizza",
+    "name": "Garlic White",
+    "output_kind": "consumable",
+    "output_id": "garlic_white_pizza",
+    "materials": {
+      "leftover_crust": 1,
+      "cheese_lump": 1,
+      "garlic_cup": 1
+    },
+    "currency_cost": 0,
+    "station": "oven"
+  },
+  {
+    "id": "recipe_supreme_pizza",
+    "name": "The Supreme",
+    "output_kind": "consumable",
+    "output_id": "supreme_pizza",
+    "materials": {
+      "leftover_crust": 1,
+      "cheese_lump": 1,
+      "pepperoni_crumbs": 1,
+      "stray_olive": 1,
+      "mushroom_slice": 1
+    },
+    "currency_cost": 0,
+    "station": "oven"
   }
 ]

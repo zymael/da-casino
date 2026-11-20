@@ -71,15 +71,21 @@ class HouseSlotSelect(discord.ui.Select):
         await self.on_pick(hub_ui.InteractionContext(interaction), int(self.values[0]))
 
 
-def build_slot_picker(placements: dict[int, str], on_pick) -> discord.ui.View:
+def build_slot_picker(placements: dict[int, str], on_pick, bake_callback=None) -> discord.ui.View:
     """The slot-picker Select, plus one inventory_view.UseHousingItemButton (reused as-is, not
     duplicated -- see housing.py's "usable by field presence" comment) per currently-*placed* item
     that has a use_label set. A housing item still owned but not yet placed is only usable via
     !inventory; once it's sitting in the house, using it from here too just makes sense (e.g.
-    rubbing the Turrón that's actually on your shelf)."""
+    rubbing the Turrón that's actually on your shelf).
+
+    `bake_callback` (bot.py's !bake, passed only when the player owns an oven) adds a plain
+    hub_ui.NoArgButton for it -- the oven screen itself is !bake's own response, not built here."""
     view = discord.ui.View(timeout=300)
     view.add_item(HouseSlotSelect(placements, on_pick))
     row, in_row = 1, 0
+    if bake_callback is not None:
+        view.add_item(hub_ui.NoArgButton("🔥 Bake", discord.ButtonStyle.primary, row, bake_callback))
+        in_row = 1
     for item_id in placements.values():
         item = housing.HOUSING_ITEMS.get(item_id)
         if not item or not item.get("use_label"):

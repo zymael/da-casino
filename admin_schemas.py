@@ -465,6 +465,12 @@ CONTENT_TYPES = {
                 "hint": "if checked, smash.py can grant a random copy of this material as the byproduct "
                         "of destroying something with !smash",
             },
+            {
+                "name": "pizza_weight", "type": "int", "required": False, "min": 0, "group": "Drop Info",
+                "hint": "if above 0, this is a pizza leftover: !pizza can hand it to anyone who owns a "
+                        "pizza_leftovers house item (the Necronomicrust). Higher = more common, relative "
+                        "to the other leftovers' weights",
+            },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},
             {
                 "name": "unsellable", "type": "bool", "required": False, "default": False, "group": "Drop Info",
@@ -572,6 +578,13 @@ CONTENT_TYPES = {
                 "hint": "the item this recipe produces -- options populate once output_kind (above) is chosen",
             },
             {"name": "materials", "type": "materials", "required": True},
+            {
+                "name": "station", "type": "enum", "required": False, "choices": list(dungeon.RECIPE_STATIONS),
+                "group": "Output",
+                "hint": "optional -- if set, this recipe can ONLY be made at that station (oven = !bake / "
+                        "the Bake button at home, for whoever owns a house item with the same station), "
+                        "never through !craft",
+            },
             {
                 "name": "currency_cost", "type": "int", "required": False, "min": 0, "default": 0, "group": "Cost",
                 "hint": "currency required in addition to the materials above (0 = materials only)",
@@ -1141,15 +1154,23 @@ CONTENT_TYPES = {
                         "this item's own effect magnitude",
             },
             {
+                "name": "station", "type": "enum", "required": False, "group": "Effect",
+                "choices": list(dungeon.RECIPE_STATIONS),
+                "hint": "optional -- owning this item (placed or not) unlocks crafting that station's "
+                        "recipes (oven = !bake, plus a Bake button on the house screen)",
+            },
+            {
                 "name": "effect_type", "type": "enum", "required": True, "group": "Effect",
                 "choices": lambda: sorted(housing.HOUSING_EFFECT_TYPES.keys()),
-                "hint": "the passive bonus this item grants while placed in a house slot",
+                "hint": "the passive bonus this item grants while placed in a house slot "
+                        "(pizza_leftovers works while merely owned, placed or not)",
             },
             {
                 "name": "value", "type": "int", "required": True, "group": "Effect",
                 "hint": "a percent for dungeon_loot_bonus/dungeon_xp_bonus/ranch_training_bonus, a "
                         "flat point for stat_bonus, a flat amount for rest_energy_bonus/rest_gold_bonus/"
-                        "luck_bonus",
+                        "luck_bonus. For pizza_leftovers: each !pizza gives 1 leftover, plus this "
+                        "percent chance of a second",
             },
             {
                 "name": "stat", "type": "enum", "required": False, "group": "Effect",

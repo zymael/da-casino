@@ -283,6 +283,11 @@ def _validate_monster_drops(drops, context: str):
         # dungeon_view._award_kill (dungeon.roll_drops itself has no db/quest access).
         if "requires" in drop and not isinstance(drop["requires"], dict):
             raise ValueError(f"{context} has a drop for {item_id!r} with a non-dict 'requires'")
+        # Optional "once": a player can only ever get this item from a drop one time, from any
+        # monster -- tracked by the flag drop_once_flag_key(item_id), checked and set at award time
+        # in dungeon_view._award_kill.
+        if "once" in drop and not isinstance(drop["once"], bool):
+            raise ValueError(f"{context} has a drop for {item_id!r} with a non-bool 'once'")
         if kind in ("housing_item", "quest_item"):
             # deferred -- see quests.validate_monster_drop_housing_items / validate_monster_drop_quest_items
             # (QUEST_ITEMS lives in quests.py, which imports this module)
@@ -292,6 +297,12 @@ def _validate_monster_drops(drops, context: str):
             raise ValueError(f"{context} has a drop referencing unknown {kind} {item_id!r}")
         if kind == "equipment" and registry[item_id].get("quest_only"):
             raise ValueError(f"{context} has a drop referencing quest_only equipment {item_id!r}")
+
+
+def drop_once_flag_key(item_id: str) -> str:
+    """The flag a "once" drop sets when it lands (keyed by item, not monster, so two monsters
+    sharing a once-drop still only ever give it once)."""
+    return f"drop_once:{item_id}"
 
 
 def _load_monsters(path: str = _MONSTERS_PATH) -> dict[str, dict]:
@@ -1981,11 +1992,29 @@ def _load_materials(path: str = _MATERIALS_PATH) -> dict[str, dict]:
             raise ValueError(f"dungeon_materials.json: duplicate material id {entry_id!r}")
         if entry["base_value"] < 0:
             raise ValueError(f"dungeon_materials.json: material {entry_id!r} base_value must be >= 0")
+        pizza_weight = entry.get("pizza_weight", 0)
+        if not isinstance(pizza_weight, int) or isinstance(pizza_weight, bool) or pizza_weight < 0:
+            raise ValueError(f"dungeon_materials.json: material {entry_id!r} pizza_weight must be an int >= 0")
         materials[entry_id] = entry
     return materials
 
 
 MATERIALS = _load_materials()
+
+
+def roll_pizza_leftovers(count: int) -> dict[str, int]:
+    """`count` weighted picks among materials with a "pizza_weight" (the leftovers !pizza hands an
+    oven owner -- see housing's "pizza_leftovers" effect). Which materials count as leftovers, and
+    how common each is, is entirely that JSON field; nothing here names one. Reads MATERIALS at
+    call time so an admin-panel edit applies immediately."""
+    pool = [m for m in MATERIALS.values() if m.get("pizza_weight", 0) > 0]
+    if not pool or count <= 0:
+        return {}
+    picks = random.choices(pool, weights=[m["pizza_weight"] for m in pool], k=count)
+    rolled: dict[str, int] = {}
+    for m in picks:
+        rolled[m["id"]] = rolled.get(m["id"], 0) + 1
+    return rolled
 
 
 # --- Consumables -------------------------------------------------------------------------------
@@ -2099,6 +2128,10 @@ DELVES = _load_delves()
 _RECIPES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_recipes.json")
 _REQUIRED_RECIPE_FIELDS = {"id", "name", "output_kind", "output_id", "materials"}
 RECIPE_OUTPUT_KINDS = ("equipment", "consumable", "horse_clothes", "quest_item", "housing_item")
+# A recipe with a "station" is only craftable at that station, never through !craft. Fixed
+# vocabulary, since each station has its own command: "oven" is !bake (or the Bake button on the
+# house screen), unlocked by owning a housing item with that same "station".
+RECIPE_STATIONS = ("oven",)
 
 
 def _load_recipes(path: str = _RECIPES_PATH) -> dict[str, dict]:
@@ -2128,6 +2161,9 @@ def _load_recipes(path: str = _RECIPES_PATH) -> dict[str, dict]:
                 raise ValueError(f"dungeon_recipes.json: recipe {entry_id!r} references unknown material {material_id!r}")
             if qty <= 0:
                 raise ValueError(f"dungeon_recipes.json: recipe {entry_id!r} has non-positive qty for {material_id!r}")
+        station = entry.get("station")
+        if station is not None and station not in RECIPE_STATIONS:
+            raise ValueError(f"dungeon_recipes.json: recipe {entry_id!r} has unknown station {station!r}")
         currency_cost = entry.get("currency_cost", 0)
         if currency_cost < 0:
             raise ValueError(f"dungeon_recipes.json: recipe {entry_id!r} has negative currency_cost")
@@ -2144,17 +2180,24 @@ def _load_recipes(path: str = _RECIPES_PATH) -> dict[str, dict]:
 RECIPES = _load_recipes()
 
 
-def find_recipe_by_materials(materials: dict[str, int]) -> dict | None:
+def find_recipe_by_materials(materials: dict[str, int], station: str | None = None) -> dict | None:
     """The recipe whose `materials` exactly matches `materials` -- same material ids *and*
     quantities, nothing extra, nothing missing. Powers discovery-based crafting (crafting.combine):
     a player picks materials without knowing the recipe first, and this is what tells them
     whether their guess landed on something. Exact-match (not "materials is a superset of the
     recipe's") is what makes two recipes distinguishable purely by quantity, e.g. Smelly Bomb
-    (used_thong: 1, droppings: 1) vs. Bulging Tights (used_thong: 1, droppings: 2)."""
+    (used_thong: 1, droppings: 1) vs. Bulging Tights (used_thong: 1, droppings: 2).
+
+    Only recipes at `station` count (None = plain !craft recipes, the ones with no station)."""
     for recipe in RECIPES.values():
-        if recipe["materials"] == materials:
+        if recipe["materials"] == materials and recipe.get("station") == station:
             return recipe
     return None
+
+
+def station_recipes(station: str | None) -> list[dict]:
+    """Every recipe craftable at `station` (None = plain !craft recipes)."""
+    return [r for r in RECIPES.values() if r.get("station") == station]
 
 
 

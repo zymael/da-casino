@@ -2706,6 +2706,8 @@ def _render_drop_row(prefix: str, drop: dict) -> str:
         f'value="{html.escape(str(requires_key))}"></label>'
         f'<label>requires min value<input type="number" name="{prefix}_requires_value" '
         f'value="{requires_value}"></label>'
+        f'<label title="each player can only ever get this item from a drop once">once per player'
+        f'<input type="checkbox" name="{prefix}_once"{" checked" if drop.get("once") else ""}></label>'
         f'<button type="button" class="remove-row" data-remove-row>✕ Remove</button></div>'
     )
 
@@ -4228,6 +4230,8 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
                 requires_value = form.get(f"{prefix}_requires_value", "").strip()
                 if requires_key and requires_value:
                     drop["requires"] = {"type": "flag_at_least", "key": requires_key, "value": int(requires_value)}
+                if form.get(f"{prefix}_once"):
+                    drop["once"] = True
                 drops.append(drop)
         return (name, drops)
 

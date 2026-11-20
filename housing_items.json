@@ -100,5 +100,18 @@
     "effect_type": "stat_bonus",
     "value": 2,
     "stat": "speed"
+  },
+  {
+    "id": "necronomicrust",
+    "name": "The Necronomicrust",
+    "emoji": "\ud83c\udf55",
+    "description": "It was still inside the Number 5 when it died, and it's still warm. Put the scraps in and a whole pizza comes out. Don't ask where the rest of it came from.\n\nWhile you own it, every pizza you order leaves you leftovers, and you can bake them into whole pizzas from your house.",
+    "image_path": "assets/housing/items/necronomicrust.png",
+    "base_value": 666,
+    "effect_type": "pizza_leftovers",
+    "value": 25,
+    "unsellable": true,
+    "unsmashable_message": "Vic gets one look at the tentacles and backs away from the counter. \"Nah. That thing's still cookin'.\"",
+    "station": "oven"
   }
 ]

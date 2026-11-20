@@ -2394,10 +2394,23 @@ async def _award_kill(
             drop.get("requires") is None
             or await quests.trigger_satisfied(guild_id, actor.user_id, drop["requires"])
         )
+        and not (
+            drop.get("once")
+            and await asyncio.to_thread(
+                db.get_flag, guild_id, actor.user_id, dungeon.drop_once_flag_key(drop["item_id"])
+            )
+        )
     ]
+    once_ids = {drop["item_id"] for drop in eligible_drops if drop.get("once")}
     gated_monster = {**monster, "drops": eligible_drops}
     for dropped in dungeon.roll_drops(gated_monster, chance_mult):
         kind = dropped["_drop_kind"]
+        # Claim the "once" flag atomically before granting, so two kills settling at the same
+        # moment can't both hand it out.
+        if dropped["id"] in once_ids and not await asyncio.to_thread(
+            db.set_flag_if_zero, guild_id, actor.user_id, dungeon.drop_once_flag_key(dropped["id"]), 1,
+        ):
+            continue
         if kind == "equipment" and all_in_tier:
             rolled_id = all_in.roll_item_id(dropped["id"], all_in_tier)
             await asyncio.to_thread(db.store_equipment_item, guild_id, actor.user_id, rolled_id)
