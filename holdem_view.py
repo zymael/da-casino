@@ -18,11 +18,31 @@ from game import Deck
 JOIN_SECONDS = 45
 ACTION_SECONDS = 45
 BETWEEN_HANDS_SECONDS = 5
-SMALL_BLIND = 5
-BIG_BLIND = 10
+# Blinds scale with the stakes and climb over the session (tournament-style, so a session against
+# bots that can only leave by going bust has an ending). At the first deal the big blind is about
+# 1/BB_PER_STACK of the deepest stack, rounded down to a clean BLIND_LADDER step (never under the
+# first); every BLINDS_UP_EVERY hands it rises to the next step at least BLIND_GROWTH times as big.
+BB_PER_STACK = 100
+BLINDS_UP_EVERY = 10
+BLIND_GROWTH = 1.5
+BLIND_LADDER = [
+    10, 15, 20, 25, 30, 40, 50, 60, 80, 100, 120, 150, 200, 250, 300, 400, 500, 600, 800,
+    1000, 1200, 1500, 2000, 2500, 3000, 4000, 5000, 6000, 8000, 10000,
+]
+
+
+def starting_big_blind(deepest_stack: int) -> int:
+    target = deepest_stack / BB_PER_STACK
+    return max([BLIND_LADDER[0]] + [step for step in BLIND_LADDER if step <= target])
+
+
+def next_big_blind(big_blind: int) -> int:
+    target = big_blind * BLIND_GROWTH
+    return next((step for step in BLIND_LADDER if step >= target), BLIND_LADDER[-1])
 MAX_SEATS = holdem_render.MAX_SEATS
-# NPC bots (npcs.json poker_bot) play from a house-funded stack: each hand, as deep as the deepest
-# human at the table, but never more than this.
+# NPC bots (npcs.json poker_bot) play from a house-funded stack, set at their first deal as deep as
+# the deepest human but never more than this. It's also the most a human can bring to any hand
+# while bots are seated.
 BOT_STACK_CAP = 5000
 BOT_THINK_SECONDS = 0.5  # bots post nothing while thinking now, so just a short beat
 DEFAULT_CHATTER = 0.6
@@ -119,6 +139,9 @@ class HoldemTable:
         self._next_bot_id = -1
         self.closed = False
         self.started = False  # first hand dealt; random starting bots are picked at this moment
+        self.big_blind: int | None = None  # set at the first deal (starting_big_blind), then climbs
+        self.hands_dealt = 0
+        self.blind_note: str | None = None  # announced in the next hand's first caption
         self.pending_bots = 0  # mystery bots still to be picked at the deal
         self.avatars: dict[int, bytes | None] = {}  # human id -> Discord avatar PNG, fetched once per table
         self.log: list[str] = []  # actions since the last table image, captioned under the next one
@@ -178,6 +201,7 @@ class HoldemGame:
         # player id -> true equity once all the money went in with cards still to come (for the
         # Miracle on the River achievement); None until/unless that happens.
         self.runout_equity: dict[int, float] | None = None
+        self.big_blind = 10  # play_hand sets this from the table
 
     def active(self) -> list[Player]:
         return [p for p in self.players if not p.folded]
@@ -383,9 +407,12 @@ def build_control_embed(table: HoldemTable) -> discord.Embed:
         embed.description = "No one's seated yet."
     else:
         lines = []
+        capped = bool(table.pending_bots) or any(is_npc(s.member) for s in table.seated())
         for s in table.seats:
             if is_npc(s.member):
                 buyin_str = "🤖 bot" + (f", stack {s.bot_stack}" if s.bot_stack is not None else "")
+            elif capped:
+                buyin_str = f"buy-in {min(s.buy_in, BOT_STACK_CAP)}" if s.buy_in is not None else f"buy-in {BOT_STACK_CAP} (max)"
             else:
                 buyin_str = f"buy-in {s.buy_in}" if s.buy_in is not None else "full balance"
             tag = " — *standing up after this hand*" if s.standing else ""
@@ -393,7 +420,10 @@ def build_control_embed(table: HoldemTable) -> discord.Embed:
         if table.pending_bots and not table.started:
             lines.append(f"🤖 **+{table.pending_bots} mystery bots** — revealed on the deal")
         embed.description = "\n".join(lines)
-    embed.set_footer(text="Buy In to sit down or update your buy-in. Stand to leave whenever you like.")
+    footer = "Buy In to sit down or update your buy-in. Stand to leave whenever you like."
+    if table.pending_bots or any(is_npc(s.member) for s in table.seated()):
+        footer += f" Buy-ins are capped at {BOT_STACK_CAP} while bots are at the table."
+    embed.set_footer(text=footer)
     return embed
 
 
@@ -606,7 +636,7 @@ async def table_message(
     )
     file = discord.File(buf, filename="table.png")
     embed = discord.Embed(
-        title=title or f"🃏 Texas Hold'em — {street}",
+        title=title or f"🃏 Texas Hold'em — {street} · Blinds {game.big_blind // 2}/{game.big_blind}",
         color=discord.Color.gold() if showdown else discord.Color.dark_red(),
     )
     lines = table.log[-10:] + (result_lines or [])
@@ -632,7 +662,7 @@ async def _bot_turn(table: HoldemTable, game: HoldemGame, player: Player, to_cal
     situation = poker_ai.Situation(
         hole=player.hole, community=list(game.community), n_opponents=opponents, to_call=to_call,
         pot=sum(p.contributed for p in game.players), current_bet=game.current_bet,
-        street_contributed=player.street_contributed, remaining=player.remaining, big_blind=BIG_BLIND,
+        street_contributed=player.street_contributed, remaining=player.remaining, big_blind=game.big_blind,
         raises_this_street=player.raises_this_street,
     )
     action = poker_ai.decide(situation, poker_ai.Personality.from_npc(npc), equity)
@@ -855,13 +885,17 @@ async def play_hand(ctx, table: HoldemTable, members: list, stacks: dict[int, in
     busy_players.update(m.id for m in humans)
     table.log.clear()
     table.speech.clear()
+    game.big_blind = table.big_blind
+    if table.blind_note:
+        table.log.append(table.blind_note)
+        table.blind_note = None
 
     try:
         await _fetch_avatars(table, humans)
         dealer, sb_idx, bb_idx = blind_seats(len(players))
         sb_player, bb_player = players[sb_idx], players[bb_idx]
-        await _commit(game, sb_player, min(SMALL_BLIND, sb_player.remaining))
-        await _commit(game, bb_player, min(BIG_BLIND, bb_player.remaining))
+        await _commit(game, sb_player, min(game.big_blind // 2, sb_player.remaining))
+        await _commit(game, bb_player, min(game.big_blind, bb_player.remaining))
         game.current_bet = bb_player.street_contributed
 
         for p in players:
@@ -966,6 +1000,11 @@ async def run_table(ctx, table: HoldemTable):
                     continue
                 members.append(s.member)
                 stacks[s.member.id] = min(balance, s.buy_in) if s.buy_in is not None else balance
+            if bot_seats:
+                # No bringing a bankroll the bots can't match: at a bot table nobody sits down
+                # with more than a bot ever can.
+                for uid in stacks:
+                    stacks[uid] = min(stacks[uid], BOT_STACK_CAP)
             if members:
                 for s in bot_seats:
                     if s.bot_stack is None:  # first deal: as deep as the deepest human, capped
@@ -977,6 +1016,17 @@ async def run_table(ctx, table: HoldemTable):
                 break
 
             members = next_hand_order(table, members)
+
+            if table.big_blind is None:
+                table.big_blind = starting_big_blind(max(stacks[m.id] for m in members))
+                table.blind_note = (
+                    f"🪙 Blinds start at **{table.big_blind // 2}/{table.big_blind}** "
+                    f"and go up every {BLINDS_UP_EVERY} hands."
+                )
+            elif table.hands_dealt and table.hands_dealt % BLINDS_UP_EVERY == 0:
+                table.big_blind = next_big_blind(table.big_blind)
+                table.blind_note = f"⏫ **Blinds are up: {table.big_blind // 2}/{table.big_blind}**"
+            table.hands_dealt += 1
 
             bot_stacks = await play_hand(ctx, table, members, stacks)
 
