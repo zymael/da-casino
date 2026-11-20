@@ -58,6 +58,12 @@ class NpcMember:
         return f"**{self.display_name}**"
 
 
+def isolate(name: str) -> str:
+    """Wraps a display name in Unicode first-strong-isolate marks, so a right-to-left name (Arabic,
+    Persian, Hebrew) can't flip the order of the stack numbers and badges around it."""
+    return f"⁨{name}⁩"
+
+
 def is_npc(member) -> bool:
     return getattr(member, "is_npc", False)
 
@@ -270,6 +276,8 @@ class ActionView(discord.ui.View):
         self.call_button.label = "Check" if to_call == 0 else f"Call {to_call}"
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if (interaction.data or {}).get("custom_id") == HAND_BUTTON_ID:
+            return True  # anyone in the hand may peek at their own cards from the turn prompt
         if interaction.user.id != self.player.member.id:
             await interaction.response.send_message("It's not your turn.", ephemeral=True)
             return False
@@ -307,23 +315,42 @@ class ActionView(discord.ui.View):
         self.stop()
         await update_control_message(self.table)
 
+    @discord.ui.button(label="👀 My Hand", style=discord.ButtonStyle.secondary, row=1, custom_id="holdem_hand")
+    async def hand_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await send_hand(interaction, self.table)
+
+
+HAND_BUTTON_ID = "holdem_hand"
+
+
+async def send_hand(interaction: discord.Interaction, table: HoldemTable):
+    """Privately shows whoever clicked their hole cards (and the board so far, when there is one)."""
+    player = table.current_players_by_id.get(interaction.user.id)
+    if player is None:
+        await interaction.response.send_message("You're not in this hand.", ephemeral=True)
+        return
+    buf = cards_render.render_hand(player.hole)
+    file = discord.File(buf, filename="hole.png")
+    embed = discord.Embed(title="🂠 Your hand", color=discord.Color.blurple())
+    embed.set_image(url="attachment://hole.png")
+    game = table.current_game
+    if game is not None and game.community:
+        score, _best = poker.best_hand(player.hole + game.community)
+        embed.description = f"Board: {' '.join(str(c) for c in game.community)}\nYou have: **{poker.describe_score(score)}**"
+    await interaction.response.send_message(embed=embed, file=file, ephemeral=True)
+
 
 class RevealHandView(discord.ui.View):
+    """Sits on the deal message and every street message, so your cards are always a click away
+    however far bot chatter has scrolled the deal message up."""
+
     def __init__(self, table: HoldemTable):
         super().__init__(timeout=None)
         self.table = table
 
     @discord.ui.button(label="👀 Show My Hand", style=discord.ButtonStyle.secondary)
     async def reveal(self, interaction: discord.Interaction, button: discord.ui.Button):
-        player = self.table.current_players_by_id.get(interaction.user.id)
-        if player is None:
-            await interaction.response.send_message("You're not in this hand.", ephemeral=True)
-            return
-        buf = cards_render.render_hand(player.hole)
-        file = discord.File(buf, filename="hole.png")
-        embed = discord.Embed(title="🂠 Your hand", color=discord.Color.blurple())
-        embed.set_image(url="attachment://hole.png")
-        await interaction.response.send_message(embed=embed, file=file, ephemeral=True)
+        await send_hand(interaction, self.table)
 
 
 def build_control_embed(table: HoldemTable) -> discord.Embed:
@@ -338,7 +365,7 @@ def build_control_embed(table: HoldemTable) -> discord.Embed:
             else:
                 buyin_str = f"buy-in {s.buy_in}" if s.buy_in is not None else "full balance"
             tag = " — *standing up after this hand*" if s.standing else ""
-            lines.append(f"**{s.member.display_name}** — {buyin_str}{tag}")
+            lines.append(f"**{isolate(s.member.display_name)}** — {buyin_str}{tag}")
         if table.pending_bots and not table.started:
             lines.append(f"🤖 **+{table.pending_bots} mystery bots** — revealed on the deal")
         embed.description = "\n".join(lines)
@@ -512,7 +539,7 @@ def build_table_embed(
             tag = "🎯 to act"
         else:
             tag = ""
-        lines.append(f"{badge}**{p.member.display_name}** — {p.street_contributed} in (stack {p.remaining}) {tag}")
+        lines.append(f"{badge}**{isolate(p.member.display_name)}** — {p.street_contributed} in (stack {p.remaining}) {tag}")
     embed.add_field(name="Players", value="\n".join(lines), inline=False)
     return embed, file
 
@@ -735,7 +762,7 @@ async def play_hand(ctx, table: HoldemTable, members: list, stacks: dict[int, in
 
             can_act = [p for p in game.active() if not p.all_in]
             street_embed, street_file = build_table_embed(game, street_name)
-            street_kwargs = {"embed": street_embed}
+            street_kwargs = {"embed": street_embed, "view": RevealHandView(table)}
             if street_file is not None:
                 street_kwargs["file"] = street_file
             await ctx.send(**street_kwargs)
