@@ -105,7 +105,7 @@ def _load_npcs(path: str = _NPCS_PATH) -> dict[str, dict]:
     return npcs_by_id
 
 
-# Hold'em bot personality (holdem_view.py seats any NPC with poker_bot true; poker_ai.py reads the
+# Hold'em bot personality (holdem_view.py picks random bots from NPCs with poker_bot true; poker_ai.py reads the
 # numbers). Every field is optional -- poker_ai.Personality supplies defaults. poker_trigger is
 # cross-validated in quests.py, same circularity as visible_trigger.
 POKER_TRAITS = ("poker_tightness", "poker_aggression", "poker_bluff", "poker_allin_rate", "poker_chatter")

@@ -23,6 +23,8 @@ MAX_SEATS = 9
 BOT_STACK_CAP = 5000
 BOT_THINK_SECONDS = 1.5
 DEFAULT_CHATTER = 0.6
+# Random bots seated automatically when a table opens (fewer if not enough are available).
+STARTING_BOTS = 4
 
 # channel_id -> HoldemTable, so only one table can be running per channel
 active_tables: dict[int, "HoldemTable"] = {}
@@ -92,6 +94,7 @@ class HoldemTable:
         self.current_action_view: "ActionView | None" = None
         self._next_bot_id = -1
         self.closed = False
+        self.started = False  # first hand dealt; random starting bots are locked in from here
         self._next_seat_no = 0
         self.last_dealer_seat_no: int | None = None
 
@@ -336,10 +339,7 @@ def build_control_embed(table: HoldemTable) -> discord.Embed:
             tag = " — *standing up after this hand*" if s.standing else ""
             lines.append(f"**{s.member.display_name}** — {buyin_str}{tag}")
         embed.description = "\n".join(lines)
-    embed.set_footer(
-        text="Buy In to sit down or update your buy-in. Stand to leave whenever you like. "
-             "Seated players can add or remove NPC bots below."
-    )
+    embed.set_footer(text="Buy In to sit down or update your buy-in. Stand to leave whenever you like.")
     return embed
 
 
@@ -382,72 +382,56 @@ class BuyInModal(discord.ui.Modal):
         await update_control_message(self.table)
 
 
-class BotSelect(discord.ui.Select):
-    """Seats or unseats an NPC bot. Options are every poker_bot NPC whose poker_trigger currently
-    holds, plus any bot already seated (so it can always be removed)."""
+def sit_text(npc: dict) -> str:
+    text = f"🤖 **{npc['name']}** sits down at the table."
+    line = npc_line(npc, "sit", always=True)
+    if line:
+        text += f"\n> {line}"
+    return text
 
-    def __init__(self, table: HoldemTable, options: list[discord.SelectOption]):
-        super().__init__(placeholder="🤖 Add or remove a bot...", options=options, row=1)
+
+async def seat_random_bots(table: HoldemTable, count: int) -> list[dict]:
+    """Seats up to `count` random bots from whoever's available (poker_trigger) and not already
+    seated, capped by free seats. Players never pick which bots they get: choosing the opponent's
+    AI would make it trivial to farm the loosest personality."""
+    pool = [
+        npc for npc in npcs.poker_bots()
+        if table.bot_seat_for(npc["id"]) is None and await bot_available(table, npc)
+    ]
+    count = max(0, min(count, len(pool), MAX_SEATS - len(table.seated())))
+    chosen = random.sample(pool, count)
+    for npc in chosen:
+        table.add_seat(table.new_bot_member(npc["id"]), None)
+    return chosen
+
+
+class NoBotsButton(discord.ui.Button):
+    """Lets the host send the random starting bots home, before the first deal only. One-way on
+    purpose: a toggle back on would reroll the bots, i.e. let the host pick which AI they face."""
+
+    def __init__(self, table: HoldemTable):
+        super().__init__(label="No Bots", emoji="🚫", style=discord.ButtonStyle.secondary)
         self.table = table
 
     async def callback(self, interaction: discord.Interaction):
         table = self.table
-        seat = table.seat_for(interaction.user.id)
-        if seat is None or seat.standing:
-            await interaction.response.send_message("Sit down first to add or remove bots.", ephemeral=True)
+        if interaction.user.id != table.host_id:
+            await interaction.response.send_message("Only whoever opened the table can do that.", ephemeral=True)
             return
-        npc_id = self.values[0]
-        npc = npcs.NPCS.get(npc_id)
-        if npc is None or not npc.get("poker_bot"):
-            await interaction.response.send_message("That bot isn't available any more.", ephemeral=True)
+        if table.started:
+            await interaction.response.send_message("Too late, the cards are already out.", ephemeral=True)
             return
-
-        bot_seat = table.bot_seat_for(npc_id)
-        if bot_seat is not None and not bot_seat.standing:
-            bot_seat.standing = True
-            in_hand = bot_seat.member.id in table.current_players_by_id
-            when = "after this hand" if in_hand else "now"
-            await interaction.response.send_message(f"🤖 **{npc['name']}** leaves the table {when}.")
-        else:
-            if not await bot_available(table, npc):
-                await interaction.response.send_message(f"**{npc['name']}** isn't around right now.", ephemeral=True)
-                return
-            if len(table.seated()) >= MAX_SEATS:
-                await interaction.response.send_message(f"The table's full ({MAX_SEATS} seats).", ephemeral=True)
-                return
-            if bot_seat is not None:
-                bot_seat.standing = False
-            else:
-                table.add_seat(table.new_bot_member(npc_id), None)
-            line = npc_line(npc, "sit", always=True)
-            text = f"🤖 **{npc['name']}** sits down at the table."
-            if line:
-                text += f"\n> {line}"
-            await interaction.response.send_message(text)
+        table.seats = [s for s in table.seats if not is_npc(s.member)]
+        await interaction.response.send_message("🚫 The bots head home. Humans only at this table.")
         await update_control_message(table)
 
 
-async def _bot_select_options(table: HoldemTable) -> list[discord.SelectOption]:
-    options = []
-    for npc in npcs.poker_bots():
-        seat = table.bot_seat_for(npc["id"])
-        seated = seat is not None and not seat.standing
-        if not seated and not await bot_available(table, npc):
-            continue
-        options.append(discord.SelectOption(
-            label=f"Remove {npc['name']}" if seated else f"Add {npc['name']}",
-            value=npc["id"],
-            emoji="✖️" if seated else "🤖",
-        ))
-    return options[:25]
-
-
 class TableControlView(discord.ui.View):
-    def __init__(self, table: HoldemTable, bot_options: list[discord.SelectOption] | None = None):
+    def __init__(self, table: HoldemTable):
         super().__init__(timeout=None)
         self.table = table
-        if bot_options:
-            self.add_item(BotSelect(table, bot_options))
+        if not table.started and any(is_npc(s.member) for s in table.seats):
+            self.add_item(NoBotsButton(table))
 
     @discord.ui.button(label="Buy In", style=discord.ButtonStyle.success)
     async def buy_in_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -477,20 +461,18 @@ class TableControlView(discord.ui.View):
         await update_control_message(table)
 
 
-async def build_control_view(table: HoldemTable) -> TableControlView:
+def build_control_view(table: HoldemTable) -> "TableControlView":
     if table.control_view is not None:
         table.control_view.stop()
-    table.control_view = TableControlView(table, await _bot_select_options(table))
+    table.control_view = TableControlView(table)
     return table.control_view
 
 
 async def update_control_message(table: HoldemTable):
     if table.control_message is None or table.closed:
         return
-    # A bot that left before any hand dealt it in can just go.
-    table.seats = [s for s in table.seats if not (s.standing and is_npc(s.member) and s.member.id not in table.current_players_by_id)]
     try:
-        await table.control_message.edit(embed=build_control_embed(table), view=await build_control_view(table))
+        await table.control_message.edit(embed=build_control_embed(table), view=build_control_view(table))
     except discord.HTTPException:
         pass
 
@@ -842,17 +824,20 @@ async def start_holdem_table(ctx, buy_in: int | None):
     table = HoldemTable(ctx.channel, ctx.channel.id, ctx.guild.id, ctx.author.id)
     table.add_seat(ctx.author, buy_in)
     active_tables[ctx.channel.id] = table
+    starting_bots = await seat_random_bots(table, STARTING_BOTS)
 
-    view = await build_control_view(table)
+    content = f"🃏 {ctx.author.mention} opened a Hold'em table! Dealing the first hand in {JOIN_SECONDS}s."
+    if starting_bots:
+        content += "\n" + "\n".join(sit_text(npc) for npc in starting_bots)
+        content += f"\n-# {ctx.author.display_name} can send the bots home with No Bots before the first deal."
     message = await ctx.send(
-        content=(
-            f"🃏 {ctx.author.mention} opened a Hold'em table! Dealing the first hand in {JOIN_SECONDS}s. "
-            f"Short on players? Add a bot from the dropdown."
-        ),
+        content=content,
         embed=build_control_embed(table),
-        view=view,
+        view=build_control_view(table),
     )
     table.control_message = message
 
     await asyncio.sleep(JOIN_SECONDS)
+    table.started = True
+    await update_control_message(table)  # drops the No Bots button
     await run_table(ctx, table)

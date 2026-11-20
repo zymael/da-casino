@@ -1320,7 +1320,7 @@ CONTENT_TYPES = {
             },
             {
                 "name": "poker_bot", "type": "bool", "required": False, "default": False, "group": "Hold'em Bot",
-                "hint": "lets players seat this NPC at a Hold'em table as a bot (house-funded stack)",
+                "hint": "puts this NPC in the pool of random Hold'em bots (4 are dealt in when a table opens, house-funded stack)",
             },
             {
                 "name": "poker_tightness", "type": "float", "required": False, "group": "Hold'em Bot",
