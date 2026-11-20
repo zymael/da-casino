@@ -87,6 +87,27 @@ def estimate_equity(
     return total / iterations
 
 
+def equity_vs_hands(
+    hands: dict, community: list, iterations: int = 1500, rng: random.Random | None = None,
+) -> dict:
+    """True equity of each known hand ({key: [2 cards]}) against the others, running out the rest of
+    the board -- what everyone's chances were once all the money was in. Ties split."""
+    rng = rng or random
+    known = {(c.rank, c.suit) for c in community} | {(c.rank, c.suit) for h in hands.values() for c in h}
+    stub = [Card(r, s) for s in SUITS for r in RANKS if (r, s) not in known]
+    needed = 5 - len(community)
+    totals = dict.fromkeys(hands, 0.0)
+    runs = iterations if needed else 1
+    for _ in range(runs):
+        board = community + (rng.sample(stub, needed) if needed else [])
+        scores = {k: poker.best_hand(h + board)[0] for k, h in hands.items()}
+        best = max(scores.values())
+        winners = [k for k, s in scores.items() if s == best]
+        for k in winners:
+            totals[k] += 1.0 / len(winners)
+    return {k: v / runs for k, v in totals.items()}
+
+
 def _adjusted_equity(equity: float, sit: Situation) -> float:
     """Shades raw equity (measured against random hands) down when facing a bet, since whoever bet
     usually holds better than random. The fair share (1/players) is the floor it shrinks toward."""

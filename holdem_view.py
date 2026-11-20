@@ -4,6 +4,7 @@ import time
 
 import discord
 
+import achievements
 import cards_render
 import db
 import holdem_render
@@ -98,6 +99,9 @@ class Seat:
         # Ever-increasing per table, so the dealer button can move "one seat left" past players
         # who've since left (see next_hand_order).
         self.seat_no = seat_no
+        # A bot's stack for the whole session: set at its first deal, carried hand to hand, and
+        # when it hits 0 the bot is bust and leaves. None for humans (they buy in per hand).
+        self.bot_stack: int | None = None
 
 
 class HoldemTable:
@@ -171,6 +175,9 @@ class HoldemGame:
         self.deck = Deck()
         self.community: list = []
         self.current_bet = 0
+        # player id -> true equity once all the money went in with cards still to come (for the
+        # Miracle on the River achievement); None until/unless that happens.
+        self.runout_equity: dict[int, float] | None = None
 
     def active(self) -> list[Player]:
         return [p for p in self.players if not p.folded]
@@ -378,7 +385,7 @@ def build_control_embed(table: HoldemTable) -> discord.Embed:
         lines = []
         for s in table.seats:
             if is_npc(s.member):
-                buyin_str = "🤖 bot, house stack"
+                buyin_str = "🤖 bot" + (f", stack {s.bot_stack}" if s.bot_stack is not None else "")
             else:
                 buyin_str = f"buy-in {s.buy_in}" if s.buy_in is not None else "full balance"
             tag = " — *standing up after this hand*" if s.standing else ""
@@ -717,16 +724,22 @@ async def settle_hand(ctx, table: HoldemTable, game: HoldemGame):
         else:
             new_balance = await asyncio.to_thread(db.update_balance, game.guild_id, winner.member.id, amount)
             line += f" (Balance: {new_balance})"
+        winner.remaining += amount
         embed, file = await table_message(
             table, game, "Result", showdown={winner.member.id: (None, amount)},
             title="🃏 Texas Hold'em — Result", result_lines=[line],
         )
         await ctx.send(embed=embed, file=file)
+        if not is_npc(winner.member):
+            await achievements.try_award_many(
+                ctx.send, game.guild_id, winner.member.id, winner.member.display_name, ["win_holdem"],
+            )
         return
 
     pots = poker.build_pots(contributions, folded_ids)
     payouts: dict[int, int] = {}
     hand_desc: dict[int, str] = {}
+    pot_results: list[tuple[set, set]] = []  # (eligible ids, winner ids) per pot
 
     for amount, eligible_ids in pots:
         eligible_players = [id_to_player[uid] for uid in eligible_ids]
@@ -740,6 +753,7 @@ async def settle_hand(ctx, table: HoldemTable, game: HoldemGame):
         share, remainder = divmod(amount, len(winners))
         for i, w in enumerate(winners):
             payouts[w.member.id] = payouts.get(w.member.id, 0) + share + (1 if i < remainder else 0)
+        pot_results.append((set(eligible_ids), {w.member.id for w in winners}))
 
     result_lines = []
     for uid, amount in payouts.items():
@@ -749,18 +763,77 @@ async def settle_hand(ctx, table: HoldemTable, game: HoldemGame):
             new_balance = await asyncio.to_thread(db.update_balance, game.guild_id, uid, amount)
             line += f" (Balance: {new_balance})"
         result_lines.append(line)
+        p.remaining += amount
 
+    busted = [p for p in game.players if is_npc(p.member) and p.remaining <= 0]
     for p in active:
         if is_npc(p.member):
             speech = npc_line(p.member.npc, "win" if payouts.get(p.member.id) else "lose")
             if speech:
                 table.speech[p.member.id] = speech
+    for p in busted:
+        result_lines.append(f"💀 **{isolate(p.member.display_name)}** is cleaned out and leaves the table.")
 
     showdown = {p.member.id: (hand_desc.get(p.member.id), payouts.get(p.member.id, 0)) for p in active}
     embed, file = await table_message(
         table, game, "Showdown", showdown=showdown, title="🃏 Texas Hold'em — Showdown", result_lines=result_lines,
     )
     await ctx.send(embed=embed, file=file)
+
+    for p in game.players:
+        if is_npc(p.member):
+            continue
+        kinds = showdown_achievements(game, p, payouts, pot_results, busted)
+        if kinds:
+            await achievements.try_award_many(ctx.send, game.guild_id, p.member.id, p.member.display_name, kinds)
+
+
+ALPHA_NPC_ID = "kel_werewolf"  # Howl at the Moon
+MIRACLE_EQUITY = 0.25
+
+
+def showdown_achievements(
+    game: HoldemGame, p: Player, payouts: dict[int, int], pot_results: list[tuple[set, set]], busted: list[Player],
+) -> list[str]:
+    """Which Hold'em achievements one human's showdown result qualifies them for (try_award_many
+    skips any they already have)."""
+    uid = p.member.id
+    won = payouts.get(uid, 0)
+    kinds = []
+    if won:
+        kinds.append("win_holdem")
+    if p.all_in and won:
+        kinds.append("holdem_all_in_win")
+    if p.all_in and p.remaining <= 0:
+        kinds.append("holdem_dead_money")
+    if won and game.runout_equity is not None and game.runout_equity.get(uid, 1.0) < MIRACLE_EQUITY:
+        kinds.append("holdem_miracle")
+    busted_ids = {b.member.id for b in busted}
+    by_id = {q.member.id: q for q in game.players}
+    for eligible, winners in pot_results:
+        if uid not in winners:
+            continue
+        if busted_ids & (eligible - winners):
+            kinds.append("holdem_bot_buster")
+        for other_id in eligible - winners:
+            other = by_id[other_id]
+            if is_npc(other.member) and other.member.npc_id == ALPHA_NPC_ID and (other.all_in or p.all_in):
+                kinds.append("holdem_howl")
+    return list(dict.fromkeys(kinds))
+
+
+async def _note_runout_equity(game: HoldemGame):
+    """Once nobody can bet any more, with someone all-in and cards still to come, record everyone's
+    true equity against the others' actual hands (only needed when a human is in it)."""
+    if game.runout_equity is not None or len(game.community) >= 5:
+        return
+    active = game.active()
+    if len(active) < 2 or len([p for p in active if not p.all_in]) > 1 or not any(p.all_in for p in active):
+        return
+    if not any(not is_npc(p.member) for p in active):
+        return
+    hands = {p.member.id: p.hole for p in active}
+    game.runout_equity = await asyncio.to_thread(poker_ai.equity_vs_hands, hands, list(game.community))
 
 
 async def _fetch_avatars(table: HoldemTable, members: list):
@@ -800,6 +873,7 @@ async def play_hand(ctx, table: HoldemTable, members: list, stacks: dict[int, in
             embed, file = await table_message(table, game, "Pre-Flop")
             await ctx.send(content="Cards are dealt.", embed=embed, file=file, view=RevealHandView(table))
         await run_betting_round(ctx, table, game, "Pre-Flop", reset_street=False)
+        await _note_runout_equity(game)
 
         for street_name, n_cards in (("Flop", 3), ("Turn", 1), ("River", 1)):
             if len(game.active()) <= 1:
@@ -821,24 +895,36 @@ async def play_hand(ctx, table: HoldemTable, members: list, stacks: dict[int, in
                 await ctx.send(embed=embed, file=file, view=RevealHandView(table))
             if len(can_act) > 1:
                 await run_betting_round(ctx, table, game, street_name, reset_street=True)
+                await _note_runout_equity(game)
             else:
                 await asyncio.sleep(1.5)  # let everyone see the card land before dealing the next
 
         if not human_live(game):
-            # Every human folded or stood up. Their chips are already in the pot either way, and
-            # bot stacks are house money that resets each hand, so the bots' betting can't matter
-            # to anyone: no human seated -> just end; otherwise run the board out and show it.
+            # Every human folded or stood up. Their chips are already in the pot either way, so
+            # skip the bots' remaining betting: no human seated -> just end (the table closes);
+            # otherwise run the board out and settle what's in the pot between the bots.
             if not table.seated_humans():
-                return
+                return None
             if len(game.active()) > 1:
                 while len(game.community) < 5:
                     game.community.append(game.deck.draw())
         await settle_hand(ctx, table, game)
+        return {p.member.id: p.remaining for p in players if is_npc(p.member)}
     finally:
         busy_players.difference_update(m.id for m in humans)
         table.current_game = None
         table.current_players_by_id = {}
         table.current_action_view = None
+
+
+async def clean_house(ctx, table: HoldemTable):
+    """The last bot just went bust: everyone still seated gets Cleaned Out the House, and the table
+    closes."""
+    await ctx.send("🏆 **The house is cleaned out!** Every bot is bust. Table closed.")
+    for s in table.seated_humans():
+        await achievements.try_award_many(
+            ctx.send, table.guild_id, s.member.id, s.member.display_name, ["holdem_clean_house"],
+        )
 
 
 def next_hand_order(table: HoldemTable, members: list) -> list:
@@ -881,20 +967,32 @@ async def run_table(ctx, table: HoldemTable):
                 members.append(s.member)
                 stacks[s.member.id] = min(balance, s.buy_in) if s.buy_in is not None else balance
             if members:
-                bot_stack = min(BOT_STACK_CAP, max(stacks.values()))
                 for s in bot_seats:
+                    if s.bot_stack is None:  # first deal: as deep as the deepest human, capped
+                        s.bot_stack = min(BOT_STACK_CAP, max(stacks.values()))
                     members.append(s.member)
-                    stacks[s.member.id] = bot_stack
+                    stacks[s.member.id] = s.bot_stack
             if not any(not is_npc(m) for m in members) or len(members) < 2:
                 await ctx.send("Not enough funded players to deal a hand — table closed. Run `!holdem` to start a new one.")
                 break
 
             members = next_hand_order(table, members)
 
-            await play_hand(ctx, table, members, stacks)
+            bot_stacks = await play_hand(ctx, table, members, stacks)
 
+            busted_this_hand = False
+            for s in table.seats:
+                if is_npc(s.member) and bot_stacks and s.member.id in bot_stacks:
+                    s.bot_stack = bot_stacks[s.member.id]
+                    if s.bot_stack <= 0:
+                        s.standing = True
+                        busted_this_hand = True
             table.seats = [s for s in table.seats if not s.standing]
             await update_control_message(table)
+
+            if busted_this_hand and not any(is_npc(s.member) for s in table.seats):
+                await clean_house(ctx, table)
+                break
 
             if not table.seated_humans() or len(table.seated()) < 2:
                 await ctx.send("Table closed — not enough players left.")
