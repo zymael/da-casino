@@ -186,7 +186,7 @@ class ExperimentView(_OwnerOnlyView):
         _held_field(embed, self.held)
         return embed
 
-    async def _refresh(self, interaction: discord.Interaction, picks: list[str]):
+    async def _redraw(self, interaction: discord.Interaction, picks: list[str]):
         held = await _held_ingredients(self.guild_id, self.user_id)
         view = ExperimentView(self.guild_id, self.user_id, self.oven, held, picks)
         await interaction.response.edit_message(embed=view.embed(), view=view)
@@ -200,12 +200,12 @@ class ExperimentView(_OwnerOnlyView):
                 ephemeral=True,
             )
             return
-        await self._refresh(interaction, [] if result["success"] else self.picks)
+        await self._redraw(interaction, [] if result["success"] else self.picks)
         await interaction.followup.send(_bake_result_text(result), ephemeral=True)
 
     @discord.ui.button(label="↩ Take one out", style=discord.ButtonStyle.secondary, row=1)
     async def undo_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._refresh(interaction, self.picks[:-1])
+        await self._redraw(interaction, self.picks[:-1])
 
     @discord.ui.button(label="📖 Menu", style=discord.ButtonStyle.secondary, row=1)
     async def menu_button(self, interaction: discord.Interaction, button: discord.ui.Button):
