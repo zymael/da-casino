@@ -68,6 +68,11 @@ def is_npc(member) -> bool:
     return getattr(member, "is_npc", False)
 
 
+def human_live(game: "HoldemGame") -> bool:
+    """Whether any human is still in this hand (not folded; all-in still counts, their pot is live)."""
+    return any(not is_npc(p.member) and not p.folded for p in game.players)
+
+
 def npc_line(npc: dict, kind: str, always: bool = False) -> str | None:
     """A random one of this NPC's lines for `kind`, or None (no lines, or it stayed quiet)."""
     lines = npcs.poker_lines(npc, kind)
@@ -604,6 +609,8 @@ async def run_betting_round(ctx, table: HoldemTable, game: HoldemGame, street_na
     while True:
         if len([p for p in game.players if not p.folded]) <= 1:
             return
+        if not human_live(game):
+            return  # every human folded or stood up; play_hand fast-forwards the bots
         pending = [
             p for p in order
             if not p.folded and not p.all_in and (not p.acted or p.street_contributed < game.current_bet)
@@ -756,6 +763,8 @@ async def play_hand(ctx, table: HoldemTable, members: list, stacks: dict[int, in
         for street_name, n_cards in (("Flop", 3), ("Turn", 1), ("River", 1)):
             if len(game.active()) <= 1:
                 break
+            if not human_live(game):
+                break  # only bots left in it: fast-forward below instead of watching them bet
             game.deck.draw()  # burn card
             for _ in range(n_cards):
                 game.community.append(game.deck.draw())
@@ -771,6 +780,15 @@ async def play_hand(ctx, table: HoldemTable, members: list, stacks: dict[int, in
             else:
                 await asyncio.sleep(1.5)  # let everyone see the card land before dealing the next
 
+        if not human_live(game):
+            # Every human folded or stood up. Their chips are already in the pot either way, and
+            # bot stacks are house money that resets each hand, so the bots' betting can't matter
+            # to anyone: no human seated -> just end; otherwise run the board out and show it.
+            if not table.seated_humans():
+                return
+            if len(game.active()) > 1:
+                while len(game.community) < 5:
+                    game.community.append(game.deck.draw())
         await settle_hand(ctx, game)
     finally:
         busy_players.difference_update(m.id for m in humans)
