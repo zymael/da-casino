@@ -1,6 +1,6 @@
 """!bake -- the oven: station crafting for recipes marked "station": "oven" (dungeon.RECIPE_STATIONS),
 opened by bot.py's bake_cmd (typed, or the Bake button on the !house screen) for anyone who owns a
-housing item with that station (housing.owned_station -- the Necronomicrust).
+housing item with that station (housing.owned_station -- the Necrognamicrumb).
 
 Unlike !craft (pure discovery, no shortcut for known recipes), the oven is a menu: every pizza
 you've already discovered is one pick away. Finding new ones still goes through the Experiment

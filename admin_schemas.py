@@ -468,7 +468,7 @@ CONTENT_TYPES = {
             {
                 "name": "pizza_weight", "type": "int", "required": False, "min": 0, "group": "Drop Info",
                 "hint": "if above 0, this is a pizza leftover: !pizza can hand it to anyone who owns a "
-                        "pizza_leftovers house item (the Necronomicrust). Higher = more common, relative "
+                        "pizza_leftovers house item (the Necrognamicrumb). Higher = more common, relative "
                         "to the other leftovers' weights",
             },
             {"name": "flavor", "type": "text", "required": True, "group": "Flavor Text"},

@@ -3586,7 +3586,7 @@ async def pizza(ctx):
     embed.set_image(url=random.choice(PIZZA_GIFS))
     embed.set_footer(text=f"Balance: {balance} {currency}")
 
-    # Owning a pizza_leftovers house item (the Necronomicrust, dropped by the Number 5) means every
+    # Owning a pizza_leftovers house item (the Necrognamicrumb, dropped by the Number 5) means every
     # order leaves leftovers to bake into pizzas via !craft. Which item and which leftovers are
     # both data: housing_items.json's effect_type and dungeon_materials.json's pizza_weight.
     extra_chance = await asyncio.to_thread(housing.owned_bonus, ctx.guild.id, ctx.author.id, "pizza_leftovers")
@@ -3637,7 +3637,7 @@ async def house_cmd(ctx):
 async def bake_cmd(ctx):
     """Open your oven: bake pizzas you've discovered, or experiment with leftovers to find new
     ones: !bake (also the Bake button on your !house screen). Needs a housing item with
-    "station": "oven" (the Necronomicrust), owned -- placed in the house or not."""
+    "station": "oven" (the Necrognamicrumb), owned -- placed in the house or not."""
     oven = await asyncio.to_thread(housing.owned_station, ctx.guild.id, ctx.author.id, bake_view.STATION)
     if oven is None:
         await ctx.send("You don't have anything to bake in.")

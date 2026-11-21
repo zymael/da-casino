@@ -103,7 +103,7 @@
   },
   {
     "id": "necronomicrust",
-    "name": "The Necronomicrust",
+    "name": "The Necrognamicrumb",
     "emoji": "\ud83c\udf55",
     "description": "It was still inside the Number 5 when it died, and it's still warm. Put the scraps in and a whole pizza comes out. Don't ask where the rest of it came from.\n\nWhile you own it, every pizza you order leaves you leftovers, and you can bake them into whole pizzas from your house.",
     "image_path": "assets/housing/items/necronomicrust.png",
@@ -112,6 +112,8 @@
     "value": 25,
     "unsellable": true,
     "unsmashable_message": "Vic gets one look at the tentacles and backs away from the counter. \"Nah. That thing's still cookin'.\"",
-    "station": "oven"
+    "station": "oven",
+    "use_label": "Pat",
+    "use_message": "You pat the Necrognamicrumb. It's warm, and slightly damp, and something behind the oven door pats you back.\n\nA tentacle of pure marinara presses gently against your forehead and leaves a ring behind. It does not wash off.\n\nYou have been given the **ELDER MARK OF TOMATHULU**."
   }
 ]
