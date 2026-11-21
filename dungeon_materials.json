@@ -225,7 +225,7 @@
     "name": "Leftover Crust",
     "rarity": "common",
     "base_value": 5,
-    "pizza_weight": 10,
+    "pizza_weight": 30,
     "flavor": "The part of the slice nobody wants. You kept it anyway."
   },
   {
@@ -233,7 +233,7 @@
     "name": "Box Grease",
     "rarity": "common",
     "base_value": 5,
-    "pizza_weight": 10,
+    "pizza_weight": 4,
     "flavor": "The bottom of the box gave out, and this is the piece that went first."
   },
   {
@@ -241,7 +241,7 @@
     "name": "Cheese Lump",
     "rarity": "common",
     "base_value": 5,
-    "pizza_weight": 10,
+    "pizza_weight": 30,
     "flavor": "Peeled off the inside of the lid. Technically, it's still pizza."
   },
   {
