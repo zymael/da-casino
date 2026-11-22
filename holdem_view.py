@@ -374,13 +374,7 @@ class ActionView(discord.ui.View):
 
     @discord.ui.button(label="Stand", style=discord.ButtonStyle.secondary)
     async def stand_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        seat = self.table.seat_for(self.player.member.id)
-        if seat is not None:
-            seat.standing = True
-        self.result = ("fold",)
-        await interaction.response.defer()
-        self.stop()
-        await update_control_message(self.table)
+        await request_stand(interaction, self.table)
 
     @discord.ui.button(label="👀 My Hand", style=discord.ButtonStyle.secondary, row=1, custom_id="holdem_hand")
     async def hand_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -574,17 +568,72 @@ class TableControlView(discord.ui.View):
             await interaction.response.send_message("You're not seated at this table.", ephemeral=True)
             return
 
-        seat.standing = True
-        player = table.current_players_by_id.get(interaction.user.id)
-        if player is not None and not player.folded and not player.all_in:
-            player.folded = True
-            active_view = table.current_action_view
-            if active_view is not None and active_view.player is player and not active_view.is_finished():
-                active_view.result = ("fold",)
-                active_view.stop()
+        await request_stand(interaction, table)
 
-        await interaction.response.send_message("Noted — you'll stand up after the current hand.", ephemeral=True)
-        await update_control_message(table)
+
+def _stand_would_fold(table: HoldemTable, user_id: int) -> bool:
+    player = table.current_players_by_id.get(user_id)
+    return player is not None and not player.folded and not player.all_in
+
+
+async def _do_stand(table: HoldemTable, user_id: int):
+    """Marks the seat to stand after this hand, folding a live hand (and ending the turn if it's
+    theirs right now). An all-in hand plays out: they've nothing left to decide."""
+    seat = table.seat_for(user_id)
+    if seat is None:
+        return
+    seat.standing = True
+    player = table.current_players_by_id.get(user_id)
+    if player is not None and not player.folded and not player.all_in:
+        player.folded = True
+        active_view = table.current_action_view
+        if active_view is not None and active_view.player is player and not active_view.is_finished():
+            active_view.result = ("fold",)
+            active_view.stop()
+    await update_control_message(table)
+
+
+async def request_stand(interaction: discord.Interaction, table: HoldemTable):
+    """Both Stand buttons land here. Standing mid-hand folds whatever you're holding, so that asks
+    first; otherwise it just happens."""
+    uid = interaction.user.id
+    if table.seat_for(uid) is None:
+        await interaction.response.send_message("You're not seated at this table.", ephemeral=True)
+        return
+    if _stand_would_fold(table, uid):
+        await interaction.response.send_message(
+            "Standing now folds your hand, and anything you've put in the pot stays there. Sure?",
+            view=StandConfirmView(table, uid), ephemeral=True,
+        )
+        return
+    await interaction.response.send_message("Noted. You'll stand up after the current hand.", ephemeral=True)
+    await _do_stand(table, uid)
+
+
+class StandConfirmView(discord.ui.View):
+    def __init__(self, table: HoldemTable, user_id: int):
+        super().__init__(timeout=60)
+        self.table = table
+        self.user_id = user_id
+        self.game = table.current_game  # only fold the hand they were asked about
+
+    @discord.ui.button(label="Fold and Stand", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
+        if self.table.current_game is not self.game:
+            await interaction.response.edit_message(
+                content="That hand's already over. Hit Stand again if you still want to go.", view=None,
+            )
+            return
+        await interaction.response.edit_message(
+            content="You fold and get up. You'll leave the table after this hand.", view=None,
+        )
+        await _do_stand(self.table, self.user_id)
+
+    @discord.ui.button(label="Keep Playing", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
+        await interaction.response.edit_message(content="You stay in the hand.", view=None)
 
 
 def build_control_view(table: HoldemTable) -> "TableControlView":
