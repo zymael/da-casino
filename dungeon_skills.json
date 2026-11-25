@@ -23,7 +23,22 @@
     ],
     "chip_cost": 10,
     "replaces": "commanding_voice",
-    "special": true
+    "special": true,
+    "duel_effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 0.9
+      },
+      {
+        "type": "stun",
+        "duration": 1
+      },
+      {
+        "type": "atk_buff",
+        "value": 20,
+        "aoe": true
+      }
+    ]
   },
   {
     "id": "on_the_house",
@@ -125,7 +140,25 @@
       }
     ],
     "chip_cost": 10,
-    "special": true
+    "special": true,
+    "duel_effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1.2
+      },
+      {
+        "type": "def_shred",
+        "value": 4,
+        "aoe": true
+      },
+      {
+        "type": "hook",
+        "value": 0.15,
+        "growth": 0.05,
+        "duration": 4,
+        "target": "enemy"
+      }
+    ]
   },
   {
     "id": "fix_is_in",
@@ -146,7 +179,18 @@
       }
     ],
     "chip_cost": 7,
-    "special": true
+    "special": true,
+    "duel_effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1.5
+      },
+      {
+        "type": "def_shred",
+        "value": 3,
+        "aoe": true
+      }
+    ]
   },
   {
     "id": "viva_las_vegas",
@@ -195,7 +239,18 @@
       }
     ],
     "chip_cost": 10,
-    "special": false
+    "special": false,
+    "duel_effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1.6
+      },
+      {
+        "type": "atk_buff",
+        "value": 10,
+        "target": "self"
+      }
+    ]
   },
   {
     "id": "fireball",
@@ -325,7 +380,7 @@
         "effects": [
           {
             "type": "damage_multiplier",
-            "value": 2.8,
+            "value": 3.6,
             "aoe": true
           },
           {
@@ -340,7 +395,7 @@
         "effects": [
           {
             "type": "damage_multiplier",
-            "value": 2.8,
+            "value": 2.0,
             "aoe": true
           },
           {
@@ -406,15 +461,15 @@
     "duel_effects": [
       {
         "type": "extra_attack",
-        "multiplier": 0.3
+        "multiplier": 0.25
       },
       {
         "type": "extra_attack",
-        "multiplier": 0.27
+        "multiplier": 0.225
       },
       {
         "type": "extra_attack",
-        "multiplier": 0.27
+        "multiplier": 0.225
       },
       {
         "type": "guard",
@@ -545,7 +600,62 @@
       }
     ],
     "chip_cost": 12,
-    "special": true
+    "special": true,
+    "duel_effect_groups": [
+      {
+        "chance": 1,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 2.4
+          },
+          {
+            "type": "stun",
+            "duration": 2
+          }
+        ]
+      },
+      {
+        "chance": 1,
+        "effects": [
+          {
+            "type": "extra_attack",
+            "multiplier": 1.0
+          },
+          {
+            "type": "extra_attack",
+            "multiplier": 1.0
+          }
+        ]
+      },
+      {
+        "chance": 1,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 0.6
+          },
+          {
+            "type": "def_shred",
+            "value": 6
+          }
+        ]
+      },
+      {
+        "chance": 1,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 0.8
+          },
+          {
+            "type": "stun",
+            "duration": 1,
+            "target": "self"
+          }
+        ]
+      }
+    ]
   },
   {
     "id": "marked_card",
@@ -769,7 +879,7 @@
       },
       {
         "type": "extra_attack",
-        "multiplier": 0.525,
+        "multiplier": 0.45,
         "target": "enemy"
       },
       {
@@ -1197,17 +1307,17 @@
     "duel_effects": [
       {
         "type": "extra_attack",
-        "multiplier": 0.54,
+        "multiplier": 0.48,
         "target": "enemy"
       },
       {
         "type": "extra_attack",
-        "multiplier": 0.54,
+        "multiplier": 0.48,
         "target": "enemy"
       },
       {
         "type": "extra_attack",
-        "multiplier": 0.54,
+        "multiplier": 0.48,
         "target": "enemy"
       }
     ]
@@ -1238,7 +1348,20 @@
       }
     ],
     "chip_cost": 6,
-    "special": false
+    "special": false,
+    "duel_effects": [
+      {
+        "type": "dodge_buff",
+        "duration": 3,
+        "value": 0.3,
+        "target": "self"
+      },
+      {
+        "type": "taunt",
+        "value": 3,
+        "target": "enemy"
+      }
+    ]
   },
   {
     "id": "on_my_watch",
@@ -1579,7 +1702,7 @@
     "duel_effects": [
       {
         "type": "damage_multiplier",
-        "value": 1.0
+        "value": 1.2
       },
       {
         "type": "stun",
@@ -1644,7 +1767,7 @@
     "duel_effects": [
       {
         "type": "damage_multiplier",
-        "value": 2.2,
+        "value": 2.4,
         "aoe": true
       },
       {

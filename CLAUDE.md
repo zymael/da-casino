@@ -198,6 +198,10 @@ playing differently against a player. Never retune PvE numbers to fix a duel pro
   runs `_try_corner`. A new duel damage path must do the same.
 - **Taunt Goads in a duel** (no threat table): the opponent's next turn is Attack only, never two
   of their turns in a row (`_goad`/`_begin_duel_turn`). Buttons and handlers both enforce it.
+- **Nobody loses two duel turns in a row.** Stun, sap and charm (a Smitten duelist has no allies
+  to turn on, so it just loses the turn, like a lone monster) all go through
+  `_duel_turn_skip_line`; right after a lost turn, new ones fail (`_steadying`). Without this a
+  faster duelist stun-locks a slower one.
 - **Tune with `duel_sim.py`** (round-robin of every build through the real duel code; `--set` tries
   a settings value without editing the file). It mirrors the duel turn flow: keep them in step.
 

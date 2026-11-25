@@ -583,6 +583,7 @@ class PartyMember:
         # Duel-only Goaded state (a taunt in PvP, see _goad/_begin_duel_turn): `goaded` = their next
         # turn is Attack only, `attack_only` = this turn is, `goad_immune` = can't be Goaded right now.
         self.goaded = self.attack_only = self.goad_immune = False
+        self.lost_last_turn = False  # duel-only: a stun/charm can't take two turns in a row, see _duel_turn_skip_line
         self.loot_mult = dungeon.subclass_entry(self.subclass)["loot_mult"]
         self.build_name = dungeon.display_name(self.main_class, self.subclass)
         self.unlocked_skills = dungeon.unlocked_skills(self.main_class, self.subclass, self.level)
@@ -2826,7 +2827,18 @@ def _effect_hot(actor, monster_state, effect: dict, log_lines: list[str], mods: 
     entry["overheal_barrier"] = effect.get("overheal_barrier")
 
 
+def _steadying(target, log_lines: list[str]) -> bool:
+    """Duel only: a duelist who just lost a turn to a stun/sap/charm can't lose the next one too
+    (see _duel_turn_skip_line), so a new one aimed at them fails, visibly. Always False in PvE."""
+    if not getattr(target, "lost_last_turn", False):
+        return False
+    log_lines.append(f"{_combatant_name(target)} is still shaking off the last one and won't go down that easy.")
+    return True
+
+
 def _effect_sap(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    if _steadying(monster_state, log_lines):
+        return
     # Enemy-targeted (unlike the ally-shaped dodge_buff/resist_buff/hot above), so this lands on
     # `monster_state` -- see _apply_timed_effect's own note that it only cares about a
     # `.timed_effects` list, not which role its first arg plays. _actor_label now safely names any
@@ -2842,6 +2854,8 @@ def _effect_sap(actor, monster_state, effect: dict, log_lines: list[str], mods: 
 
 
 def _effect_stun(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    if _steadying(monster_state, log_lines):
+        return
     subject = _actor_label(monster_state)
     verb = "are" if isinstance(monster_state, DelveSession) else "is"
     _apply_timed_effect(
@@ -3298,6 +3312,8 @@ def _advance_contract(actor, entity, log_lines: list[str]) -> None:
 
 
 def _effect_charm(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
+    if _steadying(monster_state, log_lines):
+        return
     _apply_timed_effect(
         monster_state, "charm", None, effect["duration"], log_lines,
         f"💘 {_combatant_name(monster_state)} is smitten for **{effect['duration']}** turn(s).",
@@ -5806,6 +5822,22 @@ def _apply_duel_rules(member: "PartyMember", level: int) -> None:
     member.unlocked_skills = [duel.duel_skill(s) for s in member.unlocked_skills]
 
 
+def _duel_turn_skip_line(actor: "PartyMember") -> str | None:
+    """Whether `actor`'s coming duel turn is lost, as the log line saying so (None = they act).
+    Read BEFORE the turn's tick, like _active_cc_type. A stun/sap skips it; so does being Smitten,
+    since a duelist has no allies to turn on -- the same rule as a lone monster (_charmed_turn).
+    Never two turns in a row (`lost_last_turn`, set by the caller on a skip and cleared by
+    _begin_duel_turn), so a faster duelist can't stun-lock a slower one -- same rule as Goaded."""
+    if actor.lost_last_turn:
+        return None
+    cc_type = _active_cc_type(actor)
+    if cc_type is not None:
+        return _crowd_control_skip_line(actor, cc_type)
+    if any(e["type"] == "charm" for e in actor.timed_effects):
+        return f"💘 {_actor_label(actor)} is too smitten to fight and just stands there."
+    return None
+
+
 def _begin_duel_turn(actor: "PartyMember") -> None:
     """Runs as `actor`'s duel turn is offered (after any stun skip): a pending Goad makes THIS turn
     Attack only and leaves them immune to the next Goad; a free turn clears that immunity. Shared
@@ -5813,6 +5845,7 @@ def _begin_duel_turn(actor: "PartyMember") -> None:
     actor.attack_only = actor.goaded
     actor.goad_immune = actor.goaded
     actor.goaded = False
+    actor.lost_last_turn = False
 
 
 class DuelChallenge:
@@ -6138,7 +6171,7 @@ async def _advance_duel_turns(interaction: discord.Interaction | None, session: 
     # dot could finish them here, before they ever get to act) -- same point _advance_party_turns
     # ticks a member's/monster's own timed_effects. cc_type is read BEFORE the tick (see
     # _active_cc_type's own docstring).
-    cc_type = _active_cc_type(actor)
+    skip_line = _duel_turn_skip_line(actor)
     _tick_timed_effects([actor], log_lines, owned_on=[opponent])
     for d in (actor, opponent):
         _try_corner(d, log_lines)
@@ -6151,8 +6184,9 @@ async def _advance_duel_turns(interaction: discord.Interaction | None, session: 
     if opponent.hp <= 0:  # their hex came due on the opponent
         await _end_duel(interaction, session, actor, log_lines)
         return
-    if cc_type is not None:
-        log_lines.append(_crowd_control_skip_line(actor, cc_type))
+    if skip_line is not None:
+        log_lines.append(skip_line)
+        actor.lost_last_turn = True
         actor.turn_clock += dungeon.turn_interval(max(1, actor.speed - actor.speed_debuff))
         await _advance_duel_turns(interaction, session, log_lines)
         return

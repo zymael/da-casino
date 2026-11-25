@@ -17,6 +17,7 @@ import crafting_view
 import db
 from blackjack_view import active_tables as active_blackjack_tables, start_blackjack_table
 import dreams
+import duel
 import dungeon
 import effect_text
 from dungeon_view import (
@@ -1127,9 +1128,13 @@ async def skills_cmd(ctx):
     skills = dungeon.unlocked_skills(character["main_class"], character["subclass"], character["level"])
     embed = discord.Embed(title=f"{name}'s Skills", color=discord.Color.blurple())
     for skill in skills:
+        value = f"{skill['flavor']}\n{_skill_effect_text(skill)}"
+        duel_version = duel.duel_skill(skill)
+        if duel_version is not skill:  # it plays differently in a !duel (see duel.py)
+            value += f"\n**In duels** ({duel_version['chip_cost']} chips): {_skill_effect_text(duel_version)}"
         embed.add_field(
             name=f"{skill['name']} (Lv {skill['unlock_level']}, {skill['chip_cost']} chips)",
-            value=f"{skill['flavor']}\n{_skill_effect_text(skill)}",
+            value=value[:1024],
             inline=False,
         )
     await ctx.send(embed=embed)
@@ -1181,6 +1186,20 @@ async def combathelp_cmd(ctx):
             "the more often your turn comes back around, not just whether you go first.\n"
             "Every skill costs Chips out of the same pool for your whole delve, not just the fight you're in, "
             "so spending big early can leave you stuck throwing plain attacks in a later fight once you run dry."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Duels",
+        value=(
+            "A `!duel` has its own rules so every class gets a fair shot:\n"
+            "• No gear or house bonuses, both of you fight at the same level, and stats are evened out "
+            "partway. Tanks are still tanky, just less so.\n"
+            "• Getting hit by the other player counts like any hit, so Grudge, Counter and the rest all work.\n"
+            f"• A taunt leaves them **{dungeon.stat_label('goaded')}** instead: their next turn is Attack only.\n"
+            "• A stun or a charm costs a turn, but nobody loses two turns in a row.\n"
+            f"• Hits can crit ({round(duel.crit_chance() * 100)}%). Some skills hit differently in a duel, "
+            "and `!skills` shows how."
         ),
         inline=False,
     )

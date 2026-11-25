@@ -61,6 +61,28 @@ def choose(actor, foe):
     if actor.attack_only:
         actor.own_turns += 1
         return None
+    # In Your Corner on yourself, once, while there's still a fight ahead (party_sim only ever
+    # corners an ally).
+    if actor.corner is None and not actor.corner_spent and actor.hp > actor.max_hp / 2:
+        corner = next((s for s in actor.unlocked_skills if s["chip_cost"] <= actor.chips and ps.has(s, "corner")), None)
+        if corner is not None:
+            actor.own_turns += 1
+            return corner
+    # A stun or charm takes a whole turn from them (_duel_turn_skip_line): worth it when that turn's
+    # best hit beats what we give up casting it. Never one that stuns us too.
+    if dv._duel_turn_skip_line(foe) is None and not foe.lost_last_turn:
+        skippers = [
+            s for s in actor.unlocked_skills
+            if s["chip_cost"] <= actor.chips
+            and any(e["type"] in ("stun", "charm") and e.get("target") != "self" for e in ps.effects_of(s))
+            and not any(e["type"] == "stun" and e.get("target") == "self" for e in ps.effects_of(s))
+        ]
+        if skippers:
+            own = lambda s: ps.score(s, actor, foe, 1) if ps.is_damage_skill(s) else 0.0
+            skip = max(skippers, key=own)
+            if _best_hit(foe, actor, foe.unlocked_skills) > _best_hit(actor, foe, actor.unlocked_skills) - own(skip):
+                actor.own_turns += 1
+                return skip
     if not (foe.goaded or foe.goad_immune):
         taunts = [s for s in actor.unlocked_skills if s["chip_cost"] <= actor.chips and ps.has(s, "taunt")]
         if taunts:
@@ -94,13 +116,14 @@ def run_duel(a_build, b_build, level: int) -> float:
         combatants = [{"id": d.user_id, "speed": max(0, d.speed - d.speed_debuff), "clock": d.turn_clock} for d in (a, b)]
         actor, foe = (a, b) if dungeon.preview_next_turns(combatants, 1)[0] == 1 else (b, a)
         # _advance_duel_turns: cc read before the tick, then the tick, then the corner check.
-        cc = dv._active_cc_type(actor)
+        cc = dv._duel_turn_skip_line(actor)
         dv._tick_timed_effects([actor], [], owned_on=[foe])
         for d in (actor, foe):
             dv._try_corner(d, [])
         if a.hp <= 0 or b.hp <= 0:
             break
         if cc is not None:
+            actor.lost_last_turn = True
             actor.turn_clock += dungeon.turn_interval(max(1, actor.speed - actor.speed_debuff))
             continue
         # _handle_duel_action + _resolve_duel_turn
