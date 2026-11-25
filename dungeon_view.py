@@ -5943,10 +5943,15 @@ async def _send_duel_update(
         return
     if session.message is None:
         return
+    # session.message is an InteractionMessage (the accept click's original_response), whose own
+    # edit() goes through that interaction's webhook token -- dead 15 minutes after Accept, which
+    # silently froze any longer duel on its first timeout skip. A channel partial message edits
+    # with the bot's own token instead, so it never expires.
+    message = session.message.channel.get_partial_message(session.message.id)
     try:
-        await session.message.edit(embed=embed, attachments=attachments, view=view)
-    except discord.HTTPException:
-        pass
+        await message.edit(embed=embed, attachments=attachments, view=view)
+    except discord.HTTPException as e:
+        print(f"[duel] couldn't update duel message {session.message.id}: {e}")
 
 
 # The duel arena's background -- reuses the "Slug Dome" room's own art (rooms.json's slug_dome
