@@ -5747,9 +5747,9 @@ class PartyLobbyView(discord.ui.View):
 # (that's a player-vs-monster balance lever with no "monster side" to favor in a PvP fight).
 # Level itself must never decide a duel -- both PartyMembers are built with the SAME
 # effective_level (the higher of the two duelists' real levels, see accept_button), so stats and
-# skill unlocks are identical regardless of who's actually higher level. Equipment still applies
-# on top (its budget is much smaller than a level gap's, see dungeon.py's item-power-budget
-# comments), so gear stays meaningful without being able to recreate a level-style blowout.
+# skill unlocks are identical regardless of who's actually higher level. Equipment and housing
+# stat bonuses are ignored too (both duelists fight with an empty loadout and no house bonus, see
+# accept_button), so gear and houses can't decide a duel either.
 DUEL_CHALLENGE_TIMEOUT = 120  # 2 minutes to accept/decline -- shorter than a party lobby (only one
 # specific other person needs to respond, not "gather a group")
 DUEL_CRIT_CHANCE = 0.15  # duel-only swing mechanic -- see _resolve_player_action's crit_chance
@@ -5887,20 +5887,18 @@ class DuelChallengeView(discord.ui.View):
                 self.stop()
                 return
 
-        challenger_equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, challenge.challenger_id)
-        target_equipped = await asyncio.to_thread(db.get_equipped_items, guild_id, challenge.target_id)
-        challenger_housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, guild_id, challenge.challenger_id)
-        target_housing_bonuses = await asyncio.to_thread(housing.get_house_bonuses, guild_id, challenge.target_id)
         # Both duelists fight at whichever real level is higher -- level itself must never decide a
         # duel's outcome (see this module's own "Dueling" section comment above).
         duel_level = max(challenger_character["level"], target_character["level"])
+        # Duels ignore equipment (an empty loadout: no gear stats, on-hit procs or castable gear)
+        # and housing stat bonuses, so a duel is class/skill vs class/skill.
         challenger = PartyMember(
-            guild_id, challenge.challenger_id, challenge.challenger_name, challenger_character, challenger_equipped, True,
-            challenger_housing_bonuses.get("stat_bonus", {}), duel_level,
+            guild_id, challenge.challenger_id, challenge.challenger_name, challenger_character, {}, True,
+            None, duel_level,
         )
         opponent = PartyMember(
-            guild_id, challenge.target_id, interaction.user.display_name, target_character, target_equipped, True,
-            target_housing_bonuses.get("stat_bonus", {}), duel_level,
+            guild_id, challenge.target_id, interaction.user.display_name, target_character, {}, True,
+            None, duel_level,
         )
         # PartyMember.__init__ defaults hp to wherever the last dungeon delve left off (the right
         # rule for a party delve) -- override it here so both duelists start fresh at full HP, per
