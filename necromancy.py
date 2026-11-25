@@ -142,7 +142,7 @@ CURSE_FLAG = "necro:curse"
 GLUE_CURSE = 3
 GLUE_LEGEND_CURSE = 8
 GLUE_NOTHING_CURSE = 10
-PRAY_CURSE_RELIEF = 5
+PRAY_CURSE_RELIEF = 1
 CURSE_TITLES = ((0, "Untouched"), (10, "Tainted"), (20, "Cursed"), (35, "Damned"), (50, "Abomination"))
 
 # Da Alpha: on a full moon, a delve started by an Abomination (the top CURSE_TITLES rung) has
