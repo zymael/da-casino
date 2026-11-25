@@ -435,12 +435,9 @@ async def balance(ctx):
     await ctx.send(f"💰 {ctx.author.display_name} has **{bal}** {currency}.")
 
 
-MAX_STATS_HORSES = 10
-
-
 @bot.command(name="stats")
 async def stats_cmd(ctx, member: discord.Member = None):
-    """Show your personal stats, or someone else's: !stats [@user] -- wins/losses per game, horses owned, and lifetime credits."""
+    """Show your personal stats, or someone else's: !stats [@user] -- wins/losses per game and lifetime credits."""
     target = member or ctx.author
     guild_id = ctx.guild.id
     user_id = target.id
@@ -452,18 +449,19 @@ async def stats_cmd(ctx, member: discord.Member = None):
     bet_count, total_won, total_lost, best_win, worst_loss = await asyncio.to_thread(
         db.get_user_bet_summary, guild_id, user_id
     )
-    owned_horses = await asyncio.to_thread(db.get_horses_owned_by, guild_id, user_id)
     personal_earned = await asyncio.to_thread(db.get_user_personal_achievements, guild_id, user_id)
     first_claimed = await asyncio.to_thread(db.get_guild_achievements, guild_id)
     achievement_count = len(personal_earned) + sum(1 for holder, _ in first_claimed.values() if holder == user_id)
     energy = await asyncio.to_thread(db.get_energy, guild_id, user_id)
     luck = await asyncio.to_thread(housing.get_effective_luck, guild_id, user_id)
     duel_rating = await asyncio.to_thread(db.get_duel_rating, guild_id, user_id)
+    curse = await asyncio.to_thread(db.get_flag, guild_id, user_id, necromancy.CURSE_FLAG)
 
     embed = discord.Embed(title=f"📊 {target.display_name}'s Stats", color=discord.Color.blurple())
     embed.add_field(name="Balance", value=f"{balance} {currency}", inline=True)
     embed.add_field(name="⚡ Energy", value=f"{energy}/{db.ENERGY_CAP}", inline=True)
     embed.add_field(name="🍀 Luck", value=str(luck), inline=True)
+    embed.add_field(name="🩸 Curse", value=f"{curse}: {necromancy.curse_title(curse)}", inline=True)
     embed.add_field(name="⚔️ Duel Rating", value=str(duel_rating), inline=True)
     embed.add_field(name="🍕 Pizzas Bought", value=str(pizzas_bought), inline=True)
     embed.add_field(name="🏆 Achievements", value=f"{achievement_count} unlocked", inline=True)
@@ -504,18 +502,6 @@ async def stats_cmd(ctx, member: discord.Member = None):
         money_lines.append(f"Worst single loss: **{worst_loss}** {currency}")
     embed.add_field(name="Lifetime Winnings", value="\n".join(money_lines), inline=False)
 
-    if owned_horses:
-        horse_lines = [
-            f"{'🐣' if is_foal else '🏆'} **{name}** (#{horse_index + 1}) — Age {age} — "
-            f"{f'{wins}W-{places}P ({races} starts)' if races else 'unraced'}"
-            for horse_index, is_foal, name, age, wins, places, races in owned_horses[:MAX_STATS_HORSES]
-        ]
-        if len(owned_horses) > MAX_STATS_HORSES:
-            horse_lines.append(f"...and {len(owned_horses) - MAX_STATS_HORSES} more — see `!horses`.")
-        embed.add_field(name=f"🐴 Horses Owned ({len(owned_horses)})", value="\n".join(horse_lines), inline=False)
-    else:
-        embed.add_field(name="🐴 Horses Owned", value="None yet — try `!buyhorse` or `!buyfoal`.", inline=False)
-
     if user_id == DAUGHTERS_TARGET_ID:
         neglect_count = max(1, await asyncio.to_thread(db.get_flag, guild_id, user_id, DAUGHTERS_NEGLECT_FLAG))
         embed.add_field(name="Times Daughters Neglected", value=str(neglect_count), inline=True)
@@ -529,9 +515,6 @@ async def stats_cmd(ctx, member: discord.Member = None):
     times_haunted = await asyncio.to_thread(db.get_flag, guild_id, user_id, necromancy.HAUNTED_COUNT_FLAG)
     if times_haunted:
         embed.add_field(name="👻 Times Haunted", value=str(times_haunted), inline=True)
-    curse = await asyncio.to_thread(db.get_flag, guild_id, user_id, necromancy.CURSE_FLAG)
-    if curse:
-        embed.add_field(name="🩸 Curse", value=f"{curse}: {necromancy.curse_title(curse)}", inline=True)
 
     await ctx.send(embed=embed)
 
