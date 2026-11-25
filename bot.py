@@ -2088,6 +2088,16 @@ async def _reject_if_front_closed(ctx) -> bool:
     return True
 
 
+async def _reject_if_no_luck(ctx, member: discord.Member) -> bool:
+    """Nobody marches on an empty treasury: a target at or below 0 effective Luck (what their
+    profile shows, same floor !rub uses) can't be declared on. Checked when the target is picked
+    and again before the war resolves, in case they lost it while the army picker was open."""
+    if await asyncio.to_thread(housing.get_effective_luck, ctx.guild.id, member.id) > 0:
+        return False
+    await ctx.send(f"🍂 {member.display_name} has no Luck left to take. Leave them be.")
+    return True
+
+
 @bot.command(name="war", brief="Declare war on another player for their Luck.")
 async def war_cmd(ctx, member: discord.Member = None):
     """Declare war on another player for their Luck (once every 12 hours): !war @user, or plain
@@ -2112,6 +2122,8 @@ async def _war_choose_army(ctx, member: discord.Member):
         return
     if member.bot:
         await ctx.send("Bots don't have any Luck to take.")
+        return
+    if await _reject_if_no_luck(ctx, member):
         return
     now = int(time.time())
     last_attack = await asyncio.to_thread(db.get_flag, guild_id, attacker_id, db.WAR_LAST_ATTACK_FLAG)
@@ -2189,6 +2201,8 @@ async def _war_resolve(ctx, member: discord.Member, horse_indices: list[int]):
         return
     if len(horse_indices) > war.MAX_ARMY_SIZE:
         await ctx.send(f"You can only send up to {war.MAX_ARMY_SIZE} horses to one war.")
+        return
+    if await _reject_if_no_luck(ctx, member):
         return
     defender_available = await _available_horses(guild_id, member.id)
     clothes = await asyncio.to_thread(db.get_guild_horse_clothes, guild_id)
