@@ -13,8 +13,9 @@ How a bot decides:
        aggression -- how readily it raises a good hand instead of just calling
        bluff      -- chance to bet a hand that would otherwise check or fold
        allin_rate -- chance a raise becomes an all-in shove
-     Every personality still respects the pot odds within a few points, never bluffs off a big
-     share of its stack, and stops re-raising after two raises a street. Loose is fun; suicidal
+     Every personality still respects the pot odds within a few points, caps how much of its
+     stack a bluff can cost (wilder bluffers risk more), and stops re-raising after two raises a
+     street. Loose is fun; suicidal
      isn't.
 """
 
@@ -121,9 +122,9 @@ def _adjusted_equity(equity: float, sit: Situation) -> float:
 
 
 def _raise_to(sit: Situation, strength: float, p: Personality, rng: random.Random) -> int:
-    """A total-bet amount for a raise: half-pot to full pot, bigger for stronger hands and more
-    aggressive bots."""
-    frac = 0.45 + 0.35 * min(1.0, max(0.0, strength)) + 0.25 * p.aggression + rng.uniform(-0.1, 0.1)
+    """A total-bet amount for a raise: 40% to 80% of the pot, a bit bigger for stronger hands and
+    more aggressive bots. Kept modest so calling a bot down isn't ruinous when it has it."""
+    frac = 0.4 + 0.15 * min(1.0, max(0.0, strength)) + 0.25 * p.aggression + rng.uniform(-0.1, 0.1)
     pot_after_call = sit.pot + sit.to_call
     size = max(sit.big_blind, int(pot_after_call * frac))
     return sit.current_bet + size
@@ -134,6 +135,12 @@ def _as_raise(sit: Situation, raise_to: int) -> tuple:
     if raise_to >= max_total or raise_to <= sit.current_bet:
         return ("allin",)
     return ("raise", raise_to)
+
+
+def _bluff_cap(p: Personality, base: float) -> float:
+    """Most of its stack a bluff may cost: `base` plus its bluff rate, so a wild bot (bluff 0.45)
+    bluffs up to ~70% of its stack and a careful one (0.1) about a third."""
+    return min(0.75, base + p.bluff)
 
 
 def decide(sit: Situation, p: Personality, equity: float, rng: random.Random | None = None) -> tuple:
@@ -151,15 +158,17 @@ def decide(sit: Situation, p: Personality, equity: float, rng: random.Random | N
     # Monsters: raise (or shove) almost always, aggression only decides how often it slowplays.
     raise_bar = 0.55 - 0.35 * p.aggression  # aggression 0 -> 0.55, 1 -> 0.20
     if can_raise and strength >= raise_bar and rng.random() < 0.45 + 0.55 * p.aggression:
-        if rng.random() < p.allin_rate or call_commits_most or strength > 0.85:
+        # A near-lock only shoves once the pot is already about as big as its stack.
+        pot_committed = sit.remaining <= 1.5 * (sit.pot + sit.to_call)
+        if rng.random() < p.allin_rate or call_commits_most or (strength > 0.85 and pot_committed):
             return ("allin",)
         return _as_raise(sit, _raise_to(sit, strength, p, rng))
 
     if sit.to_call <= 0:
-        # Free to check. A bluff is a small-ish bet that never risks a big share of the stack.
+        # Free to check. A bluff never risks a big share of the stack, though wilder bots risk more.
         if can_raise and rng.random() < p.bluff:
             raise_to = _raise_to(sit, 0.0, p, rng)
-            if raise_to - sit.street_contributed <= 0.35 * sit.remaining:
+            if raise_to - sit.street_contributed <= _bluff_cap(p, 0.25) * sit.remaining:
                 return _as_raise(sit, raise_to)
         return ("check",)
 
@@ -177,6 +186,6 @@ def decide(sit: Situation, p: Personality, equity: float, rng: random.Random | N
         can_raise and sit.to_call <= 3 * sit.big_blind and rng.random() < p.bluff * 0.5
     ):
         raise_to = _raise_to(sit, 0.0, p, rng)
-        if raise_to - sit.street_contributed <= 0.3 * sit.remaining:
+        if raise_to - sit.street_contributed <= _bluff_cap(p, 0.2) * sit.remaining:
             return _as_raise(sit, raise_to)
     return ("fold",)

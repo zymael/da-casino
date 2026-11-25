@@ -1333,8 +1333,8 @@ CONTENT_TYPES = {
             },
             {
                 "name": "poker_bluff", "type": "float", "required": False, "group": "Hold'em Bot",
-                "hint": "0-1, default 0.08. Chance to bet a weak hand when it could check. Bluffs never "
-                        "risk more than about a third of its stack.",
+                "hint": "0-1, default 0.08. Chance to bet a weak hand when it could check. A bluff risks "
+                        "at most 25% of its stack plus this value (0.45 -> 70%).",
             },
             {
                 "name": "poker_allin_rate", "type": "float", "required": False, "group": "Hold'em Bot",
