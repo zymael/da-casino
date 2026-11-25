@@ -7,6 +7,7 @@ import discord
 import achievements
 import all_in
 import db
+import duel
 import dungeon
 import dungeon_render
 import effect_text
@@ -286,6 +287,8 @@ def _status_text(entity) -> str:
     for key in ("stun", "sap"):
         if key in timed:
             lines.append(f"{E(key)} {L(key)} ({timed[key]['remaining']})")
+    if getattr(entity, "goaded", False) or getattr(entity, "attack_only", False):
+        lines.append(f"{E('goaded')} {L('goaded')}: Attack only")
     for buff, stat in (("dodge_buff", "dodge"), ("resist_buff", "resist")):
         if buff in timed:
             lines.append(f"{E(stat)} {L(stat)} +{round(timed[buff]['value'] * 100)}% ({timed[buff]['remaining']})")
@@ -577,6 +580,9 @@ class PartyMember:
         # comment for why.
         self.hp = min(character["current_hp"], self.max_hp)
         self.was_low_hp = False  # duel-only comeback-achievement tracking, see _resolve_duel_turn
+        # Duel-only Goaded state (a taunt in PvP, see _goad/_begin_duel_turn): `goaded` = their next
+        # turn is Attack only, `attack_only` = this turn is, `goad_immune` = can't be Goaded right now.
+        self.goaded = self.attack_only = self.goad_immune = False
         self.loot_mult = dungeon.subclass_entry(self.subclass)["loot_mult"]
         self.build_name = dungeon.display_name(self.main_class, self.subclass)
         self.unlocked_skills = dungeon.unlocked_skills(self.main_class, self.subclass, self.level)
@@ -2746,18 +2752,31 @@ def _effect_speed_debuff(actor, monster_state, effect: dict, log_lines: list[str
 
 
 def _effect_taunt(actor, monster_state, effect: dict, log_lines: list[str], mods: dict):
-    # A duel opponent (a PartyMember, not a MonsterInstance) has no .threat table -- that's a
-    # monster-only mechanic (see dungeon_view's threat-mechanic section). Rather than crash, this
-    # just fails harmlessly: nothing to sway when the "opponent" already knows exactly who to
-    # attack (the only other player in the fight).
+    # A duel opponent (a PartyMember, not a MonsterInstance) has no .threat table -- there's no one
+    # else for them to hit. In a duel a taunt Goads instead: their next turn is Attack only (see
+    # _begin_duel_turn), never two of their turns in a row.
     if not hasattr(monster_state, "threat"):
-        log_lines.append("Threat means nothing between two players.")
+        _goad(actor, monster_state, log_lines)
         return
     monster_state.threat[actor.user_id] = monster_state.threat.get(actor.user_id, 0) + effect["value"]
     monster_state.forced_target_id = actor.user_id
     log_lines.append(
         f"{_possessive_label(actor)} Threat against {_combatant_name(monster_state)} rises by **{effect['value']}** for the rest of the fight, "
         f"and its next attack is coming for them."
+    )
+
+
+def _goad(actor, target, log_lines: list[str]) -> None:
+    """A duel taunt: `target`'s next turn is Attack only. Doesn't stack, and a duelist who was
+    just Goaded can't be Goaded again on their very next turn (goad_immune, see _begin_duel_turn)."""
+    name = _combatant_name(target)
+    if target.goaded or target.goad_immune:
+        log_lines.append(f"{dungeon.stat_emoji('goaded')} {name} won't take the bait again so soon.")
+        return
+    target.goaded = True
+    log_lines.append(
+        f"{dungeon.stat_emoji('goaded')} {_actor_label(actor)} {_verb(actor, 'get')} under {name}'s skin: "
+        f"**{dungeon.stat_label('goaded')}**, their next turn is Attack only."
     )
 
 
@@ -3058,7 +3077,8 @@ def _tab_loot_mult(instance) -> float:
 def _after_monster_hit(monster, target, dmg: int, party: list, log_lines: list[str]) -> None:
     """Everything a landed (not dodged) monster hit on a player triggers, after the damage is
     applied: Grudge, the Collector's Tab, a Counter punching back, Workman's Comp refunding Chips, and
-    an intercepting Minder's damage turning into a party Barrier."""
+    an intercepting Minder's damage turning into a party Barrier. In a duel `monster` is the other
+    duelist (see _resolve_player_action's `pvp`)."""
     if dmg <= 0:
         return
     _gain_meter([target], "grudge")
@@ -3435,7 +3455,7 @@ def _resolve_player_action(
     effects: list[dict], special: bool, verb: str, subject_label: str, possessive_label: str, drain_verb: str,
     moon_mult: float, equipped_items: list[dict], threat_gain: bool, log_lines: list[str],
     ally_target=None, is_plain_attack: bool = False, crit_chance: float = 0.0,
-    scales_with_caster: bool = True,
+    scales_with_caster: bool = True, pvp: bool = False,
 ) -> list:
     """Resolves one player-cast action (skill/consumable/equipment on-use) -- the shared core of
     _resolve_combat_turn (solo), _resolve_party_turn (party), and _resolve_duel_turn (PvP). Those
@@ -3494,7 +3514,10 @@ def _resolve_player_action(
 
     `crit_chance` defaults to 0.0 (solo/party PvE never pass it, so behavior there is unchanged) --
     only the duel call site sets it, rolled independently per damaged entity, multiplying that hit's
-    damage by CRIT_MULTIPLIER on success."""
+    damage by CRIT_MULTIPLIER on success.
+
+    `pvp` (duel only) makes a hit on the enemy duelist trigger the same player-was-hit reactions a
+    monster hit does (_after_monster_hit, Hype on a dodge), since in a duel the "enemy" is a player."""
     if ally_target is None:
         ally_target = actor
 
@@ -3568,12 +3591,18 @@ def _resolve_player_action(
 
     hit_entities: list = []
     total_dmg = 0
+    if is_plain_attack:
+        # A plain Attack rolls against its class's own attack_stat (Hustle or Moxie), in every
+        # mode -- solo, party and duel all land here.
+        special = dungeon.attack_is_special(actor.main_class)
     if is_damage_action:
         _release_charge(actor, special and not is_plain_attack, mods, log_lines)
         attacker_atk = (actor.spatk - actor.spatk_debuff) if special else (actor.atk - actor.atk_debuff)
         for entity in damage_targets:
             if damage_is_enemy and dodged[entity]:
                 log_lines.append(f"{_combatant_name(entity)} dodges {possessive_label} {verb}!")
+                if pvp:
+                    _gain_meter([entity], "hype")  # same as dodging a monster
                 continue
             eff_def = max(0, entity.def_ - entity.def_debuff)  # damage mitigation is always DEF now
             is_crit = crit_chance > 0 and random.random() < crit_chance
@@ -3592,6 +3621,10 @@ def _resolve_player_action(
             crit_note = " 💥 Critical hit!" if is_crit else ""
             log_lines.append(f"{subject_label} {verb} {_combatant_name(entity)} for **{dmg}** damage.{crit_note}")
             _on_damage_taken(entity, dmg, log_lines)
+            if pvp and damage_is_enemy:
+                # A duelist hit by the other duelist reacts exactly as if a monster hit them
+                # (Grudge, Counter, Workman's Comp...).
+                _after_monster_hit(actor, entity, dmg, [entity], log_lines)
             _drain_hook(actor, entity, dmg, log_lines)
             _gain_tells(actor, entity, mods)
             _advance_contract(actor, entity, log_lines)
@@ -4083,8 +4116,8 @@ async def _resolve_combat_turn(
     then hands off to _advance_solo_turns for whatever happens next (automatic monster turns, in
     speed order, until the player's own turn comes back around). `verb` only matters if a damage
     roll happens (e.g. "attack", "unleash **Fireball**", "use **Healing Draught**") -- callers that
-    only heal/buff never reach the line that reads it. `special` (always False for a plain Attack)
-    picks ATK vs. Magic for the damage roll's own output -- set by callers from the triggering
+    only heal/buff never reach the line that reads it. `special` (ignored for a plain Attack, which uses
+    the class's attack_stat instead -- see _resolve_player_action) picks ATK vs. Magic for the damage roll's own output -- set by callers from the triggering
     skill/item's own "special" flag. `is_plain_attack` (only ever True for a skill-less Attack) is forwarded straight to
     _resolve_player_action -- see its own note on why. Always returns True (this always consumes
     the turn -- any "can't do this right now" rejection happens before this is called)."""
@@ -5750,11 +5783,36 @@ class PartyLobbyView(discord.ui.View):
 # skill unlocks are identical regardless of who's actually higher level. Equipment and housing
 # stat bonuses are ignored too (both duelists fight with an empty loadout and no house bonus, see
 # accept_button), so gear and houses can't decide a duel either.
+# PvP is tuned separately from PvE (duel.py / dungeon_duel.json, plus each skill's optional
+# duel_effects/duel_chip_cost) and applied in _apply_duel_rules. A hit from the other duelist fires
+# the same player-was-hit reactions a monster's does (_resolve_player_action's `pvp`), and a taunt
+# Goads (next turn Attack only) since there's no threat to sway -- see _goad/_begin_duel_turn.
+# duel_sim.py mirrors this turn flow for balance work: keep the two in step.
 DUEL_CHALLENGE_TIMEOUT = 120  # 2 minutes to accept/decline -- shorter than a party lobby (only one
 # specific other person needs to respond, not "gather a group")
-DUEL_CRIT_CHANCE = 0.15  # duel-only swing mechanic -- see _resolve_player_action's crit_chance
 DUEL_COMEBACK_HP_THRESHOLD = 0.10  # <=10% max HP at any point counts as "was on the ropes"
 DUEL_STREAK_TIERS = [3, 5, 10]  # consecutive-win achievement thresholds, see achievements.py
+
+
+def _apply_duel_rules(member: "PartyMember", level: int) -> None:
+    """Turns a freshly built PartyMember into a duelist: stats pulled toward the field average
+    (duel.pulled_stats), full HP, and every skill swapped for its duel version (duel.duel_skill).
+    The one place a duelist's PvP-specific setup lives -- duel_sim.py calls it too."""
+    current = {stat: getattr(member, attr) for stat, attr in duel.DUEL_STATS.items()}
+    for stat, value in duel.pulled_stats(current, level).items():
+        setattr(member, duel.DUEL_STATS[stat], value)
+    member.hp = member.max_hp
+    member.base_stats = _stat_snapshot(member)
+    member.unlocked_skills = [duel.duel_skill(s) for s in member.unlocked_skills]
+
+
+def _begin_duel_turn(actor: "PartyMember") -> None:
+    """Runs as `actor`'s duel turn is offered (after any stun skip): a pending Goad makes THIS turn
+    Attack only and leaves them immune to the next Goad; a free turn clears that immunity. Shared
+    with duel_sim.py so the sim plays the same rule."""
+    actor.attack_only = actor.goaded
+    actor.goad_immune = actor.goaded
+    actor.goaded = False
 
 
 class DuelChallenge:
@@ -5900,11 +5958,10 @@ class DuelChallengeView(discord.ui.View):
             guild_id, challenge.target_id, interaction.user.display_name, target_character, {}, True,
             None, duel_level,
         )
-        # PartyMember.__init__ defaults hp to wherever the last dungeon delve left off (the right
-        # rule for a party delve) -- override it here so both duelists start fresh at full HP, per
-        # this module's own "Dueling" design comment above.
-        challenger.hp = challenger.max_hp
-        opponent.hp = opponent.max_hp
+        # Duel stats/skills, and full HP (PartyMember.__init__ starts hp wherever the last delve
+        # left off, the right rule for a party delve but not a duel).
+        for duelist in (challenger, opponent):
+            _apply_duel_rules(duelist, duel_level)
         await _defer_if_needed(interaction)
         await _setup_member_identity(interaction.guild, [challenger, opponent])
 
@@ -6083,6 +6140,8 @@ async def _advance_duel_turns(interaction: discord.Interaction | None, session: 
     # _active_cc_type's own docstring).
     cc_type = _active_cc_type(actor)
     _tick_timed_effects([actor], log_lines, owned_on=[opponent])
+    for d in (actor, opponent):
+        _try_corner(d, log_lines)
     if actor.hp <= 0 and opponent.hp <= 0:
         await _end_duel(interaction, session, None, log_lines)
         return
@@ -6098,6 +6157,7 @@ async def _advance_duel_turns(interaction: discord.Interaction | None, session: 
         await _advance_duel_turns(interaction, session, log_lines)
         return
 
+    _begin_duel_turn(actor)
     embed, file = await _duel_combat_embed(session, "\n".join(log_lines), actor)
     view = await _build_duel_combat_view(session, actor)
     await _send_duel_update(interaction, session, embed, file, view)
@@ -6110,7 +6170,7 @@ async def _resolve_duel_turn(
 ) -> bool:
     """Duel sibling of _resolve_party_turn -- always exactly one possible opponent (the other
     duelist), no threat gain (PvP has no monster threat table), no moon multiplier, but a duel-only
-    crit chance (DUEL_CRIT_CHANCE) PvE never rolls. Never needs to inspect _resolve_player_action's
+    crit chance (duel.crit_chance()) PvE never rolls. Never needs to inspect _resolve_player_action's
     own return value (no loot/kill-award loop the way PvE has) -- an unrestricted "target" only
     ever means `actor` could now damage themselves instead of/besides `opponent` (a duel's own
     "ally" is always just the caster, nothing else to redirect to), and both duelists' hp is
@@ -6119,12 +6179,14 @@ async def _resolve_duel_turn(
     equipped_items = [dungeon.EQUIPMENT[iid] for iid in actor.equipped.values()]
     _resolve_player_action(
         actor, [actor], [opponent], opponent, effects, special, verb,
-        actor.label, f"{actor.label}'s", "drains", 1.0, equipped_items, False, log_lines,
-        is_plain_attack=is_plain_attack, crit_chance=DUEL_CRIT_CHANCE,
-        scales_with_caster=scales_with_caster,
+        actor.label, f"{actor.label}'s", "drains", duel.damage_multiplier(), equipped_items, False, log_lines,
+        is_plain_attack=is_plain_attack, crit_chance=duel.crit_chance(),
+        scales_with_caster=scales_with_caster, pvp=True,
     )
 
     actor.turn_clock += dungeon.turn_interval(max(1, actor.speed - actor.speed_debuff))
+    for d in (actor, opponent):  # a Counter can drop the attacker too
+        _try_corner(d, log_lines)
 
     # Comeback-achievement tracking: catches a dip that happened THIS action, whichever duelist it
     # landed on -- checked every turn (not just the last one) so a comeback several turns before
@@ -6154,9 +6216,15 @@ async def _skip_duel_turn(session: DuelSession, actor: PartyMember):
     await _advance_duel_turns(None, session, log_lines)
 
 
+_GOADED_REFUSAL = "You're Goaded: this turn it's Attack or nothing."
+
+
 async def _handle_duel_action(
     interaction: discord.Interaction, session: DuelSession, actor: PartyMember, skill: dict | None,
 ) -> bool:
+    if skill is not None and actor.attack_only:
+        await interaction.response.send_message(_GOADED_REFUSAL, ephemeral=True)
+        return False
     if skill is not None and skill["chip_cost"] > actor.chips:
         await interaction.response.send_message("Not enough Chips to use that skill.", ephemeral=True)
         return False
@@ -6173,6 +6241,9 @@ async def _handle_duel_action(
 async def _handle_duel_use_item(
     interaction: discord.Interaction, session: DuelSession, actor: PartyMember, item: dict,
 ) -> bool:
+    if actor.attack_only:
+        await interaction.response.send_message(_GOADED_REFUSAL, ephemeral=True)
+        return False
     consumed = await asyncio.to_thread(db.consume_inventory_item, session.guild_id, actor.user_id, item["id"], 1)
     if not consumed:
         await interaction.response.send_message("You don't have that anymore.", ephemeral=True)
@@ -6188,6 +6259,9 @@ async def _handle_duel_use_item(
 async def _handle_duel_cast_item(
     interaction: discord.Interaction, session: DuelSession, actor: PartyMember, item: dict,
 ) -> bool:
+    if actor.attack_only:
+        await interaction.response.send_message(_GOADED_REFUSAL, ephemeral=True)
+        return False
     if item["id"] in actor.used_item_effects:
         await interaction.response.send_message("You've already used that this fight.", ephemeral=True)
         return False
@@ -6264,16 +6338,20 @@ class DuelCombatView(discord.ui.View):
         self.actor = actor
         # Fixed-row items go in first so their rows are already reserved by the time
         # Attack/skill buttons (no explicit row) get auto-packed -- see DuelAttackButton's comment.
-        usable_items = usable_items or []
+        # Goaded (see _begin_duel_turn): Attack is the only thing on offer this turn. The handlers
+        # refuse anything else too, so a stale view can't sneak a skill through.
+        usable_items = [] if actor.attack_only else (usable_items or [])
         if len(usable_items) == 1:
             self.add_item(DuelUseItemButton(usable_items[0]))
         elif len(usable_items) > 1:
             self.add_item(DuelUseItemSelect(usable_items))
         for item in castable_equipment(actor.equipped):
-            self.add_item(DuelCastItemButton(item, disabled=item["id"] in actor.used_item_effects))
+            self.add_item(DuelCastItemButton(item, disabled=actor.attack_only or item["id"] in actor.used_item_effects))
         self.add_item(DuelAttackButton())
         for skill in actor.unlocked_skills:
-            self.add_item(DuelSkillButton(skill, disabled=skill["chip_cost"] > actor.chips, actor=actor))
+            self.add_item(DuelSkillButton(
+                skill, disabled=actor.attack_only or skill["chip_cost"] > actor.chips, actor=actor,
+            ))
         # No target-select -- there's only ever one possible opponent in a 1v1 duel.
         session.current_view = self
 

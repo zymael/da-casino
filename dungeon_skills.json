@@ -318,7 +318,39 @@
     ],
     "chip_cost": 10,
     "replaces": "fireball",
-    "special": true
+    "special": true,
+    "duel_effect_groups": [
+      {
+        "chance": 1,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 2.8,
+            "aoe": true
+          },
+          {
+            "type": "def_shred",
+            "value": 3,
+            "aoe": true
+          }
+        ]
+      },
+      {
+        "chance": 1,
+        "effects": [
+          {
+            "type": "damage_multiplier",
+            "value": 2.8,
+            "aoe": true
+          },
+          {
+            "type": "def_shred",
+            "value": 4,
+            "target": "self"
+          }
+        ]
+      }
+    ]
   },
   {
     "id": "supercharge",
@@ -370,7 +402,26 @@
       }
     ],
     "chip_cost": 10,
-    "special": true
+    "special": true,
+    "duel_effects": [
+      {
+        "type": "extra_attack",
+        "multiplier": 0.3
+      },
+      {
+        "type": "extra_attack",
+        "multiplier": 0.27
+      },
+      {
+        "type": "extra_attack",
+        "multiplier": 0.27
+      },
+      {
+        "type": "guard",
+        "reduction": 0.5,
+        "target": "self"
+      }
+    ]
   },
   {
     "id": "dead_mans_hand",
@@ -390,7 +441,17 @@
       }
     ],
     "chip_cost": 10,
-    "special": true
+    "special": true,
+    "duel_effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 2.1
+      },
+      {
+        "type": "def_shred",
+        "value": 5
+      }
+    ]
   },
   {
     "id": "nothing_up_my_sleeve",
@@ -693,7 +754,35 @@
     ],
     "chip_cost": 10,
     "replaces": "all_in",
-    "special": false
+    "special": false,
+    "duel_effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1.5,
+        "target": "enemy"
+      },
+      {
+        "type": "damage_multiplier",
+        "value": 0.7,
+        "target": "enemy",
+        "chance": 0.5
+      },
+      {
+        "type": "extra_attack",
+        "multiplier": 0.525,
+        "target": "enemy"
+      },
+      {
+        "type": "atk_buff",
+        "value": 4,
+        "target": "self"
+      },
+      {
+        "type": "tells_spend",
+        "per_point": 0.15,
+        "max_points": 5
+      }
+    ]
   },
   {
     "id": "coin_toss",
@@ -1104,7 +1193,24 @@
       }
     ],
     "chip_cost": 14,
-    "special": false
+    "special": false,
+    "duel_effects": [
+      {
+        "type": "extra_attack",
+        "multiplier": 0.54,
+        "target": "enemy"
+      },
+      {
+        "type": "extra_attack",
+        "multiplier": 0.54,
+        "target": "enemy"
+      },
+      {
+        "type": "extra_attack",
+        "multiplier": 0.54,
+        "target": "enemy"
+      }
+    ]
   },
   {
     "id": "protection",
@@ -1469,7 +1575,22 @@
     ],
     "chip_cost": 8,
     "replaces": "commanding_voice",
-    "special": true
+    "special": true,
+    "duel_effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1.0
+      },
+      {
+        "type": "stun",
+        "duration": 1
+      },
+      {
+        "type": "heal_fraction",
+        "value": 0.05,
+        "target": "self"
+      }
+    ]
   },
   {
     "id": "word_on_the_street",
@@ -1519,7 +1640,20 @@
     ],
     "chip_cost": 10,
     "replaces": "fireball",
-    "special": true
+    "special": true,
+    "duel_effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 2.2,
+        "aoe": true
+      },
+      {
+        "type": "resist_buff",
+        "duration": 2,
+        "value": 0.15,
+        "target": "self"
+      }
+    ]
   },
   {
     "id": "full_charge",
@@ -1831,7 +1965,34 @@
     ],
     "chip_cost": 9,
     "replaces": "get_bonked",
-    "special": false
+    "special": false,
+    "duel_effects": [
+      {
+        "type": "damage_multiplier",
+        "value": 1.8,
+        "target": "enemy"
+      },
+      {
+        "type": "atk_debuff",
+        "value": 3,
+        "target": "enemy"
+      },
+      {
+        "type": "speed_debuff",
+        "value": 2,
+        "target": "enemy"
+      },
+      {
+        "type": "hp_buff",
+        "value": 3,
+        "target": "self"
+      },
+      {
+        "type": "grudge_spend",
+        "per_point": 0.15,
+        "max_points": 5
+      }
+    ]
   },
   {
     "id": "opening_bet",

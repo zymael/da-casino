@@ -213,6 +213,7 @@ import achievements
 import all_in
 import necromancy
 import dreams
+import duel
 import dungeon
 import horse_clothes
 import housing
@@ -649,6 +650,11 @@ CONTENT_TYPES = {
                         "buff/debuff ever move it from here.",
             },
             {
+                "name": "attack_stat", "type": "enum", "required": True, "choices": list(dungeon.ATTACK_STATS),
+                "group": "Base Stats",
+                "hint": "which stat this class's plain Attack rolls against: atk (Hustle) or spatk (Moxie)",
+            },
+            {
                 "name": "level_hp_gain", "type": "int", "required": True, "min": 0, "group": "Leveling",
                 "hint": "flat HP gained by this class on every level-up",
             },
@@ -889,6 +895,39 @@ CONTENT_TYPES = {
             },
         ],
     },
+    "duel": {
+        "label": "Duel Rules",
+        "category": DUNGEON_CONTENT,
+        "icon": "⚔️",
+        "json_path": "dungeon_duel.json",
+        "module": duel,
+        "registry_attr": "SETTINGS",
+        "loader": duel._load_duel,
+        "list_columns": ["id", "crit_chance", "damage_multiplier", "stat_pull_hp", "stat_pull_speed"],
+        "fields": [
+            {
+                "name": "id", "type": "str", "required": True, "group": "Identity",
+                "hint": "must stay exactly \"global\" -- one shared setting for every !duel. Skill-specific duel "
+                        "changes live on each skill (Skills page: duel_effects / duel_chip_cost)",
+            },
+            {
+                "name": "crit_chance", "type": "float", "required": True, "group": "Damage",
+                "hint": "0-1 chance each hit crits in a duel (delves never crit)",
+            },
+            {
+                "name": "damage_multiplier", "type": "float", "required": True, "group": "Damage",
+                "hint": "scales every direct hit in a duel (0.6 = 40% less damage, longer duels). DoT ticks are unaffected",
+            },
+            *[
+                {
+                    "name": f"stat_pull_{stat}", "type": "float", "required": True, "group": "Stats",
+                    "hint": f"0-1: how far each duelist's {label} moves toward the average of every build at the "
+                            f"duel's level. 0 = their class's own value, 1 = everyone identical",
+                }
+                for stat, label in (("hp", "HP"), ("atk", "ATK"), ("def", "DEF"), ("spatk", "Magic"), ("speed", "Speed"))
+            ],
+        ],
+    },
     "stat_labels": {
         "label": "Stat Labels",
         "category": DUNGEON_CONTENT,
@@ -978,7 +1017,23 @@ CONTENT_TYPES = {
             {
                 "name": "special", "type": "bool", "required": False, "default": False, "group": "Class",
                 "hint": "Physical (unchecked) rolls damage against ATK; Special (checked) uses Magic "
-                        "instead. Plain Attack is always Physical.",
+                        "instead. Plain Attack uses the class's own Attack Stat (Classes page).",
+            },
+            {
+                "name": "duel_chip_cost", "type": "int", "required": False, "min": 0, "group": "Duel",
+                "hint": "optional -- this skill's Chip cost in a !duel instead of chip_cost. Blank = same as chip_cost",
+            },
+            {
+                "name": "duel_effects", "type": "effects", "required": False,
+                "hint": "optional -- what this skill does in a !duel INSTEAD of its effects/effect_groups "
+                        "above (delves never see it). Fill in this OR duel_effect_groups, or neither to "
+                        "play the same as in delves. Use it to retune a skill for PvP or give a "
+                        "party-shaped skill a 1v1 job",
+            },
+            {
+                "name": "duel_effect_groups", "type": "effect_groups", "required": False,
+                "hint": "optional -- the coin-flip version of duel_effects above, for a skill whose duel "
+                        "version should pick one of several alternatives each cast",
             },
         ],
     },

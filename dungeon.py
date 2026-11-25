@@ -7,7 +7,8 @@ pool (the casino's on-theme name for what a JRPG would call mana), no persistent
 Magic (the internal field is still called `spatk`, "Magic" is just its current display label, see
 stat_label) is a second offense stat, parallel to ATK -- a skill flagged "special"
 (dungeon_skills.json's optional `special` field, defaulting to Physical/False) rolls its damage
-against Magic instead of ATK; the plain Attack action is always Physical. DEF mitigates every
+against Magic instead of ATK; the plain Attack action uses the class's own `attack_stat`
+(dungeon_classes.json, see attack_is_special). DEF mitigates every
 incoming hit, physical or magic alike (there's no separate special-defense stat any more -- SpDef
 was retired). What a target can avoid depends on what's landing, never on the skill: damage is
 avoided via DEF (Dodge), status effects and debuffs via Magic (Resist) -- see
@@ -49,10 +50,18 @@ import horse_clothes
 _CLASSES_PATH = os.path.join(os.path.dirname(__file__), "dungeon_classes.json")
 _REQUIRED_CLASS_FIELDS = {
     "id", "display_name", "rank", "picker_blurb", "flavor",
-    "hp", "atk", "def", "spatk", "chips", "speed",
+    "hp", "atk", "def", "spatk", "chips", "speed", "attack_stat",
     "level_hp_gain", "level_atk_gain", "level_def_gain", "level_spatk_gain",
 }
 _REQUIRED_CLASS_IDS = {"fighter", "healer", "mage", "rogue"}
+# A class's `attack_stat` is which stat its plain Attack rolls against: "atk" (Hustle) or "spatk"
+# (Moxie). See attack_is_special.
+ATTACK_STATS = ("atk", "spatk")
+
+
+def attack_is_special(main_class: str) -> bool:
+    """Whether `main_class`'s plain Attack rolls against Magic (Moxie) instead of ATK (Hustle)."""
+    return CLASSES[main_class]["attack_stat"] == "spatk"
 
 
 def _load_classes(path: str = _CLASSES_PATH) -> dict[str, dict]:
@@ -75,6 +84,10 @@ def _load_classes(path: str = _CLASSES_PATH) -> dict[str, dict]:
         ranks_seen[entry["rank"]] = entry_id
         if entry["hp"] < 1:
             raise ValueError(f"dungeon_classes.json: class {entry_id!r} hp must be >= 1")
+        if entry["attack_stat"] not in ATTACK_STATS:
+            raise ValueError(
+                f"dungeon_classes.json: class {entry_id!r} attack_stat must be one of {list(ATTACK_STATS)}"
+            )
         classes[entry_id] = entry
     ids = set(classes)
     if ids != _REQUIRED_CLASS_IDS:
@@ -954,7 +967,7 @@ _REQUIRED_STAT_LABEL_IDS = {
     "hp", "atk", "def", "spatk", "speed", "chips", "dodge", "resist",
     "stun", "sap", "dot", "hot", "guard", "charge", "hex", "hype",
     "barrier", "grudge", "counter", "covered", "tab", "corner", "plate", "hook",
-    "tells", "contract", "charm", "pot", "workmans_comp",
+    "tells", "contract", "charm", "pot", "workmans_comp", "goaded",
 }
 
 
@@ -1567,6 +1580,22 @@ def _load_skills(path: str = _SKILLS_PATH) -> dict[str, dict]:
         if "special" in entry and not isinstance(entry["special"], bool):
             raise ValueError(f"dungeon_skills.json: skill {entry_id!r} special must be a bool")
         _validate_effects_or_groups(entry, f"dungeon_skills.json: skill {entry_id!r}")
+        # Optional duel version (duel.duel_skill): duel_effects OR duel_effect_groups (same two
+        # shapes as effects/effect_groups, at most one) and/or a Chip cost, replacing the skill's
+        # own in a duel only.
+        if "duel_effects" in entry and "duel_effect_groups" in entry:
+            raise ValueError(f"dungeon_skills.json: skill {entry_id!r} can't have both duel_effects and duel_effect_groups")
+        if "duel_effects" in entry:
+            _validate_effects(entry["duel_effects"], f"dungeon_skills.json: skill {entry_id!r} duel_effects")
+        if "duel_effect_groups" in entry:
+            _validate_effect_groups(entry["duel_effect_groups"], f"dungeon_skills.json: skill {entry_id!r} duel_effect_groups")
+        if "duel_chip_cost" in entry:
+            duel_cost = entry["duel_chip_cost"]
+            if not isinstance(duel_cost, int) or not 0 <= duel_cost <= build_chips:
+                raise ValueError(
+                    f"dungeon_skills.json: skill {entry_id!r} duel_chip_cost must be an int from 0 to "
+                    f"{build_chips} ({entry['main_class']}/{entry['subclass']}'s max chips)"
+                )
         skills[entry_id] = entry
     # Optional "replaces": a subclass skill that upgrades one of its class's base skills (see
     # unlocked_skills) -- checked once every skill is loaded, since the target can appear anywhere
@@ -1686,12 +1715,13 @@ def validate_class_chip_costs(classes: dict, subclasses: dict) -> None:
             if mod is None:
                 continue
         max_chips = base["chips"] + mod["chips"]
-        if skill["chip_cost"] > max_chips:
-            raise ValueError(
-                f"{skill['main_class']}/{skill['subclass']} skill {skill['id']!r} costs "
-                f"{skill['chip_cost']} chips but would only have {max_chips} max chips with this "
-                f"change -- fix the skill's chip_cost first"
-            )
+        for field in ("chip_cost", "duel_chip_cost"):
+            if skill.get(field, 0) > max_chips:
+                raise ValueError(
+                    f"{skill['main_class']}/{skill['subclass']} skill {skill['id']!r} {field} is "
+                    f"{skill[field]} chips but would only have {max_chips} max chips with this "
+                    f"change -- fix the skill's {field} first"
+                )
 
 
 # --- Equipment -----------------------------------------------------------------------------

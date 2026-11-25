@@ -179,6 +179,11 @@ def resource_bonus(skill: dict, actor, target) -> float:
     return bonus
 
 
+def attack_power(actor) -> float:
+    """What a plain Attack rolls against: the class's attack_stat (Hustle or Moxie)."""
+    return actor.spatk if dungeon.attack_is_special(actor.main_class) else actor.atk
+
+
 def score(skill: dict, actor, target, n_enemies: int) -> float:
     aoe = any(e.get("aoe") for e in effects_of(skill) if e["type"] in dv.DAMAGE_EFFECT_TYPES)
     return base_damage(skill, actor) * (n_enemies if aoe else 1) * resource_bonus(skill, actor, target)
@@ -190,7 +195,7 @@ def turns_left(fight: Fight) -> float:
     enemies = fight.living_monsters()
     avg_def = sum(e.def_ for e in enemies) / len(enemies)
     per_round = sum(
-        max([base_damage(s, m) for s in m.unlocked_skills] + [m.atk]) * 25 / (25 + avg_def)
+        max([base_damage(s, m) for s in m.unlocked_skills] + [attack_power(m)]) * 25 / (25 + avg_def)
         for m in fight.living_members()
     )
     return sum(e.hp for e in enemies) / max(1.0, per_round)
@@ -260,7 +265,7 @@ def choose(actor, fight: Fight):
             return s, actor, target
     damage = [s for s in skills if is_damage_skill(s)]
     best = max(damage, key=lambda s: score(s, actor, target, len(enemies)), default=None)
-    if best is not None and score(best, actor, target, len(enemies)) > actor.atk:
+    if best is not None and score(best, actor, target, len(enemies)) > attack_power(actor):
         return best, actor, target
     return None, actor, target
 

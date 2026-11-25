@@ -184,6 +184,23 @@ Each class has a signature resource, each suit a twist on it, all built from eff
 - The battle screen's status line (`_status_text`) names everything via Stat Labels, whose fixed
   roster now includes the status/resource ids. A new resource needs a label row there.
 
+## Duels (`duel.py`/`dungeon_duel.json`, `dungeon_view.py`'s Dueling section)
+
+PvP runs on the PvE combat engine but is tuned on its own, so a class keeps its flavor while
+playing differently against a player. Never retune PvE numbers to fix a duel problem.
+
+- **Duel numbers** (crit chance, damage multiplier, per-stat `stat_pull_*` toward the field
+  average) live in `dungeon_duel.json`, admin-editable. **Duel skills** live on the skill itself:
+  optional `duel_effects` *or* `duel_effect_groups`, and `duel_chip_cost` (`duel.duel_skill`).
+  `_apply_duel_rules` is the one place both get applied to a duelist. Gear and housing never apply.
+- **A hit from the other duelist is a player-was-hit event**: `_resolve_player_action(pvp=True)`
+  fires `_after_monster_hit` (Grudge, Counter, Workman's Comp...) and dodge Hype, and the duel loop
+  runs `_try_corner`. A new duel damage path must do the same.
+- **Taunt Goads in a duel** (no threat table): the opponent's next turn is Attack only, never two
+  of their turns in a row (`_goad`/`_begin_duel_turn`). Buttons and handlers both enforce it.
+- **Tune with `duel_sim.py`** (round-robin of every build through the real duel code; `--set` tries
+  a settings value without editing the file). It mirrors the duel turn flow: keep them in step.
+
 ## Operational
 
 - The bot runs under systemd as `da-casino-bot.service`. Restart via `sudo systemctl restart

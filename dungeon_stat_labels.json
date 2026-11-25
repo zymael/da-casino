@@ -143,5 +143,10 @@
     "id": "workmans_comp",
     "label": "Workman's Comp",
     "emoji": "\ud83e\uddba"
+  },
+  {
+    "id": "goaded",
+    "label": "Goaded",
+    "emoji": "\ud83d\ude24"
   }
 ]

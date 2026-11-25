@@ -3834,15 +3834,17 @@ def _render_field(field: dict, value, entry: dict | None = None, problems: list[
 
     if ftype == "effects":
         effects = list(value or [])
-        rows_html = [_render_effect_row(f"effect_{i}", e) for i, e in enumerate(effects)]
-        template_html = _render_effect_row("effect_ROWIDX", {})
+        prefix = _effects_row_prefix(name)
+        rows_html = [_render_effect_row(f"{prefix}_{i}", e) for i, e in enumerate(effects)]
+        template_html = _render_effect_row(f"{prefix}_ROWIDX", {})
         repeatable = _render_repeatable(f"{name}-rows", rows_html, template_html, "+ Add effect")
         return f'<fieldset><legend>{label}</legend>{repeatable}</fieldset>'
 
     if ftype == "effect_groups":
         groups = list(value or [])
-        rows_html = [_render_effect_group_row(f"effectgroup_{i}", g) for i, g in enumerate(groups)]
-        template_html = _render_effect_group_row("effectgroup_ROWIDX", {})
+        group_prefix = _effect_groups_row_prefix(name)
+        rows_html = [_render_effect_group_row(f"{group_prefix}_{i}", g) for i, g in enumerate(groups)]
+        template_html = _render_effect_group_row(f"{group_prefix}_ROWIDX", {})
         repeatable = _render_repeatable(f"{name}-rows", rows_html, template_html, "+ Add group")
         # data-group-odds/data-group-odds-summary reuse the exact same generic updateGroupOdds
         # (_dynamic_script) a combat room's own monster_groups already drives -- it scopes itself
@@ -3980,6 +3982,18 @@ def _render_fields(fields: list[dict], entry: dict, problems: list[dict] | None 
         parts.append(_render_field_with_hint(field, entry.get(field["name"]), entry, problems))
         i += 1
     return "".join(parts)
+
+
+def _effects_row_prefix(field_name: str) -> str:
+    """Form-key prefix for one "effects"-type field's rows. The classic "effects" field keeps the
+    bare "effect" prefix; any other effects field on the same form (a skill's duel_effects) gets its
+    own, so two effects editors on one page never collide."""
+    return "effect" if field_name == "effects" else f"{field_name}_effect"
+
+
+def _effect_groups_row_prefix(field_name: str) -> str:
+    """_effects_row_prefix's sibling for "effect_groups"-type fields (a skill's duel_effect_groups)."""
+    return "effectgroup" if field_name == "effect_groups" else f"{field_name}_effectgroup"
 
 
 def _parse_effects_list(container_prefix: str, form: dict) -> list[dict]:
@@ -4164,11 +4178,11 @@ def _parse_field(field: dict, form: dict) -> tuple | None:
         # skill/consumable uses effect_groups instead), and dungeon._validate_effects_or_groups
         # tells the two apart by key PRESENCE, not by whether the list happens to be empty. A
         # skill/consumable that's genuinely missing both still fails loudly at save time either way.
-        effects = _parse_effects_list("effect", form)
+        effects = _parse_effects_list(_effects_row_prefix(name), form)
         return (name, effects) if effects else None
 
     if ftype == "effect_groups":
-        groups = _parse_effect_groups("effectgroup", form)
+        groups = _parse_effect_groups(_effect_groups_row_prefix(name), form)
         return (name, groups) if groups else None
 
     if ftype == "monster_skills":

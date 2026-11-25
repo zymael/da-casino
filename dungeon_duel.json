@@ -1,0 +1,12 @@
+[
+  {
+    "id": "global",
+    "crit_chance": 0.15,
+    "damage_multiplier": 1.0,
+    "stat_pull_hp": 0.5,
+    "stat_pull_atk": 0.5,
+    "stat_pull_def": 0.5,
+    "stat_pull_spatk": 0.5,
+    "stat_pull_speed": 0.5
+  }
+]
